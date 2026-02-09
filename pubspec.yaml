@@ -1,0 +1,11 @@
+name: havenkeep_workspace
+publish_to: none
+
+environment:
+  sdk: ^3.0.0
+
+workspace:
+  - apps/mobile
+  - packages/shared_models
+  - packages/shared_ui
+  - packages/supabase_client

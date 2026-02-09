@@ -1,0 +1,64 @@
+# ============================================
+# HavenKeep Monorepo .gitignore
+# ============================================
+
+# --- Dart / Flutter ---
+**/dart_tool/
+**/.packages
+**/build/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/pubspec.lock
+*.dart.js
+*.js_
+*.js.deps
+*.js.map
+.dart_tool/
+.pub-cache/
+.pub/
+
+# --- Node.js ---
+node_modules/
+.pnpm-store/
+pnpm-lock.yaml
+
+# --- Supabase ---
+supabase/.branches
+supabase/.temp
+
+# --- Environment ---
+.env
+.env.local
+.env.*.local
+*.env
+
+# --- IDE ---
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+*.log
+
+# --- Build artifacts ---
+*.apk
+*.aab
+*.ipa
+*.app
+*.dSYM.zip
+*.dSYM
+
+# --- Coverage ---
+coverage/
+*.lcov
+
+# --- Generated ---
+*.g.dart
+*.freezed.dart
+*.mocks.dart

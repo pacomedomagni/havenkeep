@@ -1,0 +1,12 @@
+name: shared_models
+description: HavenKeep shared data models (User, Home, Item, Document, etc.)
+publish_to: none
+version: 0.0.1
+
+environment:
+  sdk: ^3.0.0
+
+dependencies: {}
+
+dev_dependencies:
+  flutter_lints: ^4.0.0

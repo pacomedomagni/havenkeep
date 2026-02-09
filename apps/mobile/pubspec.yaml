@@ -1,0 +1,95 @@
+name: havenkeep_mobile
+description: HavenKeep — Your Warranties. Protected.
+publish_to: none
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.0.0
+  flutter: ">=3.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # --- Shared Packages ---
+  shared_models:
+    path: ../../packages/shared_models
+  shared_ui:
+    path: ../../packages/shared_ui
+  supabase_client:
+    path: ../../packages/supabase_client
+
+  # --- Supabase ---
+  supabase_flutter: ^2.0.0
+
+  # --- State Management ---
+  flutter_riverpod: ^2.0.0
+  riverpod_annotation: ^2.0.0
+
+  # --- Navigation ---
+  go_router: ^14.0.0
+
+  # --- Local Database (Offline-First) ---
+  drift: ^2.0.0
+  sqlite3_flutter_libs: ^0.5.0
+
+  # --- Local KV Store ---
+  shared_preferences: ^2.0.0
+
+  # --- Camera & Scanning ---
+  camera: ^0.11.0
+  mobile_scanner: ^5.0.0
+  image_picker: ^1.0.0
+
+  # --- Animations ---
+  lottie: ^3.0.0
+
+  # --- Connectivity ---
+  connectivity_plus: ^6.0.0
+
+  # --- PDF & Export ---
+  pdf: ^3.0.0
+  printing: ^5.0.0
+  csv: ^6.0.0
+
+  # --- Push Notifications ---
+  firebase_core: ^3.0.0
+  firebase_messaging: ^15.0.0
+  flutter_local_notifications: ^17.0.0
+
+  # --- Deep Links ---
+  app_links: ^6.0.0
+
+  # --- Security ---
+  flutter_secure_storage: ^9.0.0
+  local_auth: ^2.0.0
+
+  # --- UI ---
+  google_fonts: ^6.0.0
+  cached_network_image: ^3.0.0
+  shimmer: ^3.0.0
+  flutter_svg: ^2.0.0
+
+  # --- Utilities ---
+  intl: ^0.19.0
+  uuid: ^4.0.0
+  path_provider: ^2.0.0
+  url_launcher: ^6.0.0
+  share_plus: ^9.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  build_runner: ^2.0.0
+  drift_dev: ^2.0.0
+  riverpod_generator: ^2.0.0
+  mockito: ^5.0.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/images/
+    - assets/animations/
+    - assets/icons/

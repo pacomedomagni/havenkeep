@@ -1,0 +1,15 @@
+{
+  "name": "havenkeep",
+  "version": "0.0.1",
+  "private": true,
+  "description": "HavenKeep — Your Warranties. Protected.",
+  "scripts": {
+    "supabase:start": "cd supabase && npx supabase start",
+    "supabase:stop": "cd supabase && npx supabase stop",
+    "supabase:reset": "cd supabase && npx supabase db reset",
+    "supabase:migrate": "cd supabase && npx supabase db push",
+    "supabase:gen-types": "cd supabase && npx supabase gen types typescript --local > ../apps/partner-dashboard/src/types/database.ts",
+    "dashboard:dev": "cd apps/partner-dashboard && npm run dev",
+    "dashboard:build": "cd apps/partner-dashboard && npm run build"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "@havenkeep/partner-dashboard",
+  "version": "0.0.1",
+  "private": true,
+  "description": "HavenKeep referral partner dashboard (realtors & builders). Next.js app — to be built after core mobile app.",
+  "scripts": {
+    "dev": "echo 'Partner dashboard not yet implemented. See README.md'",
+    "build": "echo 'Partner dashboard not yet implemented. See README.md'"
+  }
+}
