@@ -93,6 +93,26 @@ class ItemsNotifier extends AsyncNotifier<List<Item>> {
     ref.invalidate(needsAttentionProvider);
   }
 
+  /// Batch-add multiple items at once (used by bulk-add flow).
+  Future<List<Item>> addItems(List<Item> items) async {
+    final repo = ref.read(itemsRepositoryProvider);
+    final createdItems = <Item>[];
+
+    for (final item in items) {
+      final newItem = await repo.createItem(item);
+      final fullItem = await repo.getItemById(newItem.id);
+      createdItems.add(fullItem);
+    }
+
+    final currentItems = state.value ?? [];
+    state = AsyncValue.data([...createdItems, ...currentItems]);
+
+    ref.invalidate(warrantyStatsProvider);
+    ref.invalidate(needsAttentionProvider);
+
+    return createdItems;
+  }
+
   /// Archive an item (soft delete).
   Future<void> archiveItem(String id) async {
     await ref.read(itemsRepositoryProvider).archiveItem(id);

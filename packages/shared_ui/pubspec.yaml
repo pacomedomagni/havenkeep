@@ -11,6 +11,8 @@ dependencies:
   flutter:
     sdk: flutter
   google_fonts: ^6.0.0
+  shared_models:
+    path: ../shared_models
 
 dev_dependencies:
   flutter_test:
