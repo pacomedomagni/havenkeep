@@ -6,6 +6,7 @@ import 'package:shared_models/shared_models.dart';
 import 'package:shared_ui/shared_ui.dart';
 
 import '../../core/providers/items_provider.dart';
+import '../../core/router/router.dart';
 
 /// Items list screen with search, filter chips, room grouping, and swipe actions.
 class ItemsScreen extends ConsumerStatefulWidget {
@@ -115,6 +116,8 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
   @override
   Widget build(BuildContext context) {
     final itemsAsync = ref.watch(itemsProvider);
+    final itemCountAsync = ref.watch(activeItemCountProvider);
+    final isAtLimitAsync = ref.watch(isAtItemLimitProvider);
 
     return Scaffold(
       backgroundColor: HavenColors.background,
@@ -131,9 +134,29 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
           }
 
           final filtered = _applyFilters(allItems);
+          final itemCount = itemCountAsync.value ?? 0;
+          final showLimitBanner = itemCount >= 20;
 
           return Column(
             children: [
+              // Item limit banner
+              if (showLimitBanner)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    HavenSpacing.md,
+                    HavenSpacing.sm,
+                    HavenSpacing.md,
+                    0,
+                  ),
+                  child: ItemLimitBanner(
+                    currentCount: itemCount,
+                    maxCount: kFreePlanItemLimit,
+                    onArchive: () =>
+                        context.push(AppRoutes.archivedItems),
+                    onUpgrade: null, // Phase 3
+                  ),
+                ),
+
               // Search bar
               Padding(
                 padding: const EdgeInsets.fromLTRB(

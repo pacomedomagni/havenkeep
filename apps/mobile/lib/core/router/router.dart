@@ -24,6 +24,10 @@ import '../../features/add_item/manual_entry_screen.dart';
 import '../../features/add_item/item_added_screen.dart';
 import '../../features/settings/settings_screen.dart';
 import '../../features/settings/profile_screen.dart';
+import '../../features/settings/notification_preferences_screen.dart';
+import '../../features/settings/home_detail_screen.dart';
+import '../../features/settings/archived_items_screen.dart';
+import '../../features/notifications/notifications_screen.dart';
 
 /// Route path constants.
 abstract class AppRoutes {
@@ -43,6 +47,10 @@ abstract class AppRoutes {
   static const addItemSuccess = '/add-item/success/:id';
   static const settings = '/settings';
   static const profile = '/profile';
+  static const notifications = '/notifications';
+  static const notificationPreferences = '/settings/notifications';
+  static const homeDetail = '/settings/home/:id';
+  static const archivedItems = '/settings/archived';
   static const referral = '/referral/:code';
 }
 
@@ -235,6 +243,37 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: AppRoutes.profile,
         parentNavigatorKey: _rootNavigatorKey,
         builder: (context, state) => const ProfileScreen(),
+      ),
+
+      // Notifications
+      GoRoute(
+        path: AppRoutes.notifications,
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) => const NotificationsScreen(),
+      ),
+
+      // Notification Preferences
+      GoRoute(
+        path: AppRoutes.notificationPreferences,
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) => const NotificationPreferencesScreen(),
+      ),
+
+      // Home Detail / Edit
+      GoRoute(
+        path: AppRoutes.homeDetail,
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) {
+          final id = state.pathParameters['id']!;
+          return HomeDetailScreen(homeId: id);
+        },
+      ),
+
+      // Archived Items
+      GoRoute(
+        path: AppRoutes.archivedItems,
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) => const ArchivedItemsScreen(),
       ),
 
       // Referral deep link handler

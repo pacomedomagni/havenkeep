@@ -5,8 +5,10 @@ import 'package:intl/intl.dart';
 import 'package:shared_models/shared_models.dart';
 import 'package:shared_ui/shared_ui.dart';
 
+import '../../core/providers/documents_provider.dart';
 import '../../core/providers/items_provider.dart';
 import '../../core/router/router.dart';
+import 'document_upload_sheet.dart';
 import 'share_claim_sheet.dart';
 
 /// Item detail screen with accordion sections (Screen 6.1/6.2).
@@ -143,14 +145,15 @@ class _OverflowMenu extends ConsumerWidget {
 // Main body
 // ---------------------------------------------------------------------------
 
-class _ItemDetailBody extends StatelessWidget {
+class _ItemDetailBody extends ConsumerWidget {
   final Item item;
   final String itemId;
 
   const _ItemDetailBody({required this.item, required this.itemId});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final docsAsync = ref.watch(documentsForItemProvider(itemId));
     final theme = Theme.of(context);
     final status = item.computedWarrantyStatus;
     final days = item.computedDaysRemaining;
@@ -342,34 +345,55 @@ class _ItemDetailBody extends StatelessWidget {
                 borderRadius: BorderRadius.circular(HavenRadius.chip),
               ),
               child: Text(
-                '0',
-                style: TextStyle(
+                '${docsAsync.value?.length ?? 0}',
+                style: const TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.bold,
                   color: HavenColors.textTertiary,
                 ),
               ),
             ),
-            initiallyExpanded: false,
+            initiallyExpanded:
+                docsAsync.value != null && docsAsync.value!.isNotEmpty,
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: HavenSpacing.md),
-              child: Column(
-                children: [
-                  const Text(
-                    'No documents yet',
-                    style: TextStyle(color: HavenColors.textTertiary),
-                  ),
-                  const SizedBox(height: HavenSpacing.sm),
-                  OutlinedButton.icon(
-                    onPressed: null, // Phase 2
-                    icon: const Icon(Icons.add, size: 18),
-                    label: const Text('Add Document'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: HavenColors.textTertiary,
-                      side: const BorderSide(color: HavenColors.border),
+              child: docsAsync.when(
+                data: (docs) => Column(
+                  children: [
+                    if (docs.isEmpty)
+                      const Text(
+                        'No documents yet',
+                        style: TextStyle(color: HavenColors.textTertiary),
+                      )
+                    else
+                      ...docs.map((doc) => _DocumentRow(
+                            doc: doc,
+                            itemId: itemId,
+                          )),
+                    const SizedBox(height: HavenSpacing.sm),
+                    OutlinedButton.icon(
+                      onPressed: () =>
+                          DocumentUploadSheet.show(context, itemId),
+                      icon: const Icon(Icons.add, size: 18),
+                      label: const Text('Add Document'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: HavenColors.secondary,
+                        side: const BorderSide(color: HavenColors.border),
+                      ),
                     ),
+                  ],
+                ),
+                loading: () => const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(HavenSpacing.md),
+                    child:
+                        SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2)),
                   ),
-                ],
+                ),
+                error: (_, __) => const Text(
+                  'Could not load documents',
+                  style: TextStyle(color: HavenColors.expired),
+                ),
               ),
             ),
           ),
@@ -497,6 +521,119 @@ class _ItemDetailBody extends StatelessWidget {
       return '$years ${years == 1 ? 'year' : 'years'} $rem ${rem == 1 ? 'month' : 'months'}';
     }
     return '$months ${months == 1 ? 'month' : 'months'}';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Document row within accordion
+// ---------------------------------------------------------------------------
+
+class _DocumentRow extends ConsumerWidget {
+  final Document doc;
+  final String itemId;
+
+  const _DocumentRow({required this.doc, required this.itemId});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: HavenSpacing.sm),
+      child: GestureDetector(
+        onTap: () {
+          // Open fullscreen image viewer
+          showDialog(
+            context: context,
+            builder: (_) => Scaffold(
+              backgroundColor: Colors.black,
+              appBar: AppBar(
+                backgroundColor: Colors.black,
+                leading: IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
+                title: Text(
+                  doc.fileName,
+                  style: const TextStyle(fontSize: 14),
+                ),
+              ),
+              body: Center(
+                child: InteractiveViewer(
+                  child: Icon(
+                    DocumentTypeIcon.get(doc.type),
+                    size: 120,
+                    color: HavenColors.textTertiary,
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+        onLongPress: () async {
+          final confirmed = await showHavenConfirmDialog(
+            context,
+            title: 'Delete document?',
+            body: 'Remove "${doc.fileName}"? This cannot be undone.',
+            confirmLabel: 'Delete',
+            isDestructive: true,
+          );
+          if (confirmed && context.mounted) {
+            await deleteDocument(
+              ref,
+              documentId: doc.id,
+              itemId: itemId,
+            );
+            if (context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Document deleted')),
+              );
+            }
+          }
+        },
+        child: Container(
+          padding: const EdgeInsets.all(HavenSpacing.sm),
+          decoration: BoxDecoration(
+            color: HavenColors.surface,
+            borderRadius: BorderRadius.circular(HavenRadius.button),
+            border: Border.all(color: HavenColors.border),
+          ),
+          child: Row(
+            children: [
+              DocumentTypeIcon.widget(doc.type, size: 22),
+              const SizedBox(width: HavenSpacing.sm),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      doc.fileName,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        color: HavenColors.textPrimary,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    Text(
+                      '${doc.type.displayLabel} · ${doc.fileSizeFormatted}',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: HavenColors.textTertiary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(
+                Icons.open_in_new,
+                size: 16,
+                color: HavenColors.textTertiary,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 

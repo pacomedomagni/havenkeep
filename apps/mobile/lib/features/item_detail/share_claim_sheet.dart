@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_models/shared_models.dart';
 import 'package:shared_ui/shared_ui.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 /// A bottom sheet that displays warranty claim information and allows the
 /// user to copy it to the clipboard.
@@ -152,17 +153,66 @@ class ShareClaimSheet extends StatelessWidget {
             ),
             const SizedBox(height: HavenSpacing.sm),
 
-            // Disabled future actions
-            _ComingSoonButton(
-              icon: Icons.email_outlined,
-              label: 'Email',
+            // Email
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () async {
+                  final claimText = _buildClaimText();
+                  final productName =
+                      [if (item.brand != null) item.brand!, item.name]
+                          .join(' ');
+                  final subject =
+                      Uri.encodeComponent('Warranty Claim: $productName');
+                  final body = Uri.encodeComponent(claimText);
+                  final uri = Uri.parse('mailto:?subject=$subject&body=$body');
+                  if (await canLaunchUrl(uri)) {
+                    await launchUrl(uri);
+                  }
+                  if (context.mounted) Navigator.of(context).pop();
+                },
+                icon: const Icon(Icons.email_outlined, size: 18),
+                label: const Text('Email'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: HavenColors.secondary,
+                  side: const BorderSide(color: HavenColors.border),
+                  padding: const EdgeInsets.symmetric(
+                    vertical: HavenSpacing.sm + 4,
+                    horizontal: HavenSpacing.md,
+                  ),
+                ),
+              ),
             ),
             const SizedBox(height: HavenSpacing.sm),
-            _ComingSoonButton(
-              icon: Icons.message_outlined,
-              label: 'Text Message',
+
+            // Text Message
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () async {
+                  final claimText = _buildClaimText();
+                  final body = Uri.encodeComponent(claimText);
+                  final uri = Uri.parse('sms:?body=$body');
+                  if (await canLaunchUrl(uri)) {
+                    await launchUrl(uri);
+                  }
+                  if (context.mounted) Navigator.of(context).pop();
+                },
+                icon: const Icon(Icons.message_outlined, size: 18),
+                label: const Text('Text Message'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: HavenColors.secondary,
+                  side: const BorderSide(color: HavenColors.border),
+                  padding: const EdgeInsets.symmetric(
+                    vertical: HavenSpacing.sm + 4,
+                    horizontal: HavenSpacing.md,
+                  ),
+                ),
+              ),
             ),
             const SizedBox(height: HavenSpacing.sm),
+
+            // Save as PDF (still coming soon)
             _ComingSoonButton(
               icon: Icons.picture_as_pdf_outlined,
               label: 'Save as PDF',

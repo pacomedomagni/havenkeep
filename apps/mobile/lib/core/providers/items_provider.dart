@@ -124,6 +124,22 @@ class ItemsNotifier extends AsyncNotifier<List<Item>> {
 
     ref.invalidate(warrantyStatsProvider);
     ref.invalidate(needsAttentionProvider);
+    ref.invalidate(archivedItemsProvider);
+  }
+
+  /// Unarchive an item (restore from archive).
+  Future<void> unarchiveItem(String id) async {
+    await ref.read(itemsRepositoryProvider).unarchiveItem(id);
+
+    // Re-fetch to get the restored item with computed fields
+    final restored = await ref.read(itemsRepositoryProvider).getItemById(id);
+
+    final currentItems = state.value ?? [];
+    state = AsyncValue.data([restored, ...currentItems]);
+
+    ref.invalidate(warrantyStatsProvider);
+    ref.invalidate(needsAttentionProvider);
+    ref.invalidate(archivedItemsProvider);
   }
 }
 
@@ -178,4 +194,16 @@ final isAtItemLimitProvider = FutureProvider<bool>((ref) async {
 
   final count = await ref.watch(activeItemCountProvider.future);
   return count >= kFreePlanItemLimit;
+});
+
+/// Archived items for the current user.
+final archivedItemsProvider = FutureProvider<List<Item>>((ref) async {
+  ref.watch(currentUserProvider);
+
+  final user = ref.read(currentUserProvider).value;
+  if (user == null) return [];
+
+  final allItems =
+      await ref.read(itemsRepositoryProvider).getItems(includeArchived: true);
+  return allItems.where((item) => item.isArchived).toList();
 });

@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:shared_models/shared_models.dart';
 import 'package:shared_ui/shared_ui.dart';
 
+import '../../core/providers/items_provider.dart';
 import '../../core/router/router.dart';
 
 /// Add item screen -- method selection (fullscreenDialog).
@@ -27,6 +28,86 @@ class AddItemScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final isAtLimit = ref.watch(isAtItemLimitProvider).value ?? false;
+    final itemCount = ref.watch(activeItemCountProvider).value ?? 0;
+
+    if (isAtLimit) {
+      return Scaffold(
+        backgroundColor: HavenColors.background,
+        appBar: AppBar(
+          title: const Text(
+            'Add New Item',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+          leading: IconButton(
+            icon: const Icon(Icons.close),
+            onPressed: () => Navigator.of(context).pop(),
+          ),
+        ),
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(HavenSpacing.lg),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(
+                  Icons.inventory_2_outlined,
+                  size: 72,
+                  color: HavenColors.expiring,
+                ),
+                const SizedBox(height: HavenSpacing.md),
+                const Text(
+                  'Item Limit Reached',
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: HavenColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: HavenSpacing.sm),
+                Text(
+                  'You\'ve used $itemCount/$kFreePlanItemLimit free items.\nArchive old items or upgrade to add more.',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    color: HavenColors.textSecondary,
+                    height: 1.4,
+                  ),
+                ),
+                const SizedBox(height: HavenSpacing.xl),
+                SizedBox(
+                  width: double.infinity,
+                  height: 52,
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                      context.push(AppRoutes.archivedItems);
+                    },
+                    icon: const Icon(Icons.archive_outlined),
+                    label: const Text('Manage Archived Items'),
+                  ),
+                ),
+                const SizedBox(height: HavenSpacing.sm),
+                SizedBox(
+                  width: double.infinity,
+                  height: 52,
+                  child: OutlinedButton.icon(
+                    onPressed: null, // Phase 3
+                    icon: const Icon(Icons.star_outline),
+                    label: const Text('Upgrade to Premium'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: HavenColors.textTertiary,
+                      side: const BorderSide(color: HavenColors.border),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: HavenColors.background,
       appBar: AppBar(
