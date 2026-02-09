@@ -1,0 +1,161 @@
+import 'dart:async';
+
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_models/shared_models.dart';
+import 'package:supabase_client/supabase_client.dart';
+import '../services/items_repository.dart';
+import '../services/category_repository.dart';
+import 'auth_provider.dart';
+
+/// Provides the items repository instance.
+final itemsRepositoryProvider = Provider<ItemsRepository>((ref) {
+  return ItemsRepository(ref.read(supabaseClientProvider));
+});
+
+/// Provides the category repository instance (reference data).
+final categoryRepositoryProvider = Provider<CategoryRepository>((ref) {
+  return CategoryRepository(ref.read(supabaseClientProvider));
+});
+
+/// All non-archived items for the current user.
+final itemsProvider =
+    AsyncNotifierProvider<ItemsNotifier, List<Item>>(
+  () => ItemsNotifier(),
+);
+
+class ItemsNotifier extends AsyncNotifier<List<Item>> {
+  @override
+  Future<List<Item>> build() async {
+    // Re-fetch when user changes (sign in/out)
+    ref.watch(currentUserProvider);
+
+    final user = ref.read(currentUserProvider).value;
+    if (user == null) return [];
+
+    return ref.read(itemsRepositoryProvider).getItemsWithStatus();
+  }
+
+  /// Refresh the items list from the server.
+  Future<void> refresh() async {
+    state = const AsyncValue.loading();
+    state = await AsyncValue.guard(() async {
+      return ref.read(itemsRepositoryProvider).getItemsWithStatus();
+    });
+  }
+
+  /// Add a new item.
+  Future<Item> addItem(Item item) async {
+    final repo = ref.read(itemsRepositoryProvider);
+    final newItem = await repo.createItem(item);
+
+    // Re-fetch to get computed fields (warranty_end_date, warranty_status)
+    final fullItem = await repo.getItemById(newItem.id);
+
+    final currentItems = state.value ?? [];
+    state = AsyncValue.data([fullItem, ...currentItems]);
+
+    // Invalidate stats
+    ref.invalidate(warrantyStatsProvider);
+    ref.invalidate(needsAttentionProvider);
+
+    return fullItem;
+  }
+
+  /// Update an existing item.
+  Future<Item> updateItem(Item item) async {
+    final repo = ref.read(itemsRepositoryProvider);
+    await repo.updateItem(item);
+
+    // Re-fetch to get updated computed fields
+    final updated = await repo.getItemById(item.id);
+
+    final currentItems = state.value ?? [];
+    state = AsyncValue.data(
+      currentItems.map((i) => i.id == updated.id ? updated : i).toList(),
+    );
+
+    ref.invalidate(warrantyStatsProvider);
+    ref.invalidate(needsAttentionProvider);
+
+    return updated;
+  }
+
+  /// Delete an item.
+  Future<void> deleteItem(String id) async {
+    await ref.read(itemsRepositoryProvider).deleteItem(id);
+
+    final currentItems = state.value ?? [];
+    state = AsyncValue.data(
+      currentItems.where((i) => i.id != id).toList(),
+    );
+
+    ref.invalidate(warrantyStatsProvider);
+    ref.invalidate(needsAttentionProvider);
+  }
+
+  /// Archive an item (soft delete).
+  Future<void> archiveItem(String id) async {
+    await ref.read(itemsRepositoryProvider).archiveItem(id);
+
+    final currentItems = state.value ?? [];
+    state = AsyncValue.data(
+      currentItems.where((i) => i.id != id).toList(),
+    );
+
+    ref.invalidate(warrantyStatsProvider);
+    ref.invalidate(needsAttentionProvider);
+  }
+}
+
+/// Warranty stats for the dashboard (active, expiring, expired counts).
+final warrantyStatsProvider = FutureProvider<Map<String, int>>((ref) async {
+  ref.watch(currentUserProvider);
+
+  final user = ref.read(currentUserProvider).value;
+  if (user == null) return {'active': 0, 'expiring': 0, 'expired': 0};
+
+  return ref.read(itemsRepositoryProvider).getWarrantyStats();
+});
+
+/// Items that need attention (expiring + expired, max 3 for dashboard).
+final needsAttentionProvider = FutureProvider<List<Item>>((ref) async {
+  ref.watch(currentUserProvider);
+
+  final user = ref.read(currentUserProvider).value;
+  if (user == null) return [];
+
+  return ref.read(itemsRepositoryProvider).getNeedsAttention();
+});
+
+/// Single item detail by ID.
+final itemDetailProvider =
+    FutureProvider.family<Item, String>((ref, itemId) async {
+  return ref.read(itemsRepositoryProvider).getItemById(itemId);
+});
+
+/// Category defaults (reference data).
+final categoryDefaultsProvider =
+    FutureProvider<List<CategoryDefault>>((ref) async {
+  return ref.read(categoryRepositoryProvider).getCategoryDefaults();
+});
+
+/// Brand suggestions for a specific category.
+final brandSuggestionsProvider =
+    FutureProvider.family<List<String>, ItemCategory>((ref, category) async {
+  return ref.read(categoryRepositoryProvider).getBrandNames(category);
+});
+
+/// Count of non-archived items (for free plan limit check).
+final activeItemCountProvider = FutureProvider<int>((ref) async {
+  ref.watch(itemsProvider); // Re-fetch when items change
+  return ref.read(itemsRepositoryProvider).countActiveItems();
+});
+
+/// Whether the user has hit the free plan item limit.
+final isAtItemLimitProvider = FutureProvider<bool>((ref) async {
+  final user = ref.watch(currentUserProvider).value;
+  if (user == null || user.plan == UserPlan.premium) return false;
+
+  final count = await ref.watch(activeItemCountProvider.future);
+  return count >= kFreePlanItemLimit;
+});
