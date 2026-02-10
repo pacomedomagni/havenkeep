@@ -1,29 +1,147 @@
 ---
 import Layout from '../layouts/Layout.astro';
 import Navigation from '../components/Navigation.astro';
-import Pricing from '../components/Pricing.astro';
 import Footer from '../components/Footer.astro';
+
+const tiers = [
+  {
+    name: 'Free',
+    price: '$0',
+    period: 'forever',
+    description: 'Start protecting your purchases today',
+    features: [
+      { text: 'Up to 5 items', included: true },
+      { text: 'Basic warranty tracking', included: true },
+      { text: 'Mobile app access', included: true },
+      { text: 'Email reminders', included: true },
+      { text: 'Receipt scanning (OCR)', included: false },
+      { text: 'PDF & CSV export', included: false },
+      { text: 'Priority support', included: false },
+    ],
+    cta: 'Get Started Free',
+    ctaLink: 'https://app.havenkeep.com/signup',
+    popular: false,
+  },
+  {
+    name: 'Premium',
+    price: '$24',
+    period: '/year',
+    monthlyEquiv: '$2/mo',
+    description: 'For homeowners who want total protection',
+    features: [
+      { text: 'Unlimited items & properties', included: true },
+      { text: 'Advanced warranty intelligence', included: true },
+      { text: 'Mobile + web app', included: true },
+      { text: 'AI receipt scanning (OCR)', included: true },
+      { text: 'PDF, CSV & email export', included: true },
+      { text: 'Smart multi-stage reminders', included: true },
+      { text: 'Priority support & onboarding', included: true },
+    ],
+    cta: 'Start 14-Day Free Trial',
+    ctaLink: 'https://app.havenkeep.com/signup?plan=premium',
+    popular: true,
+  },
+];
 ---
 
 <Layout title="Pricing" description="Simple, transparent pricing for warranty tracking. Start free, upgrade when you need more">
   <Navigation />
   <main>
     <!-- Hero Section -->
-    <section class="pt-32 pb-12 bg-gradient-to-b from-gray-900 to-gray-800">
+    <section class="pt-32 pb-8 bg-gradient-to-b from-gray-900 to-gray-800">
       <div class="container">
         <div class="max-w-3xl mx-auto text-center">
           <h1 class="text-5xl md:text-6xl font-bold text-white mb-6">
             Simple, Transparent Pricing
           </h1>
-          <p class="text-xl md:text-2xl text-gray-300">
-            Start free, upgrade when you need more power
+          <p class="text-xl md:text-2xl text-gray-300 mb-4">
+            The average household wastes <strong class="text-white">$340/year</strong> on forgotten warranties.
+          </p>
+          <p class="text-lg text-gray-400">
+            HavenKeep Premium costs <strong class="text-white">$24/year</strong>. That's a <strong class="text-accent">14x return</strong>.
           </p>
         </div>
       </div>
     </section>
 
-    <!-- Pricing Component -->
-    <Pricing />
+    <!-- Pricing Cards -->
+    <section class="py-12 bg-gray-800">
+      <div class="container">
+        <div class="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
+          {tiers.map((tier) => (
+            <div class={`relative rounded-2xl border-2 ${tier.popular ? 'border-primary shadow-xl shadow-primary/10' : 'border-gray-700'} bg-gray-900 p-8`}>
+              {tier.popular && (
+                <div class="absolute -top-4 left-1/2 -translate-x-1/2">
+                  <span class="bg-gradient-to-r from-primary to-secondary text-white text-sm font-semibold px-4 py-1.5 rounded-full shadow-lg">
+                    Best Value &mdash; 14x ROI
+                  </span>
+                </div>
+              )}
+
+              <div class="mb-6">
+                <h3 class="text-2xl font-bold text-white mb-2">{tier.name}</h3>
+                <p class="text-gray-400 mb-4">{tier.description}</p>
+                <div class="flex items-baseline gap-3">
+                  <span class="text-5xl font-bold text-white">{tier.price}</span>
+                  <span class="text-gray-400">{tier.period}</span>
+                  {tier.monthlyEquiv && (
+                    <span class="text-sm text-accent font-medium bg-accent/10 px-2 py-0.5 rounded">({tier.monthlyEquiv})</span>
+                  )}
+                </div>
+                {tier.popular && (
+                  <p class="text-sm text-gray-500 mt-2">That's just $0.07/day &mdash; less than a penny per hour</p>
+                )}
+              </div>
+
+              <ul class="space-y-4 mb-8">
+                {tier.features.map((feature) => (
+                  <li class="flex items-start">
+                    {feature.included ? (
+                      <svg class="w-5 h-5 text-accent mt-0.5 mr-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+                      </svg>
+                    ) : (
+                      <svg class="w-5 h-5 text-gray-600 mt-0.5 mr-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+                      </svg>
+                    )}
+                    <span class={feature.included ? 'text-gray-200' : 'text-gray-500'}>
+                      {feature.text}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+
+              <a
+                href={tier.ctaLink}
+                class={tier.popular ? 'btn-primary w-full block text-center' : 'btn-secondary w-full block text-center'}
+              >
+                {tier.cta}
+              </a>
+
+              {tier.popular && (
+                <p class="text-center text-gray-500 text-xs mt-3">14-day free trial &bull; No credit card required &bull; Cancel anytime</p>
+              )}
+            </div>
+          ))}
+        </div>
+
+        <!-- Money-back guarantee -->
+        <div class="mt-12 max-w-2xl mx-auto text-center">
+          <div class="bg-gray-900 border border-gray-700 rounded-2xl p-6 flex flex-col sm:flex-row items-center gap-4">
+            <div class="w-12 h-12 bg-accent/10 rounded-full flex items-center justify-center flex-shrink-0">
+              <svg class="w-6 h-6 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+              </svg>
+            </div>
+            <div class="text-left">
+              <p class="text-white font-semibold">30-Day Money-Back Guarantee</p>
+              <p class="text-gray-400 text-sm">Not convinced? Get a full refund within 30 days, no questions asked.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
 
     <!-- FAQ Section -->
     <section id="faq" class="py-20 bg-gray-900">

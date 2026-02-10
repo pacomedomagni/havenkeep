@@ -1,0 +1,163 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import Navigation from '../../components/Navigation.astro';
+import Footer from '../../components/Footer.astro';
+import CTA from '../../components/CTA.astro';
+
+const title = "10 Warranties You Should Never Ignore";
+const description = "Not all warranties are created equal. Here are the ones that can save you thousands of dollars if you track them properly.";
+const date = "November 10, 2024";
+const readTime = "7 min read";
+---
+
+<Layout title={title} description={description}>
+  <Navigation />
+  <main>
+    <!-- Article Header -->
+    <section class="pt-32 pb-12 bg-gradient-to-b from-gray-900 to-gray-800">
+      <div class="container">
+        <div class="max-w-3xl mx-auto">
+          <a href="/blog" class="inline-flex items-center gap-2 text-primary hover:text-primary/80 mb-8 transition-colors">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+            Back to Blog
+          </a>
+          <div class="flex items-center gap-3 mb-6">
+            <span class="bg-primary/20 text-primary text-sm font-semibold px-3 py-1 rounded-full">Tips</span>
+            <span class="text-gray-400 text-sm">{date}</span>
+            <span class="text-gray-400 text-sm">•</span>
+            <span class="text-gray-400 text-sm">{readTime}</span>
+          </div>
+          <h1 class="text-4xl md:text-5xl font-bold text-white mb-6">
+            {title}
+          </h1>
+          <p class="text-xl text-gray-300">
+            {description}
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Article Content -->
+    <article class="py-12 bg-gray-900">
+      <div class="container">
+        <div class="max-w-3xl mx-auto prose prose-lg prose-invert">
+          
+          <p class="lead text-gray-300 text-xl">
+            We all know we should keep track of our warranties, but let's be honest—some matter way more than others. After analyzing repair costs and failure rates, here are the 10 warranties that deserve your attention (and could save you thousands).
+          </p>
+
+          <h2 class="text-2xl font-bold text-white mt-12 mb-4">1. Major Appliances (Refrigerator, Washer, Dryer)</h2>
+          <p class="text-gray-300 mb-6">
+            <strong class="text-white">Average repair cost:</strong> $350-$600<br />
+            <strong class="text-white">Typical warranty:</strong> 1-2 years (compressor often 5-10 years)
+          </p>
+          <p class="text-gray-300 mb-6">
+            Your refrigerator alone contains components worth hundreds to replace. Compressor failure on a high-end fridge can run $800+. The warranty on major components often extends well beyond the standard coverage—but only if you know about it and can prove your purchase date.
+          </p>
+
+          <h2 class="text-2xl font-bold text-white mt-12 mb-4">2. HVAC Systems</h2>
+          <p class="text-gray-300 mb-6">
+            <strong class="text-white">Average repair cost:</strong> $500-$3,000<br />
+            <strong class="text-white">Typical warranty:</strong> 5-10 years on parts, 1-2 years labor
+          </p>
+          <p class="text-gray-300 mb-6">
+            HVAC repairs are notoriously expensive. A failed compressor can cost $2,000+ to replace. Most homeowners don't realize their system came with a multi-year parts warranty—but it usually requires proof of professional installation and registration within 60-90 days.
+          </p>
+
+          <h2 class="text-2xl font-bold text-white mt-12 mb-4">3. Laptops and Computers</h2>
+          <p class="text-gray-300 mb-6">
+            <strong class="text-white">Average repair cost:</strong> $200-$700<br />
+            <strong class="text-white">Typical warranty:</strong> 1 year (AppleCare/extended available)
+          </p>
+          <p class="text-gray-300 mb-6">
+            Logic board failures, screen replacements, battery issues—these are expensive fixes on modern laptops. A MacBook logic board repair can easily exceed $500 out of warranty. Know exactly when your coverage ends.
+          </p>
+
+          <h2 class="text-2xl font-bold text-white mt-12 mb-4">4. Smartphones</h2>
+          <p class="text-gray-300 mb-6">
+            <strong class="text-white">Average repair cost:</strong> $150-$400<br />
+            <strong class="text-white">Typical warranty:</strong> 1 year
+          </p>
+          <p class="text-gray-300 mb-6">
+            Screen repairs, battery replacements, and charging port issues are common failures. A flagship phone screen replacement runs $250-400 at the manufacturer. Within warranty? Usually free or heavily discounted.
+          </p>
+
+          <h2 class="text-2xl font-bold text-white mt-12 mb-4">5. TVs (Especially OLED/QLED)</h2>
+          <p class="text-gray-300 mb-6">
+            <strong class="text-white">Average repair cost:</strong> $300-$1,000+<br />
+            <strong class="text-white">Typical warranty:</strong> 1-2 years
+          </p>
+          <p class="text-gray-300 mb-6">
+            Modern TVs are essentially unrepairable out of warranty—the panel replacement cost often exceeds buying a new TV. OLED burn-in issues and backlight failures are real concerns. Track that warranty carefully.
+          </p>
+
+          <h2 class="text-2xl font-bold text-white mt-12 mb-4">6. Power Tools</h2>
+          <p class="text-gray-300 mb-6">
+            <strong class="text-white">Average repair cost:</strong> $75-$200<br />
+            <strong class="text-white">Typical warranty:</strong> 1-5 years (some brands offer lifetime)
+          </p>
+          <p class="text-gray-300 mb-6">
+            DeWalt, Milwaukee, and Makita all offer multi-year warranties on their tools. Battery warranties are often separate. Many users don't know their expensive cordless drill has a 3-5 year warranty because they tossed the receipt.
+          </p>
+
+          <h2 class="text-2xl font-bold text-white mt-12 mb-4">7. Car Batteries</h2>
+          <p class="text-gray-300 mb-6">
+            <strong class="text-white">Average replacement cost:</strong> $150-$300<br />
+            <strong class="text-white">Typical warranty:</strong> 2-5 years (often prorated)
+          </p>
+          <p class="text-gray-300 mb-6">
+            Most car batteries come with substantial warranties, often 3 years free replacement followed by prorated coverage. But you need the original receipt. A battery that fails at 30 months might get you 50% off a replacement—if you can prove when you bought it.
+          </p>
+
+          <h2 class="text-2xl font-bold text-white mt-12 mb-4">8. Mattresses</h2>
+          <p class="text-gray-300 mb-6">
+            <strong class="text-white">Average replacement cost:</strong> $800-$2,000<br />
+            <strong class="text-white">Typical warranty:</strong> 10-25 years (!!)
+          </p>
+          <p class="text-gray-300 mb-6">
+            Here's one people forget about: mattress warranties are incredibly long. Many cover sagging, broken springs, and manufacturing defects for 10-25 years. But you typically need the original receipt AND the law tag attached to the mattress. Yes, that tag you're "not supposed to remove."
+          </p>
+
+          <h2 class="text-2xl font-bold text-white mt-12 mb-4">9. Tires</h2>
+          <p class="text-gray-300 mb-6">
+            <strong class="text-white">Average cost per tire:</strong> $100-$300<br />
+            <strong class="text-white">Typical warranty:</strong> 40,000-80,000 miles
+          </p>
+          <p class="text-gray-300 mb-6">
+            Tire treadwear warranties are valuable but underused. If your tires rated for 60,000 miles wear out at 40,000, you're entitled to a prorated credit. But you need your purchase documentation showing the original tread depth and installation mileage.
+          </p>
+
+          <h2 class="text-2xl font-bold text-white mt-12 mb-4">10. Roofing Materials</h2>
+          <p class="text-gray-300 mb-6">
+            <strong class="text-white">Average repair cost:</strong> $500-$5,000+<br />
+            <strong class="text-white">Typical warranty:</strong> 20-50 years on materials
+          </p>
+          <p class="text-gray-300 mb-6">
+            Shingle manufacturers offer extensive warranties—some up to 50 years. But here's the catch: you often need proof of professional installation and proper ventilation to make a claim. Those documents from your roof installation a decade ago? Worth finding.
+          </p>
+
+          <div class="bg-gray-800 rounded-xl p-8 mt-12 border border-gray-700">
+            <h3 class="text-xl font-bold text-white mb-4">The Common Thread</h3>
+            <p class="text-gray-300 mb-0">
+              Notice what all these warranties have in common? They require <strong class="text-white">proof of purchase</strong> and <strong class="text-white">knowing when they expire</strong>. The warranty exists whether you track it or not—but the savings only happen if you can actually make the claim when something breaks.
+            </p>
+          </div>
+
+          <h2 class="text-2xl font-bold text-white mt-12 mb-4">Start Where It Hurts Most</h2>
+          <p class="text-gray-300 mb-6">
+            You don't need to track every warranty for every item you own. Start with the expensive stuff—the items where a repair bill would actually hurt. Get those documented first, then expand from there.
+          </p>
+          <p class="text-gray-300 mb-6">
+            The best time to organize your warranties was when you bought the item. The second best time is today.
+          </p>
+
+        </div>
+      </div>
+    </article>
+
+    <CTA />
+  </main>
+  <Footer />
+</Layout>

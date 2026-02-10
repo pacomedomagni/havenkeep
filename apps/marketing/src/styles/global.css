@@ -6,10 +6,6 @@
   html {
     scroll-behavior: smooth;
   }
-
-  body {
-    @apply text-gray-900;
-  }
 }
 
 @layer components {
@@ -18,10 +14,29 @@
   }
 
   .btn-primary {
-    @apply bg-primary hover:bg-primary/90 text-white font-semibold py-3 px-6 rounded-lg transition-colors duration-200;
+    @apply bg-primary hover:bg-primary/90 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200 hover:shadow-lg hover:shadow-primary/25;
   }
 
   .btn-secondary {
-    @apply bg-white hover:bg-gray-50 text-primary font-semibold py-3 px-6 rounded-lg border-2 border-primary transition-colors duration-200;
+    @apply bg-white/10 hover:bg-white/20 text-white font-semibold py-3 px-6 rounded-lg border-2 border-gray-600 hover:border-gray-400 transition-all duration-200;
   }
+
+  /* Scroll-triggered reveal animation */
+  .reveal {
+    opacity: 0;
+    transform: translateY(30px);
+    transition: opacity 0.7s ease-out, transform 0.7s ease-out;
+  }
+
+  .reveal.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  .reveal-delay-1 { transition-delay: 0.1s; }
+  .reveal-delay-2 { transition-delay: 0.2s; }
+  .reveal-delay-3 { transition-delay: 0.3s; }
+  .reveal-delay-4 { transition-delay: 0.4s; }
+  .reveal-delay-5 { transition-delay: 0.5s; }
+  .reveal-delay-6 { transition-delay: 0.6s; }
 }

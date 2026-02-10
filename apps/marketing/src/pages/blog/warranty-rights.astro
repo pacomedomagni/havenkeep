@@ -1,0 +1,289 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import Navigation from '../../components/Navigation.astro';
+import Footer from '../../components/Footer.astro';
+import CTA from '../../components/CTA.astro';
+
+const title = "Your Warranty Rights: What Manufacturers Don't Tell You";
+const description = "Consumer protections extend beyond written warranties. Know your legal rights and the warranty coverage you might not realize you have.";
+const date = "October 15, 2024";
+const readTime = "10 min read";
+---
+
+<Layout title={title} description={description}>
+  <Navigation />
+  <main>
+    <!-- Article Header -->
+    <section class="pt-32 pb-12 bg-gradient-to-b from-gray-900 to-gray-800">
+      <div class="container">
+        <div class="max-w-3xl mx-auto">
+          <a href="/blog" class="inline-flex items-center gap-2 text-primary hover:text-primary/80 mb-8 transition-colors">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+            Back to Blog
+          </a>
+          <div class="flex items-center gap-3 mb-6">
+            <span class="bg-blue-500/20 text-blue-400 text-sm font-semibold px-3 py-1 rounded-full">Legal</span>
+            <span class="text-gray-400 text-sm">{date}</span>
+            <span class="text-gray-400 text-sm">•</span>
+            <span class="text-gray-400 text-sm">{readTime}</span>
+          </div>
+          <h1 class="text-4xl md:text-5xl font-bold text-white mb-6">
+            {title}
+          </h1>
+          <p class="text-xl text-gray-300">
+            {description}
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Article Content -->
+    <article class="py-12 bg-gray-900">
+      <div class="container">
+        <div class="max-w-3xl mx-auto prose prose-lg prose-invert">
+          
+          <p class="lead text-gray-300 text-xl">
+            That warranty card that came with your purchase? It's just the beginning. Federal and state laws provide consumer protections that go beyond whatever the manufacturer put in writing. Here's what you need to know about warranty rights that companies rarely advertise.
+          </p>
+
+          <div class="bg-yellow-900/30 border border-yellow-700/50 rounded-xl p-6 my-8">
+            <p class="text-yellow-200 text-sm mb-0">
+              <strong>Disclaimer:</strong> This article provides general information about consumer warranty rights in the United States. Laws vary by state and situation. For specific legal advice, consult a qualified attorney.
+            </p>
+          </div>
+
+          <h2 class="text-2xl font-bold text-white mt-12 mb-4">Understanding Warranty Types</h2>
+          
+          <p class="text-gray-300 mb-6">
+            Before diving into your rights, it helps to understand the two main categories of warranties:
+          </p>
+
+          <h3 class="text-xl font-semibold text-white mt-8 mb-3">Express Warranties</h3>
+          <p class="text-gray-300 mb-6">
+            These are specific promises made by the seller or manufacturer. They include written warranty documents, verbal promises made during the sale, and advertising claims. If a salesperson says "this will last 10 years," that can be an express warranty even if it's not written down.
+          </p>
+
+          <h3 class="text-xl font-semibold text-white mt-8 mb-3">Implied Warranties</h3>
+          <p class="text-gray-300 mb-6">
+            These exist automatically under state law, whether written or not. The two main types are:
+          </p>
+
+          <ul class="text-gray-300 mb-6 space-y-3">
+            <li>
+              <strong class="text-white">Warranty of Merchantability:</strong> The product will work as expected for its intended purpose. A toaster should toast. A refrigerator should refrigerate.
+            </li>
+            <li>
+              <strong class="text-white">Warranty of Fitness for a Particular Purpose:</strong> If you tell a seller you need a product for a specific use and they recommend one, it should work for that use.
+            </li>
+          </ul>
+
+          <h2 class="text-2xl font-bold text-white mt-12 mb-4">The Magnuson-Moss Warranty Act</h2>
+          
+          <p class="text-gray-300 mb-6">
+            This federal law, enacted in 1975, is the foundation of consumer warranty rights in the US. Here's what it requires:
+          </p>
+
+          <div class="bg-gray-800 rounded-xl p-6 my-8 border border-gray-700">
+            <h4 class="font-bold text-white mb-4">Key Magnuson-Moss Provisions</h4>
+            <ul class="text-gray-300 space-y-3 mb-0">
+              <li>
+                <strong class="text-white">Clear disclosure:</strong> Warranties must be written in clear, easy-to-understand language.
+              </li>
+              <li>
+                <strong class="text-white">Full vs. Limited:</strong> Warranties must be labeled either "Full" or "Limited" so consumers know what they're getting.
+              </li>
+              <li>
+                <strong class="text-white">Availability:</strong> Warranty terms must be available to consumers BEFORE purchase.
+              </li>
+              <li>
+                <strong class="text-white">No "warranty void" tricks:</strong> Manufacturers can't require you to use only their branded parts or services to maintain warranty coverage (with some exceptions).
+              </li>
+            </ul>
+          </div>
+
+          <h2 class="text-2xl font-bold text-white mt-12 mb-4">The "Warranty Void If Removed" Myth</h2>
+          
+          <p class="text-gray-300 mb-6">
+            You've seen those stickers covering screws on electronics: "Warranty void if removed." Here's the truth: <strong class="text-white">these stickers are largely unenforceable</strong> under federal law.
+          </p>
+
+          <p class="text-gray-300 mb-6">
+            The FTC has explicitly stated that manufacturers cannot condition warranty coverage on using only authorized parts or services, unless they provide those parts or services for free or receive a waiver from the FTC.
+          </p>
+
+          <p class="text-gray-300 mb-6">
+            What this means in practice:
+          </p>
+
+          <ul class="text-gray-300 mb-6 space-y-2">
+            <li>You can use third-party ink cartridges without voiding your printer warranty</li>
+            <li>You can have your car serviced at an independent mechanic</li>
+            <li>You can open your phone to replace the battery (though accidental damage you cause isn't covered)</li>
+            <li>You can use non-OEM parts as long as they meet specifications</li>
+          </ul>
+
+          <p class="text-gray-300 mb-6">
+            The manufacturer <em>can</em> deny coverage if they prove your modification or third-party part actually caused the specific problem you're claiming—but they can't blanket-deny coverage just because you used non-branded items.
+          </p>
+
+          <h2 class="text-2xl font-bold text-white mt-12 mb-4">Lemon Laws: Beyond Cars</h2>
+          
+          <p class="text-gray-300 mb-6">
+            Most people know about lemon laws for cars, but many states have broader consumer protection laws that apply to other products:
+          </p>
+
+          <ul class="text-gray-300 mb-6 space-y-2">
+            <li><strong class="text-white">California:</strong> Song-Beverly Consumer Warranty Act covers all consumer goods</li>
+            <li><strong class="text-white">Massachusetts:</strong> Consumer Protection Act covers deceptive warranty practices</li>
+            <li><strong class="text-white">New York:</strong> General Business Law provides additional warranty protections</li>
+            <li><strong class="text-white">Many states:</strong> Have specific protections for appliances, electronics, and other major purchases</li>
+          </ul>
+
+          <p class="text-gray-300 mb-6">
+            These laws often provide remedies beyond what the manufacturer warranty offers, including the right to a replacement or refund after multiple failed repairs.
+          </p>
+
+          <h2 class="text-2xl font-bold text-white mt-12 mb-4">The Right to Repair Movement</h2>
+          
+          <p class="text-gray-300 mb-6">
+            A growing number of states are passing "Right to Repair" laws that strengthen consumer rights:
+          </p>
+
+          <ul class="text-gray-300 mb-6 space-y-2">
+            <li>Manufacturers must make diagnostic tools available to consumers and independent repair shops</li>
+            <li>Parts and repair manuals must be accessible at fair prices</li>
+            <li>Software locks that prevent repair are being challenged</li>
+          </ul>
+
+          <p class="text-gray-300 mb-6">
+            As of 2024, several states have passed right-to-repair legislation, with more considering it. This movement is expanding your practical ability to maintain and repair your own property.
+          </p>
+
+          <h2 class="text-2xl font-bold text-white mt-12 mb-4">Credit Card Protections</h2>
+          
+          <p class="text-gray-300 mb-6">
+            Your credit card may offer warranty protections beyond what you bought:
+          </p>
+
+          <div class="bg-gray-800 rounded-xl p-6 my-8 border border-gray-700">
+            <h4 class="font-bold text-white mb-4">Common Credit Card Warranty Benefits</h4>
+            <ul class="text-gray-300 space-y-3 mb-0">
+              <li>
+                <strong class="text-white">Extended warranty:</strong> Many cards automatically extend manufacturer warranties by 1-2 years
+              </li>
+              <li>
+                <strong class="text-white">Purchase protection:</strong> Coverage against damage or theft for 90-120 days after purchase
+              </li>
+              <li>
+                <strong class="text-white">Return protection:</strong> Refund if merchant won't accept a return
+              </li>
+              <li>
+                <strong class="text-white">Price protection:</strong> Refund of the difference if price drops after purchase
+              </li>
+            </ul>
+          </div>
+
+          <p class="text-gray-300 mb-6">
+            Check your card benefits—you may have free warranty extension coverage you're not using. This is particularly valuable because it extends the manufacturer warranty (which covers defects) rather than adding a separate policy with different terms.
+          </p>
+
+          <h2 class="text-2xl font-bold text-white mt-12 mb-4">What to Do When Warranty Claims Are Denied</h2>
+          
+          <p class="text-gray-300 mb-6">
+            If a manufacturer wrongly denies your warranty claim, you have options:
+          </p>
+
+          <h3 class="text-xl font-semibold text-white mt-8 mb-3">1. Document Everything</h3>
+          <p class="text-gray-300 mb-6">
+            Keep records of all communications—dates, names, what was said. Save emails and take notes during phone calls. This creates evidence if you need to escalate.
+          </p>
+
+          <h3 class="text-xl font-semibold text-white mt-8 mb-3">2. Escalate Within the Company</h3>
+          <p class="text-gray-300 mb-6">
+            Ask to speak with a supervisor. Many front-line representatives don't have authority to approve claims—someone higher up might. Be polite but persistent.
+          </p>
+
+          <h3 class="text-xl font-semibold text-white mt-8 mb-3">3. File with the BBB and State AG</h3>
+          <p class="text-gray-300 mb-6">
+            A complaint to the Better Business Bureau often gets attention. Also consider filing with your state's Attorney General consumer protection division. Companies take official complaints more seriously than individual calls.
+          </p>
+
+          <h3 class="text-xl font-semibold text-white mt-8 mb-3">4. Social Media and Reviews</h3>
+          <p class="text-gray-300 mb-6">
+            Companies monitor their social media reputation. A public, factual account of your warranty dispute sometimes prompts resolution. Be honest and stick to facts.
+          </p>
+
+          <h3 class="text-xl font-semibold text-white mt-8 mb-3">5. Small Claims Court</h3>
+          <p class="text-gray-300 mb-6">
+            For amounts under your state's limit (typically $5,000-$10,000), small claims court is an accessible option. You don't need a lawyer, filing fees are low, and companies often settle rather than send representatives to court.
+          </p>
+
+          <h3 class="text-xl font-semibold text-white mt-8 mb-3">6. Magnuson-Moss Lawsuit</h3>
+          <p class="text-gray-300 mb-6">
+            For larger claims, the Magnuson-Moss Act allows you to sue for warranty violations. Importantly, it allows recovery of attorney fees if you prevail, making it economically feasible to hire legal help even for moderate-value claims.
+          </p>
+
+          <h2 class="text-2xl font-bold text-white mt-12 mb-4">Common Warranty Myths, Debunked</h2>
+          
+          <div class="space-y-6 my-8">
+            <div class="bg-gray-800 rounded-xl p-6 border border-gray-700">
+              <h4 class="font-bold text-red-400 mb-2">Myth: "You need the original receipt or warranty is void"</h4>
+              <p class="text-gray-300 mb-0">
+                <strong class="text-green-400">Reality:</strong> While proof of purchase helps, credit card statements, registration records, and other documentation can establish purchase date. The warranty exists whether you have paperwork or not.
+              </p>
+            </div>
+            
+            <div class="bg-gray-800 rounded-xl p-6 border border-gray-700">
+              <h4 class="font-bold text-red-400 mb-2">Myth: "Warranties only cover manufacturing defects, not wear and tear"</h4>
+              <p class="text-gray-300 mb-0">
+                <strong class="text-green-400">Reality:</strong> While many warranties exclude "normal wear," a product that fails during normal use within its expected lifespan may still be covered under implied warranty. A $1,000 TV that dies after 18 months might have a claim.
+              </p>
+            </div>
+            
+            <div class="bg-gray-800 rounded-xl p-6 border border-gray-700">
+              <h4 class="font-bold text-red-400 mb-2">Myth: "If the warranty period expired, you have no options"</h4>
+              <p class="text-gray-300 mb-0">
+                <strong class="text-green-400">Reality:</strong> Implied warranties in some states last longer than written warranties. Some defects may be covered by recalls or service bulletins even after warranty expiration. And credit card extended warranties add additional coverage.
+              </p>
+            </div>
+            
+            <div class="bg-gray-800 rounded-xl p-6 border border-gray-700">
+              <h4 class="font-bold text-red-400 mb-2">Myth: "Companies can require arbitration and block lawsuits"</h4>
+              <p class="text-gray-300 mb-0">
+                <strong class="text-green-400">Reality:</strong> While arbitration clauses are common, the Magnuson-Moss Act limits them for warranty claims. Some courts have ruled that warranty arbitration clauses are unenforceable if they effectively prevent consumers from pursuing claims.
+              </p>
+            </div>
+          </div>
+
+          <h2 class="text-2xl font-bold text-white mt-12 mb-4">Key Takeaways</h2>
+          
+          <p class="text-gray-300 mb-6">
+            Your warranty rights are stronger than most manufacturers want you to know:
+          </p>
+
+          <ul class="text-gray-300 mb-6 space-y-2">
+            <li>Implied warranties exist even when not written</li>
+            <li>"Warranty void if..." stickers are often unenforceable</li>
+            <li>You have the right to use independent repair services and third-party parts</li>
+            <li>Credit cards often extend manufacturer warranties for free</li>
+            <li>State consumer protection laws may provide additional remedies</li>
+            <li>Denied claims can be challenged through multiple channels</li>
+          </ul>
+
+          <div class="bg-gradient-to-br from-primary/20 to-secondary/20 rounded-xl p-8 mt-12 border border-primary/30">
+            <h3 class="text-xl font-bold text-white mb-4">Knowledge + Documentation = Protection</h3>
+            <p class="text-gray-300 mb-0">
+              Understanding your rights is the first step. The second step is having the documentation to exercise them. When you can prove what you bought, when you bought it, and what warranty terms apply, you're in a strong position to get the coverage you're entitled to.
+            </p>
+          </div>
+
+        </div>
+      </div>
+    </article>
+
+    <CTA />
+  </main>
+  <Footer />
+</Layout>

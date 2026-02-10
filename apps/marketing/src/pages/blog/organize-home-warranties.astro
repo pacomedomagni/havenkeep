@@ -1,0 +1,234 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import Navigation from '../../components/Navigation.astro';
+import Footer from '../../components/Footer.astro';
+import CTA from '../../components/CTA.astro';
+
+const title = "How to Organize Your Home Warranties Like a Pro";
+const description = "Transform warranty chaos into peace of mind with these simple organizational strategies anyone can follow.";
+const date = "November 5, 2024";
+const readTime = "6 min read";
+---
+
+<Layout title={title} description={description}>
+  <Navigation />
+  <main>
+    <!-- Article Header -->
+    <section class="pt-32 pb-12 bg-gradient-to-b from-gray-900 to-gray-800">
+      <div class="container">
+        <div class="max-w-3xl mx-auto">
+          <a href="/blog" class="inline-flex items-center gap-2 text-primary hover:text-primary/80 mb-8 transition-colors">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+            Back to Blog
+          </a>
+          <div class="flex items-center gap-3 mb-6">
+            <span class="bg-accent/20 text-accent text-sm font-semibold px-3 py-1 rounded-full">Guides</span>
+            <span class="text-gray-400 text-sm">{date}</span>
+            <span class="text-gray-400 text-sm">•</span>
+            <span class="text-gray-400 text-sm">{readTime}</span>
+          </div>
+          <h1 class="text-4xl md:text-5xl font-bold text-white mb-6">
+            {title}
+          </h1>
+          <p class="text-xl text-gray-300">
+            {description}
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Article Content -->
+    <article class="py-12 bg-gray-900">
+      <div class="container">
+        <div class="max-w-3xl mx-auto prose prose-lg prose-invert">
+          
+          <p class="lead text-gray-300 text-xl">
+            Be honest: if your dishwasher died tomorrow, could you find the receipt and warranty information within 5 minutes? For most people, the answer is a frantic search through junk drawers, email archives, and that "important papers" folder that hasn't been organized since 2019.
+          </p>
+
+          <p class="text-gray-300 mb-6">
+            Here's how to build a warranty organization system that actually works—one you'll maintain because it takes minimal effort.
+          </p>
+
+          <h2 class="text-2xl font-bold text-white mt-12 mb-4">The Problem with Traditional Methods</h2>
+          
+          <p class="text-gray-300 mb-6">
+            Most warranty "organization" falls into one of these traps:
+          </p>
+
+          <ul class="text-gray-300 mb-6 space-y-2">
+            <li><strong class="text-white">The Shoebox Method:</strong> Receipts stuffed in a drawer, fading into illegibility</li>
+            <li><strong class="text-white">The Filing Cabinet:</strong> Great intentions, zero follow-through after month one</li>
+            <li><strong class="text-white">The Email Search:</strong> "I know I got a receipt somewhere..."</li>
+            <li><strong class="text-white">The Spreadsheet:</strong> Detailed at first, abandoned by Q2</li>
+          </ul>
+
+          <p class="text-gray-300 mb-6">
+            These methods fail because they require too much ongoing effort. The key to a system that works is making the <em>capture</em> easy and the <em>retrieval</em> automatic.
+          </p>
+
+          <h2 class="text-2xl font-bold text-white mt-12 mb-4">Step 1: Gather What You Already Have</h2>
+          
+          <p class="text-gray-300 mb-6">
+            Before building a new system, consolidate what exists. Set aside 30 minutes and gather:
+          </p>
+
+          <ul class="text-gray-300 mb-6 space-y-2">
+            <li>Physical receipts from drawers, wallets, and bags</li>
+            <li>Product manuals and warranty cards</li>
+            <li>Email receipts (search "receipt," "order confirmation," "purchase")</li>
+            <li>Credit card statements for major purchases</li>
+            <li>Photos of receipts you might have taken</li>
+          </ul>
+
+          <p class="text-gray-300 mb-6">
+            Don't try to organize yet—just get everything in one place.
+          </p>
+
+          <h2 class="text-2xl font-bold text-white mt-12 mb-4">Step 2: Prioritize by Value</h2>
+          
+          <p class="text-gray-300 mb-6">
+            You don't need to track the warranty on a $15 toaster. Focus first on items where a repair or replacement would cost more than $100. Typically:
+          </p>
+
+          <div class="bg-gray-800 rounded-xl p-6 my-8 border border-gray-700">
+            <h4 class="font-bold text-white mb-3">High Priority (Track These First)</h4>
+            <ul class="text-gray-300 space-y-1 mb-0">
+              <li>✓ Major appliances (fridge, washer, dryer, dishwasher)</li>
+              <li>✓ Electronics (TV, laptop, phone, tablet)</li>
+              <li>✓ HVAC system and water heater</li>
+              <li>✓ Power tools and lawn equipment</li>
+              <li>✓ Furniture over $500</li>
+              <li>✓ Mattresses (surprisingly long warranties)</li>
+            </ul>
+          </div>
+
+          <h2 class="text-2xl font-bold text-white mt-12 mb-4">Step 3: Capture the Essential Information</h2>
+          
+          <p class="text-gray-300 mb-6">
+            For each item worth tracking, you need just five pieces of information:
+          </p>
+
+          <ol class="text-gray-300 mb-6 space-y-2">
+            <li><strong class="text-white">1. What it is</strong> — Product name, brand, model number</li>
+            <li><strong class="text-white">2. When you bought it</strong> — Purchase date</li>
+            <li><strong class="text-white">3. Where you bought it</strong> — Retailer name</li>
+            <li><strong class="text-white">4. How long the warranty lasts</strong> — Expiration date</li>
+            <li><strong class="text-white">5. Proof</strong> — Receipt photo or document</li>
+          </ol>
+
+          <p class="text-gray-300 mb-6">
+            The model number is crucial—manufacturers often need it to verify coverage. It's usually on a sticker on the back or bottom of the product.
+          </p>
+
+          <h2 class="text-2xl font-bold text-white mt-12 mb-4">Step 4: Choose Your Storage Method</h2>
+          
+          <p class="text-gray-300 mb-6">
+            The best method is one you'll actually use. Options include:
+          </p>
+
+          <h3 class="text-xl font-semibold text-white mt-8 mb-3">Digital-First Approach (Recommended)</h3>
+          <p class="text-gray-300 mb-6">
+            Take photos of receipts immediately after purchase. Store them in a cloud folder (Google Drive, iCloud, Dropbox) organized by year or category. Use a notes app or dedicated warranty tracker to log expiration dates.
+          </p>
+          <p class="text-gray-300 mb-6">
+            <strong class="text-white">Pros:</strong> Searchable, accessible anywhere, won't fade or get lost<br />
+            <strong class="text-white">Cons:</strong> Requires building the habit of immediate capture
+          </p>
+
+          <h3 class="text-xl font-semibold text-white mt-8 mb-3">Hybrid Approach</h3>
+          <p class="text-gray-300 mb-6">
+            Keep physical receipts in a single accordion folder, organized by room or category. Maintain a simple digital list of what's covered and when it expires.
+          </p>
+          <p class="text-gray-300 mb-6">
+            <strong class="text-white">Pros:</strong> Satisfies paper-lovers, backup exists<br />
+            <strong class="text-white">Cons:</strong> Two systems to maintain
+          </p>
+
+          <h2 class="text-2xl font-bold text-white mt-12 mb-4">Step 5: Set Up Expiration Alerts</h2>
+          
+          <p class="text-gray-300 mb-6">
+            This is where most systems fail. You track the warranty but forget about it until three months after it expires. Build in reminders:
+          </p>
+
+          <ul class="text-gray-300 mb-6 space-y-2">
+            <li>Calendar reminders 30 days before major warranties expire</li>
+            <li>A quarterly review reminder to check upcoming expirations</li>
+            <li>Or use an app that handles reminders automatically</li>
+          </ul>
+
+          <p class="text-gray-300 mb-6">
+            The reminder isn't just about making a claim—it's also a chance to inspect the item for issues while you're still covered.
+          </p>
+
+          <h2 class="text-2xl font-bold text-white mt-12 mb-4">Step 6: Build the Habit for New Purchases</h2>
+          
+          <p class="text-gray-300 mb-6">
+            The ongoing system is more important than the initial cleanup. Create a simple routine for new purchases:
+          </p>
+
+          <div class="bg-gray-800 rounded-xl p-6 my-8 border border-gray-700">
+            <h4 class="font-bold text-white mb-3">New Purchase Routine (2 minutes)</h4>
+            <ol class="text-gray-300 space-y-2 mb-0">
+              <li>1. Unbox the item</li>
+              <li>2. Photograph the receipt before it fades</li>
+              <li>3. Photograph the model/serial number sticker</li>
+              <li>4. Log it in your tracking system</li>
+              <li>5. Set a reminder for 30 days before expiration</li>
+            </ol>
+          </div>
+
+          <p class="text-gray-300 mb-6">
+            Do this while you still have the packaging out. It takes two minutes and can save you hundreds.
+          </p>
+
+          <h2 class="text-2xl font-bold text-white mt-12 mb-4">Step 7: Know What Makes a Valid Claim</h2>
+          
+          <p class="text-gray-300 mb-6">
+            Even with perfect organization, you need to understand what warranties actually cover:
+          </p>
+
+          <ul class="text-gray-300 mb-6 space-y-2">
+            <li><strong class="text-white">Manufacturing defects</strong> — Usually covered</li>
+            <li><strong class="text-white">Normal wear and tear</strong> — Usually NOT covered</li>
+            <li><strong class="text-white">Accidental damage</strong> — Usually NOT covered (unless you have protection plan)</li>
+            <li><strong class="text-white">Commercial use of consumer products</strong> — Often voids warranty</li>
+          </ul>
+
+          <p class="text-gray-300 mb-6">
+            Read the warranty terms when you first log the item so you know what to expect.
+          </p>
+
+          <h2 class="text-2xl font-bold text-white mt-12 mb-4">The 15-Minute Weekly Maintenance</h2>
+          
+          <p class="text-gray-300 mb-6">
+            Once your system is set up, maintaining it is minimal:
+          </p>
+
+          <ul class="text-gray-300 mb-6 space-y-2">
+            <li>Process any new purchases from the week (5 min)</li>
+            <li>Check for upcoming expirations (2 min)</li>
+            <li>File any email receipts that came in (3 min)</li>
+          </ul>
+
+          <p class="text-gray-300 mb-6">
+            That's it. Fifteen minutes a week protects thousands of dollars in purchases.
+          </p>
+
+          <div class="bg-gradient-to-br from-primary/20 to-secondary/20 rounded-xl p-8 mt-12 border border-primary/30">
+            <h3 class="text-xl font-bold text-white mb-4">Start Today, Not Tomorrow</h3>
+            <p class="text-gray-300 mb-0">
+              The best warranty system is one that exists. Start with your five most expensive items today. You can perfect the system later—but those warranties are counting down right now.
+            </p>
+          </div>
+
+        </div>
+      </div>
+    </article>
+
+    <CTA />
+  </main>
+  <Footer />
+</Layout>

@@ -1,0 +1,60 @@
+<svg width="1200" height="630" viewBox="0 0 1200 630" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background gradient -->
+  <rect width="1200" height="630" fill="#111827"/>
+  <defs>
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="1200" y2="630" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#111827"/>
+      <stop offset="50%" stop-color="#1F2937"/>
+      <stop offset="100%" stop-color="#111827"/>
+    </linearGradient>
+    <linearGradient id="brandGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#6366F1"/>
+      <stop offset="100%" stop-color="#8B5CF6"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bgGrad)"/>
+  
+  <!-- Decorative circles -->
+  <circle cx="100" cy="530" r="200" fill="#6366F1" fill-opacity="0.1"/>
+  <circle cx="1100" cy="100" r="250" fill="#8B5CF6" fill-opacity="0.1"/>
+  
+  <!-- Logo icon (simplified shield + house) -->
+  <g transform="translate(100, 215)">
+    <!-- Shield outline -->
+    <path d="M50 10 L90 30 L90 70 C90 100 70 130 50 145 C30 130 10 100 10 70 L10 30 Z" 
+          stroke="url(#brandGrad)" stroke-width="4" fill="none"/>
+    <!-- House inside -->
+    <path d="M50 45 L30 60 L30 85 L45 85 L45 70 L55 70 L55 85 L70 85 L70 60 Z" 
+          fill="url(#brandGrad)"/>
+    <!-- Checkmark -->
+    <path d="M35 65 L45 75 L65 55" stroke="#10B981" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  </g>
+  
+  <!-- Brand name -->
+  <text x="210" y="290" font-family="system-ui, -apple-system, sans-serif" font-size="72" font-weight="700" fill="white">HavenKeep</text>
+  
+  <!-- Tagline -->
+  <text x="100" y="380" font-family="system-ui, -apple-system, sans-serif" font-size="36" fill="#9CA3AF">Never lose money on forgotten warranties</text>
+  
+  <!-- Stats bar -->
+  <g transform="translate(100, 450)">
+    <rect width="300" height="80" rx="12" fill="#1F2937" stroke="#374151" stroke-width="1"/>
+    <text x="150" y="35" text-anchor="middle" font-family="system-ui, sans-serif" font-size="28" font-weight="600" fill="#10B981">$16B</text>
+    <text x="150" y="60" text-anchor="middle" font-family="system-ui, sans-serif" font-size="14" fill="#9CA3AF">Lost annually on warranties</text>
+  </g>
+  
+  <g transform="translate(420, 450)">
+    <rect width="300" height="80" rx="12" fill="#1F2937" stroke="#374151" stroke-width="1"/>
+    <text x="150" y="35" text-anchor="middle" font-family="system-ui, sans-serif" font-size="28" font-weight="600" fill="#6366F1">$24/yr</text>
+    <text x="150" y="60" text-anchor="middle" font-family="system-ui, sans-serif" font-size="14" fill="#9CA3AF">Protect unlimited items</text>
+  </g>
+  
+  <g transform="translate(740, 450)">
+    <rect width="300" height="80" rx="12" fill="#1F2937" stroke="#374151" stroke-width="1"/>
+    <text x="150" y="35" text-anchor="middle" font-family="system-ui, sans-serif" font-size="28" font-weight="600" fill="#8B5CF6">14x</text>
+    <text x="150" y="60" text-anchor="middle" font-family="system-ui, sans-serif" font-size="14" fill="#9CA3AF">Average ROI</text>
+  </g>
+  
+  <!-- Domain -->
+  <text x="1100" y="590" text-anchor="end" font-family="system-ui, sans-serif" font-size="24" fill="#6B7280">havenkeep.com</text>
+</svg>

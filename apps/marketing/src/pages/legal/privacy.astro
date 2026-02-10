@@ -1,46 +1,49 @@
 ---
 import Layout from '../../layouts/Layout.astro';
+import Navigation from '../../components/Navigation.astro';
+import Footer from '../../components/Footer.astro';
 ---
 
 <Layout title="Privacy Policy - HavenKeep">
-  <div class="max-w-4xl mx-auto px-4 py-16">
-    <h1 class="text-4xl font-bold text-gray-900 mb-8">Privacy Policy</h1>
+  <Navigation />
+  <div class="max-w-4xl mx-auto px-4 py-16 pt-28">
+    <h1 class="text-4xl font-bold text-white mb-8">Privacy Policy</h1>
     
-    <p class="text-gray-600 mb-8">
+    <p class="text-gray-400 mb-8">
       <strong>Last Updated:</strong> {new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
     </p>
 
-    <div class="prose prose-lg max-w-none">
+    <div class="prose prose-lg prose-invert max-w-none">
       <section class="mb-12">
-        <h2 class="text-2xl font-bold text-gray-900 mb-4">1. Introduction</h2>
-        <p class="text-gray-700 leading-relaxed mb-4">
-          Welcome to HavenKeep ("we," "our," or "us"). We respect your privacy and are committed to protecting your personal data. This privacy policy explains how we collect, use, and safeguard your information when you use our warranty tracking application.
+        <h2 class="text-2xl font-bold text-white mb-4">1. Introduction</h2>
+        <p class="text-gray-300 leading-relaxed mb-4">
+          Welcome to HavenKeep (&ldquo;we,&rdquo; &ldquo;our,&rdquo; or &ldquo;us&rdquo;). We respect your privacy and are committed to protecting your personal data. This privacy policy explains how we collect, use, and safeguard your information when you use our warranty tracking application.
         </p>
       </section>
 
       <section class="mb-12">
-        <h2 class="text-2xl font-bold text-gray-900 mb-4">2. Information We Collect</h2>
+        <h2 class="text-2xl font-bold text-white mb-4">2. Information We Collect</h2>
         
-        <h3 class="text-xl font-semibold text-gray-900 mb-3">2.1 Information You Provide</h3>
-        <ul class="list-disc pl-6 text-gray-700 space-y-2 mb-4">
-          <li><strong>Account Information:</strong> Email address, name, password</li>
-          <li><strong>Item Information:</strong> Product details, purchase dates, warranty information</li>
-          <li><strong>Documents:</strong> Receipts, warranty cards, product photos you choose to upload</li>
-          <li><strong>Payment Information:</strong> Credit card details (processed securely by Stripe, we never store full card numbers)</li>
+        <h3 class="text-xl font-semibold text-white mb-3">2.1 Information You Provide</h3>
+        <ul class="list-disc pl-6 text-gray-300 space-y-2 mb-4">
+          <li><strong class="text-gray-100">Account Information:</strong> Email address, name, password</li>
+          <li><strong class="text-gray-100">Item Information:</strong> Product details, purchase dates, warranty information</li>
+          <li><strong class="text-gray-100">Documents:</strong> Receipts, warranty cards, product photos you choose to upload</li>
+          <li><strong class="text-gray-100">Payment Information:</strong> Credit card details (processed securely by Stripe, we never store full card numbers)</li>
         </ul>
 
-        <h3 class="text-xl font-semibold text-gray-900 mb-3">2.2 Automatically Collected Information</h3>
-        <ul class="list-disc pl-6 text-gray-700 space-y-2 mb-4">
-          <li><strong>Usage Data:</strong> How you interact with our app, features used, time spent</li>
-          <li><strong>Device Information:</strong> Device type, operating system, app version</li>
-          <li><strong>Log Data:</strong> IP address, access times, error logs</li>
+        <h3 class="text-xl font-semibold text-white mb-3">2.2 Automatically Collected Information</h3>
+        <ul class="list-disc pl-6 text-gray-300 space-y-2 mb-4">
+          <li><strong class="text-gray-100">Usage Data:</strong> How you interact with our app, features used, time spent</li>
+          <li><strong class="text-gray-100">Device Information:</strong> Device type, operating system, app version</li>
+          <li><strong class="text-gray-100">Log Data:</strong> IP address, access times, error logs</li>
         </ul>
       </section>
 
       <section class="mb-12">
-        <h2 class="text-2xl font-bold text-gray-900 mb-4">3. How We Use Your Information</h2>
-        <p class="text-gray-700 leading-relaxed mb-4">We use your information to:</p>
-        <ul class="list-disc pl-6 text-gray-700 space-y-2 mb-4">
+        <h2 class="text-2xl font-bold text-white mb-4">3. How We Use Your Information</h2>
+        <p class="text-gray-300 leading-relaxed mb-4">We use your information to:</p>
+        <ul class="list-disc pl-6 text-gray-300 space-y-2 mb-4">
           <li>Provide and maintain our warranty tracking service</li>
           <li>Send warranty expiration reminders and notifications</li>
           <li>Process your payments and manage your subscription</li>
@@ -52,100 +55,87 @@ import Layout from '../../layouts/Layout.astro';
       </section>
 
       <section class="mb-12">
-        <h2 class="text-2xl font-bold text-gray-900 mb-4">4. Data Storage and Security</h2>
-        <p class="text-gray-700 leading-relaxed mb-4">
-          We take data security seriously:
-        </p>
-        <ul class="list-disc pl-6 text-gray-700 space-y-2 mb-4">
-          <li><strong>Encryption:</strong> All data is encrypted in transit (TLS 1.3) and at rest (AES-256)</li>
-          <li><strong>Secure Infrastructure:</strong> We use Supabase (built on PostgreSQL) with industry-standard security practices</li>
-          <li><strong>Access Control:</strong> Row-level security ensures users can only access their own data</li>
-          <li><strong>Regular Backups:</strong> Daily automated backups for data recovery</li>
-          <li><strong>No Third-Party Sharing:</strong> We never sell your data to third parties</li>
+        <h2 class="text-2xl font-bold text-white mb-4">4. Data Storage and Security</h2>
+        <p class="text-gray-300 leading-relaxed mb-4">We take data security seriously:</p>
+        <ul class="list-disc pl-6 text-gray-300 space-y-2 mb-4">
+          <li><strong class="text-gray-100">Encryption:</strong> All data is encrypted in transit (TLS 1.3) and at rest (AES-256)</li>
+          <li><strong class="text-gray-100">Secure Infrastructure:</strong> Industry-standard security practices with PostgreSQL</li>
+          <li><strong class="text-gray-100">Access Control:</strong> Row-level security ensures users can only access their own data</li>
+          <li><strong class="text-gray-100">Regular Backups:</strong> Daily automated backups for data recovery</li>
+          <li><strong class="text-gray-100">No Third-Party Sharing:</strong> We never sell your data to third parties</li>
         </ul>
       </section>
 
       <section class="mb-12">
-        <h2 class="text-2xl font-bold text-gray-900 mb-4">5. Data Sharing and Disclosure</h2>
-        <p class="text-gray-700 leading-relaxed mb-4">
-          We only share your data in these limited circumstances:
-        </p>
-        <ul class="list-disc pl-6 text-gray-700 space-y-2 mb-4">
-          <li><strong>Service Providers:</strong> Trusted partners who help us operate our service (e.g., Stripe for payments, Supabase for infrastructure)</li>
-          <li><strong>Legal Requirements:</strong> When required by law or to protect our rights</li>
-          <li><strong>Business Transfers:</strong> In the event of a merger or acquisition (you will be notified)</li>
-          <li><strong>With Your Consent:</strong> Any other sharing will require your explicit permission</li>
+        <h2 class="text-2xl font-bold text-white mb-4">5. Data Sharing and Disclosure</h2>
+        <p class="text-gray-300 leading-relaxed mb-4">We only share your data in these limited circumstances:</p>
+        <ul class="list-disc pl-6 text-gray-300 space-y-2 mb-4">
+          <li><strong class="text-gray-100">Service Providers:</strong> Trusted partners who help us operate our service (e.g., Stripe for payments)</li>
+          <li><strong class="text-gray-100">Legal Requirements:</strong> When required by law or to protect our rights</li>
+          <li><strong class="text-gray-100">Business Transfers:</strong> In the event of a merger or acquisition (you will be notified)</li>
+          <li><strong class="text-gray-100">With Your Consent:</strong> Any other sharing will require your explicit permission</li>
         </ul>
       </section>
 
       <section class="mb-12">
-        <h2 class="text-2xl font-bold text-gray-900 mb-4">6. Your Rights</h2>
-        <p class="text-gray-700 leading-relaxed mb-4">You have the right to:</p>
-        <ul class="list-disc pl-6 text-gray-700 space-y-2 mb-4">
-          <li><strong>Access:</strong> Request a copy of your personal data</li>
-          <li><strong>Correction:</strong> Update or correct your information</li>
-          <li><strong>Deletion:</strong> Request deletion of your account and data</li>
-          <li><strong>Export:</strong> Download your data in a portable format</li>
-          <li><strong>Opt-Out:</strong> Unsubscribe from marketing emails</li>
-          <li><strong>Restrict Processing:</strong> Limit how we use your data</li>
+        <h2 class="text-2xl font-bold text-white mb-4">6. Your Rights</h2>
+        <p class="text-gray-300 leading-relaxed mb-4">You have the right to:</p>
+        <ul class="list-disc pl-6 text-gray-300 space-y-2 mb-4">
+          <li><strong class="text-gray-100">Access:</strong> Request a copy of your personal data</li>
+          <li><strong class="text-gray-100">Correction:</strong> Update or correct your information</li>
+          <li><strong class="text-gray-100">Deletion:</strong> Request deletion of your account and data</li>
+          <li><strong class="text-gray-100">Export:</strong> Download your data in a portable format</li>
+          <li><strong class="text-gray-100">Opt-Out:</strong> Unsubscribe from marketing emails</li>
+          <li><strong class="text-gray-100">Restrict Processing:</strong> Limit how we use your data</li>
         </ul>
-        <p class="text-gray-700 leading-relaxed mb-4">
-          To exercise these rights, contact us at <a href="mailto:privacy@havenkeep.com" class="text-primary-600 hover:underline">privacy@havenkeep.com</a>
+        <p class="text-gray-300 leading-relaxed mb-4">
+          To exercise these rights, contact us at <a href="mailto:privacy@havenkeep.com" class="text-primary hover:underline">privacy@havenkeep.com</a>
         </p>
       </section>
 
       <section class="mb-12">
-        <h2 class="text-2xl font-bold text-gray-900 mb-4">7. Data Retention</h2>
-        <p class="text-gray-700 leading-relaxed mb-4">
-          We retain your data for as long as your account is active. If you delete your account, we will delete your personal data within 30 days, except where we're required to retain it for legal purposes.
+        <h2 class="text-2xl font-bold text-white mb-4">7. Data Retention</h2>
+        <p class="text-gray-300 leading-relaxed mb-4">
+          We retain your data for as long as your account is active. If you delete your account, we will delete your personal data within 30 days, except where we are required to retain it for legal purposes.
         </p>
       </section>
 
       <section class="mb-12">
-        <h2 class="text-2xl font-bold text-gray-900 mb-4">8. Children's Privacy</h2>
-        <p class="text-gray-700 leading-relaxed mb-4">
+        <h2 class="text-2xl font-bold text-white mb-4">8. Children&apos;s Privacy</h2>
+        <p class="text-gray-300 leading-relaxed mb-4">
           Our service is not intended for children under 13. We do not knowingly collect data from children. If you believe we have inadvertently collected data from a child, please contact us immediately.
         </p>
       </section>
 
       <section class="mb-12">
-        <h2 class="text-2xl font-bold text-gray-900 mb-4">9. International Data Transfers</h2>
-        <p class="text-gray-700 leading-relaxed mb-4">
+        <h2 class="text-2xl font-bold text-white mb-4">9. International Data Transfers</h2>
+        <p class="text-gray-300 leading-relaxed mb-4">
           Your data may be transferred to and processed in countries other than your own. We ensure appropriate safeguards are in place to protect your data in accordance with this privacy policy.
         </p>
       </section>
 
       <section class="mb-12">
-        <h2 class="text-2xl font-bold text-gray-900 mb-4">10. Changes to This Policy</h2>
-        <p class="text-gray-700 leading-relaxed mb-4">
+        <h2 class="text-2xl font-bold text-white mb-4">10. Changes to This Policy</h2>
+        <p class="text-gray-300 leading-relaxed mb-4">
           We may update this privacy policy from time to time. We will notify you of significant changes via email or in-app notification. Continued use of the service after changes constitutes acceptance of the updated policy.
         </p>
       </section>
 
       <section class="mb-12">
-        <h2 class="text-2xl font-bold text-gray-900 mb-4">11. Contact Us</h2>
-        <p class="text-gray-700 leading-relaxed mb-4">
+        <h2 class="text-2xl font-bold text-white mb-4">11. Contact Us</h2>
+        <p class="text-gray-300 leading-relaxed mb-4">
           If you have questions about this privacy policy or our data practices, please contact us:
         </p>
-        <ul class="list-none text-gray-700 space-y-2">
-          <li><strong>Email:</strong> <a href="mailto:privacy@havenkeep.com" class="text-primary-600 hover:underline">privacy@havenkeep.com</a></li>
-          <li><strong>Support:</strong> <a href="mailto:support@havenkeep.com" class="text-primary-600 hover:underline">support@havenkeep.com</a></li>
+        <ul class="list-none text-gray-300 space-y-2">
+          <li><strong class="text-gray-100">Email:</strong> <a href="mailto:privacy@havenkeep.com" class="text-primary hover:underline">privacy@havenkeep.com</a></li>
+          <li><strong class="text-gray-100">Support:</strong> <a href="mailto:support@havenkeep.com" class="text-primary hover:underline">support@havenkeep.com</a></li>
         </ul>
       </section>
     </div>
 
-    <div class="mt-12 pt-8 border-t border-gray-200">
-      <a href="/" class="text-primary-600 hover:text-primary-700 font-medium">← Back to Home</a>
+    <div class="mt-12 pt-8 border-t border-gray-700">
+      <a href="/" class="text-primary hover:text-primary/80 font-medium">&larr; Back to Home</a>
     </div>
   </div>
+  <Footer />
 </Layout>
-
-<style>
-  .prose h2 {
-    margin-top: 2rem;
-  }
-  
-  .prose h3 {
-    margin-top: 1.5rem;
-  }
-</style>
