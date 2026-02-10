@@ -1,0 +1,124 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Navigation from '../components/Navigation.astro';
+import Pricing from '../components/Pricing.astro';
+import Footer from '../components/Footer.astro';
+---
+
+<Layout title="Pricing" description="Simple, transparent pricing for warranty tracking. Start free, upgrade when you need more">
+  <Navigation />
+  <main>
+    <!-- Hero Section -->
+    <section class="pt-32 pb-12 bg-gradient-to-b from-gray-900 to-gray-800">
+      <div class="container">
+        <div class="max-w-3xl mx-auto text-center">
+          <h1 class="text-5xl md:text-6xl font-bold text-white mb-6">
+            Simple, Transparent Pricing
+          </h1>
+          <p class="text-xl md:text-2xl text-gray-300">
+            Start free, upgrade when you need more power
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Pricing Component -->
+    <Pricing />
+
+    <!-- FAQ Section -->
+    <section id="faq" class="py-20 bg-gray-900">
+      <div class="container">
+        <div class="max-w-3xl mx-auto">
+          <h2 class="text-4xl font-bold text-white text-center mb-12">
+            Frequently Asked Questions
+          </h2>
+          
+          <div class="space-y-6">
+            <!-- FAQ 1 -->
+            <div class="border border-gray-700 rounded-lg p-6 bg-gray-800">
+              <h3 class="text-xl font-semibold text-white mb-2">
+                Can I switch plans anytime?
+              </h3>
+              <p class="text-gray-300">
+                Yes! You can upgrade, downgrade, or cancel your plan at any time. Changes take effect immediately, and we'll prorate any charges or credits.
+              </p>
+            </div>
+
+            <!-- FAQ 2 -->
+            <div class="border border-gray-700 rounded-lg p-6 bg-gray-800">
+              <h3 class="text-xl font-semibold text-white mb-2">
+                What happens to my data if I cancel?
+              </h3>
+              <p class="text-gray-300">
+                Your data is always yours. If you cancel, you can export all your warranties and receipts before your account closes. We keep your data for 30 days after cancellation in case you change your mind.
+              </p>
+            </div>
+
+            <!-- FAQ 3 -->
+            <div class="border border-gray-700 rounded-lg p-6 bg-gray-800">
+              <h3 class="text-xl font-semibold text-white mb-2">
+                Do you offer refunds?
+              </h3>
+              <p class="text-gray-300">
+                Yes! We offer a 30-day money-back guarantee on all paid plans. If you're not satisfied, we'll refund your payment, no questions asked.
+              </p>
+            </div>
+
+            <!-- FAQ 4 -->
+            <div class="border border-gray-700 rounded-lg p-6 bg-gray-800">
+              <h3 class="text-xl font-semibold text-white mb-2">
+                Is there a free trial for Premium?
+              </h3>
+              <p class="text-gray-300">
+                Absolutely! All new Premium subscriptions come with a 14-day free trial. No credit card required to start.
+              </p>
+            </div>
+
+            <!-- FAQ 5 -->
+            <div class="border border-gray-700 rounded-lg p-6 bg-gray-800">
+              <h3 class="text-xl font-semibold text-white mb-2">
+                Do you offer discounts for annual plans?
+              </h3>
+              <p class="text-gray-300">
+                Yes! Save 20% by choosing an annual plan instead of monthly. That's like getting 2 months free!
+              </p>
+            </div>
+
+            <!-- FAQ 6 -->
+            <div class="border border-gray-700 rounded-lg p-6 bg-gray-800">
+              <h3 class="text-xl font-semibold text-white mb-2">
+                Can I share my account with family?
+              </h3>
+              <p class="text-gray-300">
+                Premium accounts include support for up to 5 users. Perfect for families who want to share warranty tracking. We're also working on a Family plan - stay tuned!
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- CTA Section -->
+    <section class="py-20 bg-gradient-to-br from-primary to-secondary">
+      <div class="container">
+        <div class="max-w-3xl mx-auto text-center text-white">
+          <h2 class="text-4xl font-bold mb-6">
+            Still have questions?
+          </h2>
+          <p class="text-xl text-white/90 mb-8">
+            Our team is here to help. Get in touch with us anytime.
+          </p>
+          <div class="flex flex-col sm:flex-row gap-4 justify-center">
+            <a href="https://app.havenkeep.com/signup" class="bg-white text-primary hover:bg-gray-100 font-semibold py-4 px-8 rounded-lg transition-colors duration-200 text-lg">
+              Start Free Trial
+            </a>
+            <a href="/contact" class="bg-white/10 hover:bg-white/20 text-white border-2 border-white font-semibold py-4 px-8 rounded-lg transition-colors duration-200 text-lg">
+              Contact Sales
+            </a>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+  <Footer />
+</Layout>

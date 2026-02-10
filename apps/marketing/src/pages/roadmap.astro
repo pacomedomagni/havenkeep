@@ -1,0 +1,169 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Navigation from '../components/Navigation.astro';
+import Footer from '../components/Footer.astro';
+
+const roadmapItems = [
+  {
+    quarter: 'Q1 2026',
+    status: 'In Progress',
+    items: [
+      { title: 'Advanced OCR Improvements', description: 'Enhanced receipt scanning with support for handwritten notes', completed: false },
+      { title: 'Family Sharing', description: 'Share warranties with family members and manage household items together', completed: false },
+      { title: 'Insurance Integration', description: 'Direct integration with major insurance providers for claims', completed: false },
+    ]
+  },
+  {
+    quarter: 'Q2 2026',
+    status: 'Planned',
+    items: [
+      { title: 'Smart Home Integration', description: 'Connect with smart home devices for automated warranty tracking', completed: false },
+      { title: 'Warranty Marketplace', description: 'Buy and sell extended warranties directly in the app', completed: false },
+      { title: 'AI Purchase Recommendations', description: 'Get alerts when better warranty options are available', completed: false },
+    ]
+  },
+  {
+    quarter: 'Q3 2026',
+    status: 'Planned',
+    items: [
+      { title: 'Business Pro Plan', description: 'Advanced features for small businesses and professionals', completed: false },
+      { title: 'API Access', description: 'Developer API for custom integrations', completed: false },
+      { title: 'Warranty Concierge', description: 'Premium service to handle warranty claims for you', completed: false },
+    ]
+  },
+  {
+    quarter: 'Q4 2026',
+    status: 'Under Consideration',
+    items: [
+      { title: 'Blockchain Verification', description: 'Immutable proof of purchase using blockchain technology', completed: false },
+      { title: 'AR Item Scanning', description: 'Use augmented reality to identify and catalog items', completed: false },
+      { title: 'Global Expansion', description: 'Support for international warranties and currencies', completed: false },
+    ]
+  },
+];
+
+const recentlyCompleted = [
+  { title: 'Dark Mode', description: 'Beautiful dark theme across all platforms', date: 'January 2026' },
+  { title: 'Barcode Scanner Improvements', description: 'Faster and more accurate scanning', date: 'December 2025' },
+  { title: 'PDF Export', description: 'Export warranties to professional PDF reports', date: 'November 2025' },
+  { title: 'Smart Reminders', description: 'Intelligent notifications for expiring warranties', date: 'October 2025' },
+];
+---
+
+<Layout title="Roadmap" description="See what we're building next at HavenKeep. Vote on features and help shape the future of warranty tracking">
+  <Navigation />
+  <main>
+    <!-- Hero Section -->
+    <section class="pt-32 pb-20 bg-gradient-to-b from-gray-900 to-gray-800">
+      <div class="container">
+        <div class="max-w-4xl mx-auto text-center">
+          <h1 class="text-5xl md:text-6xl font-bold text-white mb-6">
+            Product Roadmap
+          </h1>
+          <p class="text-xl md:text-2xl text-gray-300 mb-8">
+            See what we're building and help shape the future of HavenKeep
+          </p>
+          <a href="mailto:feedback@havenkeep.com" class="inline-block bg-primary hover:bg-secondary text-white font-semibold py-3 px-6 rounded-lg transition-colors duration-200">
+            Suggest a Feature
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <!-- Recently Completed -->
+    <section class="py-12 bg-gray-900">
+      <div class="container">
+        <div class="max-w-5xl mx-auto">
+          <h2 class="text-3xl font-bold text-white mb-8">Recently Completed ✨</h2>
+          <div class="grid md:grid-cols-2 gap-6">
+            {recentlyCompleted.map((item) => (
+              <div class="border border-accent/30 rounded-lg p-6 bg-accent/5">
+                <div class="flex items-start gap-3 mb-3">
+                  <svg class="w-6 h-6 text-accent flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+                  </svg>
+                  <div class="flex-1">
+                    <h3 class="text-lg font-semibold text-white mb-1">{item.title}</h3>
+                    <p class="text-gray-400 text-sm mb-2">{item.description}</p>
+                    <span class="text-accent text-xs font-medium">{item.date}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Roadmap Timeline -->
+    <section class="py-20 bg-gray-800">
+      <div class="container">
+        <div class="max-w-5xl mx-auto">
+          <h2 class="text-3xl font-bold text-white mb-12">What's Next</h2>
+          
+          <div class="space-y-12">
+            {roadmapItems.map((quarter, index) => (
+              <div>
+                <div class="flex items-center gap-4 mb-6">
+                  <h3 class="text-2xl font-bold text-white">{quarter.quarter}</h3>
+                  <span class={`px-3 py-1 rounded-full text-sm font-semibold ${
+                    quarter.status === 'In Progress' ? 'bg-primary/20 text-primary' :
+                    quarter.status === 'Planned' ? 'bg-secondary/20 text-secondary' :
+                    'bg-gray-700 text-gray-300'
+                  }`}>
+                    {quarter.status}
+                  </span>
+                </div>
+                
+                <div class="space-y-4">
+                  {quarter.items.map((item) => (
+                    <div class="border border-gray-700 rounded-lg p-6 bg-gray-900 hover:border-primary/50 transition-colors">
+                      <h4 class="text-xl font-semibold text-white mb-2">{item.title}</h4>
+                      <p class="text-gray-400">{item.description}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Feature Voting CTA -->
+    <section class="py-20 bg-gray-900">
+      <div class="container">
+        <div class="max-w-3xl mx-auto">
+          <div class="border border-gray-700 rounded-2xl p-8 md:p-12 bg-gray-800 text-center">
+            <h2 class="text-3xl font-bold text-white mb-4">
+              Your Voice Matters
+            </h2>
+            <p class="text-gray-300 text-lg mb-8">
+              Our roadmap is shaped by your feedback. Have an idea for a feature? We'd love to hear it!
+            </p>
+            <div class="flex flex-col sm:flex-row gap-4 justify-center">
+              <a href="mailto:feedback@havenkeep.com" class="bg-primary hover:bg-secondary text-white font-semibold py-4 px-8 rounded-lg transition-colors duration-200">
+                Submit Feature Request
+              </a>
+              <a href="/contact" class="bg-gray-700 hover:bg-gray-600 text-white font-semibold py-4 px-8 rounded-lg transition-colors duration-200">
+                Join Beta Program
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Transparency Note -->
+    <section class="py-12 bg-gray-800">
+      <div class="container">
+        <div class="max-w-4xl mx-auto text-center">
+          <p class="text-gray-400">
+            This roadmap represents our current plans and priorities. Timelines and features may change based on customer feedback, technical considerations, and business needs. We'll keep this page updated as plans evolve.
+          </p>
+        </div>
+      </div>
+    </section>
+  </main>
+  <Footer />
+</Layout>

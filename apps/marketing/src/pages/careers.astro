@@ -1,0 +1,274 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Navigation from '../components/Navigation.astro';
+import Footer from '../components/Footer.astro';
+
+const positions = [
+  {
+    title: 'Senior Full-Stack Engineer',
+    department: 'Engineering',
+    location: 'Remote (US/EU)',
+    type: 'Full-time',
+    description: 'Help us build the next generation of warranty tracking features with React Native, TypeScript, and Node.js'
+  },
+  {
+    title: 'Product Designer',
+    department: 'Design',
+    location: 'Remote (US/EU)',
+    type: 'Full-time',
+    description: 'Design delightful experiences that make warranty tracking simple and intuitive'
+  },
+  {
+    title: 'Customer Success Manager',
+    department: 'Customer Success',
+    location: 'Remote (US)',
+    type: 'Full-time',
+    description: 'Help our users get the most value from HavenKeep and become warranty organization experts'
+  },
+  {
+    title: 'Mobile Engineer (iOS)',
+    department: 'Engineering',
+    location: 'Remote (US/EU)',
+    type: 'Full-time',
+    description: 'Build native iOS features and optimize our mobile experience for iPhone and iPad'
+  },
+];
+
+const benefits = [
+  { icon: '💰', title: 'Competitive Salary', description: 'Top-of-market compensation with equity options' },
+  { icon: '🏥', title: 'Health Coverage', description: 'Comprehensive health, dental, and vision insurance' },
+  { icon: '🏖️', title: 'Unlimited PTO', description: 'Take the time you need to recharge' },
+  { icon: '💻', title: 'Remote First', description: 'Work from anywhere with flexible hours' },
+  { icon: '📚', title: 'Learning Budget', description: '$2000 annual budget for courses, books, and conferences' },
+  { icon: '🚀', title: 'Latest Tools', description: 'Top-tier equipment and software of your choice' },
+];
+
+const values = [
+  {
+    title: 'Customer Obsessed',
+    description: 'We start with the customer and work backwards. Every decision we make is guided by how it helps our users.'
+  },
+  {
+    title: 'Move Fast, Think Deep',
+    description: 'We ship quickly but think deeply about the problems we\'re solving. Speed without direction is just chaos.'
+  },
+  {
+    title: 'Own It',
+    description: 'We take ownership of our work and our mistakes. No blame, just learning and improving.'
+  },
+  {
+    title: 'Build for the Long Term',
+    description: 'We\'re building a company and product that will last. No shortcuts, no technical debt we can\'t pay back.'
+  },
+];
+---
+
+<Layout title="Careers" description="Join the HavenKeep team and help build the future of warranty tracking">
+  <Navigation />
+  <main>
+    <!-- Hero Section -->
+    <section class="pt-32 pb-20 bg-gradient-to-b from-gray-900 to-gray-800">
+      <div class="container">
+        <div class="max-w-4xl mx-auto text-center">
+          <h1 class="text-5xl md:text-6xl font-bold text-white mb-6">
+            Help Us Build the Future<br />
+            <span class="text-transparent bg-clip-text bg-gradient-to-r from-primary to-secondary">
+              of Warranty Tracking
+            </span>
+          </h1>
+          <p class="text-xl md:text-2xl text-gray-300 mb-8">
+            Join our team and make protecting purchases simple for millions
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Why Join Us -->
+    <section class="py-20 bg-gray-900">
+      <div class="container">
+        <div class="max-w-4xl mx-auto">
+          <h2 class="text-4xl font-bold text-white text-center mb-12">Why HavenKeep?</h2>
+          
+          <div class="prose prose-invert prose-lg max-w-none mb-12">
+            <p class="text-gray-300 text-lg text-center leading-relaxed">
+              We're a small, focused team solving a real problem that affects millions of people. Everyone loses warranties. Everyone wishes tracking them was easier. We're building the solution, and we need talented people who care about making everyday life simpler.
+            </p>
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-8">
+            {values.map((value) => (
+              <div class="border border-gray-700 rounded-lg p-6 bg-gray-800">
+                <h3 class="text-xl font-semibold text-white mb-3">{value.title}</h3>
+                <p class="text-gray-400">{value.description}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Benefits -->
+    <section class="py-20 bg-gray-800">
+      <div class="container">
+        <div class="max-w-5xl mx-auto">
+          <h2 class="text-4xl font-bold text-white text-center mb-12">Benefits & Perks</h2>
+          
+          <div class="grid md:grid-cols-3 gap-6">
+            {benefits.map((benefit) => (
+              <div class="border border-gray-700 rounded-lg p-6 bg-gray-900 text-center">
+                <div class="text-4xl mb-3">{benefit.icon}</div>
+                <h3 class="text-lg font-semibold text-white mb-2">{benefit.title}</h3>
+                <p class="text-gray-400 text-sm">{benefit.description}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Open Positions -->
+    <section class="py-20 bg-gray-900">
+      <div class="container">
+        <div class="max-w-4xl mx-auto">
+          <h2 class="text-4xl font-bold text-white text-center mb-12">Open Positions</h2>
+          
+          {positions.length > 0 ? (
+            <div class="space-y-4">
+              {positions.map((position) => (
+                <div class="border border-gray-700 rounded-lg p-6 bg-gray-800 hover:border-primary transition-colors">
+                  <div class="flex flex-col md:flex-row md:items-center md:justify-between mb-3">
+                    <h3 class="text-2xl font-bold text-white mb-2 md:mb-0">{position.title}</h3>
+                    <div class="flex gap-2">
+                      <span class="text-primary text-sm font-semibold px-3 py-1 rounded-full bg-primary/10">
+                        {position.department}
+                      </span>
+                    </div>
+                  </div>
+                  <p class="text-gray-400 mb-4">{position.description}</p>
+                  <div class="flex flex-wrap gap-4 items-center justify-between">
+                    <div class="flex gap-4 text-sm text-gray-500">
+                      <span class="flex items-center gap-1">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                        {position.location}
+                      </span>
+                      <span class="flex items-center gap-1">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        {position.type}
+                      </span>
+                    </div>
+                    <a href={`mailto:careers@havenkeep.com?subject=Application for ${position.title}`} class="bg-primary hover:bg-secondary text-white font-semibold py-2 px-6 rounded-lg transition-colors duration-200">
+                      Apply Now
+                    </a>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div class="text-center py-12">
+              <p class="text-gray-400 text-lg mb-6">
+                We don't have any open positions at the moment, but we're always looking for talented people.
+              </p>
+              <a href="mailto:careers@havenkeep.com" class="inline-block text-primary hover:text-secondary font-semibold">
+                Send us your resume anyway →
+              </a>
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+
+    <!-- Hiring Process -->
+    <section class="py-20 bg-gray-800">
+      <div class="container">
+        <div class="max-w-4xl mx-auto">
+          <h2 class="text-4xl font-bold text-white text-center mb-12">Our Hiring Process</h2>
+          
+          <div class="space-y-6">
+            <div class="flex gap-6">
+              <div class="flex-shrink-0 w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center">
+                <span class="text-primary font-bold text-lg">1</span>
+              </div>
+              <div>
+                <h3 class="text-xl font-semibold text-white mb-2">Apply</h3>
+                <p class="text-gray-400">
+                  Send us your resume and a note about why you're interested. We read every application.
+                </p>
+              </div>
+            </div>
+
+            <div class="flex gap-6">
+              <div class="flex-shrink-0 w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center">
+                <span class="text-primary font-bold text-lg">2</span>
+              </div>
+              <div>
+                <h3 class="text-xl font-semibold text-white mb-2">Initial Call</h3>
+                <p class="text-gray-400">
+                  30-minute chat to get to know each other and discuss the role.
+                </p>
+              </div>
+            </div>
+
+            <div class="flex gap-6">
+              <div class="flex-shrink-0 w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center">
+                <span class="text-primary font-bold text-lg">3</span>
+              </div>
+              <div>
+                <h3 class="text-xl font-semibold text-white mb-2">Technical/Skills Assessment</h3>
+                <p class="text-gray-400">
+                  A practical exercise relevant to the role. We value your time and keep it focused.
+                </p>
+              </div>
+            </div>
+
+            <div class="flex gap-6">
+              <div class="flex-shrink-0 w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center">
+                <span class="text-primary font-bold text-lg">4</span>
+              </div>
+              <div>
+                <h3 class="text-xl font-semibold text-white mb-2">Team Interviews</h3>
+                <p class="text-gray-400">
+                  Meet the team you'll be working with. This is as much for you to interview us as for us to interview you.
+                </p>
+              </div>
+            </div>
+
+            <div class="flex gap-6">
+              <div class="flex-shrink-0 w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center">
+                <span class="text-primary font-bold text-lg">5</span>
+              </div>
+              <div>
+                <h3 class="text-xl font-semibold text-white mb-2">Offer</h3>
+                <p class="text-gray-400">
+                  If it's a match, we'll move quickly with a competitive offer. Welcome to HavenKeep!
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- CTA -->
+    <section class="py-20 bg-gradient-to-br from-primary to-secondary">
+      <div class="container">
+        <div class="max-w-3xl mx-auto text-center text-white">
+          <h2 class="text-4xl font-bold mb-6">
+            Ready to make an impact?
+          </h2>
+          <p class="text-xl text-white/90 mb-8">
+            Join us in building something people love
+          </p>
+          <a href="mailto:careers@havenkeep.com" class="inline-block bg-white text-primary hover:bg-gray-100 font-semibold py-4 px-8 rounded-lg transition-colors duration-200 text-lg">
+            Get in Touch
+          </a>
+        </div>
+      </div>
+    </section>
+  </main>
+  <Footer />
+</Layout>

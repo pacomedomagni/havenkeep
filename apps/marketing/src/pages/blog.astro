@@ -1,0 +1,155 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Navigation from '../components/Navigation.astro';
+import Footer from '../components/Footer.astro';
+
+const posts = [
+  {
+    title: '10 Warranties You Should Never Ignore',
+    excerpt: 'Not all warranties are created equal. Here are the ones that can save you thousands of dollars.',
+    date: 'February 8, 2026',
+    category: 'Tips',
+    slug: 'warranties-you-should-never-ignore',
+    image: '📋'
+  },
+  {
+    title: 'How to Organize Your Home Warranties Like a Pro',
+    excerpt: 'Transform warranty chaos into peace of mind with these simple organizational strategies.',
+    date: 'February 5, 2026',
+    category: 'Guides',
+    slug: 'organize-home-warranties',
+    image: '🏠'
+  },
+  {
+    title: 'The True Cost of Lost Warranties',
+    excerpt: 'Americans lose over $1 billion annually from expired or lost warranties. Here\'s how to avoid becoming a statistic.',
+    date: 'February 1, 2026',
+    category: 'Research',
+    slug: 'cost-of-lost-warranties',
+    image: '💰'
+  },
+  {
+    title: 'Extended Warranties: Worth It or Waste of Money?',
+    excerpt: 'We analyzed 500+ extended warranty claims to find out which ones are actually valuable.',
+    date: 'January 28, 2026',
+    category: 'Analysis',
+    slug: 'extended-warranties-worth-it',
+    image: '🔍'
+  },
+  {
+    title: 'OCR Technology Explained: How Receipt Scanning Works',
+    excerpt: 'A behind-the-scenes look at the AI technology that makes receipt scanning possible.',
+    date: 'January 25, 2026',
+    category: 'Technology',
+    slug: 'ocr-technology-explained',
+    image: '🤖'
+  },
+  {
+    title: 'Your Warranty Rights: What Manufacturers Don\'t Tell You',
+    excerpt: 'Consumer protections that go beyond the written warranty. Know your rights.',
+    date: 'January 20, 2026',
+    category: 'Legal',
+    slug: 'warranty-rights',
+    image: '⚖️'
+  },
+];
+---
+
+<Layout title="Blog" description="Tips, guides, and insights about warranty tracking, consumer rights, and protecting your purchases">
+  <Navigation />
+  <main>
+    <!-- Hero Section -->
+    <section class="pt-32 pb-20 bg-gradient-to-b from-gray-900 to-gray-800">
+      <div class="container">
+        <div class="max-w-4xl mx-auto text-center">
+          <h1 class="text-5xl md:text-6xl font-bold text-white mb-6">
+            HavenKeep Blog
+          </h1>
+          <p class="text-xl md:text-2xl text-gray-300">
+            Tips, guides, and insights to help you protect your purchases
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Featured Post -->
+    <section class="py-12 bg-gray-900">
+      <div class="container">
+        <div class="max-w-5xl mx-auto">
+          <div class="bg-gradient-to-br from-primary to-secondary rounded-2xl p-8 md:p-12">
+            <div class="flex items-center gap-3 mb-4">
+              <span class="bg-white/20 text-white text-sm font-semibold px-3 py-1 rounded-full">Featured</span>
+              <span class="text-white/80 text-sm">{posts[0].date}</span>
+            </div>
+            <h2 class="text-3xl md:text-4xl font-bold text-white mb-4">
+              {posts[0].title}
+            </h2>
+            <p class="text-white/90 text-lg mb-6">
+              {posts[0].excerpt}
+            </p>
+            <a href={`/blog/${posts[0].slug}`} class="inline-block bg-white text-primary hover:bg-gray-100 font-semibold py-3 px-6 rounded-lg transition-colors duration-200">
+              Read Article
+            </a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- All Posts -->
+    <section class="py-20 bg-gray-900">
+      <div class="container">
+        <div class="max-w-5xl mx-auto">
+          <h2 class="text-3xl font-bold text-white mb-8">Latest Articles</h2>
+          
+          <div class="grid md:grid-cols-2 gap-8">
+            {posts.slice(1).map((post) => (
+              <article class="border border-gray-700 rounded-xl p-6 bg-gray-800 hover:border-primary transition-colors duration-200">
+                <div class="text-5xl mb-4">{post.image}</div>
+                <div class="flex items-center gap-3 mb-3">
+                  <span class="text-primary text-sm font-semibold">{post.category}</span>
+                  <span class="text-gray-500 text-sm">{post.date}</span>
+                </div>
+                <h3 class="text-xl font-bold text-white mb-3">
+                  {post.title}
+                </h3>
+                <p class="text-gray-400 mb-4">
+                  {post.excerpt}
+                </p>
+                <a href={`/blog/${post.slug}`} class="text-primary hover:text-secondary font-semibold inline-flex items-center gap-2">
+                  Read more
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                  </svg>
+                </a>
+              </article>
+            ))}
+          </div>
+
+          <!-- Newsletter Signup -->
+          <div class="mt-16 border border-gray-700 rounded-xl p-8 bg-gray-800 text-center">
+            <h3 class="text-2xl font-bold text-white mb-4">
+              Never miss an update
+            </h3>
+            <p class="text-gray-300 mb-6">
+              Get the latest warranty tips and product updates delivered to your inbox
+            </p>
+            <form class="max-w-md mx-auto flex gap-3">
+              <input
+                type="email"
+                placeholder="Enter your email"
+                class="flex-1 px-4 py-3 rounded-lg bg-gray-900 border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:border-primary"
+              />
+              <button
+                type="submit"
+                class="bg-primary hover:bg-secondary text-white font-semibold px-6 py-3 rounded-lg transition-colors duration-200"
+              >
+                Subscribe
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+  <Footer />
+</Layout>
