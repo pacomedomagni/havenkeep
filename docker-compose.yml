@@ -1,0 +1,122 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: havenkeep-postgres
+    environment:
+      POSTGRES_USER: havenkeep
+      POSTGRES_PASSWORD: havenkeep_dev_password
+      POSTGRES_DB: havenkeep
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./apps/api/src/db/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U havenkeep"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - havenkeep
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: havenkeep-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - havenkeep
+
+  # API Server
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: havenkeep-api
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      DATABASE_URL: postgresql://havenkeep:havenkeep_dev_password@postgres:5432/havenkeep
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: havenkeep
+      DB_USER: havenkeep
+      DB_PASSWORD: havenkeep_dev_password
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: dev_jwt_secret_change_in_production
+      REFRESH_TOKEN_SECRET: dev_refresh_secret_change_in_production
+      CORS_ORIGINS: http://localhost:3001,http://localhost:4321
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./apps/api:/app/apps/api
+      - /app/apps/api/node_modules
+      - /app/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - havenkeep
+
+  # Marketing Site (Astro)
+  marketing:
+    build:
+      context: .
+      dockerfile: apps/marketing/Dockerfile
+    container_name: havenkeep-marketing
+    environment:
+      NODE_ENV: development
+      HOST: 0.0.0.0
+    ports:
+      - "4321:4321"
+    volumes:
+      - ./apps/marketing:/app/apps/marketing
+      - /app/apps/marketing/node_modules
+      - /app/node_modules
+    networks:
+      - havenkeep
+
+  # Partner Dashboard (Next.js)
+  partner-dashboard:
+    build:
+      context: .
+      dockerfile: apps/partner-dashboard/Dockerfile
+    container_name: havenkeep-partner-dashboard
+    environment:
+      NODE_ENV: development
+      NEXT_PUBLIC_API_URL: http://localhost:3000
+      # Supabase (optional - using local PostgreSQL for now)
+      NEXT_PUBLIC_SUPABASE_URL: http://localhost:54321
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZXYiLCJyb2xlIjoiYW5vbiIsImlhdCI6MTY0MTc2OTIwMCwiZXhwIjoxOTU3MzQ1MjAwfQ.dc_X5iR_VP_qT0zsiyj_I_OZ2T9FtRU2BBNWN8Bu4GE
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./apps/partner-dashboard:/app/apps/partner-dashboard
+      - /app/apps/partner-dashboard/node_modules
+      - /app/apps/partner-dashboard/.next
+      - /app/node_modules
+    depends_on:
+      - api
+    networks:
+      - havenkeep
+
+networks:
+  havenkeep:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
