@@ -5,6 +5,7 @@ import 'package:lottie/lottie.dart';
 import 'package:shared_ui/shared_ui.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/router/router.dart';
+import '../../core/widgets/havenkeep_logo.dart';
 
 /// Splash screen — shown briefly while checking auth state.
 ///
@@ -82,13 +83,9 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
                   _animController.forward();
                 },
                 errorBuilder: (_, __, ___) {
-                  // Fallback to static icon if Lottie file not found
+                  // Fallback to static logo if Lottie file not found
                   _navigate();
-                  return const Icon(
-                    Icons.shield_outlined,
-                    size: 80,
-                    color: HavenColors.primary,
-                  );
+                  return const HavenKeepLogo(size: 80);
                 },
               ),
             ),

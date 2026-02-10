@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_ui/shared_ui.dart';
 
 import '../../core/providers/auth_provider.dart';
+import '../../core/widgets/havenkeep_logo.dart';
 
 /// Welcome screen — sign up / sign in (Screen 1.2).
 ///
@@ -128,19 +129,10 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
                 const SizedBox(height: HavenSpacing.xxl),
 
                 // Logo
-                const Icon(
-                  Icons.shield_outlined,
+                const HavenKeepLogo(
                   size: 72,
-                  color: HavenColors.primary,
-                ),
-                const SizedBox(height: HavenSpacing.md),
-                const Text(
-                  'HavenKeep',
-                  style: TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                    color: HavenColors.textPrimary,
-                  ),
+                  showWordmark: true,
+                  wordmarkColor: HavenColors.textPrimary,
                 ),
                 const SizedBox(height: HavenSpacing.xs),
                 const Text(

@@ -7,6 +7,9 @@ const inter = Inter({ subsets: ['latin'] })
 export const metadata: Metadata = {
   title: 'HavenKeep Admin',
   description: 'Admin dashboard for HavenKeep',
+  icons: {
+    icon: '/favicon.svg',
+  },
 }
 
 export default function RootLayout({

@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 64" fill="none">
+  <!-- Icon: Shield + House -->
+  <g>
+    <!-- Shield shape -->
+    <path d="M32 4L8 14v18c0 14.4 10.24 27.84 24 31 13.76-3.16 24-16.6 24-31V14L32 4z" fill="url(#shield-grad-m)" />
+    <!-- House roof inside shield -->
+    <path d="M32 18L19 28v13h8v-8h10v8h8V28L32 18z" fill="white" opacity="0.95"/>
+    <!-- Checkmark accent on roof -->
+    <path d="M27 30l4 4 8-8" stroke="#10B981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  </g>
+
+  <!-- Wordmark -->
+  <text x="72" y="43" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="32" font-weight="700" fill="white" letter-spacing="-0.5">
+    <tspan fill="white">Haven</tspan><tspan fill="url(#text-grad-m)">Keep</tspan>
+  </text>
+
+  <defs>
+    <linearGradient id="shield-grad-m" x1="8" y1="4" x2="56" y2="63" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#6366F1"/>
+      <stop offset="100%" stop-color="#8B5CF6"/>
+    </linearGradient>
+    <linearGradient id="text-grad-m" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#6366F1"/>
+      <stop offset="100%" stop-color="#8B5CF6"/>
+    </linearGradient>
+  </defs>
+</svg>
