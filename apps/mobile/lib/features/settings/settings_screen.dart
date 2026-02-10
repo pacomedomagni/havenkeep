@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_models/shared_models.dart';
 import 'package:shared_ui/shared_ui.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/providers/auth_provider.dart';
 import '../../core/providers/homes_provider.dart';
@@ -52,14 +53,19 @@ class SettingsScreen extends ConsumerWidget {
                     CircleAvatar(
                       radius: 24,
                       backgroundColor: HavenColors.primary,
-                      child: Text(
-                        (u?.fullName ?? '?')[0].toUpperCase(),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 18,
-                        ),
-                      ),
+                      backgroundImage: u?.avatarUrl != null
+                          ? NetworkImage(u!.avatarUrl!)
+                          : null,
+                      child: u?.avatarUrl == null
+                          ? Text(
+                              (u?.fullName ?? '?')[0].toUpperCase(),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 18,
+                              ),
+                            )
+                          : null,
                     ),
                     const SizedBox(width: HavenSpacing.md),
                     Expanded(
@@ -161,29 +167,26 @@ class SettingsScreen extends ConsumerWidget {
                     : '$itemCount/$kFreePlanItemLimit items used',
                 trailing: isPremium
                     ? null
-                    : Opacity(
-                        opacity: 0.5,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: HavenSpacing.sm,
-                            vertical: HavenSpacing.xs,
-                          ),
-                          decoration: BoxDecoration(
-                            color: HavenColors.primary.withOpacity(0.2),
-                            borderRadius:
-                                BorderRadius.circular(HavenRadius.chip),
-                          ),
-                          child: const Text(
-                            'Coming soon',
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: HavenColors.primary,
-                              fontWeight: FontWeight.w600,
-                            ),
+                    : Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: HavenSpacing.sm,
+                          vertical: HavenSpacing.xs,
+                        ),
+                        decoration: BoxDecoration(
+                          color: HavenColors.primary.withOpacity(0.2),
+                          borderRadius:
+                              BorderRadius.circular(HavenRadius.chip),
+                        ),
+                        child: const Text(
+                          'Upgrade',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: HavenColors.primary,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       ),
-                onTap: null, // Phase 3
+                onTap: () => context.push('/premium'),
               );
             },
             loading: () => const SizedBox.shrink(),
@@ -240,22 +243,22 @@ class SettingsScreen extends ConsumerWidget {
           _SettingsTile(
             icon: Icons.privacy_tip_outlined,
             title: 'Privacy Policy',
-            onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Opening Privacy Policy...')),
-              );
-              // TODO: url_launcher to privacy policy URL
+            onTap: () async {
+              final uri = Uri.parse('https://havenkeep.app/privacy');
+              if (await canLaunchUrl(uri)) {
+                await launchUrl(uri, mode: LaunchMode.externalApplication);
+              }
             },
           ),
           const SizedBox(height: HavenSpacing.xs),
           _SettingsTile(
             icon: Icons.description_outlined,
             title: 'Terms of Service',
-            onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Opening Terms of Service...')),
-              );
-              // TODO: url_launcher to terms URL
+            onTap: () async {
+              final uri = Uri.parse('https://havenkeep.app/terms');
+              if (await canLaunchUrl(uri)) {
+                await launchUrl(uri, mode: LaunchMode.externalApplication);
+              }
             },
           ),
 

@@ -8,6 +8,7 @@ import 'package:shared_ui/shared_ui.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/providers/homes_provider.dart';
 import '../../core/providers/items_provider.dart';
+import '../../core/widgets/celebration_overlay.dart';
 
 /// Quick-Add form screen for a specific category.
 ///
@@ -125,10 +126,32 @@ class _QuickAddScreenState extends ConsumerState<QuickAddScreen> {
         updatedAt: DateTime.now(),
       );
 
-      final newItem = await ref.read(itemsProvider.notifier).addItem(item);
+      final (newItem, previousCount) = await ref.read(itemsProvider.notifier).addItem(item);
 
       if (mounted) {
-        context.go('/add-item/success/${newItem.id}');
+        // Only celebrate the FIRST item - that's truly special
+        if (previousCount == 0) {
+          CelebrationOverlay.show(
+            context,
+            type: CelebrationType.firstItem,
+            title: '🎉 Great start!',
+            subtitle: 'Your first item is protected. Keep adding to build your warranty vault.',
+            onDismiss: () {
+              context.go('/add-item/success/${newItem.id}');
+            },
+          );
+        } else {
+          // Subtle success feedback for subsequent items
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('✓ ${newItem.name} added successfully'),
+              duration: const Duration(seconds: 2),
+              behavior: SnackBarBehavior.floating,
+              backgroundColor: const Color(0xFF10B981),
+            ),
+          );
+          context.go('/add-item/success/${newItem.id}');
+        }
       }
     } catch (e) {
       if (mounted) {

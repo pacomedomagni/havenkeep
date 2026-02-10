@@ -43,6 +43,7 @@ dependencies:
 
   # --- Animations ---
   lottie: ^3.0.0
+  smooth_page_indicator: ^1.0.0
 
   # --- Connectivity ---
   connectivity_plus: ^6.0.0
@@ -76,9 +77,13 @@ dependencies:
   path_provider: ^2.0.0
   url_launcher: ^6.0.0
   share_plus: ^9.0.0
+  flutter_dotenv: ^5.0.0
+  http: ^1.0.0
 
 dev_dependencies:
   flutter_test:
+    sdk: flutter
+  integration_test:
     sdk: flutter
   flutter_lints: ^4.0.0
   build_runner: ^2.0.0
@@ -93,3 +98,7 @@ flutter:
     - assets/images/
     - assets/animations/
     - assets/icons/
+    - assets/lottie/
+    - .env.development
+    - .env.staging
+    - .env.production

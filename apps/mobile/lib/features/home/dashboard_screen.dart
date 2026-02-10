@@ -9,6 +9,7 @@ import '../../core/providers/auth_provider.dart';
 import '../../core/providers/items_provider.dart';
 import '../../core/providers/notifications_provider.dart';
 import '../../core/router/router.dart';
+import '../../core/widgets/value_dashboard_card.dart';
 
 /// Home dashboard — the main screen (Screen 3.1).
 ///
@@ -73,14 +74,25 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         child: ListView(
           padding: const EdgeInsets.all(HavenSpacing.md),
           children: [
-            // Greeting
-            Text(
-              '${_getGreeting()}, $firstName',
-              style: const TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: HavenColors.textPrimary,
-              ),
+            // Greeting with avatar
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '${_getGreeting()}, $firstName',
+                    style: const TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: HavenColors.textPrimary,
+                    ),
+                  ),
+                ),
+                if (user.value?.avatarUrl != null)
+                  CircleAvatar(
+                    radius: 20,
+                    backgroundImage: NetworkImage(user.value!.avatarUrl!),
+                  ),
+              ],
             ),
             const SizedBox(height: HavenSpacing.lg),
 
@@ -88,6 +100,42 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             if (!hasItems && items.hasValue) ...[
               _buildEmptyState(context),
             ] else ...[
+              // Value dashboard card
+              stats.when(
+                data: (data) {
+                  final totalValue = items.value?.fold<double>(
+                        0,
+                        (sum, item) => sum + (item.price ?? 0),
+                      ) ??
+                      0;
+                  final totalItems = items.value?.length ?? 0;
+                  final active = data['active'] ?? 0;
+                  final expiring = data['expiring'] ?? 0;
+                  final expired = data['expired'] ?? 0;
+                  final totalWithWarranty = active + expiring + expired;
+                  final warrantyHealth = totalWithWarranty > 0
+                      ? ((active + expiring) / totalWithWarranty * 100).round()
+                      : 0;
+
+                  return ValueDashboardCard(
+                    totalValue: totalValue,
+                    warrantyHealth: warrantyHealth,
+                    totalItems: totalItems,
+                    activeWarranties: active,
+                    onTap: () => context.push(AppRoutes.items),
+                  );
+                },
+                loading: () => Container(
+                  height: 280,
+                  decoration: BoxDecoration(
+                    color: HavenColors.surface,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                ),
+                error: (_, __) => const SizedBox.shrink(),
+              ),
+              const SizedBox(height: HavenSpacing.lg),
+
               // Warranty summary card
               _buildWarrantySummary(stats),
               const SizedBox(height: HavenSpacing.lg),

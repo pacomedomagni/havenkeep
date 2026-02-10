@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:shared_models/shared_models.dart';
 import 'package:shared_ui/shared_ui.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'pdf_preview_screen.dart';
 
 /// A bottom sheet that displays warranty claim information and allows the
 /// user to copy it to the clipboard.
@@ -212,10 +213,30 @@ class ShareClaimSheet extends StatelessWidget {
             ),
             const SizedBox(height: HavenSpacing.sm),
 
-            // Save as PDF (still coming soon)
-            _ComingSoonButton(
-              icon: Icons.picture_as_pdf_outlined,
-              label: 'Save as PDF',
+            // Save as PDF
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => PdfPreviewScreen(item: item),
+                      fullscreenDialog: true,
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.picture_as_pdf_outlined, size: 18),
+                label: const Text('Save as PDF'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: HavenColors.secondary,
+                  side: const BorderSide(color: HavenColors.border),
+                  padding: const EdgeInsets.symmetric(
+                    vertical: HavenSpacing.sm + 4,
+                    horizontal: HavenSpacing.md,
+                  ),
+                ),
+              ),
             ),
           ],
         ),

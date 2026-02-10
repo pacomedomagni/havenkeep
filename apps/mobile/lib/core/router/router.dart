@@ -5,8 +5,11 @@ import 'package:shared_models/shared_models.dart';
 
 import '../providers/auth_provider.dart';
 import '../providers/homes_provider.dart';
+import '../providers/demo_mode_provider.dart';
 import '../widgets/main_scaffold.dart';
 import '../../features/onboarding/splash_screen.dart';
+import '../../features/onboarding/preview_screen.dart';
+import '../../features/onboarding/demo_dashboard_wrapper.dart';
 import '../../features/onboarding/welcome_screen.dart';
 import '../../features/onboarding/home_setup_screen.dart';
 import '../../features/onboarding/first_action_screen.dart';
@@ -22,6 +25,11 @@ import '../../features/add_item/add_item_screen.dart';
 import '../../features/add_item/quick_add_screen.dart';
 import '../../features/add_item/manual_entry_screen.dart';
 import '../../features/add_item/item_added_screen.dart';
+import '../../features/add_item/receipt_scan_screen.dart';
+import '../../features/add_item/barcode_scan_screen.dart';
+import '../../features/item_detail/pdf_preview_screen.dart';
+import '../../features/premium/premium_screen.dart';
+import '../../features/premium/premium_success_screen.dart';
 import '../../features/settings/settings_screen.dart';
 import '../../features/settings/profile_screen.dart';
 import '../../features/settings/notification_preferences_screen.dart';
@@ -32,6 +40,8 @@ import '../../features/notifications/notifications_screen.dart';
 /// Route path constants.
 abstract class AppRoutes {
   static const splash = '/';
+  static const preview = '/preview';
+  static const demo = '/demo';
   static const welcome = '/welcome';
   static const firstAction = '/first-action';
   static const homeSetup = '/home-setup';
@@ -51,6 +61,11 @@ abstract class AppRoutes {
   static const notificationPreferences = '/settings/notifications';
   static const homeDetail = '/settings/home/:id';
   static const archivedItems = '/settings/archived';
+  static const scanReceipt = '/add-item/scan-receipt';
+  static const scanBarcode = '/add-item/scan-barcode';
+  static const pdfPreview = '/items/:id/pdf';
+  static const premium = '/premium';
+  static const premiumSuccess = '/premium/success';
   static const referral = '/referral/:code';
 }
 
@@ -110,6 +125,27 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.splash,
         builder: (context, state) => const SplashScreen(),
+      ),
+
+      // Preview screens (shown before auth)
+      GoRoute(
+        path: AppRoutes.preview,
+        builder: (context, state) => PreviewScreen(
+          onGetStarted: () => context.go(AppRoutes.welcome),
+          onTryDemo: () {
+            final container = ProviderScope.containerOf(context);
+            container.read(demoModeProvider.notifier).enterDemoMode();
+            context.go(AppRoutes.demo);
+          },
+        ),
+      ),
+
+      // Demo mode dashboard
+      GoRoute(
+        path: AppRoutes.demo,
+        builder: (context, state) => DemoDashboardWrapper(
+          onExitDemo: () => context.go(AppRoutes.welcome),
+        ),
       ),
 
       // Welcome / onboarding
@@ -274,6 +310,50 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: AppRoutes.archivedItems,
         parentNavigatorKey: _rootNavigatorKey,
         builder: (context, state) => const ArchivedItemsScreen(),
+      ),
+
+      // Scan Receipt
+      GoRoute(
+        path: AppRoutes.scanReceipt,
+        parentNavigatorKey: _rootNavigatorKey,
+        pageBuilder: (context, state) => const MaterialPage(
+          fullscreenDialog: true,
+          child: ReceiptScanScreen(),
+        ),
+      ),
+
+      // Scan Barcode
+      GoRoute(
+        path: AppRoutes.scanBarcode,
+        parentNavigatorKey: _rootNavigatorKey,
+        pageBuilder: (context, state) => const MaterialPage(
+          fullscreenDialog: true,
+          child: BarcodeScanScreen(),
+        ),
+      ),
+
+      // PDF Preview
+      GoRoute(
+        path: AppRoutes.pdfPreview,
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) {
+          final item = state.extra as Item;
+          return PdfPreviewScreen(item: item);
+        },
+      ),
+
+      // Premium Upgrade
+      GoRoute(
+        path: AppRoutes.premium,
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) => const PremiumScreen(),
+      ),
+
+      // Premium Success
+      GoRoute(
+        path: AppRoutes.premiumSuccess,
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) => const PremiumSuccessScreen(),
       ),
 
       // Referral deep link handler

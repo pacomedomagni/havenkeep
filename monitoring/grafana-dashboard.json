@@ -1,0 +1,98 @@
+{
+  "dashboard": {
+    "title": "HavenKeep Production Metrics",
+    "tags": ["havenkeep", "production"],
+    "timezone": "UTC",
+    "panels": [
+      {
+        "title": "API Response Time (p95)",
+        "type": "graph",
+        "datasource": "Loki",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))",
+            "legendFormat": "p95 response time"
+          }
+        ],
+        "alert": {
+          "conditions": [
+            {
+              "evaluator": {
+                "params": [500],
+                "type": "gt"
+              },
+              "operator": {
+                "type": "and"
+              },
+              "query": {
+                "params": ["A", "5m", "now"]
+              },
+              "reducer": {
+                "params": [],
+                "type": "avg"
+              },
+              "type": "query"
+            }
+          ],
+          "message": "API response time above 500ms"
+        }
+      },
+      {
+        "title": "Error Rate",
+        "type": "graph",
+        "datasource": "Loki",
+        "targets": [
+          {
+            "expr": "rate(http_requests_total{status=~\"5..\"}[5m])",
+            "legendFormat": "5xx errors"
+          }
+        ]
+      },
+      {
+        "title": "Active Users (DAU)",
+        "type": "stat",
+        "datasource": "PostgreSQL",
+        "targets": [
+          {
+            "rawSql": "SELECT COUNT(DISTINCT user_id) FROM user_sessions WHERE created_at > NOW() - INTERVAL '24 hours'"
+          }
+        ]
+      },
+      {
+        "title": "Items Created (24h)",
+        "type": "stat",
+        "datasource": "PostgreSQL",
+        "targets": [
+          {
+            "rawSql": "SELECT COUNT(*) FROM items WHERE created_at > NOW() - INTERVAL '24 hours'"
+          }
+        ]
+      },
+      {
+        "title": "Premium Subscriptions",
+        "type": "stat",
+        "datasource": "PostgreSQL",
+        "targets": [
+          {
+            "rawSql": "SELECT COUNT(*) FROM user_profiles WHERE premium = true AND premium_expires_at > NOW()"
+          }
+        ]
+      },
+      {
+        "title": "Database Connection Pool",
+        "type": "graph",
+        "datasource": "PostgreSQL",
+        "targets": [
+          {
+            "rawSql": "SELECT numbackends FROM pg_stat_database WHERE datname = 'postgres'"
+          }
+        ]
+      }
+    ],
+    "refresh": "30s",
+    "time": {
+      "from": "now-6h",
+      "to": "now"
+    }
+  }
+}

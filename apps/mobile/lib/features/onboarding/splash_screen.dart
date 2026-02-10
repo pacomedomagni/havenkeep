@@ -1,14 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:lottie/lottie.dart';
 import 'package:shared_ui/shared_ui.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/router/router.dart';
 
 /// Splash screen — shown briefly while checking auth state.
 ///
-/// Displays the HavenKeep logo for ~1.5s, then navigates to
-/// Welcome (if not authenticated) or Dashboard (if authenticated).
+/// Displays a Lottie animation (with static fallback), then navigates
+/// to Welcome (if not authenticated) or Dashboard (if authenticated).
 class SplashScreen extends ConsumerStatefulWidget {
   const SplashScreen({super.key});
 
@@ -16,24 +17,48 @@ class SplashScreen extends ConsumerStatefulWidget {
   ConsumerState<SplashScreen> createState() => _SplashScreenState();
 }
 
-class _SplashScreenState extends ConsumerState<SplashScreen> {
+class _SplashScreenState extends ConsumerState<SplashScreen>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _animController;
+  bool _hasNavigated = false;
+
   @override
   void initState() {
     super.initState();
-    _navigate();
+    _animController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2000),
+    );
+
+    // Navigate after animation completes or fallback timer
+    _animController.addStatusListener((status) {
+      if (status == AnimationStatus.completed) {
+        _navigate();
+      }
+    });
+
+    // Fallback: navigate after 2.5s even if animation fails
+    Future.delayed(const Duration(milliseconds: 2500), () {
+      _navigate();
+    });
   }
 
-  Future<void> _navigate() async {
-    // Show splash for at least 1.5 seconds
-    await Future.delayed(const Duration(milliseconds: 1500));
+  @override
+  void dispose() {
+    _animController.dispose();
+    super.dispose();
+  }
 
-    if (!mounted) return;
+  void _navigate() {
+    if (_hasNavigated || !mounted) return;
+    _hasNavigated = true;
 
     final isAuthenticated = ref.read(isAuthenticatedProvider);
     if (isAuthenticated) {
       context.go(AppRoutes.dashboard);
     } else {
-      context.go(AppRoutes.welcome);
+      // Show preview screens for non-authenticated users
+      context.go(AppRoutes.preview);
     }
   }
 
@@ -41,18 +66,34 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: HavenColors.background,
-      body: const Center(
+      body: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // TODO: Replace with Lottie animation / logo
-            Icon(
-              Icons.shield_outlined,
-              size: 80,
-              color: HavenColors.primary,
+            // Lottie animation with fallback
+            SizedBox(
+              width: 120,
+              height: 120,
+              child: Lottie.asset(
+                'assets/lottie/splash_logo.json',
+                controller: _animController,
+                onLoaded: (composition) {
+                  _animController.duration = composition.duration;
+                  _animController.forward();
+                },
+                errorBuilder: (_, __, ___) {
+                  // Fallback to static icon if Lottie file not found
+                  _navigate();
+                  return const Icon(
+                    Icons.shield_outlined,
+                    size: 80,
+                    color: HavenColors.primary,
+                  );
+                },
+              ),
             ),
-            SizedBox(height: HavenSpacing.md),
-            Text(
+            const SizedBox(height: HavenSpacing.md),
+            const Text(
               'HavenKeep',
               style: TextStyle(
                 fontSize: 32,
@@ -60,8 +101,8 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
                 color: HavenColors.textPrimary,
               ),
             ),
-            SizedBox(height: HavenSpacing.xs),
-            Text(
+            const SizedBox(height: HavenSpacing.xs),
+            const Text(
               'Your Warranties. Protected.',
               style: TextStyle(
                 fontSize: 16,

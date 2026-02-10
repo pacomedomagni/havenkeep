@@ -22,3 +22,5 @@ export 'src/notification_preferences.dart';
 export 'src/offline_queue_entry.dart';
 export 'src/category_default.dart';
 export 'src/brand_suggestion.dart';
+export 'src/receipt_scan_result.dart';
+export 'src/barcode_lookup_result.dart';

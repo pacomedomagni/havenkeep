@@ -153,7 +153,8 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
                     maxCount: kFreePlanItemLimit,
                     onArchive: () =>
                         context.push(AppRoutes.archivedItems),
-                    onUpgrade: null, // Phase 3
+                    onUpgrade: () =>
+                        context.push(AppRoutes.premium),
                   ),
                 ),
 

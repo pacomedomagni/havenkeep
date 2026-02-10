@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_models/shared_models.dart';
 import 'package:shared_ui/shared_ui.dart';
@@ -56,6 +57,25 @@ class _DocumentUploadSheetState extends ConsumerState<DocumentUploadSheet> {
     } catch (e) {
       setState(() {
         _errorMessage = 'Failed to pick image: $e';
+      });
+    }
+  }
+
+  Future<void> _pickFile() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['pdf', 'doc', 'docx'],
+      );
+      if (result != null && result.files.single.path != null) {
+        setState(() {
+          _selectedImage = XFile(result.files.single.path!);
+          _errorMessage = null;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'Failed to pick file: $e';
       });
     }
   }
@@ -146,14 +166,11 @@ class _DocumentUploadSheetState extends ConsumerState<DocumentUploadSheet> {
                 onTap: () => _pickImage(ImageSource.gallery),
               ),
               const SizedBox(height: HavenSpacing.sm),
-              Opacity(
-                opacity: 0.5,
-                child: _SourceOption(
-                  icon: Icons.insert_drive_file_outlined,
-                  label: 'Choose File',
-                  subtitle: 'Coming soon',
-                  onTap: null,
-                ),
+              _SourceOption(
+                icon: Icons.insert_drive_file_outlined,
+                label: 'Choose File',
+                subtitle: 'PDF, DOC, DOCX',
+                onTap: () => _pickFile(),
               ),
             ] else ...[
               // Image selected — show type picker + upload

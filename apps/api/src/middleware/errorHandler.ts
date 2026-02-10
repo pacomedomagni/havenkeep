@@ -1,0 +1,47 @@
+import { Request, Response, NextFunction } from 'express';
+import { logger } from '../utils/logger';
+
+export class AppError extends Error {
+  constructor(
+    public statusCode: number,
+    public message: string,
+    public isOperational = true
+  ) {
+    super(message);
+    Object.setPrototypeOf(this, AppError.prototype);
+  }
+}
+
+export function errorHandler(
+  err: Error | AppError,
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  if (err instanceof AppError) {
+    logger.error({
+      statusCode: err.statusCode,
+      message: err.message,
+      path: req.path,
+      method: req.method,
+    }, 'Operational error');
+
+    return res.status(err.statusCode).json({
+      error: err.message,
+      statusCode: err.statusCode,
+    });
+  }
+
+  // Unexpected errors
+  logger.error({
+    error: err.message,
+    stack: err.stack,
+    path: req.path,
+    method: req.method,
+  }, 'Unexpected error');
+
+  res.status(500).json({
+    error: 'Internal server error',
+    statusCode: 500,
+  });
+}

@@ -1,10 +1,12 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide User;
 import 'package:shared_models/shared_models.dart';
 import 'package:supabase_client/supabase_client.dart';
 import '../services/auth_repository.dart';
+import '../services/push_notification_service.dart';
 
 /// Provides the auth repository instance.
 final authRepositoryProvider = Provider<AuthRepository>((ref) {
@@ -43,6 +45,16 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
     return repo.getCurrentUser();
   }
 
+  /// Register push notification token for the current user.
+  Future<void> _registerPushToken(String userId) async {
+    try {
+      final pushService = ref.read(pushNotificationServiceProvider);
+      await pushService.registerToken(userId);
+    } catch (e) {
+      debugPrint('[Auth] Push token registration failed: $e');
+    }
+  }
+
   /// Sign up with email and password.
   Future<User?> signUpWithEmail({
     required String email,
@@ -58,6 +70,12 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
       referralCode: referralCode,
     );
     state = AsyncValue.data(user);
+
+    // Register push token after signup
+    if (user != null) {
+      _registerPushToken(user.id);
+    }
+
     return user;
   }
 
@@ -72,6 +90,12 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
       password: password,
     );
     state = AsyncValue.data(user);
+
+    // Register push token after login
+    if (user != null) {
+      _registerPushToken(user.id);
+    }
+
     return user;
   }
 

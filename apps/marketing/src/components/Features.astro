@@ -1,0 +1,98 @@
+---
+// Features grid section
+const features = [
+  {
+    icon: 'scan',
+    title: 'Instant Barcode Scanning',
+    description: 'Add items in seconds with our smart barcode scanner. Just point and shoot.'
+  },
+  {
+    icon: 'receipt',
+    title: 'Receipt OCR',
+    description: 'Snap a photo of your receipt and we'll extract all the details automatically.'
+  },
+  {
+    icon: 'bell',
+    title: 'Smart Reminders',
+    description: 'Get notified before warranties expire. Never miss a claim deadline again.'
+  },
+  {
+    icon: 'cloud',
+    title: 'Multi-Device Sync',
+    description: 'Access your warranties from any device. Changes sync instantly across all platforms.'
+  },
+  {
+    icon: 'shield',
+    title: 'Secure Storage',
+    description: 'Your data is encrypted and backed up. We take your privacy seriously.'
+  },
+  {
+    icon: 'export',
+    title: 'Easy Export',
+    description: 'Export your warranty data to PDF, CSV, or email. Your data, your way.'
+  }
+];
+---
+
+<section class="py-20 bg-white">
+  <div class="container">
+    <!-- Section Header -->
+    <div class="max-w-3xl mx-auto text-center mb-16">
+      <h2 class="text-4xl font-bold text-gray-900 mb-4">
+        Everything you need to track warranties
+      </h2>
+      <p class="text-xl text-gray-600">
+        Powerful features that make warranty tracking effortless
+      </p>
+    </div>
+
+    <!-- Features Grid -->
+    <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-8 max-w-6xl mx-auto">
+      {features.map((feature) => (
+        <div class="p-6 rounded-lg border border-gray-200 hover:border-primary hover:shadow-lg transition-all duration-200">
+          <!-- Icon -->
+          <div class="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center mb-4">
+            {feature.icon === 'scan' && (
+              <svg class="w-6 h-6 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
+              </svg>
+            )}
+            {feature.icon === 'receipt' && (
+              <svg class="w-6 h-6 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+            )}
+            {feature.icon === 'bell' && (
+              <svg class="w-6 h-6 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+              </svg>
+            )}
+            {feature.icon === 'cloud' && (
+              <svg class="w-6 h-6 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+              </svg>
+            )}
+            {feature.icon === 'shield' && (
+              <svg class="w-6 h-6 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+              </svg>
+            )}
+            {feature.icon === 'export' && (
+              <svg class="w-6 h-6 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+            )}
+          </div>
+
+          <!-- Content -->
+          <h3 class="text-lg font-semibold text-gray-900 mb-2">
+            {feature.title}
+          </h3>
+          <p class="text-gray-600">
+            {feature.description}
+          </p>
+        </div>
+      ))}
+    </div>
+  </div>
+</section>

@@ -44,21 +44,24 @@ class ItemsNotifier extends AsyncNotifier<List<Item>> {
   }
 
   /// Add a new item.
-  Future<Item> addItem(Item item) async {
+  /// Returns the created item and previous count for celebration logic.
+  Future<(Item item, int previousCount)> addItem(Item item) async {
     final repo = ref.read(itemsRepositoryProvider);
+    final currentItems = state.value ?? [];
+    final previousCount = currentItems.length;
+
     final newItem = await repo.createItem(item);
 
     // Re-fetch to get computed fields (warranty_end_date, warranty_status)
     final fullItem = await repo.getItemById(newItem.id);
 
-    final currentItems = state.value ?? [];
     state = AsyncValue.data([fullItem, ...currentItems]);
 
     // Invalidate stats
     ref.invalidate(warrantyStatsProvider);
     ref.invalidate(needsAttentionProvider);
 
-    return fullItem;
+    return (fullItem, previousCount);
   }
 
   /// Update an existing item.

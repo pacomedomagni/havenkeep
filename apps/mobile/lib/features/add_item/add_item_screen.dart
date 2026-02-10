@@ -92,12 +92,15 @@ class AddItemScreen extends ConsumerWidget {
                   width: double.infinity,
                   height: 52,
                   child: OutlinedButton.icon(
-                    onPressed: null, // Phase 3
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                      context.push(AppRoutes.premium);
+                    },
                     icon: const Icon(Icons.star_outline),
                     label: const Text('Upgrade to Premium'),
                     style: OutlinedButton.styleFrom(
-                      foregroundColor: HavenColors.textTertiary,
-                      side: const BorderSide(color: HavenColors.border),
+                      foregroundColor: HavenColors.primary,
+                      side: const BorderSide(color: HavenColors.primary),
                     ),
                   ),
                 ),
@@ -186,14 +189,13 @@ class AddItemScreen extends ConsumerWidget {
               const SizedBox(height: HavenSpacing.lg),
 
               // Method cards
-              // 1. Scan Receipt (disabled)
+              // 1. Scan Receipt
               _MethodCard(
                 icon: Icons.camera_alt_outlined,
                 title: 'Scan Receipt',
                 subtitle: 'Auto-extract details',
-                isDisabled: true,
-                disabledLabel: 'Coming soon',
-                onTap: null,
+                isDisabled: false,
+                onTap: () => context.push(AppRoutes.scanReceipt),
               ),
               const SizedBox(height: HavenSpacing.sm),
 
@@ -207,14 +209,13 @@ class AddItemScreen extends ConsumerWidget {
               ),
               const SizedBox(height: HavenSpacing.sm),
 
-              // 3. Scan Barcode (disabled)
+              // 3. Scan Barcode
               _MethodCard(
                 icon: Icons.qr_code_scanner,
                 title: 'Scan Barcode',
                 subtitle: 'Look up product info',
-                isDisabled: true,
-                disabledLabel: 'Coming soon',
-                onTap: null,
+                isDisabled: false,
+                onTap: () => context.push(AppRoutes.scanBarcode),
               ),
             ],
           ),

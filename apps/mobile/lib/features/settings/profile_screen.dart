@@ -5,6 +5,7 @@ import 'package:shared_ui/shared_ui.dart';
 
 import '../../core/providers/auth_provider.dart';
 import '../../core/providers/items_provider.dart';
+import '../../core/providers/profile_photo_provider.dart';
 
 /// Profile editing screen.
 ///
@@ -111,24 +112,36 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       CircleAvatar(
                         radius: 40,
                         backgroundColor: HavenColors.primary,
-                        child: Text(
-                          (user.fullName ?? '?')[0].toUpperCase(),
-                          style: const TextStyle(
-                            fontSize: 32,
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
+                        backgroundImage: user.avatarUrl != null
+                            ? NetworkImage(user.avatarUrl!)
+                            : null,
+                        child: user.avatarUrl == null
+                            ? Text(
+                                (user.fullName ?? '?')[0].toUpperCase(),
+                                style: const TextStyle(
+                                  fontSize: 32,
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              )
+                            : null,
                       ),
                       const SizedBox(height: HavenSpacing.sm),
-                      Opacity(
-                        opacity: 0.5,
-                        child: TextButton(
-                          onPressed: null,
-                          child: const Text(
-                            'Change Photo',
-                            style: TextStyle(color: HavenColors.secondary),
-                          ),
+                      TextButton(
+                        onPressed: () async {
+                          try {
+                            await pickAndUploadProfilePhoto(ref);
+                          } catch (e) {
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('Photo upload failed: $e')),
+                              );
+                            }
+                          }
+                        },
+                        child: const Text(
+                          'Change Photo',
+                          style: TextStyle(color: HavenColors.secondary),
                         ),
                       ),
                     ],
