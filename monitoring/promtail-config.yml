@@ -1,0 +1,73 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  # HavenKeep API Logs
+  - job_name: havenkeep-api
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: havenkeep-api
+          service: api
+          environment: ${ENVIRONMENT:-development}
+          __path__: /var/log/havenkeep/api/*.log
+    pipeline_stages:
+      # Parse JSON logs from Pino
+      - json:
+          expressions:
+            level: level
+            timestamp: time
+            message: msg
+            service: service
+            environment: environment
+      # Extract labels
+      - labels:
+          level:
+          service:
+          environment:
+      # Set timestamp
+      - timestamp:
+          source: timestamp
+          format: RFC3339
+
+  # Docker container logs (for all services)
+  - job_name: docker-containers
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+    relabel_configs:
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/(.*)'
+        target_label: 'container'
+      - source_labels: ['__meta_docker_container_log_stream']
+        target_label: 'stream'
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
+        target_label: 'service'
+
+  # PostgreSQL Logs (if logging to file)
+  - job_name: postgresql
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: postgresql
+          service: database
+          __path__: /var/log/postgresql/*.log
+
+  # Redis Logs (if logging to file)
+  - job_name: redis
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: redis
+          service: cache
+          __path__: /var/log/redis/*.log

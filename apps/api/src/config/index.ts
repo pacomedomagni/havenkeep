@@ -30,12 +30,13 @@ export const config = {
     password: process.env.REDIS_PASSWORD,
   },
   
-  spaces: {
-    key: process.env.DO_SPACES_KEY || '',
-    secret: process.env.DO_SPACES_SECRET || '',
-    endpoint: process.env.DO_SPACES_ENDPOINT || 'https://nyc3.digitaloceanspaces.com',
-    bucket: process.env.DO_SPACES_BUCKET || 'havenkeep',
-    region: process.env.DO_SPACES_REGION || 'nyc3',
+  minio: {
+    endpoint: process.env.MINIO_ENDPOINT || 'localhost',
+    port: parseInt(process.env.MINIO_PORT || '9000', 10),
+    useSSL: process.env.MINIO_USE_SSL === 'true',
+    accessKey: process.env.MINIO_ACCESS_KEY || 'minioadmin',
+    secretKey: process.env.MINIO_SECRET_KEY || 'minioadmin',
+    bucket: process.env.MINIO_BUCKET || 'havenkeep',
   },
   
   stripe: {

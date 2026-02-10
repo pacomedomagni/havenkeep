@@ -38,6 +38,27 @@ services:
     networks:
       - havenkeep
 
+  # MinIO Object Storage
+  minio:
+    image: minio/minio:latest
+    container_name: havenkeep-minio
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - havenkeep
+
   # API Server
   api:
     build:
@@ -54,8 +75,14 @@ services:
       DB_USER: havenkeep
       DB_PASSWORD: havenkeep_dev_password
       REDIS_URL: redis://redis:6379
-      JWT_SECRET: dev_jwt_secret_change_in_production
-      REFRESH_TOKEN_SECRET: dev_refresh_secret_change_in_production
+      JWT_SECRET: ${JWT_SECRET:-dev_jwt_secret_change_in_production}
+      REFRESH_TOKEN_SECRET: ${REFRESH_TOKEN_SECRET:-dev_refresh_secret_change_in_production}
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_USE_SSL: false
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      MINIO_BUCKET: havenkeep
       CORS_ORIGINS: http://localhost:3001,http://localhost:4321
     ports:
       - "3000:3000"
@@ -67,6 +94,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      minio:
         condition: service_healthy
     networks:
       - havenkeep
@@ -113,6 +142,40 @@ services:
     networks:
       - havenkeep
 
+  # Loki - Log Aggregation
+  loki:
+    image: grafana/loki:2.9.3
+    container_name: havenkeep-loki
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./monitoring/loki-config.yml:/etc/loki/local-config.yaml
+      - loki_data:/tmp/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - havenkeep
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3100/ready || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Promtail - Log Shipper
+  promtail:
+    image: grafana/promtail:2.9.3
+    container_name: havenkeep-promtail
+    volumes:
+      - ./monitoring/promtail-config.yml:/etc/promtail/config.yml
+      - /var/log:/var/log:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      - loki
+    networks:
+      - havenkeep
+    environment:
+      - ENVIRONMENT=${NODE_ENV:-development}
+
 networks:
   havenkeep:
     driver: bridge
@@ -120,3 +183,5 @@ networks:
 volumes:
   postgres_data:
   redis_data:
+  minio_data:
+  loki_data:

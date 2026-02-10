@@ -1,11 +1,15 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import compression from 'compression';
+import cookieParser from 'cookie-parser';
 import { config } from './config';
+import { validateEnvironment } from './config/validator';
 import { logger } from './utils/logger';
 import { errorHandler } from './middleware/errorHandler';
 import { requestLogger } from './middleware/requestLogger';
 import { rateLimiter } from './middleware/rateLimiter';
+import { setCsrfToken } from './middleware/csrf';
 
 // Routes
 import authRoutes from './routes/auth';
@@ -15,6 +19,10 @@ import itemsRoutes from './routes/items';
 import documentsRoutes from './routes/documents';
 import barcodeRoutes from './routes/barcode';
 import adminRoutes from './routes/admin';
+import healthRoutes from './routes/health';
+
+// Validate environment before starting
+validateEnvironment();
 
 const app = express();
 
@@ -40,12 +48,18 @@ app.use(cors({
   origin: config.cors.origins,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-csrf-token']
 }));
+
+// Compression
+app.use(compression());
 
 // Body parsing
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Cookie parser for CSRF
+app.use(cookieParser());
 
 // Request logging
 app.use(requestLogger);
@@ -53,16 +67,26 @@ app.use(requestLogger);
 // Rate limiting
 app.use(rateLimiter);
 
-// Health check
-app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'ok', 
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime()
-  });
-});
+// CSRF token generation (for non-API routes)
+app.use(setCsrfToken);
 
-// API routes
+// Health checks (no versioning, no auth required)
+app.use('/', healthRoutes);
+
+// API v1 routes
+const apiV1 = express.Router();
+
+apiV1.use('/auth', authRoutes);
+apiV1.use('/users', usersRoutes);
+apiV1.use('/homes', homesRoutes);
+apiV1.use('/items', itemsRoutes);
+apiV1.use('/documents', documentsRoutes);
+apiV1.use('/barcode', barcodeRoutes);
+apiV1.use('/admin', adminRoutes);
+
+app.use('/api/v1', apiV1);
+
+// Legacy routes (redirect to v1)
 app.use('/api/auth', authRoutes);
 app.use('/api/users', usersRoutes);
 app.use('/api/homes', homesRoutes);
@@ -73,7 +97,11 @@ app.use('/api/admin', adminRoutes);
 
 // 404 handler
 app.use((req, res) => {
-  res.status(404).json({ error: 'Not found' });
+  res.status(404).json({
+    error: 'Not found',
+    path: req.path,
+    suggestion: 'Check API documentation for available endpoints'
+  });
 });
 
 // Error handler (must be last)
@@ -81,19 +109,42 @@ app.use(errorHandler);
 
 // Start server
 const PORT = config.port;
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   logger.info(`🚀 HavenKeep API running on port ${PORT}`);
   logger.info(`📦 Environment: ${config.env}`);
   logger.info(`🔒 CORS origins: ${config.cors.origins.join(', ')}`);
+  logger.info(`✅ Environment validated`);
+  logger.info(`🔐 Security: Helmet, CORS, Rate Limiting, CSRF Protection`);
+  logger.info(`📊 Monitoring: Pino → Promtail → Loki`);
 });
 
 // Graceful shutdown
-process.on('SIGTERM', () => {
-  logger.info('SIGTERM received, shutting down gracefully');
-  process.exit(0);
+const gracefulShutdown = (signal: string) => {
+  logger.info(`${signal} received, shutting down gracefully`);
+  server.close(() => {
+    logger.info('HTTP server closed');
+    process.exit(0);
+  });
+
+  // Force shutdown after 30 seconds
+  setTimeout(() => {
+    logger.error('Forced shutdown after timeout');
+    process.exit(1);
+  }, 30000);
+};
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (reason, promise) => {
+  logger.error({ reason, promise }, 'Unhandled Promise Rejection');
 });
 
-process.on('SIGINT', () => {
-  logger.info('SIGINT received, shutting down gracefully');
-  process.exit(0);
+// Handle uncaught exceptions
+process.on('uncaughtException', (error) => {
+  logger.error({ error }, 'Uncaught Exception');
+  gracefulShutdown('UNCAUGHT_EXCEPTION');
 });
+
+export default app;
