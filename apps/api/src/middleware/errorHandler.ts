@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { logger } from '../utils/logger';
+import { AppError as UtilsAppError } from '../utils/errors';
 
 export class AppError extends Error {
   constructor(
@@ -13,8 +14,16 @@ export class AppError extends Error {
   }
 }
 
+function isOperationalError(err: Error): err is (AppError | UtilsAppError) {
+  return err instanceof AppError || err instanceof UtilsAppError;
+}
+
+function getStatusCode(err: AppError | UtilsAppError): number {
+  return err.statusCode;
+}
+
 export function errorHandler(
-  err: Error | AppError,
+  err: Error,
   req: Request,
   res: Response,
   next: NextFunction
@@ -24,19 +33,21 @@ export function errorHandler(
     return next(err);
   }
 
-  if (err instanceof AppError) {
+  if (isOperationalError(err)) {
+    const statusCode = getStatusCode(err);
+
     logger.error({
-      statusCode: err.statusCode,
+      statusCode,
       message: err.message,
       path: req.path,
       method: req.method,
-      details: err.details,
+      ...('details' in err && { details: (err as AppError).details }),
     }, 'Operational error');
 
-    return res.status(err.statusCode).json({
+    return res.status(statusCode).json({
       error: err.message,
-      statusCode: err.statusCode,
-      ...(err.details && { details: err.details }),
+      statusCode,
+      ...('details' in err && (err as AppError).details && { details: (err as AppError).details }),
     });
   }
 

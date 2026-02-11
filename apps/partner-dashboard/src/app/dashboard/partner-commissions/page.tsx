@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { apiClient } from '@/lib/api';
 
 interface Commission {
   id: string;
@@ -23,15 +24,8 @@ export default function CommissionsPage() {
 
   const fetchCommissions = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch('/api/v1/partners/commissions', {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      const data = await response.json();
-      if (data.success) {
+      const data = await apiClient<Commission[]>('/api/v1/partners/commissions');
+      if (data.success && data.data) {
         setCommissions(data.data);
       }
     } catch (error) {

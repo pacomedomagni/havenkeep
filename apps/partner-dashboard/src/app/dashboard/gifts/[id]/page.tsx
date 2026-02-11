@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
+import { apiClient } from '@/lib/api';
 
 interface Gift {
   id: string;
@@ -39,22 +40,15 @@ export default function GiftDetailPage() {
 
   const fetchGift = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`/api/v1/partners/gifts/${giftId}`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      const data = await response.json();
-      if (data.success) {
+      const data = await apiClient<Gift>(`/api/v1/partners/gifts/${giftId}`);
+      if (data.success && data.data) {
         setGift(data.data);
       } else {
         setError(data.message || 'Failed to load gift');
       }
-    } catch (error) {
-      console.error('Error fetching gift:', error);
-      setError('An error occurred while loading the gift');
+    } catch (err: any) {
+      console.error('Error fetching gift:', err);
+      setError(err.message || 'An error occurred while loading the gift');
     } finally {
       setLoading(false);
     }
@@ -62,23 +56,17 @@ export default function GiftDetailPage() {
 
   const handleResendEmail = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`/api/v1/partners/gifts/${giftId}/resend`, {
+      const data = await apiClient(`/api/v1/partners/gifts/${giftId}/resend`, {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
       });
-
-      const data = await response.json();
       if (data.success) {
         setShowResendModal(false);
         alert('Gift email resent successfully!');
       } else {
         alert(data.message || 'Failed to resend email');
       }
-    } catch (error) {
-      alert('An error occurred. Please try again.');
+    } catch (err: any) {
+      alert(err.message || 'An error occurred. Please try again.');
     }
   };
 

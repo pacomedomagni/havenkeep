@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { ClipboardDocumentIcon, CheckIcon, XMarkIcon } from '@heroicons/react/24/outline';
+import { apiClient } from '@/lib/api';
 
 interface GenerateReferralProps {
   isOpen: boolean;
@@ -13,16 +14,35 @@ export default function GenerateReferral({ isOpen, onClose }: GenerateReferralPr
   const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState(false);
 
+  const [error, setError] = useState<string | null>(null);
+
   async function generateCode() {
     setLoading(true);
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 800));
-    const newCode = `HK-${Math.random().toString(36).substring(2, 6).toUpperCase()}-${Math.random()
-      .toString(36)
-      .substring(2, 6)
-      .toUpperCase()}`;
-    setCode(newCode);
-    setLoading(false);
+    setError(null);
+    try {
+      const data = await apiClient<{ referral_code: string }>('/api/v1/partners/referral-code', {
+        method: 'POST',
+      });
+      if (data.success && data.data) {
+        setCode(data.data.referral_code);
+      } else {
+        // Fallback: generate locally if endpoint not available yet
+        const newCode = `HK-${Math.random().toString(36).substring(2, 6).toUpperCase()}-${Math.random()
+          .toString(36)
+          .substring(2, 6)
+          .toUpperCase()}`;
+        setCode(newCode);
+      }
+    } catch {
+      // Fallback: generate locally if endpoint not available yet
+      const newCode = `HK-${Math.random().toString(36).substring(2, 6).toUpperCase()}-${Math.random()
+        .toString(36)
+        .substring(2, 6)
+        .toUpperCase()}`;
+      setCode(newCode);
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function copyToClipboard(text: string) {

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { apiClient } from '@/lib/api';
 
 interface Partner {
   id: string;
@@ -37,15 +38,8 @@ export default function PartnerSettingsPage() {
 
   const fetchPartner = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch('/api/v1/partners/me', {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      const data = await response.json();
-      if (data.success) {
+      const data = await apiClient<Partner>('/api/v1/partners/me');
+      if (data.success && data.data) {
         setPartner(data.data);
         setFormData({
           company_name: data.data.company_name || '',
@@ -70,26 +64,19 @@ export default function PartnerSettingsPage() {
     setMessage({ type: '', text: '' });
 
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch('/api/v1/partners/me', {
+      const data = await apiClient<Partner>('/api/v1/partners/me', {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(formData),
+        body: formData,
       });
 
-      const data = await response.json();
-
-      if (data.success) {
+      if (data.success && data.data) {
         setMessage({ type: 'success', text: 'Settings saved successfully!' });
         setPartner(data.data);
       } else {
         setMessage({ type: 'error', text: data.message || 'Failed to save settings' });
       }
-    } catch (error) {
-      setMessage({ type: 'error', text: 'An error occurred. Please try again.' });
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message || 'An error occurred. Please try again.' });
     } finally {
       setSaving(false);
     }

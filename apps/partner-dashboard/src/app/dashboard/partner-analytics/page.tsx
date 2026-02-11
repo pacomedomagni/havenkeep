@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { apiClient } from '@/lib/api';
 
 interface Analytics {
   total_gifts: number;
@@ -29,15 +30,8 @@ export default function PartnerAnalyticsPage() {
 
   const fetchAnalytics = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch('/api/v1/partners/analytics', {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      const data = await response.json();
-      if (data.success) {
+      const data = await apiClient<Analytics>('/api/v1/partners/analytics');
+      if (data.success && data.data) {
         setAnalytics(data.data);
       }
     } catch (error) {

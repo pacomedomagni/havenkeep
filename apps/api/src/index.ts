@@ -24,6 +24,9 @@ import warrantyClaimsRoutes from './routes/warranty-claims';
 import statsRoutes from './routes/stats';
 import emailScannerRoutes from './routes/email-scanner';
 import partnersRoutes from './routes/partners';
+import maintenanceRoutes from './routes/maintenance';
+import notificationsRoutes from './routes/notifications';
+import warrantyPurchasesRoutes from './routes/warranty-purchases';
 
 // Validate environment before starting
 validateEnvironment();
@@ -91,6 +94,9 @@ apiV1.use('/warranty-claims', warrantyClaimsRoutes);
 apiV1.use('/stats', statsRoutes);
 apiV1.use('/email-scanner', emailScannerRoutes);
 apiV1.use('/partners', partnersRoutes);
+apiV1.use('/maintenance', maintenanceRoutes);
+apiV1.use('/notifications', notificationsRoutes);
+apiV1.use('/warranty-purchases', warrantyPurchasesRoutes);
 
 app.use('/api/v1', apiV1);
 

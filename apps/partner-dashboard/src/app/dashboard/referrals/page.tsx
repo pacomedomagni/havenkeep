@@ -5,8 +5,7 @@ import ReferralTable from '@/components/referral-table';
 import GenerateReferral from '@/components/generate-referral';
 import { PlusIcon } from '@heroicons/react/24/outline';
 import type { Referral, ReferralStatus } from '@/lib/types';
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || '';
+import { apiClient } from '@/lib/api';
 
 const filterTabs: { label: string; value: ReferralStatus | 'all' }[] = [
   { label: 'All', value: 'all' },
@@ -29,14 +28,7 @@ export default function ReferralsPage() {
   const fetchReferrals = async () => {
     try {
       setError(null);
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE}/api/v1/partners/gifts`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      const data = await response.json();
+      const data = await apiClient('/api/v1/partners/gifts');
       if (data.success) {
         // Map gifts to referral format for display
         const mapped: Referral[] = (data.data || []).map((gift: any) => ({

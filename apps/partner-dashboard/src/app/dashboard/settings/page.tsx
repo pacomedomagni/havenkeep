@@ -1,17 +1,48 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import StripeConnectButton from '@/components/stripe-connect-button';
 import { updatePartnerProfile } from './actions';
 
 export default function SettingsPage() {
-  const [companyName, setCompanyName] = useState('Acme Realty Group');
+  const [companyName, setCompanyName] = useState('');
   const [partnerType, setPartnerType] = useState('realtor');
-  const [licenseNumber, setLicenseNumber] = useState('RE-98765432');
-  const [serviceAreas, setServiceAreas] = useState('Austin, Dallas, San Antonio');
+  const [licenseNumber, setLicenseNumber] = useState('');
+  const [serviceAreas, setServiceAreas] = useState('');
   const [loading, setLoading] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    loadProfile();
+  }, []);
+
+  async function loadProfile() {
+    try {
+      const { createClient } = await import('@/lib/supabase');
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data } = await supabase
+        .from('referral_partners')
+        .select('*')
+        .eq('user_id', user.id)
+        .single();
+
+      if (data) {
+        setCompanyName(data.company_name || '');
+        setPartnerType(data.partner_type || 'realtor');
+        setLicenseNumber(data.license_number || '');
+        setServiceAreas(Array.isArray(data.service_areas) ? data.service_areas.join(', ') : '');
+      }
+    } catch (err) {
+      console.error('Error loading profile:', err);
+    } finally {
+      setInitialLoading(false);
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -33,6 +64,14 @@ export default function SettingsPage() {
       setTimeout(() => setSuccess(false), 3000);
     }
     setLoading(false);
+  }
+
+  if (initialLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-haven-primary"></div>
+      </div>
+    );
   }
 
   return (

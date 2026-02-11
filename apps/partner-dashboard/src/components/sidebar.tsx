@@ -11,6 +11,7 @@ import {
   ArrowRightOnRectangleIcon,
 } from '@heroicons/react/24/outline'
 import { useRouter } from 'next/navigation'
+import { createClient } from '@/lib/supabase'
 
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: HomeIcon },
@@ -25,7 +26,8 @@ export default function Sidebar() {
   const router = useRouter()
 
   const handleSignOut = async () => {
-    localStorage.removeItem('token')
+    const supabase = createClient()
+    await supabase.auth.signOut()
     router.push('/login')
     router.refresh()
   }

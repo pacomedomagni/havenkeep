@@ -1,0 +1,368 @@
+import { pool } from '../db';
+import { logger } from '../utils/logger';
+import { AppError } from '../utils/errors';
+
+type NotificationType =
+  | 'warranty_expiring'
+  | 'maintenance_due'
+  | 'claim_update'
+  | 'gift_received'
+  | 'gift_activated'
+  | 'system'
+  | 'promotional';
+
+interface CreateNotificationData {
+  user_id: string;
+  template_id?: string;
+  item_id?: string;
+  gift_id?: string;
+  type: NotificationType;
+  title: string;
+  body: string;
+  data?: Record<string, any>;
+  platform?: string;
+  fcm_message_id?: string;
+}
+
+interface NotificationHistoryRow {
+  id: string;
+  user_id: string;
+  template_id: string | null;
+  item_id: string | null;
+  gift_id: string | null;
+  type: NotificationType;
+  title: string;
+  body: string;
+  data: Record<string, any>;
+  sent_at: string;
+  delivered_at: string | null;
+  opened_at: string | null;
+  action_taken: string | null;
+  action_taken_at: string | null;
+  platform: string | null;
+  fcm_message_id: string | null;
+  created_at: string;
+}
+
+export class NotificationsService {
+  /**
+   * Get notifications for a user with pagination and optional filters
+   */
+  static async getUserNotifications(
+    userId: string,
+    options: {
+      limit?: number;
+      offset?: number;
+      type?: NotificationType;
+      unread?: boolean;
+    } = {}
+  ): Promise<{ notifications: NotificationHistoryRow[]; total: number }> {
+    const { limit = 50, offset = 0, type, unread } = options;
+
+    try {
+      let query = `
+        SELECT nh.*,
+               nt.name as template_name,
+               i.name as item_name
+        FROM notification_history nh
+        LEFT JOIN notification_templates nt ON nt.id = nh.template_id
+        LEFT JOIN items i ON i.id = nh.item_id
+        WHERE nh.user_id = $1
+      `;
+      const params: any[] = [userId];
+
+      if (type) {
+        query += ` AND nh.type = $${params.length + 1}`;
+        params.push(type);
+      }
+
+      if (unread === true) {
+        query += ` AND nh.opened_at IS NULL`;
+      } else if (unread === false) {
+        query += ` AND nh.opened_at IS NOT NULL`;
+      }
+
+      query += ` ORDER BY nh.sent_at DESC, nh.created_at DESC`;
+      query += ` LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+      params.push(limit, offset);
+
+      const result = await pool.query(query, params);
+
+      // Get total count with same filters
+      let countQuery = `SELECT COUNT(*) FROM notification_history WHERE user_id = $1`;
+      const countParams: any[] = [userId];
+
+      if (type) {
+        countQuery += ` AND type = $${countParams.length + 1}`;
+        countParams.push(type);
+      }
+
+      if (unread === true) {
+        countQuery += ` AND opened_at IS NULL`;
+      } else if (unread === false) {
+        countQuery += ` AND opened_at IS NOT NULL`;
+      }
+
+      const countResult = await pool.query(countQuery, countParams);
+
+      return {
+        notifications: result.rows,
+        total: parseInt(countResult.rows[0].count, 10),
+      };
+    } catch (error) {
+      logger.error({ error, userId, options }, 'Error fetching user notifications');
+      throw error;
+    }
+  }
+
+  /**
+   * Get unread notification count for a user
+   */
+  static async getUnreadCount(userId: string): Promise<number> {
+    try {
+      const result = await pool.query(
+        `SELECT COUNT(*) FROM notification_history
+         WHERE user_id = $1 AND opened_at IS NULL`,
+        [userId]
+      );
+
+      return parseInt(result.rows[0].count, 10);
+    } catch (error) {
+      logger.error({ error, userId }, 'Error fetching unread notification count');
+      throw error;
+    }
+  }
+
+  /**
+   * Mark a single notification as read (set opened_at)
+   */
+  static async markAsRead(notificationId: string, userId: string): Promise<NotificationHistoryRow> {
+    try {
+      const result = await pool.query(
+        `UPDATE notification_history
+         SET opened_at = NOW()
+         WHERE id = $1 AND user_id = $2 AND opened_at IS NULL
+         RETURNING *`,
+        [notificationId, userId]
+      );
+
+      if (result.rows.length === 0) {
+        // Check if notification exists at all
+        const existsCheck = await pool.query(
+          `SELECT id, opened_at FROM notification_history WHERE id = $1 AND user_id = $2`,
+          [notificationId, userId]
+        );
+
+        if (existsCheck.rows.length === 0) {
+          throw new AppError('Notification not found', 404);
+        }
+
+        // Already read, return existing record
+        const existing = await pool.query(
+          `SELECT nh.*, nt.name as template_name, i.name as item_name
+           FROM notification_history nh
+           LEFT JOIN notification_templates nt ON nt.id = nh.template_id
+           LEFT JOIN items i ON i.id = nh.item_id
+           WHERE nh.id = $1`,
+          [notificationId]
+        );
+
+        return existing.rows[0];
+      }
+
+      logger.info({ notificationId, userId }, 'Notification marked as read');
+
+      return result.rows[0];
+    } catch (error) {
+      logger.error({ error, notificationId, userId }, 'Error marking notification as read');
+      throw error;
+    }
+  }
+
+  /**
+   * Mark all notifications as read for a user
+   */
+  static async markAllAsRead(userId: string): Promise<number> {
+    try {
+      const result = await pool.query(
+        `UPDATE notification_history
+         SET opened_at = NOW()
+         WHERE user_id = $1 AND opened_at IS NULL`,
+        [userId]
+      );
+
+      const count = result.rowCount || 0;
+
+      logger.info({ userId, count }, 'All notifications marked as read');
+
+      return count;
+    } catch (error) {
+      logger.error({ error, userId }, 'Error marking all notifications as read');
+      throw error;
+    }
+  }
+
+  /**
+   * Record a user action on a notification
+   */
+  static async recordAction(
+    notificationId: string,
+    userId: string,
+    action: string
+  ): Promise<NotificationHistoryRow> {
+    try {
+      // Mark as read if not already, and record action
+      const result = await pool.query(
+        `UPDATE notification_history
+         SET action_taken = $3,
+             action_taken_at = NOW(),
+             opened_at = COALESCE(opened_at, NOW())
+         WHERE id = $1 AND user_id = $2
+         RETURNING *`,
+        [notificationId, userId, action]
+      );
+
+      if (result.rows.length === 0) {
+        throw new AppError('Notification not found', 404);
+      }
+
+      logger.info({ notificationId, userId, action }, 'Notification action recorded');
+
+      return result.rows[0];
+    } catch (error) {
+      logger.error({ error, notificationId, userId, action }, 'Error recording notification action');
+      throw error;
+    }
+  }
+
+  /**
+   * Create a notification directly
+   */
+  static async createNotification(data: CreateNotificationData): Promise<NotificationHistoryRow> {
+    try {
+      const result = await pool.query(
+        `INSERT INTO notification_history (
+          user_id, template_id, item_id, gift_id, type, title, body,
+          data, platform, fcm_message_id, sent_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
+        RETURNING *`,
+        [
+          data.user_id,
+          data.template_id || null,
+          data.item_id || null,
+          data.gift_id || null,
+          data.type,
+          data.title,
+          data.body,
+          JSON.stringify(data.data || {}),
+          data.platform || null,
+          data.fcm_message_id || null,
+        ]
+      );
+
+      logger.info(
+        { notificationId: result.rows[0].id, userId: data.user_id, type: data.type },
+        'Notification created'
+      );
+
+      return result.rows[0];
+    } catch (error) {
+      logger.error({ error, data }, 'Error creating notification');
+      throw error;
+    }
+  }
+
+  /**
+   * Create a notification from a template with variable interpolation
+   */
+  static async createFromTemplate(
+    templateName: string,
+    userId: string,
+    vars: Record<string, string> = {}
+  ): Promise<NotificationHistoryRow> {
+    const client = await pool.connect();
+
+    try {
+      await client.query('BEGIN');
+
+      // Fetch the template
+      const templateResult = await client.query(
+        `SELECT * FROM notification_templates
+         WHERE name = $1 AND is_active = TRUE`,
+        [templateName]
+      );
+
+      if (templateResult.rows.length === 0) {
+        throw new AppError('Notification template not found or inactive', 404);
+      }
+
+      const template = templateResult.rows[0];
+
+      // Interpolate variables into title and body
+      let title = template.title_template;
+      let body = template.body_template;
+
+      for (const [key, value] of Object.entries(vars)) {
+        const placeholder = new RegExp(`\\{\\{${key}\\}\\}`, 'g');
+        title = title.replace(placeholder, value);
+        body = body.replace(placeholder, value);
+      }
+
+      // Create the notification
+      const result = await client.query(
+        `INSERT INTO notification_history (
+          user_id, template_id, item_id, gift_id, type, title, body,
+          data, sent_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+        RETURNING *`,
+        [
+          userId,
+          template.id,
+          vars.item_id || null,
+          vars.gift_id || null,
+          template.type,
+          title,
+          body,
+          JSON.stringify({ template_name: templateName, vars }),
+        ]
+      );
+
+      await client.query('COMMIT');
+
+      logger.info(
+        { notificationId: result.rows[0].id, userId, templateName },
+        'Notification created from template'
+      );
+
+      return result.rows[0];
+    } catch (error) {
+      await client.query('ROLLBACK');
+      logger.error({ error, templateName, userId, vars }, 'Error creating notification from template');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Delete a notification
+   */
+  static async deleteNotification(notificationId: string, userId: string): Promise<void> {
+    try {
+      const result = await pool.query(
+        `DELETE FROM notification_history
+         WHERE id = $1 AND user_id = $2`,
+        [notificationId, userId]
+      );
+
+      if (result.rowCount === 0) {
+        throw new AppError('Notification not found', 404);
+      }
+
+      logger.info({ notificationId, userId }, 'Notification deleted');
+    } catch (error) {
+      logger.error({ error, notificationId, userId }, 'Error deleting notification');
+      throw error;
+    }
+  }
+}

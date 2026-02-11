@@ -4,8 +4,7 @@ import { useState, useEffect } from 'react';
 import CommissionTable from '@/components/commission-table';
 import { CurrencyDollarIcon, ClockIcon } from '@heroicons/react/24/outline';
 import type { Commission, CommissionStatus } from '@/lib/types';
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || '';
+import { apiClient } from '@/lib/api';
 
 function formatDollar(amount: number): string {
   return new Intl.NumberFormat('en-US', {
@@ -26,14 +25,7 @@ export default function CommissionsPage() {
   const fetchCommissions = async () => {
     try {
       setError(null);
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE}/api/v1/partners/commissions`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      const data = await response.json();
+      const data = await apiClient('/api/v1/partners/commissions');
       if (data.success) {
         const mapped: Commission[] = (data.data || []).map((c: any) => ({
           id: c.id,

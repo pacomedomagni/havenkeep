@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { apiClient } from '@/lib/api';
 
 interface Gift {
   id: string;
@@ -30,19 +31,12 @@ export default function GiftsPage() {
 
   const fetchGifts = async () => {
     try {
-      const token = localStorage.getItem('token');
       const url = filter === 'all'
         ? '/api/v1/partners/gifts'
         : `/api/v1/partners/gifts?status=${filter}`;
 
-      const response = await fetch(url, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      const data = await response.json();
-      if (data.success) {
+      const data = await apiClient<Gift[]>(url);
+      if (data.success && data.data) {
         setGifts(data.data);
       }
     } catch (error) {
@@ -269,25 +263,18 @@ function CreateGiftModal({
     setError('');
 
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch('/api/v1/partners/gifts', {
+      const data = await apiClient('/api/v1/partners/gifts', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(formData),
+        body: formData,
       });
-
-      const data = await response.json();
 
       if (data.success) {
         onSuccess();
       } else {
         setError(data.message || 'Failed to create gift');
       }
-    } catch (error) {
-      setError('An error occurred. Please try again.');
+    } catch (err: any) {
+      setError(err.message || 'An error occurred. Please try again.');
     } finally {
       setLoading(false);
     }

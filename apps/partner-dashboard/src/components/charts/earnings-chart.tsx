@@ -10,25 +10,25 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 
-const monthlyEarnings = [
-  { month: 'Apr', earnings: 320 },
-  { month: 'May', earnings: 450 },
-  { month: 'Jun', earnings: 280 },
-  { month: 'Jul', earnings: 590 },
-  { month: 'Aug', earnings: 720 },
-  { month: 'Sep', earnings: 640 },
-  { month: 'Oct', earnings: 890 },
-  { month: 'Nov', earnings: 750 },
-  { month: 'Dec', earnings: 1120 },
-  { month: 'Jan', earnings: 980 },
-  { month: 'Feb', earnings: 1340 },
-  { month: 'Mar', earnings: 1240 },
-];
+interface EarningsChartProps {
+  data?: { month: string; earnings: number }[];
+}
 
-export default function EarningsChart() {
+const emptyData = Array.from({ length: 12 }, (_, i) => {
+  const date = new Date();
+  date.setMonth(date.getMonth() - (11 - i));
+  return {
+    month: date.toLocaleString('default', { month: 'short' }),
+    earnings: 0,
+  };
+});
+
+export default function EarningsChart({ data }: EarningsChartProps) {
+  const chartData = data && data.length > 0 ? data : emptyData;
+
   return (
     <ResponsiveContainer width="100%" height={300}>
-      <LineChart data={monthlyEarnings} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+      <LineChart data={chartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="#2A2A2A" />
         <XAxis
           dataKey="month"

@@ -1,3 +1,21 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer components {
+  .card {
+    @apply bg-haven-surface border border-haven-border rounded-xl p-6;
+  }
+
+  .btn-primary {
+    @apply bg-haven-primary hover:bg-haven-primary/90 text-white font-medium py-2.5 px-5 rounded-lg transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-secondary {
+    @apply bg-haven-elevated hover:bg-haven-border text-haven-text-secondary hover:text-white font-medium py-2.5 px-5 rounded-lg border border-haven-border transition-colors duration-200;
+  }
+
+  .input-field {
+    @apply w-full bg-haven-elevated border border-haven-border rounded-lg px-4 py-2.5 text-white placeholder-haven-text-tertiary focus:outline-none focus:ring-2 focus:ring-haven-primary/50 focus:border-haven-primary transition-colors;
+  }
+}
