@@ -52,36 +52,40 @@ class _HavenAccordionState extends State<HavenAccordion> {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        InkWell(
-          onTap: _toggle,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: HavenSpacing.sm),
-            child: Row(
-              children: [
-                Text(
-                  widget.title.toUpperCase(),
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: HavenColors.textTertiary,
-                    letterSpacing: 1.2,
+        Semantics(
+          expanded: _isExpanded,
+          label: widget.title,
+          child: InkWell(
+            onTap: _toggle,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: HavenSpacing.sm),
+              child: Row(
+                children: [
+                  Text(
+                    widget.title.toUpperCase(),
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: HavenColors.textTertiary,
+                      letterSpacing: 1.2,
+                    ),
                   ),
-                ),
-                if (widget.trailing != null) ...[
-                  const SizedBox(width: HavenSpacing.sm),
-                  widget.trailing!,
+                  if (widget.trailing != null) ...[
+                    const SizedBox(width: HavenSpacing.sm),
+                    widget.trailing!,
+                  ],
+                  const Spacer(),
+                  AnimatedRotation(
+                    turns: _isExpanded ? 0.5 : 0.0,
+                    duration: const Duration(milliseconds: 250),
+                    child: const Icon(
+                      Icons.keyboard_arrow_down,
+                      color: HavenColors.textTertiary,
+                      size: 20,
+                    ),
+                  ),
                 ],
-                const Spacer(),
-                AnimatedRotation(
-                  turns: _isExpanded ? 0.5 : 0.0,
-                  duration: const Duration(milliseconds: 250),
-                  child: const Icon(
-                    Icons.keyboard_arrow_down,
-                    color: HavenColors.textTertiary,
-                    size: 20,
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
         ),

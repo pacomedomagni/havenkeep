@@ -5,6 +5,7 @@ import 'package:shared_models/shared_models.dart';
 import 'package:shared_ui/shared_ui.dart';
 
 import '../../core/providers/notifications_provider.dart';
+import '../../core/widgets/error_state_widget.dart';
 
 /// Notifications list screen.
 ///
@@ -64,19 +65,21 @@ class NotificationsScreen extends ConsumerWidget {
             ),
           );
         },
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, _) => Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.error_outline, size: 48, color: HavenColors.expired),
-              const SizedBox(height: HavenSpacing.md),
-              Text(
-                'Could not load notifications',
-                style: const TextStyle(color: HavenColors.textSecondary),
-              ),
-            ],
-          ),
+        loading: () => ListView(
+          padding: const EdgeInsets.all(HavenSpacing.md),
+          children: const [
+            SkeletonCard(),
+            SizedBox(height: HavenSpacing.sm),
+            SkeletonCard(),
+            SizedBox(height: HavenSpacing.sm),
+            SkeletonCard(),
+            SizedBox(height: HavenSpacing.sm),
+            SkeletonCard(),
+          ],
+        ),
+        error: (_, __) => ErrorStateWidget(
+          message: 'Could not load notifications',
+          onRetry: () => ref.read(notificationsProvider.notifier).refresh(),
         ),
       ),
     );
@@ -175,7 +178,7 @@ class _NotificationCard extends ConsumerWidget {
     if (notification.actionType == NotificationAction.get_protection ||
         notification.actionType == NotificationAction.find_repair) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Coming soon')),
+        const SnackBar(content: Text('This feature is not yet available')),
       );
     }
   }
@@ -184,93 +187,97 @@ class _NotificationCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final typeColor = _colorForType(notification.type);
 
-    return InkWell(
-      onTap: () => _handleTap(context, ref),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: HavenSpacing.md,
-          vertical: HavenSpacing.md,
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Unread dot
-            SizedBox(
-              width: 12,
-              child: notification.isRead
-                  ? const SizedBox.shrink()
-                  : Container(
-                      margin: const EdgeInsets.only(top: 6),
-                      width: 8,
-                      height: 8,
-                      decoration: const BoxDecoration(
-                        color: HavenColors.primary,
-                        shape: BoxShape.circle,
+    return Semantics(
+      label: notification.isRead ? '' : 'Unread',
+      child: InkWell(
+        onTap: () => _handleTap(context, ref),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: HavenSpacing.md,
+            vertical: HavenSpacing.md,
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Unread dot
+              SizedBox(
+                width: 12,
+                child: notification.isRead
+                    ? const SizedBox.shrink()
+                    : Container(
+                        margin: const EdgeInsets.only(top: 6),
+                        width: 8,
+                        height: 8,
+                        decoration: const BoxDecoration(
+                          color: HavenColors.primary,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+              ),
+
+              // Type icon
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: typeColor.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
+                  _iconForType(notification.type),
+                  color: typeColor,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: HavenSpacing.md),
+
+              // Content
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      notification.title,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight:
+                            notification.isRead ? FontWeight.w400 : FontWeight.w600,
+                        color: HavenColors.textPrimary,
                       ),
                     ),
-            ),
-
-            // Type icon
-            Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                color: typeColor.withOpacity(0.15),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Icon(
-                _iconForType(notification.type),
-                color: typeColor,
-                size: 20,
-              ),
-            ),
-            const SizedBox(width: HavenSpacing.md),
-
-            // Content
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    notification.title,
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight:
-                          notification.isRead ? FontWeight.w400 : FontWeight.w600,
-                      color: HavenColors.textPrimary,
+                    const SizedBox(height: 2),
+                    Text(
+                      notification.body,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: HavenColors.textSecondary,
+                        height: 1.3,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    notification.body,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: HavenColors.textSecondary,
-                      height: 1.3,
+                    const SizedBox(height: HavenSpacing.xs),
+                    Text(
+                      _timeAgo(notification.createdAt),
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: HavenColors.textTertiary,
+                      ),
                     ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: HavenSpacing.xs),
-                  Text(
-                    _timeAgo(notification.createdAt),
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: HavenColors.textTertiary,
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
 
-            // Chevron if actionable
-            if (notification.isActionable)
-              const Icon(
-                Icons.chevron_right,
-                color: HavenColors.textTertiary,
-                size: 18,
-              ),
-          ],
+              // Chevron only for navigable actions (view_item)
+              if (notification.actionType == NotificationAction.view_item &&
+                  notification.actionData != null)
+                const Icon(
+                  Icons.chevron_right,
+                  color: HavenColors.textTertiary,
+                  size: 18,
+                ),
+            ],
+          ),
         ),
       ),
     );

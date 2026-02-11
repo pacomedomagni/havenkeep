@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_ui/shared_ui.dart';
 
 /// Enhanced dashboard card showing total value protected and warranty health.
 class ValueDashboardCard extends StatelessWidget {
@@ -32,14 +33,14 @@ class ValueDashboardCard extends StatelessWidget {
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
             colors: [
-              const Color(0xFF6366F1),
-              const Color(0xFF8B5CF6),
+              HavenColors.accent,
+              HavenColors.accentSecondary,
             ],
           ),
           borderRadius: BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
-              color: const Color(0xFF6366F1).withOpacity(0.3),
+              color: HavenColors.accent.withValues(alpha: 0.3),
               blurRadius: 16,
               offset: const Offset(0, 8),
             ),
@@ -54,12 +55,12 @@ class ValueDashboardCard extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.2),
+                    color: HavenColors.textPrimary.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: const Icon(
                     Icons.shield_outlined,
-                    color: Colors.white,
+                    color: HavenColors.textPrimary,
                     size: 24,
                   ),
                 ),
@@ -68,7 +69,7 @@ class ValueDashboardCard extends StatelessWidget {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.2),
+                    color: HavenColors.textPrimary.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Row(
@@ -77,7 +78,7 @@ class ValueDashboardCard extends StatelessWidget {
                       Text(
                         '$warrantyHealth%',
                         style: const TextStyle(
-                          color: Colors.white,
+                          color: HavenColors.textPrimary,
                           fontSize: 14,
                           fontWeight: FontWeight.bold,
                         ),
@@ -86,7 +87,7 @@ class ValueDashboardCard extends StatelessWidget {
                       const Text(
                         'Health',
                         style: TextStyle(
-                          color: Colors.white,
+                          color: HavenColors.textPrimary,
                           fontSize: 12,
                         ),
                       ),
@@ -102,7 +103,7 @@ class ValueDashboardCard extends StatelessWidget {
             Text(
               'Total Value Protected',
               style: TextStyle(
-                color: Colors.white.withOpacity(0.9),
+                color: HavenColors.textPrimary.withValues(alpha: 0.9),
                 fontSize: 14,
                 fontWeight: FontWeight.w500,
               ),
@@ -113,7 +114,7 @@ class ValueDashboardCard extends StatelessWidget {
             Text(
               '\$${_formatCurrency(totalValue)}',
               style: const TextStyle(
-                color: Colors.white,
+                color: HavenColors.textPrimary,
                 fontSize: 40,
                 fontWeight: FontWeight.bold,
                 height: 1,
@@ -136,7 +137,7 @@ class ValueDashboardCard extends StatelessWidget {
                 Container(
                   width: 1,
                   height: 40,
-                  color: Colors.white.withOpacity(0.2),
+                  color: HavenColors.textPrimary.withValues(alpha: 0.2),
                 ),
                 Expanded(
                   child: _buildStat(
@@ -159,7 +160,7 @@ class ValueDashboardCard extends StatelessWidget {
             Text(
               _getHealthMessage(),
               style: TextStyle(
-                color: Colors.white.withOpacity(0.85),
+                color: HavenColors.textPrimary.withValues(alpha: 0.85),
                 fontSize: 13,
                 height: 1.4,
               ),
@@ -180,12 +181,12 @@ class ValueDashboardCard extends StatelessWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, color: Colors.white, size: 16),
+            Icon(icon, color: HavenColors.textPrimary, size: 16),
             const SizedBox(width: 6),
             Text(
               value,
               style: const TextStyle(
-                color: Colors.white,
+                color: HavenColors.textPrimary,
                 fontSize: 20,
                 fontWeight: FontWeight.bold,
               ),
@@ -196,7 +197,7 @@ class ValueDashboardCard extends StatelessWidget {
         Text(
           label,
           style: TextStyle(
-            color: Colors.white.withOpacity(0.8),
+            color: HavenColors.textPrimary.withValues(alpha: 0.8),
             fontSize: 12,
           ),
         ),
@@ -214,7 +215,7 @@ class ValueDashboardCard extends StatelessWidget {
             Text(
               'Warranty Health',
               style: TextStyle(
-                color: Colors.white.withOpacity(0.9),
+                color: HavenColors.textPrimary.withValues(alpha: 0.9),
                 fontSize: 12,
                 fontWeight: FontWeight.w500,
               ),
@@ -222,7 +223,7 @@ class ValueDashboardCard extends StatelessWidget {
             Text(
               '$warrantyHealth%',
               style: const TextStyle(
-                color: Colors.white,
+                color: HavenColors.textPrimary,
                 fontSize: 12,
                 fontWeight: FontWeight.bold,
               ),
@@ -235,7 +236,7 @@ class ValueDashboardCard extends StatelessWidget {
           child: LinearProgressIndicator(
             value: warrantyHealth / 100,
             minHeight: 8,
-            backgroundColor: Colors.white.withOpacity(0.2),
+            backgroundColor: HavenColors.textPrimary.withValues(alpha: 0.2),
             valueColor: AlwaysStoppedAnimation<Color>(
               _getHealthColor(),
             ),
@@ -246,9 +247,9 @@ class ValueDashboardCard extends StatelessWidget {
   }
 
   Color _getHealthColor() {
-    if (warrantyHealth >= 80) return Colors.greenAccent;
-    if (warrantyHealth >= 50) return Colors.amberAccent;
-    return Colors.orangeAccent;
+    if (warrantyHealth >= 80) return HavenColors.active;
+    if (warrantyHealth >= 50) return HavenColors.expiring;
+    return HavenColors.expired;
   }
 
   String _getHealthMessage() {

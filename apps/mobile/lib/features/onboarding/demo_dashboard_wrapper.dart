@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_ui/shared_ui.dart';
 
 import '../../core/providers/demo_mode_provider.dart';
 import '../home/dashboard_screen.dart';
@@ -37,7 +38,6 @@ class _DemoDashboardWrapperState extends ConsumerState<DemoDashboardWrapper> {
 
   @override
   Widget build(BuildContext context) {
-    final demoState = ref.watch(demoModeProvider);
     final stats = ref.read(demoModeProvider.notifier).getStats();
 
     return Stack(
@@ -55,8 +55,8 @@ class _DemoDashboardWrapperState extends ConsumerState<DemoDashboardWrapper> {
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 colors: [
-                  const Color(0xFF6366F1).withOpacity(0.9),
-                  const Color(0xFF8B5CF6).withOpacity(0.9),
+                  HavenColors.accent.withValues(alpha: 0.9),
+                  HavenColors.accentSecondary.withValues(alpha: 0.9),
                 ],
               ),
             ),
@@ -65,13 +65,13 @@ class _DemoDashboardWrapperState extends ConsumerState<DemoDashboardWrapper> {
               child: Row(
                 children: [
                   const Icon(Icons.play_circle_outline,
-                      color: Colors.white, size: 20),
+                      color: HavenColors.textPrimary, size: 20),
                   const SizedBox(width: 8),
                   const Expanded(
                     child: Text(
                       'Interactive Demo Mode',
                       style: TextStyle(
-                        color: Colors.white,
+                        color: HavenColors.textPrimary,
                         fontSize: 14,
                         fontWeight: FontWeight.w600,
                       ),
@@ -83,10 +83,10 @@ class _DemoDashboardWrapperState extends ConsumerState<DemoDashboardWrapper> {
                       _showExitConfirmation(context);
                     },
                     style: TextButton.styleFrom(
-                      foregroundColor: Colors.white,
+                      foregroundColor: HavenColors.textPrimary,
                       padding: const EdgeInsets.symmetric(
                           horizontal: 12, vertical: 6),
-                      backgroundColor: Colors.white.withOpacity(0.2),
+                      backgroundColor: HavenColors.textPrimary.withValues(alpha: 0.2),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(8),
                       ),
@@ -110,11 +110,11 @@ class _DemoDashboardWrapperState extends ConsumerState<DemoDashboardWrapper> {
               child: Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF6366F1).withOpacity(0.95),
+                  color: HavenColors.accent.withValues(alpha: 0.95),
                   borderRadius: BorderRadius.circular(12),
                   boxShadow: [
                     BoxShadow(
-                      color: const Color(0xFF6366F1).withOpacity(0.3),
+                      color: HavenColors.accent.withValues(alpha: 0.3),
                       blurRadius: 16,
                       offset: const Offset(0, 4),
                     ),
@@ -123,19 +123,19 @@ class _DemoDashboardWrapperState extends ConsumerState<DemoDashboardWrapper> {
                 child: Row(
                   children: [
                     const Icon(Icons.lightbulb_outline,
-                        color: Colors.white, size: 20),
+                        color: HavenColors.textPrimary, size: 20),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Text(
                         'This is demo data. Try exploring to see how HavenKeep works!',
                         style: TextStyle(
                           fontSize: 14,
-                          color: Colors.white.withOpacity(0.95),
+                          color: HavenColors.textPrimary.withValues(alpha: 0.95),
                         ),
                       ),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.close, color: Colors.white, size: 18),
+                      icon: const Icon(Icons.close, color: HavenColors.textPrimary, size: 18),
                       padding: EdgeInsets.zero,
                       constraints: const BoxConstraints(),
                       onPressed: () => setState(() => _showHint = false),
@@ -147,84 +147,83 @@ class _DemoDashboardWrapperState extends ConsumerState<DemoDashboardWrapper> {
           ),
 
         // Sticky CTA at bottom
-        if (true)
-          Positioned(
-            bottom: 0,
-            left: 0,
-            right: 0,
-            child: Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.1),
-                    blurRadius: 8,
-                    offset: const Offset(0, -2),
+        Positioned(
+          bottom: 0,
+          left: 0,
+          right: 0,
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: HavenColors.surface,
+              boxShadow: [
+                BoxShadow(
+                  color: HavenColors.background.withValues(alpha: 0.3),
+                  blurRadius: 8,
+                  offset: const Offset(0, -2),
+                ),
+              ],
+            ),
+            child: SafeArea(
+              top: false,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Protecting \$${stats.totalValue.toStringAsFixed(0)} in warranties',
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: HavenColors.textPrimary,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            const Text(
+                              'Ready to protect your own items?',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: HavenColors.textSecondary,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
-                ],
-              ),
-              child: SafeArea(
-                top: false,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Protecting \$${stats.totalValue.toStringAsFixed(0)} in warranties',
-                                style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                  color: Color(0xFF111827),
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              const Text(
-                                'Ready to protect your own items?',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: Color(0xFF6B7280),
-                                ),
-                              ),
-                            ],
-                          ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 52,
+                    child: FilledButton(
+                      onPressed: () {
+                        HapticFeedback.mediumImpact();
+                        _showExitConfirmation(context);
+                      },
+                      style: FilledButton.styleFrom(
+                        backgroundColor: HavenColors.accent,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
                         ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    SizedBox(
-                      width: double.infinity,
-                      height: 52,
-                      child: FilledButton(
-                        onPressed: () {
-                          HapticFeedback.mediumImpact();
-                          _showExitConfirmation(context);
-                        },
-                        style: FilledButton.styleFrom(
-                          backgroundColor: const Color(0xFF6366F1),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                        child: const Text(
-                          'Sign Up - It's Free',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                          ),
+                      ),
+                      child: const Text(
+                        'Sign Up - It\u2019s Free',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
           ),
+        ),
       ],
     );
   }

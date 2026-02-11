@@ -73,11 +73,11 @@ class _WizardStep1BasicsState extends State<WizardStep1Basics> {
 
             const SizedBox(height: 8),
 
-            Text(
+            const Text(
               'Step 1 of 3',
               style: TextStyle(
                 fontSize: 14,
-                color: Colors.grey[600],
+                color: HavenColors.textSecondary,
               ),
             ),
 
@@ -185,40 +185,45 @@ class _WizardStep1BasicsState extends State<WizardStep1Basics> {
       runSpacing: 8,
       children: commonCategories.map((category) {
         final isSelected = widget.data.category == category;
-        return GestureDetector(
-          onTap: () {
-            HapticFeedback.selectionClick();
-            setState(() {
-              widget.data.category = category;
-            });
-          },
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: BoxDecoration(
-              color: isSelected ? HavenColors.primary : HavenColors.surface,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: isSelected ? HavenColors.primary : HavenColors.border,
+        return Semantics(
+          selected: isSelected,
+          label: category.displayName,
+          child: InkWell(
+            onTap: () {
+              HapticFeedback.selectionClick();
+              setState(() {
+                widget.data.category = category;
+              });
+            },
+            borderRadius: BorderRadius.circular(12),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: isSelected ? HavenColors.primary : HavenColors.surface,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: isSelected ? HavenColors.primary : HavenColors.border,
+                ),
               ),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  category.icon,
-                  size: 20,
-                  color: isSelected ? Colors.white : HavenColors.textPrimary,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  category.displayName,
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                    color: isSelected ? Colors.white : HavenColors.textPrimary,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    category.icon,
+                    size: 20,
+                    color: isSelected ? HavenColors.textPrimary : HavenColors.textPrimary,
                   ),
-                ),
-              ],
+                  const SizedBox(width: 8),
+                  Text(
+                    category.displayName,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      color: isSelected ? HavenColors.textPrimary : HavenColors.textPrimary,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         );

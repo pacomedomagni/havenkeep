@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:api_client/api_client.dart';
+import 'package:shared_ui/shared_ui.dart';
 import '../../core/services/partners_repository.dart';
 import '../../core/providers/auth_provider.dart';
+import '../../core/utils/error_handler.dart';
 import '../../core/widgets/celebration_overlay.dart';
 
 class GiftActivationScreen extends ConsumerStatefulWidget {
@@ -82,7 +84,7 @@ class _GiftActivationScreenState extends ConsumerState<GiftActivationScreen> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _error = e.toString().replaceAll('Exception: ', '');
+          _error = ErrorHandler.getUserMessage(e);
           _isActivating = false;
         });
       }
@@ -130,10 +132,10 @@ class _GiftActivationScreenState extends ConsumerState<GiftActivationScreen> {
                       textAlign: TextAlign.center,
                     ),
                   ] else if (_error != null) ...[
-                    Icon(
+                    const Icon(
                       Icons.error_outline,
                       size: 64,
-                      color: Colors.red.shade400,
+                      color: HavenColors.expired,
                     ),
                     const SizedBox(height: 24),
                     Text(

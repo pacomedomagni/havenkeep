@@ -6,6 +6,7 @@ import 'package:shared_ui/shared_ui.dart';
 
 import '../../core/providers/premium_provider.dart';
 import '../../core/router/router.dart';
+import '../../core/utils/error_handler.dart';
 
 class PremiumScreen extends ConsumerStatefulWidget {
   const PremiumScreen({super.key});
@@ -32,7 +33,7 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Subscription failed: $e'),
+            content: Text(ErrorHandler.getUserMessage(e)),
             backgroundColor: HavenColors.expired,
           ),
         );
@@ -60,7 +61,7 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Restore failed: $e'),
+            content: Text(ErrorHandler.getUserMessage(e)),
             backgroundColor: HavenColors.expired,
           ),
         );
@@ -101,7 +102,7 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
             const Icon(
               Icons.star,
               size: 80,
-              color: Color(0xFFFFD700),
+              color: HavenColors.gold,
             ),
             const SizedBox(height: HavenSpacing.lg),
             const Text(
@@ -164,6 +165,15 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
           _buildSubscribeButton(),
           const SizedBox(height: HavenSpacing.md),
           _buildRestoreButton(),
+          const SizedBox(height: HavenSpacing.md),
+          const Text(
+            'Subscription auto-renews. Cancel anytime in your device settings.',
+            style: TextStyle(
+              fontSize: 12,
+              color: HavenColors.textTertiary,
+            ),
+            textAlign: TextAlign.center,
+          ),
           const SizedBox(height: HavenSpacing.lg),
         ],
       ),
@@ -176,7 +186,7 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
         Icon(
           Icons.star,
           size: 80,
-          color: Color(0xFFFFD700),
+          color: HavenColors.gold,
         ),
         SizedBox(height: HavenSpacing.md),
         Text(
@@ -232,7 +242,7 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
         color: HavenColors.surface,
         borderRadius: BorderRadius.circular(HavenRadius.card),
         border: Border.all(
-          color: isFree ? HavenColors.border : const Color(0xFFFFD700),
+          color: isFree ? HavenColors.border : HavenColors.gold,
           width: isFree ? 1 : 2,
         ),
       ),
@@ -244,7 +254,7 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
             style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.bold,
-              color: isFree ? HavenColors.textPrimary : const Color(0xFFFFD700),
+              color: isFree ? HavenColors.textPrimary : HavenColors.gold,
             ),
           ),
           const SizedBox(height: HavenSpacing.md),
@@ -294,39 +304,44 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
       ),
       child: Column(
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                'Monthly',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: !_isAnnual
-                      ? HavenColors.textPrimary
-                      : HavenColors.textTertiary,
+          MergeSemantics(
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  'Monthly',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: !_isAnnual
+                        ? HavenColors.textPrimary
+                        : HavenColors.textTertiary,
+                  ),
                 ),
-              ),
-              const SizedBox(width: HavenSpacing.sm),
-              Switch(
-                value: _isAnnual,
-                onChanged: (value) => setState(() => _isAnnual = value),
-                activeColor: const Color(0xFFFFD700),
-                inactiveThumbColor: HavenColors.primary,
-                inactiveTrackColor: HavenColors.elevated,
-              ),
-              const SizedBox(width: HavenSpacing.sm),
-              Text(
-                'Annual',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: _isAnnual
-                      ? HavenColors.textPrimary
-                      : HavenColors.textTertiary,
+                const SizedBox(width: HavenSpacing.sm),
+                Semantics(
+                  label: 'Switch between monthly and annual billing',
+                  child: Switch(
+                    value: _isAnnual,
+                    onChanged: (value) => setState(() => _isAnnual = value),
+                    activeColor: HavenColors.gold,
+                    inactiveThumbColor: HavenColors.primary,
+                    inactiveTrackColor: HavenColors.elevated,
+                  ),
                 ),
-              ),
-            ],
+                const SizedBox(width: HavenSpacing.sm),
+                Text(
+                  'Annual',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: _isAnnual
+                        ? HavenColors.textPrimary
+                        : HavenColors.textTertiary,
+                  ),
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: HavenSpacing.md),
           Text(
@@ -360,13 +375,13 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
       child: ElevatedButton(
         onPressed: _isSubscribing ? null : _subscribe,
         style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFFFFD700),
-          foregroundColor: Colors.black,
+          backgroundColor: HavenColors.gold,
+          foregroundColor: HavenColors.background,
           padding: const EdgeInsets.symmetric(vertical: HavenSpacing.md),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(HavenRadius.chip),
           ),
-          disabledBackgroundColor: const Color(0xFFFFD700).withOpacity(0.5),
+          disabledBackgroundColor: HavenColors.gold.withValues(alpha: 0.5),
         ),
         child: _isSubscribing
             ? const SizedBox(
@@ -374,7 +389,7 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
                 width: 20,
                 child: CircularProgressIndicator(
                   strokeWidth: 2,
-                  color: Colors.black,
+                  color: HavenColors.background,
                 ),
               )
             : const Text(

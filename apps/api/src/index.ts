@@ -30,6 +30,7 @@ import warrantyPurchasesRoutes from './routes/warranty-purchases';
 import categoriesRoutes from './routes/categories';
 import uploadsRoutes from './routes/uploads';
 import receiptsRoutes from './routes/receipts';
+import auditRoutes from './routes/audit';
 
 // Validate environment before starting
 validateEnvironment();
@@ -103,6 +104,7 @@ apiV1.use('/warranty-purchases', warrantyPurchasesRoutes);
 apiV1.use('/categories', categoriesRoutes);
 apiV1.use('/uploads', uploadsRoutes);
 apiV1.use('/receipts', receiptsRoutes);
+apiV1.use('/audit', auditRoutes);
 
 app.use('/api/v1', apiV1);
 

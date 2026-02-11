@@ -8,6 +8,7 @@ import 'package:shared_ui/shared_ui.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/providers/homes_provider.dart';
 import '../../core/providers/items_provider.dart';
+import '../../core/utils/error_handler.dart';
 import '../../core/widgets/celebration_overlay.dart';
 
 /// Quick-Add form screen for a specific category.
@@ -64,7 +65,7 @@ class _QuickAddScreenState extends ConsumerState<QuickAddScreen> {
           data: Theme.of(context).copyWith(
             colorScheme: const ColorScheme.dark(
               primary: HavenColors.primary,
-              onPrimary: Colors.white,
+              onPrimary: HavenColors.textPrimary,
               surface: HavenColors.elevated,
               onSurface: HavenColors.textPrimary,
             ),
@@ -147,7 +148,7 @@ class _QuickAddScreenState extends ConsumerState<QuickAddScreen> {
               content: Text('✓ ${newItem.name} added successfully'),
               duration: const Duration(seconds: 2),
               behavior: SnackBarBehavior.floating,
-              backgroundColor: const Color(0xFF10B981),
+              backgroundColor: HavenColors.active,
             ),
           );
           context.go('/add-item/success/${newItem.id}');
@@ -156,7 +157,7 @@ class _QuickAddScreenState extends ConsumerState<QuickAddScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error saving item: $e')),
+          SnackBar(content: Text(ErrorHandler.getUserMessage(e))),
         );
       }
     } finally {
@@ -373,7 +374,7 @@ class _QuickAddScreenState extends ConsumerState<QuickAddScreen> {
                           height: 20,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            color: Colors.white,
+                            color: HavenColors.textPrimary,
                           ),
                         )
                       : const Text(

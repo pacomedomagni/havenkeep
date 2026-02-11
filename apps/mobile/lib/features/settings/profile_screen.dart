@@ -6,6 +6,8 @@ import 'package:shared_ui/shared_ui.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/providers/items_provider.dart';
 import '../../core/providers/profile_photo_provider.dart';
+import '../../core/utils/error_handler.dart';
+import '../../core/widgets/error_state_widget.dart';
 
 /// Profile editing screen.
 ///
@@ -65,7 +67,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       if (mounted) {
         setState(() => _isSaving = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
+          SnackBar(content: Text(ErrorHandler.getUserMessage(e))),
         );
       }
     }
@@ -76,12 +78,17 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     final userAsync = ref.watch(currentUserProvider);
     final itemCountAsync = ref.watch(activeItemCountProvider);
 
-    return Scaffold(
-      backgroundColor: HavenColors.background,
-      appBar: AppBar(
-        title: const Text('Profile'),
-      ),
-      body: userAsync.when(
+    return PopScope(
+      canPop: !_isDirty,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _confirmDiscard();
+      },
+      child: Scaffold(
+        backgroundColor: HavenColors.background,
+        appBar: AppBar(
+          title: const Text('Profile'),
+        ),
+        body: userAsync.when(
         data: (user) {
           if (user == null) {
             return const Center(
@@ -117,10 +124,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                             : null,
                         child: user.avatarUrl == null
                             ? Text(
-                                (user.fullName ?? '?')[0].toUpperCase(),
+                                (user.fullName != null && user.fullName!.isNotEmpty ? user.fullName![0] : '?').toUpperCase(),
                                 style: const TextStyle(
                                   fontSize: 32,
-                                  color: Colors.white,
+                                  color: HavenColors.textPrimary,
                                   fontWeight: FontWeight.bold,
                                 ),
                               )
@@ -134,7 +141,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                           } catch (e) {
                             if (mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('Photo upload failed: $e')),
+                                SnackBar(content: Text(ErrorHandler.getUserMessage(e))),
                               );
                             }
                           }
@@ -192,8 +199,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         ),
                         decoration: BoxDecoration(
                           color: isPremium
-                              ? HavenColors.active.withOpacity(0.2)
-                              : HavenColors.expiring.withOpacity(0.2),
+                              ? HavenColors.active.withValues(alpha: 0.2)
+                              : HavenColors.expiring.withValues(alpha: 0.2),
                           borderRadius:
                               BorderRadius.circular(HavenRadius.chip),
                         ),
@@ -234,7 +241,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                             height: 20,
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
-                              color: Colors.white,
+                              color: HavenColors.textPrimary,
                             ),
                           )
                         : const Text('Save Changes'),
@@ -244,14 +251,40 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             ),
           );
         },
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (_, __) => const Center(
-          child: Text(
-            'Error loading profile',
-            style: TextStyle(color: HavenColors.expired),
+        loading: () => Padding(
+          padding: const EdgeInsets.all(HavenSpacing.md),
+          child: Column(
+            children: const [
+              SizedBox(height: HavenSpacing.lg),
+              SkeletonBox(width: 80, height: 80),
+              SizedBox(height: HavenSpacing.lg),
+              SkeletonLine(height: 48),
+              SizedBox(height: HavenSpacing.md),
+              SkeletonLine(height: 48),
+              SizedBox(height: HavenSpacing.lg),
+              SkeletonLine(height: 60),
+            ],
           ),
         ),
+        error: (_, __) => ErrorStateWidget(
+          message: 'Could not load profile',
+          onRetry: () => ref.invalidate(currentUserProvider),
+        ),
       ),
+    ),
     );
+  }
+
+  Future<void> _confirmDiscard() async {
+    final confirmed = await showHavenConfirmDialog(
+      context,
+      title: 'Discard changes?',
+      body: 'You have unsaved changes that will be lost.',
+      confirmLabel: 'Discard',
+      isDestructive: true,
+    );
+    if (confirmed && mounted) {
+      Navigator.of(context).pop();
+    }
   }
 }

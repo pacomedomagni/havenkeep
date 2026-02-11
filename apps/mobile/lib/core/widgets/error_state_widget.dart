@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:shared_ui/shared_ui.dart';
+
+import '../utils/error_handler.dart';
 
 /// A reusable widget for displaying error states with optional retry action.
 ///
@@ -56,34 +59,34 @@ class ErrorStateWidget extends StatelessWidget {
 
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(24.0),
+        padding: const EdgeInsets.all(HavenSpacing.lg),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(
               icon ?? Icons.error_outline,
               size: 64,
-              color: Colors.red[300],
+              color: HavenColors.expired,
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: HavenSpacing.md),
             Text(
               message,
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    color: Colors.red[700],
+                    color: HavenColors.expired,
                   ),
               textAlign: TextAlign.center,
             ),
             if (details != null) ...[
-              const SizedBox(height: 8),
+              const SizedBox(height: HavenSpacing.sm),
               Text(
                 details!,
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Colors.grey[600],
+                      color: HavenColors.textSecondary,
                     ),
                 textAlign: TextAlign.center,
               ),
             ],
-            const SizedBox(height: 24),
+            const SizedBox(height: HavenSpacing.lg),
             if (onRetry != null)
               ElevatedButton.icon(
                 onPressed: onRetry,
@@ -91,13 +94,13 @@ class ErrorStateWidget extends StatelessWidget {
                 label: const Text('Retry'),
                 style: ElevatedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 24,
-                    vertical: 12,
+                    horizontal: HavenSpacing.lg,
+                    vertical: HavenSpacing.sm + 4,
                   ),
                 ),
               ),
             if (onAction != null && actionLabel != null) ...[
-              const SizedBox(height: 12),
+              const SizedBox(height: HavenSpacing.sm + 4),
               TextButton(
                 onPressed: onAction,
                 child: Text(actionLabel!),
@@ -111,38 +114,38 @@ class ErrorStateWidget extends StatelessWidget {
 
   Widget _buildCompactError(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(HavenSpacing.sm + 4),
       decoration: BoxDecoration(
-        color: Colors.red[50],
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.red[200]!),
+        color: HavenColors.expired.withValues(alpha: 0.1),
+        borderRadius: HavenRadius.inputRadius,
+        border: Border.all(color: HavenColors.expired.withValues(alpha: 0.3)),
       ),
       child: Row(
         children: [
           Icon(
             icon ?? Icons.error_outline,
-            size: 24,
-            color: Colors.red[700],
+            size: HavenIconSize.standard,
+            color: HavenColors.expired,
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: HavenSpacing.sm + 4),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   message,
-                  style: TextStyle(
-                    color: Colors.red[900],
+                  style: const TextStyle(
+                    color: HavenColors.textPrimary,
                     fontSize: 14,
                     fontWeight: FontWeight.w500,
                   ),
                 ),
                 if (details != null) ...[
-                  const SizedBox(height: 4),
+                  const SizedBox(height: HavenSpacing.xs),
                   Text(
                     details!,
-                    style: TextStyle(
-                      color: Colors.red[700],
+                    style: const TextStyle(
+                      color: HavenColors.textSecondary,
                       fontSize: 12,
                     ),
                   ),
@@ -151,11 +154,11 @@ class ErrorStateWidget extends StatelessWidget {
             ),
           ),
           if (onRetry != null) ...[
-            const SizedBox(width: 12),
+            const SizedBox(width: HavenSpacing.sm + 4),
             IconButton(
               onPressed: onRetry,
               icon: const Icon(Icons.refresh),
-              color: Colors.red[700],
+              color: HavenColors.expired,
               tooltip: 'Retry',
             ),
           ],
@@ -209,35 +212,35 @@ class EmptyStateWidget extends StatelessWidget {
   Widget build(BuildContext context) {
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(24.0),
+        padding: const EdgeInsets.all(HavenSpacing.lg),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(
               icon ?? Icons.inbox_outlined,
               size: 64,
-              color: Colors.grey[400],
+              color: HavenColors.textTertiary,
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: HavenSpacing.md),
             Text(
               message,
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    color: Colors.grey[700],
+                    color: HavenColors.textSecondary,
                   ),
               textAlign: TextAlign.center,
             ),
             if (details != null) ...[
-              const SizedBox(height: 8),
+              const SizedBox(height: HavenSpacing.sm),
               Text(
                 details!,
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Colors.grey[600],
+                      color: HavenColors.textTertiary,
                     ),
                 textAlign: TextAlign.center,
               ),
             ],
             if (onAction != null && actionLabel != null) ...[
-              const SizedBox(height: 24),
+              const SizedBox(height: HavenSpacing.lg),
               ElevatedButton(
                 onPressed: onAction,
                 child: Text(actionLabel!),
@@ -299,8 +302,7 @@ class AsyncStateBuilder<T> extends StatelessWidget {
 
     if (asyncValue.hasError) {
       final error = asyncValue.error;
-      final message = errorMessage ??
-          (error?.toString() ?? 'An unexpected error occurred');
+      final message = errorMessage ?? ErrorHandler.getUserMessage(error);
 
       return ErrorStateWidget(
         message: message,

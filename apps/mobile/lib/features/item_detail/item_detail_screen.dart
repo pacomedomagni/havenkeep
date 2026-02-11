@@ -4,9 +4,11 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_models/shared_models.dart';
 import 'package:shared_ui/shared_ui.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/providers/documents_provider.dart';
 import '../../core/providers/items_provider.dart';
+import '../../core/utils/error_handler.dart';
 import '../../core/router/router.dart';
 import 'document_upload_sheet.dart';
 import 'share_claim_sheet.dart';
@@ -48,7 +50,7 @@ class ItemDetailScreen extends ConsumerWidget {
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, _) => Center(
           child: Text(
-            'Error loading item: $error',
+            ErrorHandler.getUserMessage(error),
             style: const TextStyle(color: HavenColors.expired),
           ),
         ),
@@ -416,10 +418,8 @@ class _ItemDetailBody extends ConsumerWidget {
                     onPressed: () {
                       final brand = item.brand ?? item.name;
                       final query = Uri.encodeComponent('$brand warranty support');
-                      final url = 'https://www.google.com/search?q=$query';
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Search: $url')),
-                      );
+                      final searchUrl = 'https://www.google.com/search?q=$query';
+                      launchUrl(Uri.parse(searchUrl), mode: LaunchMode.externalApplication);
                     },
                     icon: const Icon(Icons.search, size: 18),
                     label: Text(
@@ -558,10 +558,24 @@ class _DocumentRow extends ConsumerWidget {
               ),
               body: Center(
                 child: InteractiveViewer(
-                  child: Icon(
-                    DocumentTypeIcon.get(doc.type),
-                    size: 120,
-                    color: HavenColors.textTertiary,
+                  child: Image.network(
+                    doc.fileUrl,
+                    fit: BoxFit.contain,
+                    loadingBuilder: (context, child, loadingProgress) {
+                      if (loadingProgress == null) return child;
+                      return const Center(
+                        child: CircularProgressIndicator(
+                          color: HavenColors.primary,
+                        ),
+                      );
+                    },
+                    errorBuilder: (context, error, stackTrace) {
+                      return const Icon(
+                        Icons.broken_image,
+                        size: 120,
+                        color: HavenColors.textTertiary,
+                      );
+                    },
                   ),
                 ),
               ),

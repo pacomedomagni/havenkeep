@@ -39,9 +39,13 @@ class CategoryIcon {
   /// Returns a [Text] widget displaying the category emoji at the given
   /// [size] (defaults to 24).
   static Widget widget(ItemCategory category, {double size = 24}) {
-    return Text(
-      get(category),
-      style: TextStyle(fontSize: size),
+    return Semantics(
+      label: category.displayLabel,
+      excludeSemantics: true,
+      child: Text(
+        get(category),
+        style: TextStyle(fontSize: size),
+      ),
     );
   }
 }

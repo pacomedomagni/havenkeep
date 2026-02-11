@@ -6,6 +6,7 @@ import 'package:shared_models/shared_models.dart';
 import 'package:shared_ui/shared_ui.dart';
 
 import '../../core/providers/documents_provider.dart';
+import '../../core/utils/error_handler.dart';
 
 /// Bottom sheet for uploading a document (photo) to an item.
 class DocumentUploadSheet extends ConsumerStatefulWidget {
@@ -56,7 +57,7 @@ class _DocumentUploadSheetState extends ConsumerState<DocumentUploadSheet> {
       }
     } catch (e) {
       setState(() {
-        _errorMessage = 'Failed to pick image: $e';
+        _errorMessage = ErrorHandler.getUserMessage(e);
       });
     }
   }
@@ -75,7 +76,7 @@ class _DocumentUploadSheetState extends ConsumerState<DocumentUploadSheet> {
       }
     } catch (e) {
       setState(() {
-        _errorMessage = 'Failed to pick file: $e';
+        _errorMessage = ErrorHandler.getUserMessage(e);
       });
     }
   }
@@ -108,7 +109,7 @@ class _DocumentUploadSheetState extends ConsumerState<DocumentUploadSheet> {
       if (mounted) {
         setState(() {
           _isUploading = false;
-          _errorMessage = e.toString();
+          _errorMessage = ErrorHandler.getUserMessage(e);
         });
       }
     }

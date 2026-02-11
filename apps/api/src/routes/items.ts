@@ -4,6 +4,7 @@ import { authenticate, AuthRequest } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
 import { validate } from '../middleware/validate';
 import { createItemSchema, updateItemSchema, paginationSchema, uuidParamSchema } from '../validators';
+import { AuditService } from '../services/audit.service';
 
 const router = Router();
 
@@ -131,14 +132,14 @@ router.post('/', validate(createItemSchema), async (req: AuthRequest, res, next)
       barcode,
     } = req.body;
 
-    // Check free plan limit (10 items)
+    // Check free plan limit (25 items)
     if (req.user!.plan === 'free') {
       const countResult = await query(
         `SELECT COUNT(*) FROM items WHERE user_id = $1 AND is_archived = FALSE`,
         [req.user!.id]
       );
 
-      if (parseInt(countResult.rows[0].count, 10) >= 10) {
+      if (parseInt(countResult.rows[0].count, 10) >= 25) {
         throw new AppError(403, 'Free plan limit reached. Upgrade to Premium for unlimited items.');
       }
     }
@@ -182,7 +183,20 @@ router.post('/', validate(createItemSchema), async (req: AuthRequest, res, next)
       ]
     );
 
-    res.status(201).json({ item: result.rows[0] });
+    const item = result.rows[0];
+
+    // Audit log: item created
+    await AuditService.logFromRequest(req, 'item.create', {
+      resourceType: 'item',
+      resourceId: item.id,
+      description: `Created item: ${item.name}`,
+      metadata: {
+        category: item.category,
+        warranty_months: item.warranty_months,
+      },
+    });
+
+    res.status(201).json({ item });
   } catch (error) {
     next(error);
   }
@@ -288,7 +302,19 @@ router.put('/:id', validate(uuidParamSchema, 'params'), validate(updateItemSchem
       throw new AppError(404, 'Item not found');
     }
 
-    res.json({ item: result.rows[0] });
+    const item = result.rows[0];
+
+    // Audit log: item updated
+    await AuditService.logFromRequest(req, 'item.update', {
+      resourceType: 'item',
+      resourceId: item.id,
+      description: `Updated item: ${item.name}`,
+      metadata: {
+        updated_fields: Object.keys(updates),
+      },
+    });
+
+    res.json({ item });
   } catch (error) {
     next(error);
   }
@@ -297,14 +323,32 @@ router.put('/:id', validate(uuidParamSchema, 'params'), validate(updateItemSchem
 // Delete item
 router.delete('/:id', validate(uuidParamSchema, 'params'), async (req: AuthRequest, res, next) => {
   try {
+    // Get item details before deleting for audit log
+    const itemResult = await query(
+      `SELECT id, name, category FROM items WHERE id = $1 AND user_id = $2`,
+      [req.params.id, req.user!.id]
+    );
+
+    if (itemResult.rows.length === 0) {
+      throw new AppError(404, 'Item not found');
+    }
+
+    const item = itemResult.rows[0];
+
     const result = await query(
       `DELETE FROM items WHERE id = $1 AND user_id = $2 RETURNING id`,
       [req.params.id, req.user!.id]
     );
 
-    if (result.rows.length === 0) {
-      throw new AppError(404, 'Item not found');
-    }
+    // Audit log: item deleted
+    await AuditService.logFromRequest(req, 'item.delete', {
+      resourceType: 'item',
+      resourceId: item.id,
+      description: `Deleted item: ${item.name}`,
+      metadata: {
+        category: item.category,
+      },
+    });
 
     res.json({ message: 'Item deleted successfully' });
   } catch (error) {

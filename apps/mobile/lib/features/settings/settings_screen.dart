@@ -273,7 +273,16 @@ class SettingsScreen extends ConsumerWidget {
                 foregroundColor: HavenColors.expired,
               ),
               onPressed: () async {
-                await ref.read(currentUserProvider.notifier).signOut();
+                final confirmed = await showHavenConfirmDialog(
+                  context,
+                  title: 'Sign out?',
+                  body: 'Are you sure you want to sign out?',
+                  confirmLabel: 'Sign Out',
+                  isDestructive: true,
+                );
+                if (confirmed && context.mounted) {
+                  await ref.read(currentUserProvider.notifier).signOut();
+                }
               },
               child: const Text('Sign Out'),
             ),

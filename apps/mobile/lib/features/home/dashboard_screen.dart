@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_models/shared_models.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shared_ui/shared_ui.dart';
 
 import '../../core/providers/auth_provider.dart';
@@ -29,6 +30,18 @@ class DashboardScreen extends ConsumerStatefulWidget {
 
 class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   bool _tipDismissed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    SharedPreferences.getInstance().then((prefs) {
+      if (mounted) {
+        setState(() {
+          _tipDismissed = prefs.getBool('tip_dismissed') ?? false;
+        });
+      }
+    });
+  }
 
   String _getGreeting() {
     final hour = DateTime.now().hour;
@@ -491,7 +504,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             ),
           ),
           GestureDetector(
-            onTap: () => setState(() => _tipDismissed = true),
+            onTap: () {
+              setState(() => _tipDismissed = true);
+              SharedPreferences.getInstance().then((prefs) => prefs.setBool('tip_dismissed', true));
+            },
             child: const Icon(
               Icons.close,
               size: 18,

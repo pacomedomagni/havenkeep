@@ -5,6 +5,7 @@ import 'package:shared_ui/shared_ui.dart';
 
 import '../../core/providers/auth_provider.dart';
 import '../../core/providers/notifications_provider.dart';
+import '../../core/utils/error_handler.dart';
 
 /// Notification preferences screen.
 ///
@@ -58,7 +59,10 @@ class _NotificationPreferencesScreenState
 
     try {
       final user = ref.read(currentUserProvider).value;
-      if (user == null) return;
+      if (user == null) {
+        if (mounted) setState(() => _isSaving = false);
+        return;
+      }
 
       final prefs = NotificationPreferences(
         userId: user.id,
@@ -90,7 +94,7 @@ class _NotificationPreferencesScreenState
       if (mounted) {
         setState(() => _isSaving = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
+          SnackBar(content: Text(ErrorHandler.getUserMessage(e))),
         );
       }
     }
@@ -98,10 +102,15 @@ class _NotificationPreferencesScreenState
 
   Future<void> _pickTime() async {
     final parts = _reminderTime.split(':');
-    final initialTime = TimeOfDay(
-      hour: int.parse(parts[0]),
-      minute: int.parse(parts[1]),
-    );
+    int hour = 9;
+    int minute = 0;
+    try {
+      hour = int.parse(parts[0]);
+      minute = int.parse(parts[1]);
+    } catch (_) {
+      // Fall back to 9:00 AM if parsing fails
+    }
+    final initialTime = TimeOfDay(hour: hour, minute: minute);
 
     final picked = await showTimePicker(
       context: context,
@@ -129,12 +138,16 @@ class _NotificationPreferencesScreenState
   }
 
   String _formatTime(String time) {
-    final parts = time.split(':');
-    final hour = int.parse(parts[0]);
-    final minute = parts[1];
-    final period = hour >= 12 ? 'PM' : 'AM';
-    final displayHour = hour == 0 ? 12 : (hour > 12 ? hour - 12 : hour);
-    return '$displayHour:$minute $period';
+    try {
+      final parts = time.split(':');
+      final hour = int.parse(parts[0]);
+      final minute = parts[1];
+      final period = hour >= 12 ? 'PM' : 'AM';
+      final displayHour = hour == 0 ? 12 : (hour > 12 ? hour - 12 : hour);
+      return '$displayHour:$minute $period';
+    } catch (_) {
+      return time;
+    }
   }
 
   @override
@@ -151,8 +164,45 @@ class _NotificationPreferencesScreenState
       ),
       body: prefsAsync.when(
         data: (_) => _buildForm(),
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (_, __) => _buildForm(), // Use defaults on error
+        loading: () => Padding(
+          padding: const EdgeInsets.all(HavenSpacing.md),
+          child: Column(
+            children: const [
+              SkeletonLine(height: 56),
+              SizedBox(height: HavenSpacing.md),
+              SkeletonLine(height: 56),
+              SizedBox(height: HavenSpacing.md),
+              SkeletonLine(height: 56),
+              SizedBox(height: HavenSpacing.md),
+              SkeletonLine(height: 56),
+            ],
+          ),
+        ),
+        error: (_, __) => Column(
+          children: [
+            Container(
+              margin: const EdgeInsets.fromLTRB(HavenSpacing.md, HavenSpacing.md, HavenSpacing.md, 0),
+              padding: const EdgeInsets.all(HavenSpacing.md),
+              decoration: BoxDecoration(
+                color: HavenColors.expiring.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(HavenRadius.card),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.info_outline, color: HavenColors.expiring, size: 20),
+                  SizedBox(width: HavenSpacing.sm),
+                  Expanded(
+                    child: Text(
+                      'Could not load your preferences. Showing defaults.',
+                      style: TextStyle(color: HavenColors.expiring, fontSize: 13),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(child: _buildForm()),
+          ],
+        ),
       ),
     );
   }
@@ -341,46 +391,48 @@ class _NotificationPreferencesScreenState
     required bool value,
     required ValueChanged<bool> onChanged,
   }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: HavenSpacing.md,
-        vertical: HavenSpacing.sm,
-      ),
-      decoration: BoxDecoration(
-        color: HavenColors.surface,
-        borderRadius: BorderRadius.circular(HavenRadius.card),
-        border: Border.all(color: HavenColors.border),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 15,
-                    color: HavenColors.textPrimary,
+    return MergeSemantics(
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: HavenSpacing.md,
+          vertical: HavenSpacing.sm,
+        ),
+        decoration: BoxDecoration(
+          color: HavenColors.surface,
+          borderRadius: BorderRadius.circular(HavenRadius.card),
+          border: Border.all(color: HavenColors.border),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      color: HavenColors.textPrimary,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  subtitle,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: HavenColors.textTertiary,
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: HavenColors.textTertiary,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-          Switch.adaptive(
-            value: value,
-            onChanged: onChanged,
-            activeColor: HavenColors.primary,
-          ),
-        ],
+            Switch.adaptive(
+              value: value,
+              onChanged: onChanged,
+              activeColor: HavenColors.primary,
+            ),
+          ],
+        ),
       ),
     );
   }

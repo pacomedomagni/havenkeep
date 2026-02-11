@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_ui/shared_ui.dart';
 
 import '../../core/providers/auth_provider.dart';
+import '../../core/utils/error_handler.dart';
 import '../../core/widgets/havenkeep_logo.dart';
 
 /// Welcome screen — sign up / sign in (Screen 1.2).
@@ -40,25 +41,13 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
   }
 
   Future<void> _signInWithApple() async {
-    setState(() => _isLoading = true);
-    try {
-      await ref.read(currentUserProvider.notifier).signInWithApple();
-    } catch (e) {
-      if (mounted) _showError(e.toString());
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
+    // TODO: Phase 1.3 — integrate sign_in_with_apple SDK
+    ErrorHandler.showInfo(context, 'Apple sign-in coming soon');
   }
 
   Future<void> _signInWithGoogle() async {
-    setState(() => _isLoading = true);
-    try {
-      await ref.read(currentUserProvider.notifier).signInWithGoogle();
-    } catch (e) {
-      if (mounted) _showError(e.toString());
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
+    // TODO: Phase 1.3 — integrate google_sign_in SDK
+    ErrorHandler.showInfo(context, 'Google sign-in coming soon');
   }
 
   Future<void> _submitEmail() async {
@@ -83,7 +72,7 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
       }
       // Navigation handled by GoRouter auth guard redirect
     } catch (e) {
-      if (mounted) _showError(e.toString());
+      if (mounted) _showError(ErrorHandler.getUserMessage(e));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }

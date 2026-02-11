@@ -78,27 +78,33 @@ class WarrantyStatusBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 8,
-          height: 8,
-          decoration: BoxDecoration(
-            color: _statusColor,
-            shape: BoxShape.circle,
+    final statusText = _label;
+
+    return Semantics(
+      label: '${status.displayLabel} warranty, $statusText',
+      excludeSemantics: true,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(
+              color: _statusColor,
+              shape: BoxShape.circle,
+            ),
           ),
-        ),
-        const SizedBox(width: HavenSpacing.sm),
-        Text(
-          _label,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w500,
-            color: _statusColor,
+          const SizedBox(width: HavenSpacing.sm),
+          Text(
+            statusText,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: _statusColor,
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

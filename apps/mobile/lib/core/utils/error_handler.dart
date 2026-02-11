@@ -1,6 +1,8 @@
 import 'dart:io';
 
+import 'package:api_client/api_client.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_ui/shared_ui.dart';
 
 import '../exceptions/app_exceptions.dart';
 import '../exceptions/network_exceptions.dart';
@@ -14,6 +16,50 @@ import '../services/logging_service.dart';
 /// - Optional UI feedback (snackbars)
 /// - Error reporting to logging service
 class ErrorHandler {
+  /// Converts any error into a user-friendly message string.
+  ///
+  /// Checks for known exception types and returns their user message.
+  /// Falls back to a generic message for unknown errors.
+  static String getUserMessage(dynamic error) {
+    if (error == null) return 'Something went wrong. Please try again.';
+
+    if (error is AppException) return error.userMessage;
+
+    if (error is ApiException) {
+      switch (error.statusCode) {
+        case 400:
+          return 'Invalid request. Please check your input.';
+        case 401:
+          return 'Your session has expired. Please sign in again.';
+        case 403:
+          return 'You don\'t have permission for this action.';
+        case 404:
+          return 'The requested item was not found.';
+        case 408:
+          return 'Request timed out. Please try again.';
+        case 409:
+          return 'This change conflicts with recent updates. Please refresh and try again.';
+        case 429:
+          return 'Too many requests. Please wait a moment and try again.';
+        default:
+          if (error.statusCode >= 500) {
+            return 'Server error. Please try again later.';
+          }
+          return 'Something went wrong. Please try again.';
+      }
+    }
+
+    if (error is SocketException) {
+      return 'No internet connection. Please check your network and try again.';
+    }
+
+    if (error is TimeoutException) {
+      return 'Request timed out. Please try again.';
+    }
+
+    return 'Something went wrong. Please try again.';
+  }
+
   /// Handles an async operation with consistent error handling.
   ///
   /// Catches all exceptions, logs them, shows user feedback, and rethrows.
@@ -134,12 +180,12 @@ class ErrorHandler {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor: Colors.red[700],
+        backgroundColor: HavenColors.expired,
         behavior: SnackBarBehavior.floating,
         action: canRetry && onRetry != null
             ? SnackBarAction(
                 label: 'Retry',
-                textColor: Colors.white,
+                textColor: HavenColors.textPrimary,
                 onPressed: onRetry,
               )
             : null,
@@ -158,7 +204,7 @@ class ErrorHandler {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor: Colors.green[700],
+        backgroundColor: HavenColors.active,
         behavior: SnackBarBehavior.floating,
         duration: const Duration(seconds: 2),
       ),
@@ -175,7 +221,7 @@ class ErrorHandler {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor: Colors.blue[700],
+        backgroundColor: HavenColors.primary,
         behavior: SnackBarBehavior.floating,
         duration: const Duration(seconds: 3),
       ),

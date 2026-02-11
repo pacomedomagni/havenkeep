@@ -6,6 +6,7 @@ import 'package:shared_models/shared_models.dart';
 import 'package:shared_ui/shared_ui.dart';
 
 import '../../core/providers/items_provider.dart';
+import '../../core/widgets/error_state_widget.dart';
 
 /// Archived items screen.
 ///
@@ -35,12 +36,19 @@ class ArchivedItemsScreen extends ConsumerWidget {
             },
           );
         },
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, _) => Center(
-          child: Text(
-            'Error loading archived items',
-            style: const TextStyle(color: HavenColors.textSecondary),
-          ),
+        loading: () => ListView(
+          padding: const EdgeInsets.all(HavenSpacing.md),
+          children: const [
+            SkeletonCard(),
+            SizedBox(height: HavenSpacing.sm),
+            SkeletonCard(),
+            SizedBox(height: HavenSpacing.sm),
+            SkeletonCard(),
+          ],
+        ),
+        error: (_, __) => ErrorStateWidget(
+          message: 'Could not load archived items',
+          onRetry: () => ref.invalidate(archivedItemsProvider),
         ),
       ),
     );
@@ -87,127 +95,131 @@ class _ArchivedItemCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     return Padding(
       padding: const EdgeInsets.only(bottom: HavenSpacing.sm),
-      child: Dismissible(
-        key: ValueKey('archived-${item.id}'),
-        background: Container(
-          alignment: Alignment.centerLeft,
-          padding: const EdgeInsets.only(left: HavenSpacing.lg),
-          decoration: BoxDecoration(
-            color: HavenColors.active,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: const Row(
-            children: [
-              Icon(Icons.unarchive_outlined, color: Colors.white),
-              SizedBox(width: HavenSpacing.sm),
-              Text(
-                'Restore',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w600,
+      child: Semantics(
+        hint: 'Swipe right to restore, swipe left to delete',
+        child: Dismissible(
+          key: ValueKey('archived-${item.id}'),
+          background: Container(
+            alignment: Alignment.centerLeft,
+            padding: const EdgeInsets.only(left: HavenSpacing.lg),
+            decoration: BoxDecoration(
+              color: HavenColors.active,
+              borderRadius: HavenRadius.buttonRadius,
+            ),
+            child: const Row(
+              children: [
+                Icon(Icons.unarchive_outlined, color: HavenColors.textPrimary),
+                SizedBox(width: HavenSpacing.sm),
+                Text(
+                  'Restore',
+                  style: TextStyle(
+                    color: HavenColors.textPrimary,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-        secondaryBackground: Container(
-          alignment: Alignment.centerRight,
-          padding: const EdgeInsets.only(right: HavenSpacing.lg),
-          decoration: BoxDecoration(
-            color: HavenColors.expired,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: const Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              Text(
-                'Delete',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w600,
+          secondaryBackground: Container(
+            alignment: Alignment.centerRight,
+            padding: const EdgeInsets.only(right: HavenSpacing.lg),
+            decoration: BoxDecoration(
+              color: HavenColors.expired,
+              borderRadius: HavenRadius.buttonRadius,
+            ),
+            child: const Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                Text(
+                  'Delete',
+                  style: TextStyle(
+                    color: HavenColors.textPrimary,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
-              ),
-              SizedBox(width: HavenSpacing.sm),
-              Icon(Icons.delete_outline, color: Colors.white),
-            ],
+                SizedBox(width: HavenSpacing.sm),
+                Icon(Icons.delete_outline, color: HavenColors.textPrimary),
+              ],
+            ),
           ),
-        ),
-        confirmDismiss: (direction) async {
-          HapticFeedback.mediumImpact();
+          confirmDismiss: (direction) async {
+            HapticFeedback.mediumImpact();
 
-          if (direction == DismissDirection.startToEnd) {
-            // Restore
-            await ref.read(itemsProvider.notifier).unarchiveItem(item.id);
-            if (context.mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('${item.name} restored')),
-              );
-            }
-            return true;
-          } else {
-            // Delete permanently
-            final confirmed = await showHavenConfirmDialog(
-              context,
-              title: 'Delete permanently?',
-              body:
-                  'This will permanently remove "${item.name}". This cannot be undone.',
-              confirmLabel: 'Delete',
-              isDestructive: true,
-            );
-            if (confirmed) {
-              await ref.read(itemsProvider.notifier).deleteItem(item.id);
+            if (direction == DismissDirection.startToEnd) {
+              // Restore
+              await ref.read(itemsProvider.notifier).unarchiveItem(item.id);
               if (context.mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('${item.name} deleted')),
+                  SnackBar(content: Text('${item.name} restored')),
                 );
               }
               return true;
+            } else {
+              // Delete permanently
+              final confirmed = await showHavenConfirmDialog(
+                context,
+                title: 'Delete permanently?',
+                body:
+                    'This will permanently remove "${item.name}". This cannot be undone.',
+                confirmLabel: 'Delete',
+                isDestructive: true,
+              );
+              if (confirmed) {
+                await ref.read(itemsProvider.notifier).deleteItem(item.id);
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('${item.name} deleted')),
+                  );
+                }
+                return true;
+              }
+              return false;
             }
-            return false;
-          }
-        },
-        child: Container(
-          padding: const EdgeInsets.all(HavenSpacing.md),
-          decoration: BoxDecoration(
-            color: HavenColors.surface,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: HavenColors.border),
-          ),
-          child: Row(
-            children: [
-              CategoryIcon.widget(item.category),
-              const SizedBox(width: HavenSpacing.md),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '${item.brand ?? ''} ${item.name}'.trim(),
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: HavenColors.textPrimary,
+          },
+          child: Container(
+            padding: const EdgeInsets.all(HavenSpacing.md),
+            decoration: BoxDecoration(
+              color: HavenColors.surface,
+              borderRadius: HavenRadius.buttonRadius,
+              border: Border.all(color: HavenColors.border),
+            ),
+            child: Row(
+              children: [
+                CategoryIcon.widget(item.category),
+                const SizedBox(width: HavenSpacing.md),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '${item.brand ?? ''} ${item.name}'.trim(),
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: HavenColors.textPrimary,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      'Archived ${DateFormat.yMMMd().format(item.updatedAt)}',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: HavenColors.textTertiary,
+                      const SizedBox(height: 2),
+                      // TODO: Use dedicated archivedAt field when available
+                      Text(
+                        'Archived ${DateFormat.yMMMd().format(item.updatedAt)}',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: HavenColors.textTertiary,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-              const Icon(
-                Icons.swipe_outlined,
-                color: HavenColors.textTertiary,
-                size: 18,
-              ),
-            ],
+                const Icon(
+                  Icons.swipe_outlined,
+                  color: HavenColors.textTertiary,
+                  size: 18,
+                ),
+              ],
+            ),
           ),
         ),
       ),

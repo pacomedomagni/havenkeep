@@ -8,6 +8,7 @@ import 'package:shared_ui/shared_ui.dart';
 import '../../core/providers/homes_provider.dart';
 import '../../core/providers/items_provider.dart';
 import '../../core/router/router.dart';
+import '../../core/utils/error_handler.dart';
 
 /// Home detail / edit screen.
 ///
@@ -101,7 +102,8 @@ class _HomeDetailScreenState extends ConsumerState<HomeDetailScreen> {
 
     try {
       final homes = ref.read(homesProvider).value ?? [];
-      final home = homes.firstWhere((h) => h.id == widget.homeId);
+      final home = homes.where((h) => h.id == widget.homeId).firstOrNull;
+      if (home == null) return;
 
       final updated = home.copyWith(
         name: _nameController.text.trim(),
@@ -143,7 +145,7 @@ class _HomeDetailScreenState extends ConsumerState<HomeDetailScreen> {
       if (mounted) {
         setState(() => _isSaving = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
+          SnackBar(content: Text(ErrorHandler.getUserMessage(e))),
         );
       }
     }
@@ -184,21 +186,27 @@ class _HomeDetailScreenState extends ConsumerState<HomeDetailScreen> {
 
     if (home != null) _initFromHome(home);
 
-    final itemCount = itemsAsync.value?.length ?? 0;
+    final itemCount = itemsAsync.value?.where((i) => i.homeId == widget.homeId).length ?? 0;
 
-    return Scaffold(
-      backgroundColor: HavenColors.background,
-      appBar: AppBar(
-        title: const Text('Edit Home'),
-        actions: [
-          if (homes.length > 1)
-            IconButton(
-              icon: const Icon(Icons.delete_outline, color: HavenColors.expired),
-              onPressed: _delete,
-            ),
-        ],
-      ),
-      body: home == null
+    return PopScope(
+      canPop: !_isDirty,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _confirmDiscard();
+      },
+      child: Scaffold(
+        backgroundColor: HavenColors.background,
+        appBar: AppBar(
+          title: const Text('Edit Home'),
+          actions: [
+            if (homes.length > 1)
+              IconButton(
+                icon: const Icon(Icons.delete_outline, color: HavenColors.expired),
+                tooltip: 'Delete home',
+                onPressed: _delete,
+              ),
+          ],
+        ),
+        body: home == null
           ? const Center(child: CircularProgressIndicator())
           : Form(
               key: _formKey,
@@ -280,19 +288,23 @@ class _HomeDetailScreenState extends ConsumerState<HomeDetailScreen> {
                   const SizedBox(height: HavenSpacing.md),
 
                   // Move-in date
-                  GestureDetector(
-                    onTap: _pickMoveInDate,
-                    child: InputDecorator(
-                      decoration:
-                          const InputDecoration(labelText: 'Move-in Date'),
-                      child: Text(
-                        _moveInDate != null
-                            ? DateFormat.yMMMd().format(_moveInDate!)
-                            : 'Not set',
-                        style: TextStyle(
-                          color: _moveInDate != null
-                              ? HavenColors.textPrimary
-                              : HavenColors.textTertiary,
+                  Semantics(
+                    button: true,
+                    label: 'Pick move-in date',
+                    child: InkWell(
+                      onTap: _pickMoveInDate,
+                      child: InputDecorator(
+                        decoration:
+                            const InputDecoration(labelText: 'Move-in Date'),
+                        child: Text(
+                          _moveInDate != null
+                              ? DateFormat.yMMMd().format(_moveInDate!)
+                              : 'Not set',
+                          style: TextStyle(
+                            color: _moveInDate != null
+                                ? HavenColors.textPrimary
+                                : HavenColors.textTertiary,
+                          ),
                         ),
                       ),
                     ),
@@ -337,7 +349,7 @@ class _HomeDetailScreenState extends ConsumerState<HomeDetailScreen> {
                               height: 20,
                               child: CircularProgressIndicator(
                                 strokeWidth: 2,
-                                color: Colors.white,
+                                color: HavenColors.textPrimary,
                               ),
                             )
                           : const Text('Save Changes'),
@@ -347,6 +359,20 @@ class _HomeDetailScreenState extends ConsumerState<HomeDetailScreen> {
                 ],
               ),
             ),
+    ),
     );
+  }
+
+  Future<void> _confirmDiscard() async {
+    final confirmed = await showHavenConfirmDialog(
+      context,
+      title: 'Discard changes?',
+      body: 'You have unsaved changes that will be lost.',
+      confirmLabel: 'Discard',
+      isDestructive: true,
+    );
+    if (confirmed && mounted) {
+      Navigator.of(context).pop();
+    }
   }
 }

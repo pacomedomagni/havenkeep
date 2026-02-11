@@ -7,6 +7,7 @@ import 'package:shared_ui/shared_ui.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/providers/homes_provider.dart';
 import '../../core/router/router.dart';
+import '../../core/utils/error_handler.dart';
 import 'bulk_add/bulk_add_provider.dart';
 
 /// Home setup screen — name your home (Screen 2.1).
@@ -60,7 +61,7 @@ class _HomeSetupScreenState extends ConsumerState<HomeSetupScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error: $e'),
+            content: Text(ErrorHandler.getUserMessage(e)),
             backgroundColor: HavenColors.expired,
           ),
         );

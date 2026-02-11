@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lottie/lottie.dart';
+import 'package:shared_ui/shared_ui.dart';
 
 /// Shows celebration animations when users accomplish goals.
 class CelebrationOverlay extends StatefulWidget {
@@ -33,7 +34,7 @@ class CelebrationOverlay extends StatefulWidget {
     showDialog(
       context: context,
       barrierDismissible: true,
-      barrierColor: Colors.black.withOpacity(0.6),
+      barrierColor: HavenColors.background.withValues(alpha: 0.6),
       builder: (context) => CelebrationOverlay(
         type: type,
         title: title,
@@ -124,11 +125,11 @@ class _CelebrationOverlayState extends State<CelebrationOverlay>
                     margin: const EdgeInsets.symmetric(horizontal: 32),
                     padding: const EdgeInsets.all(32),
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: HavenColors.textPrimary,
                       borderRadius: BorderRadius.circular(24),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.2),
+                          color: HavenColors.background.withValues(alpha: 0.2),
                           blurRadius: 32,
                           offset: const Offset(0, 8),
                         ),
@@ -149,7 +150,7 @@ class _CelebrationOverlayState extends State<CelebrationOverlay>
                           style: const TextStyle(
                             fontSize: 24,
                             fontWeight: FontWeight.bold,
-                            color: Color(0xFF111827),
+                            color: HavenColors.background,
                           ),
                         ),
 
@@ -161,7 +162,7 @@ class _CelebrationOverlayState extends State<CelebrationOverlay>
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             fontSize: 16,
-                            color: Colors.grey[600],
+                            color: HavenColors.textSecondary,
                             height: 1.4,
                           ),
                         ),
@@ -173,7 +174,7 @@ class _CelebrationOverlayState extends State<CelebrationOverlay>
                           'Tap anywhere to continue',
                           style: TextStyle(
                             fontSize: 13,
-                            color: Colors.grey[400],
+                            color: HavenColors.textTertiary,
                             fontStyle: FontStyle.italic,
                           ),
                         ),
@@ -196,7 +197,7 @@ class _CelebrationOverlayState extends State<CelebrationOverlay>
           width: 120,
           height: 120,
           decoration: BoxDecoration(
-            color: const Color(0xFF10B981).withOpacity(0.1),
+            color: HavenColors.active.withValues(alpha: 0.1),
             shape: BoxShape.circle,
           ),
           child: Lottie.asset(
@@ -208,7 +209,7 @@ class _CelebrationOverlayState extends State<CelebrationOverlay>
               return const Icon(
                 Icons.check_circle,
                 size: 80,
-                color: Color(0xFF10B981),
+                color: HavenColors.active,
               );
             },
           ),
@@ -221,8 +222,8 @@ class _CelebrationOverlayState extends State<CelebrationOverlay>
           decoration: BoxDecoration(
             gradient: LinearGradient(
               colors: [
-                const Color(0xFF6366F1).withOpacity(0.2),
-                const Color(0xFF8B5CF6).withOpacity(0.2),
+                HavenColors.accent.withValues(alpha: 0.2),
+                HavenColors.accentSecondary.withValues(alpha: 0.2),
               ],
             ),
             shape: BoxShape.circle,
@@ -230,7 +231,7 @@ class _CelebrationOverlayState extends State<CelebrationOverlay>
           child: const Icon(
             Icons.emoji_events,
             size: 64,
-            color: Color(0xFF6366F1),
+            color: HavenColors.accent,
           ),
         );
 
@@ -239,13 +240,13 @@ class _CelebrationOverlayState extends State<CelebrationOverlay>
           width: 100,
           height: 100,
           decoration: BoxDecoration(
-            color: const Color(0xFF6366F1).withOpacity(0.1),
+            color: HavenColors.accent.withValues(alpha: 0.1),
             shape: BoxShape.circle,
           ),
           child: const Icon(
             Icons.check_circle,
             size: 56,
-            color: Color(0xFF6366F1),
+            color: HavenColors.accent,
           ),
         );
 
@@ -254,13 +255,13 @@ class _CelebrationOverlayState extends State<CelebrationOverlay>
           width: 100,
           height: 100,
           decoration: BoxDecoration(
-            color: const Color(0xFF8B5CF6).withOpacity(0.1),
+            color: HavenColors.accentSecondary.withValues(alpha: 0.1),
             shape: BoxShape.circle,
           ),
           child: const Icon(
             Icons.receipt_long,
             size: 56,
-            color: Color(0xFF8B5CF6),
+            color: HavenColors.accentSecondary,
           ),
         );
 
@@ -269,13 +270,13 @@ class _CelebrationOverlayState extends State<CelebrationOverlay>
           width: 120,
           height: 120,
           decoration: BoxDecoration(
-            color: const Color(0xFF10B981).withOpacity(0.1),
+            color: HavenColors.active.withValues(alpha: 0.1),
             shape: BoxShape.circle,
           ),
           child: const Icon(
             Icons.verified_user,
             size: 64,
-            color: Color(0xFF10B981),
+            color: HavenColors.active,
           ),
         );
     }

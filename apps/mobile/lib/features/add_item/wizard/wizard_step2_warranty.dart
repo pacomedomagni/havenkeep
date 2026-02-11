@@ -49,7 +49,7 @@ class _WizardStep2WarrantyState extends State<WizardStep2Warranty> {
           data: Theme.of(context).copyWith(
             colorScheme: const ColorScheme.dark(
               primary: HavenColors.primary,
-              onPrimary: Colors.white,
+              onPrimary: HavenColors.textPrimary,
               surface: HavenColors.elevated,
               onSurface: HavenColors.textPrimary,
             ),
@@ -91,11 +91,11 @@ class _WizardStep2WarrantyState extends State<WizardStep2Warranty> {
 
           const SizedBox(height: 8),
 
-          Text(
+          const Text(
             'Step 2 of 3',
             style: TextStyle(
               fontSize: 14,
-              color: Colors.grey[600],
+              color: HavenColors.textSecondary,
             ),
           ),
 
@@ -118,46 +118,51 @@ class _WizardStep2WarrantyState extends State<WizardStep2Warranty> {
 
                   const SizedBox(height: 12),
 
-                  GestureDetector(
-                    onTap: _pickDate,
-                    child: Container(
-                      padding: const EdgeInsets.all(20),
-                      decoration: BoxDecoration(
-                        color: HavenColors.surface,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: HavenColors.border),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.calendar_today_outlined,
-                              color: HavenColors.primary),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  _formatDate(widget.data.purchaseDate!),
-                                  style: const TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w600,
-                                    color: HavenColors.textPrimary,
+                  Semantics(
+                    button: true,
+                    label: 'Pick purchase date',
+                    child: InkWell(
+                      onTap: _pickDate,
+                      borderRadius: BorderRadius.circular(16),
+                      child: Container(
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          color: HavenColors.surface,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: HavenColors.border),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.calendar_today_outlined,
+                                color: HavenColors.primary),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    _formatDate(widget.data.purchaseDate!),
+                                    style: const TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w600,
+                                      color: HavenColors.textPrimary,
+                                    ),
                                   ),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  'Tap to change',
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    color: Colors.grey[600],
+                                  const SizedBox(height: 2),
+                                  const Text(
+                                    'Tap to change',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      color: HavenColors.textSecondary,
+                                    ),
                                   ),
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
-                          ),
-                          const Icon(Icons.chevron_right,
-                              color: HavenColors.textTertiary),
-                        ],
+                            const Icon(Icons.chevron_right,
+                                color: HavenColors.textTertiary),
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -186,16 +191,16 @@ class _WizardStep2WarrantyState extends State<WizardStep2Warranty> {
                     Container(
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF10B981).withOpacity(0.1),
+                        color: HavenColors.active.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
-                          color: const Color(0xFF10B981).withOpacity(0.3),
+                          color: HavenColors.active.withValues(alpha: 0.3),
                         ),
                       ),
                       child: Row(
                         children: [
                           const Icon(Icons.verified_user_outlined,
-                              color: Color(0xFF10B981)),
+                              color: HavenColors.active),
                           const SizedBox(width: 12),
                           Expanded(
                             child: Column(
@@ -210,13 +215,11 @@ class _WizardStep2WarrantyState extends State<WizardStep2Warranty> {
                                 ),
                                 const SizedBox(height: 2),
                                 Text(
-                                  _formatDate(widget.data.purchaseDate!.add(
-                                    Duration(days: widget.data.warrantyMonths! * 30),
-                                  )),
+                                  _formatDate(DateTime(widget.data.purchaseDate!.year, widget.data.purchaseDate!.month + widget.data.warrantyMonths!, widget.data.purchaseDate!.day)),
                                   style: const TextStyle(
                                     fontSize: 16,
                                     fontWeight: FontWeight.bold,
-                                    color: Color(0xFF10B981),
+                                    color: HavenColors.active,
                                   ),
                                 ),
                               ],
@@ -263,29 +266,34 @@ class _WizardStep2WarrantyState extends State<WizardStep2Warranty> {
         final years = months ~/ 12;
         final label = years > 0 ? '$years ${years == 1 ? 'Year' : 'Years'}' : '$months Months';
 
-        return GestureDetector(
-          onTap: () {
-            HapticFeedback.selectionClick();
-            setState(() {
-              widget.data.warrantyMonths = months;
-            });
-          },
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-            decoration: BoxDecoration(
-              color: isSelected ? HavenColors.primary : HavenColors.surface,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: isSelected ? HavenColors.primary : HavenColors.border,
-                width: 2,
+        return Semantics(
+          selected: isSelected,
+          label: label,
+          child: InkWell(
+            onTap: () {
+              HapticFeedback.selectionClick();
+              setState(() {
+                widget.data.warrantyMonths = months;
+              });
+            },
+            borderRadius: BorderRadius.circular(12),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+              decoration: BoxDecoration(
+                color: isSelected ? HavenColors.primary : HavenColors.surface,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: isSelected ? HavenColors.primary : HavenColors.border,
+                  width: 2,
+                ),
               ),
-            ),
-            child: Text(
-              label,
-              style: TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w600,
-                color: isSelected ? Colors.white : HavenColors.textPrimary,
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: isSelected ? HavenColors.textPrimary : HavenColors.textPrimary,
+                ),
               ),
             ),
           ),

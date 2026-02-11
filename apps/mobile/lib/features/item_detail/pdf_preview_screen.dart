@@ -8,6 +8,7 @@ import 'package:shared_ui/shared_ui.dart';
 
 import '../../core/providers/documents_provider.dart';
 import '../../core/services/pdf_export_service.dart';
+import '../../core/utils/error_handler.dart';
 
 /// Full-screen PDF preview of a warranty claim document.
 ///
@@ -52,7 +53,7 @@ class _PdfPreviewScreenState extends ConsumerState<PdfPreviewScreen> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _error = e.toString();
+          _error = ErrorHandler.getUserMessage(e);
           _isLoading = false;
         });
       }

@@ -58,9 +58,13 @@ class SectionHeader extends StatelessWidget {
     );
 
     if (onTap != null) {
-      return InkWell(
-        onTap: onTap,
-        child: content,
+      return Semantics(
+        button: true,
+        label: title,
+        child: InkWell(
+          onTap: onTap,
+          child: content,
+        ),
       );
     }
 

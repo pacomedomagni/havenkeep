@@ -88,28 +88,36 @@ class ItemLimitBanner extends StatelessWidget {
             Row(
               children: [
                 if (onArchive != null)
-                  GestureDetector(
-                    onTap: onArchive,
-                    child: const Text(
-                      'Archive Items \u2192',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: HavenColors.secondary,
+                  Semantics(
+                    button: true,
+                    label: 'Archive Items',
+                    child: InkWell(
+                      onTap: onArchive,
+                      child: const Text(
+                        'Archive Items \u2192',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: HavenColors.secondary,
+                        ),
                       ),
                     ),
                   ),
                 if (onArchive != null && onUpgrade != null)
                   const SizedBox(width: HavenSpacing.lg),
                 if (onUpgrade != null)
-                  GestureDetector(
-                    onTap: onUpgrade,
-                    child: Text(
-                      'Upgrade \u2192',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: HavenColors.textTertiary,
+                  Semantics(
+                    button: true,
+                    label: 'Upgrade',
+                    child: InkWell(
+                      onTap: onUpgrade,
+                      child: Text(
+                        'Upgrade \u2192',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: HavenColors.textTertiary,
+                        ),
                       ),
                     ),
                   ),

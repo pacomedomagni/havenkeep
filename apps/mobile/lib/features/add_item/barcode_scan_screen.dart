@@ -10,6 +10,7 @@ import '../../core/providers/homes_provider.dart';
 import '../../core/providers/items_provider.dart';
 import '../../core/router/router.dart';
 import '../../core/services/barcode_lookup_service.dart';
+import '../../core/utils/error_handler.dart';
 
 /// Barcode scan screen — uses the camera to detect barcodes,
 /// looks up product info, and creates a new item.
@@ -73,7 +74,7 @@ class _BarcodeScanScreenState extends ConsumerState<BarcodeScanScreen> {
       if (mounted) {
         setState(() {
           _isLookingUp = false;
-          _error = 'Product lookup failed: $e';
+          _error = ErrorHandler.getUserMessage(e);
           _lookupResult = BarcodeLookupResult(barcode: barcode);
         });
       }
@@ -111,7 +112,7 @@ class _BarcodeScanScreenState extends ConsumerState<BarcodeScanScreen> {
         updatedAt: DateTime.now(),
       );
 
-      final newItem = await ref.read(itemsProvider.notifier).addItem(item);
+      final (newItem, _) = await ref.read(itemsProvider.notifier).addItem(item);
 
       if (mounted) {
         context.go('/add-item/success/${newItem.id}');
@@ -119,10 +120,11 @@ class _BarcodeScanScreenState extends ConsumerState<BarcodeScanScreen> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _isSaving = false;
-          _error = e.toString();
+          _error = ErrorHandler.getUserMessage(e);
         });
       }
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
     }
   }
 
@@ -182,7 +184,7 @@ class _BarcodeScanScreenState extends ConsumerState<BarcodeScanScreen> {
                 vertical: HavenSpacing.sm,
               ),
               decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.7),
+                color: HavenColors.background.withValues(alpha: 0.7),
                 borderRadius: BorderRadius.circular(HavenRadius.chip),
               ),
               child: Text(
@@ -190,7 +192,7 @@ class _BarcodeScanScreenState extends ConsumerState<BarcodeScanScreen> {
                     ? 'Looking up product...'
                     : 'Position barcode within the frame',
                 style: const TextStyle(
-                  color: Colors.white,
+                  color: HavenColors.textPrimary,
                   fontSize: 14,
                 ),
               ),
@@ -352,7 +354,7 @@ class _BarcodeScanScreenState extends ConsumerState<BarcodeScanScreen> {
                       height: 20,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
-                        color: Colors.white,
+                        color: HavenColors.textPrimary,
                       ),
                     )
                   : Text(result.hasData ? 'Add This Item' : 'Add Manually'),

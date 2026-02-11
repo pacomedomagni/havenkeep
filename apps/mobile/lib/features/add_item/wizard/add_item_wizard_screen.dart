@@ -8,6 +8,7 @@ import 'package:shared_ui/shared_ui.dart';
 import '../../../core/providers/auth_provider.dart';
 import '../../../core/providers/homes_provider.dart';
 import '../../../core/providers/items_provider.dart';
+import '../../../core/utils/error_handler.dart';
 import '../../../core/widgets/celebration_overlay.dart';
 import 'wizard_step1_basics.dart';
 import 'wizard_step2_warranty.dart';
@@ -135,7 +136,7 @@ class _AddItemWizardScreenState extends ConsumerState<AddItemWizardScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error saving item: $e')),
+          SnackBar(content: Text(ErrorHandler.getUserMessage(e))),
         );
       }
     } finally {

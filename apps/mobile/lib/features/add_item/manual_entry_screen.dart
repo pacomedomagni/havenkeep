@@ -8,6 +8,7 @@ import 'package:shared_ui/shared_ui.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/providers/homes_provider.dart';
 import '../../core/providers/items_provider.dart';
+import '../../core/utils/error_handler.dart';
 import '../../core/widgets/celebration_overlay.dart';
 
 /// Full manual entry form for adding an item with all fields.
@@ -67,7 +68,7 @@ class _ManualEntryScreenState extends ConsumerState<ManualEntryScreen> {
           data: Theme.of(context).copyWith(
             colorScheme: const ColorScheme.dark(
               primary: HavenColors.primary,
-              onPrimary: Colors.white,
+              onPrimary: HavenColors.textPrimary,
               surface: HavenColors.elevated,
               onSurface: HavenColors.textPrimary,
             ),
@@ -158,7 +159,7 @@ class _ManualEntryScreenState extends ConsumerState<ManualEntryScreen> {
               content: Text('✓ ${newItem.name} added successfully'),
               duration: const Duration(seconds: 2),
               behavior: SnackBarBehavior.floating,
-              backgroundColor: const Color(0xFF10B981),
+              backgroundColor: HavenColors.active,
             ),
           );
           context.go('/add-item/success/${newItem.id}');
@@ -167,7 +168,7 @@ class _ManualEntryScreenState extends ConsumerState<ManualEntryScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error saving item: $e')),
+          SnackBar(content: Text(ErrorHandler.getUserMessage(e))),
         );
       }
     } finally {
@@ -421,7 +422,7 @@ class _ManualEntryScreenState extends ConsumerState<ManualEntryScreen> {
                       backgroundColor: HavenColors.surface,
                       labelStyle: TextStyle(
                         color: isSelected
-                            ? Colors.white
+                            ? HavenColors.textPrimary
                             : HavenColors.textSecondary,
                         fontSize: 13,
                       ),
@@ -470,7 +471,7 @@ class _ManualEntryScreenState extends ConsumerState<ManualEntryScreen> {
                           height: 20,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            color: Colors.white,
+                            color: HavenColors.textPrimary,
                           ),
                         )
                       : const Text(

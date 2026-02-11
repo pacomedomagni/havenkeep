@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_ui/shared_ui.dart';
 import 'package:smooth_page_indicator/smooth_page_indicator.dart';
 
 /// Preview/onboarding screens shown before authentication.
@@ -30,7 +31,7 @@ class _PreviewScreenState extends State<PreviewScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: HavenColors.background,
       body: SafeArea(
         child: Column(
           children: [
@@ -58,21 +59,21 @@ class _PreviewScreenState extends State<PreviewScreen> {
                     title: 'Your warranties,\nprotected',
                     subtitle:
                         'Track all your warranties in one place. Never lose another receipt.',
-                    color: const Color(0xFF6366F1), // Indigo
+                    color: HavenColors.accent,
                   ),
                   _PreviewPage(
                     icon: Icons.qr_code_scanner,
                     title: 'Add items\nin seconds',
                     subtitle:
                         'Scan barcodes or snap receipts. Simple 3-step wizard.',
-                    color: const Color(0xFF10B981), // Green
+                    color: HavenColors.active,
                   ),
                   _PreviewPage(
                     icon: Icons.notifications_outlined,
                     title: 'Never miss\nan expiration',
                     subtitle:
                         'Get notified before warranties expire. Claim what you deserve.',
-                    color: const Color(0xFFF59E0B), // Amber
+                    color: HavenColors.expiring,
                   ),
                 ],
               ),
@@ -86,7 +87,7 @@ class _PreviewScreenState extends State<PreviewScreen> {
                 dotHeight: 8,
                 dotWidth: 8,
                 activeDotColor: Theme.of(context).primaryColor,
-                dotColor: Colors.grey[300]!,
+                dotColor: HavenColors.textTertiary,
               ),
             ),
 
@@ -185,7 +186,7 @@ class _PreviewPage extends StatelessWidget {
             width: 160,
             height: 160,
             decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
+              color: color.withValues(alpha: 0.1),
               shape: BoxShape.circle,
             ),
             child: Icon(
@@ -201,10 +202,10 @@ class _PreviewPage extends StatelessWidget {
           Text(
             title,
             textAlign: TextAlign.center,
-            style: TextStyle(
+            style: const TextStyle(
               fontSize: 32,
               fontWeight: FontWeight.bold,
-              color: Colors.grey[900],
+              color: HavenColors.textPrimary,
               height: 1.2,
             ),
           ),
@@ -215,9 +216,9 @@ class _PreviewPage extends StatelessWidget {
           Text(
             subtitle,
             textAlign: TextAlign.center,
-            style: TextStyle(
+            style: const TextStyle(
               fontSize: 16,
-              color: Colors.grey[600],
+              color: HavenColors.textSecondary,
               height: 1.5,
             ),
           ),

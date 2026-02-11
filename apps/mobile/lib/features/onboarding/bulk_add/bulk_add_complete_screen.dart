@@ -7,6 +7,7 @@ import 'package:shared_ui/shared_ui.dart';
 import '../../../core/providers/auth_provider.dart';
 import '../../../core/providers/items_provider.dart';
 import '../../../core/router/router.dart';
+import '../../../core/utils/error_handler.dart';
 import 'bulk_add_provider.dart';
 
 /// Bulk-add complete screen (Screen 2.5).
@@ -76,7 +77,7 @@ class _BulkAddCompleteScreenState
         setState(() {
           _isSaving = false;
           _hasError = true;
-          _errorMessage = e.toString();
+          _errorMessage = ErrorHandler.getUserMessage(e);
         });
       }
     }

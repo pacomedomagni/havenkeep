@@ -21,16 +21,20 @@ class HavenColors {
   // Accents
   static const Color primary = Color(0xFF2563EB);
   static const Color secondary = Color(0xFF60A5FA);
+  static const Color accent = Color(0xFF6366F1);
+  static const Color accentSecondary = Color(0xFF8B5CF6);
+  static const Color gold = Color(0xFFFFD700);
 
   // Status
   static const Color active = Color(0xFF10B981);
+  static const Color success = active;
   static const Color expiring = Color(0xFFF59E0B);
   static const Color expired = Color(0xFFEF4444);
 
   // Text
   static const Color textPrimary = Color(0xFFF1F5F9);
   static const Color textSecondary = Color(0xFF94A3B8);
-  static const Color textTertiary = Color(0xFF64748B);
+  static const Color textTertiary = Color(0xFF7C8BA4);
 
   // Borders
   static const Color border = Color(0xFF1E293B);

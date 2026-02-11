@@ -78,11 +78,11 @@ class _WizardStep3DetailsState extends State<WizardStep3Details> {
 
           const SizedBox(height: 8),
 
-          Text(
+          const Text(
             'Step 3 of 3 • All optional',
             style: TextStyle(
               fontSize: 14,
-              color: Colors.grey[600],
+              color: HavenColors.textSecondary,
             ),
           ),
 
@@ -154,19 +154,19 @@ class _WizardStep3DetailsState extends State<WizardStep3Details> {
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: Colors.blue[50],
+                      color: HavenColors.primary.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: Row(
+                    child: const Row(
                       children: [
-                        Icon(Icons.info_outline, color: Colors.blue[700]),
-                        const SizedBox(width: 12),
+                        Icon(Icons.info_outline, color: HavenColors.secondary),
+                        SizedBox(width: 12),
                         Expanded(
                           child: Text(
                             'You can always add these details later from the item screen.',
                             style: TextStyle(
                               fontSize: 13,
-                              color: Colors.blue[900],
+                              color: HavenColors.secondary,
                             ),
                           ),
                         ),
@@ -190,7 +190,7 @@ class _WizardStep3DetailsState extends State<WizardStep3Details> {
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(16),
                 ),
-                backgroundColor: const Color(0xFF10B981),
+                backgroundColor: HavenColors.active,
               ),
               child: widget.isSaving
                   ? const SizedBox(
@@ -198,7 +198,7 @@ class _WizardStep3DetailsState extends State<WizardStep3Details> {
                       height: 24,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                        valueColor: AlwaysStoppedAnimation<Color>(HavenColors.textPrimary),
                       ),
                     )
                   : const Row(
@@ -246,27 +246,32 @@ class _WizardStep3DetailsState extends State<WizardStep3Details> {
       runSpacing: 8,
       children: commonRooms.map((room) {
         final isSelected = widget.data.room == room;
-        return GestureDetector(
-          onTap: () {
-            setState(() {
-              widget.data.room = isSelected ? null : room;
-            });
-          },
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: BoxDecoration(
-              color: isSelected ? HavenColors.primary : HavenColors.surface,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: isSelected ? HavenColors.primary : HavenColors.border,
+        return Semantics(
+          selected: isSelected,
+          label: room.displayName,
+          child: InkWell(
+            onTap: () {
+              setState(() {
+                widget.data.room = isSelected ? null : room;
+              });
+            },
+            borderRadius: BorderRadius.circular(12),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: isSelected ? HavenColors.primary : HavenColors.surface,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: isSelected ? HavenColors.primary : HavenColors.border,
+                ),
               ),
-            ),
-            child: Text(
-              room.displayName,
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-                color: isSelected ? Colors.white : HavenColors.textPrimary,
+              child: Text(
+                room.displayName,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                  color: isSelected ? HavenColors.textPrimary : HavenColors.textPrimary,
+                ),
               ),
             ),
           ),

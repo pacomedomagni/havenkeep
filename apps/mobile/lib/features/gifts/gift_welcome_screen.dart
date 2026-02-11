@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:api_client/api_client.dart';
+import 'package:shared_ui/shared_ui.dart';
 import '../../core/services/partners_repository.dart';
+import '../../core/utils/error_handler.dart';
 import '../../core/widgets/havenkeep_logo.dart';
 
 class GiftWelcomeScreen extends ConsumerStatefulWidget {
@@ -41,7 +43,7 @@ class _GiftWelcomeScreenState extends ConsumerState<GiftWelcomeScreen> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _error = e.toString();
+          _error = ErrorHandler.getUserMessage(e);
           _isLoading = false;
         });
       }
@@ -57,6 +59,7 @@ class _GiftWelcomeScreenState extends ConsumerState<GiftWelcomeScreen> {
   Widget build(BuildContext context) {
     if (_isLoading) {
       return Scaffold(
+        backgroundColor: HavenColors.background,
         body: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -65,7 +68,9 @@ class _GiftWelcomeScreenState extends ConsumerState<GiftWelcomeScreen> {
               const SizedBox(height: 16),
               Text(
                 'Loading your gift...',
-                style: Theme.of(context).textTheme.titleMedium,
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: HavenColors.textPrimary,
+                ),
               ),
             ],
           ),
@@ -75,6 +80,7 @@ class _GiftWelcomeScreenState extends ConsumerState<GiftWelcomeScreen> {
 
     if (_error != null || _giftData == null) {
       return Scaffold(
+        backgroundColor: HavenColors.background,
         appBar: AppBar(
           title: const Text('Gift Not Found'),
         ),
@@ -87,18 +93,22 @@ class _GiftWelcomeScreenState extends ConsumerState<GiftWelcomeScreen> {
                 const Icon(
                   Icons.error_outline,
                   size: 64,
-                  color: Colors.red,
+                  color: HavenColors.expired,
                 ),
                 const SizedBox(height: 16),
                 Text(
                   'Gift Not Available',
-                  style: Theme.of(context).textTheme.headlineSmall,
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    color: HavenColors.textPrimary,
+                  ),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 8),
                 Text(
                   _error ?? 'This gift link may have expired or is invalid.',
-                  style: Theme.of(context).textTheme.bodyMedium,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: HavenColors.textSecondary,
+                  ),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 24),
@@ -114,9 +124,9 @@ class _GiftWelcomeScreenState extends ConsumerState<GiftWelcomeScreen> {
     }
 
     final gift = _giftData!;
-    final brandColor = Color(
-      int.parse(gift['brand_color']?.replaceFirst('#', '') ?? 'FF3B82F6', radix: 16) + 0xFF000000,
-    );
+    final hexStr = (gift['brand_color']?.replaceFirst('#', '') ?? '3B82F6');
+    final colorValue = int.tryParse(hexStr, radix: 16) ?? 0x3B82F6;
+    final brandColor = Color(hexStr.length == 8 ? colorValue : (colorValue | 0xFF000000));
     final partnerName = gift['partner_name'] ?? 'Your Realtor';
     final logoUrl = gift['logo_url'] as String?;
     final message = gift['custom_message'] as String? ??
@@ -124,14 +134,15 @@ class _GiftWelcomeScreenState extends ConsumerState<GiftWelcomeScreen> {
     final premiumMonths = gift['premium_months'] ?? 6;
 
     return Scaffold(
+      backgroundColor: HavenColors.background,
       body: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
             colors: [
-              brandColor.withOpacity(0.1),
-              Colors.white,
+              brandColor.withValues(alpha: 0.1),
+              HavenColors.background,
             ],
           ),
         ),
@@ -163,7 +174,7 @@ class _GiftWelcomeScreenState extends ConsumerState<GiftWelcomeScreen> {
                 Container(
                   padding: const EdgeInsets.all(24),
                   decoration: BoxDecoration(
-                    color: brandColor.withOpacity(0.1),
+                    color: brandColor.withValues(alpha: 0.1),
                     shape: BoxShape.circle,
                   ),
                   child: Icon(
@@ -180,6 +191,7 @@ class _GiftWelcomeScreenState extends ConsumerState<GiftWelcomeScreen> {
                   'You\'ve Received a Gift!',
                   style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                     fontWeight: FontWeight.bold,
+                    color: HavenColors.textPrimary,
                   ),
                   textAlign: TextAlign.center,
                 ),
@@ -201,10 +213,10 @@ class _GiftWelcomeScreenState extends ConsumerState<GiftWelcomeScreen> {
                 // Gift Details Card
                 Card(
                   elevation: 0,
-                  color: Colors.white,
+                  color: HavenColors.surface,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(16),
-                    side: BorderSide(color: Colors.grey.shade200),
+                    side: const BorderSide(color: HavenColors.border),
                   ),
                   child: Padding(
                     padding: const EdgeInsets.all(24.0),
@@ -215,6 +227,7 @@ class _GiftWelcomeScreenState extends ConsumerState<GiftWelcomeScreen> {
                           'What\'s Included',
                           style: Theme.of(context).textTheme.titleLarge?.copyWith(
                             fontWeight: FontWeight.bold,
+                            color: HavenColors.textPrimary,
                           ),
                         ),
                         const SizedBox(height: 16),
@@ -260,7 +273,7 @@ class _GiftWelcomeScreenState extends ConsumerState<GiftWelcomeScreen> {
                 if (message.isNotEmpty)
                   Card(
                     elevation: 0,
-                    color: brandColor.withOpacity(0.05),
+                    color: brandColor.withValues(alpha: 0.05),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
                     ),
@@ -281,6 +294,7 @@ class _GiftWelcomeScreenState extends ConsumerState<GiftWelcomeScreen> {
                                 'Personal Message',
                                 style: Theme.of(context).textTheme.titleMedium?.copyWith(
                                   fontWeight: FontWeight.w600,
+                                  color: HavenColors.textPrimary,
                                 ),
                               ),
                             ],
@@ -291,6 +305,7 @@ class _GiftWelcomeScreenState extends ConsumerState<GiftWelcomeScreen> {
                             style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                               fontStyle: FontStyle.italic,
                               height: 1.5,
+                              color: HavenColors.textSecondary,
                             ),
                           ),
                         ],
@@ -305,7 +320,7 @@ class _GiftWelcomeScreenState extends ConsumerState<GiftWelcomeScreen> {
                   onPressed: _handleActivate,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: brandColor,
-                    foregroundColor: Colors.white,
+                    foregroundColor: HavenColors.textPrimary,
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
@@ -321,18 +336,6 @@ class _GiftWelcomeScreenState extends ConsumerState<GiftWelcomeScreen> {
                   ),
                 ),
 
-                const SizedBox(height: 16),
-
-                // Learn More
-                TextButton(
-                  onPressed: () {
-                    // Navigate to features/about page
-                  },
-                  child: Text(
-                    'Learn more about HavenKeep',
-                    style: TextStyle(color: brandColor),
-                  ),
-                ),
 
                 const SizedBox(height: 32),
               ],
@@ -354,7 +357,7 @@ class _GiftWelcomeScreenState extends ConsumerState<GiftWelcomeScreen> {
         Container(
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
-            color: color.withOpacity(0.1),
+            color: color.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(8),
           ),
           child: Icon(icon, color: color, size: 24),
@@ -369,12 +372,13 @@ class _GiftWelcomeScreenState extends ConsumerState<GiftWelcomeScreen> {
                 style: const TextStyle(
                   fontWeight: FontWeight.w600,
                   fontSize: 16,
+                  color: HavenColors.textPrimary,
                 ),
               ),
               Text(
                 subtitle,
-                style: TextStyle(
-                  color: Colors.grey.shade600,
+                style: const TextStyle(
+                  color: HavenColors.textSecondary,
                   fontSize: 14,
                 ),
               ),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:confetti/confetti.dart';
+import 'package:shared_ui/shared_ui.dart';
 import '../../core/widgets/havenkeep_logo.dart';
 
 class GiftActivationSuccessScreen extends StatefulWidget {
@@ -39,10 +40,12 @@ class _GiftActivationSuccessScreenState
 
   @override
   Widget build(BuildContext context) {
-    final expiryDate = DateTime.now().add(Duration(days: widget.premiumMonths * 30));
+    final now = DateTime.now();
+    final expiryDate = DateTime(now.year, now.month + widget.premiumMonths, now.day);
     final formattedDate = '${expiryDate.month}/${expiryDate.day}/${expiryDate.year}';
 
     return Scaffold(
+      backgroundColor: HavenColors.background,
       body: Stack(
         children: [
           Container(
@@ -51,8 +54,8 @@ class _GiftActivationSuccessScreenState
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: [
-                  Theme.of(context).primaryColor.withOpacity(0.1),
-                  Colors.white,
+                  HavenColors.primary.withValues(alpha: 0.1),
+                  HavenColors.background,
                 ],
               ),
             ),
@@ -69,13 +72,13 @@ class _GiftActivationSuccessScreenState
                     Container(
                       padding: const EdgeInsets.all(24),
                       decoration: BoxDecoration(
-                        color: Colors.green.shade50,
+                        color: HavenColors.active.withValues(alpha: 0.1),
                         shape: BoxShape.circle,
                       ),
-                      child: Icon(
+                      child: const Icon(
                         Icons.check_circle,
                         size: 80,
-                        color: Colors.green.shade400,
+                        color: HavenColors.active,
                       ),
                     ),
 
@@ -86,6 +89,7 @@ class _GiftActivationSuccessScreenState
                       'Welcome to Premium!',
                       style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                         fontWeight: FontWeight.bold,
+                        color: HavenColors.textPrimary,
                       ),
                       textAlign: TextAlign.center,
                     ),
@@ -96,7 +100,7 @@ class _GiftActivationSuccessScreenState
                     Text(
                       'Your gift has been activated',
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: Colors.grey.shade600,
+                        color: HavenColors.textSecondary,
                       ),
                       textAlign: TextAlign.center,
                     ),
@@ -106,9 +110,10 @@ class _GiftActivationSuccessScreenState
                     // Premium Info Card
                     Card(
                       elevation: 0,
+                      color: HavenColors.surface,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(16),
-                        side: BorderSide(color: Colors.grey.shade200),
+                        side: const BorderSide(color: HavenColors.border),
                       ),
                       child: Padding(
                         padding: const EdgeInsets.all(24.0),
@@ -119,7 +124,7 @@ class _GiftActivationSuccessScreenState
                               children: [
                                 const Icon(
                                   Icons.stars,
-                                  color: Colors.amber,
+                                  color: HavenColors.expiring,
                                   size: 32,
                                 ),
                                 const SizedBox(width: 12),
@@ -127,6 +132,7 @@ class _GiftActivationSuccessScreenState
                                   '${widget.premiumMonths} Months Premium',
                                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
                                     fontWeight: FontWeight.bold,
+                                    color: HavenColors.textPrimary,
                                   ),
                                 ),
                               ],
@@ -134,13 +140,13 @@ class _GiftActivationSuccessScreenState
                             const SizedBox(height: 8),
                             Text(
                               'Active until $formattedDate',
-                              style: TextStyle(
-                                color: Colors.grey.shade600,
+                              style: const TextStyle(
+                                color: HavenColors.textSecondary,
                                 fontSize: 14,
                               ),
                             ),
                             const SizedBox(height: 24),
-                            const Divider(),
+                            const Divider(color: HavenColors.border),
                             const SizedBox(height: 16),
 
                             // Features List
@@ -203,10 +209,10 @@ class _GiftActivationSuccessScreenState
 
                     const SizedBox(height: 8),
 
-                    Text(
+                    const Text(
                       'Thank you for choosing HavenKeep',
                       style: TextStyle(
-                        color: Colors.grey.shade600,
+                        color: HavenColors.textSecondary,
                         fontSize: 12,
                       ),
                       textAlign: TextAlign.center,
@@ -227,11 +233,11 @@ class _GiftActivationSuccessScreenState
               numberOfParticles: 20,
               gravity: 0.3,
               colors: const [
-                Colors.green,
-                Colors.blue,
-                Colors.pink,
-                Colors.orange,
-                Colors.purple,
+                HavenColors.active,
+                HavenColors.primary,
+                HavenColors.accent,
+                HavenColors.expiring,
+                HavenColors.accentSecondary,
               ],
             ),
           ),
@@ -245,7 +251,7 @@ class _GiftActivationSuccessScreenState
       children: [
         Icon(
           icon,
-          color: Theme.of(context).primaryColor,
+          color: HavenColors.primary,
           size: 20,
         ),
         const SizedBox(width: 12),
@@ -253,6 +259,7 @@ class _GiftActivationSuccessScreenState
           text,
           style: const TextStyle(
             fontSize: 15,
+            color: HavenColors.textPrimary,
           ),
         ),
       ],

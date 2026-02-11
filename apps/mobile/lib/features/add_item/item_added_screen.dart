@@ -61,8 +61,7 @@ class _ItemAddedScreenState extends ConsumerState<ItemAddedScreen>
               expiryText =
                   'Warranty expires ${DateFormat('MMM d, yyyy').format(item.warrantyEndDate!)}';
             } else {
-              final computed = item.purchaseDate
-                  .add(Duration(days: item.warrantyMonths * 30));
+              final computed = DateTime(item.purchaseDate.year, item.purchaseDate.month + item.warrantyMonths, item.purchaseDate.day);
               expiryText =
                   'Warranty expires ${DateFormat('MMM d, yyyy').format(computed)}';
             }
@@ -188,34 +187,58 @@ class _ItemAddedScreenState extends ConsumerState<ItemAddedScreen>
               ),
             );
           },
-          loading: () => const Center(child: CircularProgressIndicator()),
-          error: (error, _) => Center(
+          loading: () => Padding(
+            padding: const EdgeInsets.all(HavenSpacing.xl),
             child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(
-                  Icons.check_circle,
-                  size: 80,
-                  color: HavenColors.active,
-                ),
-                const SizedBox(height: HavenSpacing.lg),
-                const Text(
-                  'Item Added!',
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: HavenColors.primary,
-                  ),
-                ),
-                const SizedBox(height: HavenSpacing.xxl),
-                SizedBox(
-                  width: 200,
-                  child: ElevatedButton(
-                    onPressed: () => context.go(AppRoutes.dashboard),
-                    child: const Text('Go to Dashboard'),
-                  ),
-                ),
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: const [
+                SkeletonBox(width: 80, height: 80),
+                SizedBox(height: HavenSpacing.lg),
+                SkeletonLine(width: 200, height: 24),
+                SizedBox(height: HavenSpacing.md),
+                SkeletonLine(width: 280, height: 16),
               ],
+            ),
+          ),
+          error: (error, _) => Center(
+            child: Padding(
+              padding: const EdgeInsets.all(HavenSpacing.xl),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.info_outline,
+                    size: 80,
+                    color: HavenColors.expiring,
+                  ),
+                  const SizedBox(height: HavenSpacing.lg),
+                  const Text(
+                    'Item Saved',
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: HavenColors.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: HavenSpacing.sm),
+                  const Text(
+                    'Item was saved but details could not be loaded.',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: HavenColors.textSecondary,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: HavenSpacing.xxl),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () => context.go(AppRoutes.dashboard),
+                      child: const Text('Go to Dashboard'),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),

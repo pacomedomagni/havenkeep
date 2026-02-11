@@ -26,6 +26,7 @@ class DocumentTypeIcon {
       get(type),
       size: size,
       color: color,
+      semanticLabel: type.displayLabel,
     );
   }
 }

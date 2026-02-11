@@ -7,6 +7,8 @@ import 'package:shared_ui/shared_ui.dart';
 
 import '../../core/providers/items_provider.dart';
 import '../../core/router/router.dart';
+import '../../core/utils/error_handler.dart';
+import '../../core/widgets/error_state_widget.dart';
 
 /// Items list screen with search, filter chips, room grouping, and swipe actions.
 class ItemsScreen extends ConsumerStatefulWidget {
@@ -88,9 +90,9 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
     for (final list in grouped.values) {
       list.sort((a, b) {
         final aEnd = a.warrantyEndDate ??
-            a.purchaseDate.add(Duration(days: a.warrantyMonths * 30));
+            DateTime(a.purchaseDate.year, a.purchaseDate.month + a.warrantyMonths, a.purchaseDate.day);
         final bEnd = b.warrantyEndDate ??
-            b.purchaseDate.add(Duration(days: b.warrantyMonths * 30));
+            DateTime(b.purchaseDate.year, b.purchaseDate.month + b.warrantyMonths, b.purchaseDate.day);
         return aEnd.compareTo(bEnd);
       });
     }
@@ -263,12 +265,19 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
             ],
           );
         },
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, _) => Center(
-          child: Text(
-            'Error: $error',
-            style: const TextStyle(color: HavenColors.expired),
-          ),
+        loading: () => ListView(
+          padding: const EdgeInsets.all(HavenSpacing.md),
+          children: const [
+            SkeletonCard(),
+            SizedBox(height: HavenSpacing.sm),
+            SkeletonCard(),
+            SizedBox(height: HavenSpacing.sm),
+            SkeletonCard(),
+          ],
+        ),
+        error: (error, _) => ErrorStateWidget(
+          message: ErrorHandler.getUserMessage(error),
+          onRetry: () => ref.invalidate(itemsProvider),
         ),
       ),
     );
@@ -428,16 +437,19 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        '${item.brand ?? ''} ${item.name}'.trim(),
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: HavenColors.textPrimary,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
+                      Builder(builder: (_) {
+                        final displayName = '${item.brand ?? ''} ${item.name}'.trim();
+                        return Text(
+                          displayName,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: HavenColors.textPrimary,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        );
+                      }),
                       if (item.modelNumber != null &&
                           item.modelNumber!.isNotEmpty) ...[
                         const SizedBox(height: 2),
@@ -526,7 +538,7 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
         context,
         title: 'Archive item?',
         body:
-            'This will hide "${item.brand ?? ''} ${item.name}".trim() from your list. You can restore it later.',
+            'This will hide "${'${item.brand ?? ''} ${item.name}'.trim()}" from your list. You can restore it later.',
         confirmLabel: 'Archive',
       );
       if (confirmed && mounted) {
@@ -538,7 +550,7 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
         context,
         title: 'Delete item?',
         body:
-            'This will permanently delete "${item.brand ?? ''} ${item.name}".trim(). This action cannot be undone.',
+            'This will permanently delete "${'${item.brand ?? ''} ${item.name}'.trim()}". This action cannot be undone.',
         confirmLabel: 'Delete',
         isDestructive: true,
       );

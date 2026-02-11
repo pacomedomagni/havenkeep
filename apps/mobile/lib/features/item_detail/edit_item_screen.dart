@@ -7,6 +7,8 @@ import 'package:shared_models/shared_models.dart';
 import 'package:shared_ui/shared_ui.dart';
 
 import '../../core/providers/items_provider.dart';
+import '../../core/utils/error_handler.dart';
+import '../../core/widgets/error_state_widget.dart';
 
 /// Edit item form screen. Mirrors the manual entry layout but pre-fills all
 /// fields from the existing item and supports dirty-state tracking.
@@ -192,7 +194,7 @@ class _EditItemScreenState extends ConsumerState<EditItemScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to save: $e')),
+          SnackBar(content: Text(ErrorHandler.getUserMessage(e))),
         );
       }
     } finally {
@@ -236,30 +238,37 @@ class _EditItemScreenState extends ConsumerState<EditItemScreen> {
         final brandsAsync = ref.watch(brandSuggestionsProvider(_category));
         final brands = brandsAsync.valueOrNull ?? [];
 
-        return Scaffold(
-          backgroundColor: HavenColors.background,
-          appBar: AppBar(
-            leading: IconButton(
-              icon: const Icon(Icons.close),
-              onPressed: _handleCancel,
-            ),
-            title: const Text('Edit Item'),
-            actions: [
-              TextButton(
-                onPressed: _isDirty && !_saving ? _handleSave : null,
-                child: Text(
-                  'Save Changes',
-                  style: TextStyle(
-                    color: _isDirty && !_saving
-                        ? HavenColors.primary
-                        : HavenColors.textTertiary,
-                    fontWeight: FontWeight.w600,
+        return PopScope(
+          canPop: !_isDirty,
+          onPopInvokedWithResult: (didPop, _) async {
+            if (!didPop) await _handleCancel();
+          },
+          child: Scaffold(
+            backgroundColor: HavenColors.background,
+            appBar: AppBar(
+              leading: IconButton(
+                icon: const Icon(Icons.close),
+                tooltip: 'Close',
+                onPressed: _handleCancel,
+              ),
+              title: const Text('Edit Item'),
+              actions: [
+                TextButton(
+                  onPressed: _isDirty && !_saving ? _handleSave : null,
+                  child: Text(
+                    'Save Changes',
+                    style: TextStyle(
+                      color: _isDirty && !_saving
+                          ? HavenColors.primary
+                          : HavenColors.textTertiary,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
-              ),
-            ],
-          ),
-          body: SingleChildScrollView(
+              ],
+            ),
+            body: SingleChildScrollView(
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
             padding: const EdgeInsets.all(HavenSpacing.md),
             child: Form(
               key: _formKey,
@@ -438,6 +447,7 @@ class _EditItemScreenState extends ConsumerState<EditItemScreen> {
               ),
             ),
           ),
+        ),
         );
       },
       loading: () => Scaffold(
@@ -445,26 +455,41 @@ class _EditItemScreenState extends ConsumerState<EditItemScreen> {
         appBar: AppBar(
           leading: IconButton(
             icon: const Icon(Icons.close),
+            tooltip: 'Close',
             onPressed: () => context.pop(),
           ),
           title: const Text('Edit Item'),
         ),
-        body: const Center(child: CircularProgressIndicator()),
+        body: Padding(
+          padding: const EdgeInsets.all(HavenSpacing.md),
+          child: Column(
+            children: const [
+              SkeletonLine(height: 48),
+              SizedBox(height: HavenSpacing.md),
+              SkeletonLine(height: 48),
+              SizedBox(height: HavenSpacing.md),
+              SkeletonLine(height: 48),
+              SizedBox(height: HavenSpacing.md),
+              SkeletonLine(height: 48),
+              SizedBox(height: HavenSpacing.lg),
+              SkeletonLine(height: 48),
+            ],
+          ),
+        ),
       ),
       error: (error, _) => Scaffold(
         backgroundColor: HavenColors.background,
         appBar: AppBar(
           leading: IconButton(
             icon: const Icon(Icons.close),
+            tooltip: 'Close',
             onPressed: () => context.pop(),
           ),
           title: const Text('Edit Item'),
         ),
-        body: Center(
-          child: Text(
-            'Error loading item: $error',
-            style: const TextStyle(color: HavenColors.expired),
-          ),
+        body: ErrorStateWidget(
+          message: ErrorHandler.getUserMessage(error),
+          onRetry: () => ref.invalidate(itemDetailProvider(widget.itemId)),
         ),
       ),
     );

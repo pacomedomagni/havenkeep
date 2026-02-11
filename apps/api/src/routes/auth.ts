@@ -10,8 +10,18 @@ import { validate } from '../middleware/validate';
 import { registerSchema, loginSchema, refreshTokenSchema } from '../validators';
 import { forgotPasswordSchema, resetPasswordSchema, verifyEmailSchema } from '../validators/auth.validator';
 import { logger } from '../utils/logger';
+import { AuditService } from '../services/audit.service';
 
 const router = Router();
+
+// Helper to get IP address
+const getIpAddress = (req: any): string => {
+  return (
+    (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
+    (req.headers['x-real-ip'] as string) ||
+    req.socket.remoteAddress ||
+    'unknown'
+  );
 
 // Register
 router.post('/register', authRateLimiter, validate(registerSchema), async (req, res, next) => {
@@ -47,6 +57,16 @@ router.post('/register', authRateLimiter, validate(registerSchema), async (req, 
       [user.id, 'My Home']
     );
 
+    // Audit log: successful registration
+    await AuditService.logAuth({
+      action: 'auth.register',
+      userId: user.id,
+      email: user.email,
+      ipAddress: getIpAddress(req),
+      userAgent: req.get('user-agent'),
+      success: true,
+    });
+
     // Generate tokens
     const accessToken = jwt.sign(
       { userId: user.id, email: user.email },
@@ -81,6 +101,15 @@ router.post('/register', authRateLimiter, validate(registerSchema), async (req, 
       refreshToken,
     });
   } catch (error) {
+    // Audit log: failed registration
+    await AuditService.logAuth({
+      action: 'auth.register',
+      email: req.body.email,
+      ipAddress: getIpAddress(req),
+      userAgent: req.get('user-agent'),
+      success: false,
+      errorMessage: error instanceof Error ? error.message : 'Registration failed',
+    });
     next(error);
   }
 });
@@ -107,6 +136,16 @@ router.post('/login', authRateLimiter, validate(loginSchema), async (req, res, n
     const valid = await bcrypt.compare(password, user.password_hash);
 
     if (!valid) {
+      // Audit log: failed login (wrong password)
+      await AuditService.logAuth({
+        action: 'auth.login',
+        userId: user.id,
+        email: user.email,
+        ipAddress: getIpAddress(req),
+        userAgent: req.get('user-agent'),
+        success: false,
+        errorMessage: 'Invalid password',
+      });
       throw new AppError(401, 'Invalid credentials');
     }
 
@@ -133,6 +172,16 @@ router.post('/login', authRateLimiter, validate(loginSchema), async (req, res, n
       [user.id, refreshToken, expiresAt]
     );
 
+    // Audit log: successful login
+    await AuditService.logAuth({
+      action: 'auth.login',
+      userId: user.id,
+      email: user.email,
+      ipAddress: getIpAddress(req),
+      userAgent: req.get('user-agent'),
+      success: true,
+    });
+
     res.json({
       user: {
         id: user.id,
@@ -145,6 +194,17 @@ router.post('/login', authRateLimiter, validate(loginSchema), async (req, res, n
       refreshToken,
     });
   } catch (error) {
+    // Audit log: failed login (user not found or other error)
+    if (error instanceof AppError && error.statusCode === 401) {
+      await AuditService.logAuth({
+        action: 'auth.login',
+        email: req.body.email,
+        ipAddress: getIpAddress(req),
+        userAgent: req.get('user-agent'),
+        success: false,
+        errorMessage: 'Invalid credentials',
+      });
+    }
     next(error);
   }
 });
@@ -200,11 +260,34 @@ router.post('/logout', validate(refreshTokenSchema), async (req, res, next) => {
   try {
     const { refreshToken } = req.body;
 
+    let userId: string | undefined;
+
     if (refreshToken) {
+      // Get user ID from refresh token before deleting
+      const tokenResult = await query(
+        `SELECT user_id FROM refresh_tokens WHERE token = $1`,
+        [refreshToken]
+      );
+
+      if (tokenResult.rows.length > 0) {
+        userId = tokenResult.rows[0].user_id;
+      }
+
       await query(
         `DELETE FROM refresh_tokens WHERE token = $1`,
         [refreshToken]
       );
+    }
+
+    // Audit log: logout
+    if (userId) {
+      await AuditService.logAuth({
+        action: 'auth.logout',
+        userId,
+        ipAddress: getIpAddress(req),
+        userAgent: req.get('user-agent'),
+        success: true,
+      });
     }
 
     res.json({ message: 'Logged out successfully' });
@@ -253,6 +336,16 @@ router.post('/forgot-password', authRateLimiter, validate(forgotPasswordSchema),
 
     logger.info({ userId: user.id, resetUrl }, 'Password reset requested');
 
+    // Audit log: password reset requested
+    await AuditService.logAuth({
+      action: 'auth.password_reset_request',
+      userId: user.id,
+      email: user.email,
+      ipAddress: getIpAddress(req),
+      userAgent: req.get('user-agent'),
+      success: true,
+    });
+
     res.json({ message: 'If an account exists with that email, a reset link has been sent.' });
   } catch (error) {
     next(error);
@@ -298,6 +391,15 @@ router.post('/reset-password', authRateLimiter, validate(resetPasswordSchema), a
       [userId]
     );
 
+    // Audit log: password reset completed
+    await AuditService.logAuth({
+      action: 'auth.password_reset_complete',
+      userId,
+      ipAddress: getIpAddress(req),
+      userAgent: req.get('user-agent'),
+      success: true,
+    });
+
     res.json({ message: 'Password has been reset successfully' });
   } catch (error) {
     next(error);
@@ -333,6 +435,15 @@ router.post('/verify-email', validate(verifyEmailSchema), async (req, res, next)
       `DELETE FROM email_verification_tokens WHERE user_id = $1`,
       [userId]
     );
+
+    // Audit log: email verified
+    await AuditService.logAuth({
+      action: 'auth.email_verify',
+      userId,
+      ipAddress: getIpAddress(req),
+      userAgent: req.get('user-agent'),
+      success: true,
+    });
 
     res.json({ message: 'Email verified successfully' });
   } catch (error) {
@@ -374,6 +485,7 @@ router.post('/google', authRateLimiter, async (req, res, next) => {
     );
 
     let user;
+    let isNewUser = false;
 
     if (userResult.rows.length === 0) {
       // Create new user (no password for OAuth users)
@@ -384,6 +496,7 @@ router.post('/google', authRateLimiter, async (req, res, next) => {
         [email, fullName, avatarUrl]
       );
       user = createResult.rows[0];
+      isNewUser = true;
 
       // Create default home
       await query(
@@ -415,6 +528,20 @@ router.post('/google', authRateLimiter, async (req, res, next) => {
        VALUES ($1, $2, $3)`,
       [user.id, refreshToken, expiresAt]
     );
+
+    // Audit log: OAuth login
+    await AuditService.logAuth({
+      action: 'auth.oauth_login',
+      userId: user.id,
+      email: user.email,
+      ipAddress: getIpAddress(req),
+      userAgent: req.get('user-agent'),
+      success: true,
+      metadata: {
+        provider: 'google',
+        new_user: isNewUser,
+      },
+    });
 
     res.json({
       user: {
@@ -467,6 +594,7 @@ router.post('/apple', authRateLimiter, async (req, res, next) => {
     );
 
     let user;
+    let isNewUser = false;
 
     if (userResult.rows.length === 0) {
       const fullName = appleFullName || 'User';
@@ -478,6 +606,7 @@ router.post('/apple', authRateLimiter, async (req, res, next) => {
         [email, fullName]
       );
       user = createResult.rows[0];
+      isNewUser = true;
 
       // Create default home
       await query(
@@ -509,6 +638,20 @@ router.post('/apple', authRateLimiter, async (req, res, next) => {
        VALUES ($1, $2, $3)`,
       [user.id, refreshToken, expiresAt]
     );
+
+    // Audit log: OAuth login
+    await AuditService.logAuth({
+      action: 'auth.oauth_login',
+      userId: user.id,
+      email: user.email,
+      ipAddress: getIpAddress(req),
+      userAgent: req.get('user-agent'),
+      success: true,
+      metadata: {
+        provider: 'apple',
+        new_user: isNewUser,
+      },
+    });
 
     res.json({
       user: {

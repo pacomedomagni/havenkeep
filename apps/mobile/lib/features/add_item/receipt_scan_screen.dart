@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:intl/intl.dart';
 import 'package:shared_models/shared_models.dart';
 import 'package:shared_ui/shared_ui.dart';
 
@@ -12,6 +13,7 @@ import '../../core/providers/homes_provider.dart';
 import '../../core/providers/items_provider.dart';
 import '../../core/router/router.dart';
 import '../../core/services/receipt_scanner_service.dart';
+import '../../core/utils/error_handler.dart';
 
 /// Receipt scan screen — capture a receipt photo, extract data via OCR,
 /// review/edit extracted fields, then save as a new item.
@@ -33,7 +35,7 @@ class _ReceiptScanScreenState extends ConsumerState<ReceiptScanScreen> {
   // Editable fields from scan
   final _brandController = TextEditingController();
   final _priceController = TextEditingController();
-  final _dateController = TextEditingController();
+  DateTime _purchaseDate = DateTime.now();
   ItemCategory _category = ItemCategory.other;
 
   @override
@@ -47,7 +49,6 @@ class _ReceiptScanScreenState extends ConsumerState<ReceiptScanScreen> {
   void dispose() {
     _brandController.dispose();
     _priceController.dispose();
-    _dateController.dispose();
     super.dispose();
   }
 
@@ -61,7 +62,7 @@ class _ReceiptScanScreenState extends ConsumerState<ReceiptScanScreen> {
       );
 
       if (image == null) {
-        if (mounted) Navigator.of(context).pop();
+        if (mounted) context.pop();
         return;
       }
 
@@ -74,7 +75,7 @@ class _ReceiptScanScreenState extends ConsumerState<ReceiptScanScreen> {
       await _processReceipt();
     } catch (e) {
       setState(() {
-        _error = 'Failed to capture image: $e';
+        _error = ErrorHandler.getUserMessage(e);
         _isScanning = false;
       });
     }
@@ -97,7 +98,13 @@ class _ReceiptScanScreenState extends ConsumerState<ReceiptScanScreen> {
           _brandController.text = result.merchant ?? '';
           _priceController.text =
               result.total != null ? result.total!.toStringAsFixed(2) : '';
-          _dateController.text = result.date ?? '';
+          if (result.date != null) {
+            try {
+              _purchaseDate = DateTime.parse(result.date!);
+            } catch (_) {
+              _purchaseDate = DateTime.now();
+            }
+          }
 
           if (result.categoryGuess != null) {
             try {
@@ -129,12 +136,6 @@ class _ReceiptScanScreenState extends ConsumerState<ReceiptScanScreen> {
       if (user == null || home == null) return;
 
       final price = double.tryParse(_priceController.text);
-      DateTime? purchaseDate;
-      try {
-        purchaseDate = DateTime.parse(_dateController.text);
-      } catch (_) {
-        purchaseDate = DateTime.now();
-      }
 
       final item = Item(
         id: '', // DB generates
@@ -143,14 +144,14 @@ class _ReceiptScanScreenState extends ConsumerState<ReceiptScanScreen> {
         name: _category.displayLabel,
         brand: _brandController.text.isNotEmpty ? _brandController.text : null,
         category: _category,
-        purchaseDate: purchaseDate ?? DateTime.now(),
+        purchaseDate: _purchaseDate,
         price: price,
         addedVia: ItemAddedVia.receipt_scan,
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),
       );
 
-      final newItem =
+      final (newItem, _) =
           await ref.read(itemsProvider.notifier).addItem(item);
 
       if (mounted) {
@@ -159,10 +160,35 @@ class _ReceiptScanScreenState extends ConsumerState<ReceiptScanScreen> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _isSaving = false;
-          _error = e.toString();
+          _error = ErrorHandler.getUserMessage(e);
         });
       }
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
+  Future<void> _pickPurchaseDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _purchaseDate,
+      firstDate: DateTime(2000),
+      lastDate: DateTime.now(),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.dark(
+              primary: HavenColors.primary,
+              surface: HavenColors.elevated,
+              onSurface: HavenColors.textPrimary,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+    if (picked != null) {
+      setState(() => _purchaseDate = picked);
     }
   }
 
@@ -242,7 +268,7 @@ class _ReceiptScanScreenState extends ConsumerState<ReceiptScanScreen> {
             Container(
               padding: const EdgeInsets.all(HavenSpacing.md),
               decoration: BoxDecoration(
-                color: HavenColors.active.withOpacity(0.1),
+                color: HavenColors.active.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(HavenRadius.card),
               ),
               child: const Row(
@@ -266,7 +292,7 @@ class _ReceiptScanScreenState extends ConsumerState<ReceiptScanScreen> {
             Container(
               padding: const EdgeInsets.all(HavenSpacing.md),
               decoration: BoxDecoration(
-                color: HavenColors.expiring.withOpacity(0.1),
+                color: HavenColors.expiring.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(HavenRadius.card),
               ),
               child: Row(
@@ -345,13 +371,21 @@ class _ReceiptScanScreenState extends ConsumerState<ReceiptScanScreen> {
           // Date
           const SectionHeader(title: 'Purchase Date'),
           const SizedBox(height: HavenSpacing.sm),
-          TextFormField(
-            controller: _dateController,
-            decoration: const InputDecoration(
-              hintText: 'YYYY-MM-DD',
-              filled: true,
-              fillColor: HavenColors.surface,
-              suffixIcon: Icon(Icons.calendar_today, size: 18),
+          InkWell(
+            onTap: _pickPurchaseDate,
+            child: InputDecorator(
+              decoration: const InputDecoration(
+                filled: true,
+                fillColor: HavenColors.surface,
+                suffixIcon: Icon(Icons.calendar_today, size: 18, color: HavenColors.textSecondary),
+              ),
+              child: Text(
+                DateFormat.yMMMd().format(_purchaseDate),
+                style: const TextStyle(
+                  color: HavenColors.textPrimary,
+                  fontSize: 16,
+                ),
+              ),
             ),
           ),
 
@@ -407,7 +441,7 @@ class _ReceiptScanScreenState extends ConsumerState<ReceiptScanScreen> {
                       height: 20,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
-                        color: Colors.white,
+                        color: HavenColors.textPrimary,
                       ),
                     )
                   : const Text('Save Item'),
