@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_models/shared_models.dart';
 import 'package:supabase_client/supabase_client.dart';
@@ -19,82 +20,107 @@ class ItemsRepository {
     ItemRoom? room,
     bool includeArchived = false,
   }) async {
-    final userId = requireCurrentUserId();
+    try {
+      final userId = requireCurrentUserId();
 
-    var query = _client
-        .from(kItemsTable)
-        .select()
-        .eq('user_id', userId);
+      var query = _client
+          .from(kItemsTable)
+          .select()
+          .eq('user_id', userId);
 
-    if (homeId != null) {
-      query = query.eq('home_id', homeId);
-    }
-    if (category != null) {
-      query = query.eq('category', category.toJson());
-    }
-    if (room != null) {
-      query = query.eq('room', room.toJson());
-    }
-    if (!includeArchived) {
-      query = query.eq('is_archived', false);
-    }
+      if (homeId != null) {
+        query = query.eq('home_id', homeId);
+      }
+      if (category != null) {
+        query = query.eq('category', category.toJson());
+      }
+      if (room != null) {
+        query = query.eq('room', room.toJson());
+      }
+      if (!includeArchived) {
+        query = query.eq('is_archived', false);
+      }
 
-    final data = await query.order('created_at', ascending: false);
-    return (data as List).map((json) => Item.fromJson(json)).toList();
+      final data = await query.order('created_at', ascending: false);
+      return (data as List).map((json) => Item.fromJson(json)).toList();
+    } on PostgrestException catch (e) {
+      debugPrint('[ItemsRepository] getItems failed: ${e.message}');
+      rethrow;
+    }
   }
 
   /// Get a single item by ID.
   Future<Item> getItemById(String id) async {
-    final data = await _client
-        .from(kItemsTable)
-        .select()
-        .eq('id', id)
-        .single();
+    try {
+      final data = await _client
+          .from(kItemsTable)
+          .select()
+          .eq('id', id)
+          .single();
 
-    return Item.fromJson(data);
+      return Item.fromJson(data);
+    } on PostgrestException catch (e) {
+      debugPrint('[ItemsRepository] getItemById failed: ${e.message}');
+      rethrow;
+    }
   }
 
   /// Get items with computed warranty status (uses the view).
   Future<List<Item>> getItemsWithStatus({String? homeId}) async {
-    final userId = requireCurrentUserId();
+    try {
+      final userId = requireCurrentUserId();
 
-    var query = _client
-        .from(kItemsWithStatusView)
-        .select()
-        .eq('user_id', userId);
+      var query = _client
+          .from(kItemsWithStatusView)
+          .select()
+          .eq('user_id', userId);
 
-    if (homeId != null) {
-      query = query.eq('home_id', homeId);
+      if (homeId != null) {
+        query = query.eq('home_id', homeId);
+      }
+
+      final data = await query.order('warranty_end_date', ascending: true);
+      return (data as List).map((json) => Item.fromJson(json)).toList();
+    } on PostgrestException catch (e) {
+      debugPrint('[ItemsRepository] getItemsWithStatus failed: ${e.message}');
+      rethrow;
     }
-
-    final data = await query.order('warranty_end_date', ascending: true);
-    return (data as List).map((json) => Item.fromJson(json)).toList();
   }
 
   /// Get warranty stats for the dashboard.
   Future<Map<String, dynamic>?> getDashboardSummary() async {
-    final userId = requireCurrentUserId();
+    try {
+      final userId = requireCurrentUserId();
 
-    final data = await _client
-        .from(kDashboardSummaryView)
-        .select()
-        .eq('user_id', userId)
-        .maybeSingle();
+      final data = await _client
+          .from(kDashboardSummaryView)
+          .select()
+          .eq('user_id', userId)
+          .maybeSingle();
 
-    return data;
+      return data;
+    } on PostgrestException catch (e) {
+      debugPrint('[ItemsRepository] getDashboardSummary failed: ${e.message}');
+      rethrow;
+    }
   }
 
   /// Get items that need attention (expiring + expired).
   Future<List<Item>> getNeedsAttention({int limit = kNeedsAttentionLimit}) async {
-    final userId = requireCurrentUserId();
+    try {
+      final userId = requireCurrentUserId();
 
-    final data = await _client
-        .from(kNeedsAttentionView)
-        .select()
-        .eq('user_id', userId)
-        .limit(limit);
+      final data = await _client
+          .from(kNeedsAttentionView)
+          .select()
+          .eq('user_id', userId)
+          .limit(limit);
 
-    return (data as List).map((json) => Item.fromJson(json)).toList();
+      return (data as List).map((json) => Item.fromJson(json)).toList();
+    } on PostgrestException catch (e) {
+      debugPrint('[ItemsRepository] getNeedsAttention failed: ${e.message}');
+      rethrow;
+    }
   }
 
   /// Get warranty stats counts.
@@ -114,12 +140,17 @@ class ItemsRepository {
 
   /// Count non-archived items (for free plan limit check).
   Future<int> countActiveItems() async {
-    final userId = requireCurrentUserId();
+    try {
+      final userId = requireCurrentUserId();
 
-    final data = await _client
-        .rpc(kCountActiveItemsFn, params: {'p_user_id': userId});
+      final data = await _client
+          .rpc(kCountActiveItemsFn, params: {'p_user_id': userId});
 
-    return data as int? ?? 0;
+      return data as int? ?? 0;
+    } on PostgrestException catch (e) {
+      debugPrint('[ItemsRepository] countActiveItems failed: ${e.message}');
+      rethrow;
+    }
   }
 
   // ============================================
@@ -128,13 +159,18 @@ class ItemsRepository {
 
   /// Create a new item.
   Future<Item> createItem(Item item) async {
-    final data = await _client
-        .from(kItemsTable)
-        .insert(item.toInsertJson())
-        .select()
-        .single();
+    try {
+      final data = await _client
+          .from(kItemsTable)
+          .insert(item.toInsertJson())
+          .select()
+          .single();
 
-    return Item.fromJson(data);
+      return Item.fromJson(data);
+    } on PostgrestException catch (e) {
+      debugPrint('[ItemsRepository] createItem failed: ${e.message}');
+      rethrow;
+    }
   }
 
   // ============================================
@@ -143,35 +179,50 @@ class ItemsRepository {
 
   /// Update an existing item.
   Future<Item> updateItem(Item item) async {
-    final json = item.toJson();
-    // Remove fields that shouldn't be updated
-    json.remove('warranty_end_date');
-    json.remove('created_at');
+    try {
+      final json = item.toJson();
+      // Remove fields that shouldn't be updated
+      json.remove('warranty_end_date');
+      json.remove('created_at');
 
-    final data = await _client
-        .from(kItemsTable)
-        .update(json)
-        .eq('id', item.id)
-        .select()
-        .single();
+      final data = await _client
+          .from(kItemsTable)
+          .update(json)
+          .eq('id', item.id)
+          .select()
+          .single();
 
-    return Item.fromJson(data);
+      return Item.fromJson(data);
+    } on PostgrestException catch (e) {
+      debugPrint('[ItemsRepository] updateItem failed: ${e.message}');
+      rethrow;
+    }
   }
 
   /// Archive an item (soft delete — doesn't count toward free limit).
   Future<void> archiveItem(String id) async {
-    await _client
-        .from(kItemsTable)
-        .update({'is_archived': true})
-        .eq('id', id);
+    try {
+      await _client
+          .from(kItemsTable)
+          .update({'is_archived': true})
+          .eq('id', id);
+    } on PostgrestException catch (e) {
+      debugPrint('[ItemsRepository] archiveItem failed: ${e.message}');
+      rethrow;
+    }
   }
 
   /// Unarchive an item.
   Future<void> unarchiveItem(String id) async {
-    await _client
-        .from(kItemsTable)
-        .update({'is_archived': false})
-        .eq('id', id);
+    try {
+      await _client
+          .from(kItemsTable)
+          .update({'is_archived': false})
+          .eq('id', id);
+    } on PostgrestException catch (e) {
+      debugPrint('[ItemsRepository] unarchiveItem failed: ${e.message}');
+      rethrow;
+    }
   }
 
   // ============================================
@@ -180,10 +231,15 @@ class ItemsRepository {
 
   /// Permanently delete an item.
   Future<void> deleteItem(String id) async {
-    await _client
-        .from(kItemsTable)
-        .delete()
-        .eq('id', id);
+    try {
+      await _client
+          .from(kItemsTable)
+          .delete()
+          .eq('id', id);
+    } on PostgrestException catch (e) {
+      debugPrint('[ItemsRepository] deleteItem failed: ${e.message}');
+      rethrow;
+    }
   }
 
   // ============================================

@@ -2,7 +2,6 @@ import { Router } from 'express';
 import { authenticate, AuthRequest, requirePremium } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { barcodeLookupSchema } from '../validators/barcode';
-import { AppError } from '../middleware/errorHandler';
 import { logger } from '../utils/logger';
 
 const router = Router();
@@ -22,14 +21,14 @@ router.post('/lookup', validate(barcodeLookupSchema), async (req: AuthRequest, r
 
     if (response.ok) {
       const data = await response.json();
-      if (data.status === 1 && data.product) {
+      if (data.status === 1 && data.product && typeof data.product === 'object') {
         logger.info({ barcode, found: true }, 'Barcode found');
         return res.json({
           barcode,
-          brand: data.product.brands || null,
-          productName: data.product.product_name || null,
+          brand: typeof data.product.brands === 'string' ? data.product.brands : null,
+          productName: typeof data.product.product_name === 'string' ? data.product.product_name : null,
           category: 'other',
-          imageUrl: data.product.image_url || null,
+          imageUrl: typeof data.product.image_url === 'string' ? data.product.image_url : null,
         });
       }
     }

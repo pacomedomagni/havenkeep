@@ -55,9 +55,17 @@ export class EmailScannerService {
 
       await client.query('COMMIT');
 
-      // Start scan asynchronously
-      this.performScan(scan.id, userId, provider, accessToken, options).catch((error) => {
+      // Start scan asynchronously with failure recovery
+      this.performScan(scan.id, userId, provider, accessToken, options).catch(async (error) => {
         logger.error({ error, scanId: scan.id }, 'Background email scan failed');
+        try {
+          await pool.query(
+            `UPDATE email_scans SET status = 'failed', error_message = $2, completed_at = NOW() WHERE id = $1 AND status != 'completed'`,
+            [scan.id, (error as Error).message || 'Unknown error']
+          );
+        } catch (updateError) {
+          logger.error({ updateError, scanId: scan.id }, 'Failed to update scan status after error');
+        }
       });
 
       return scan;
@@ -379,7 +387,13 @@ ${emailData.body.substring(0, 2000)}`,
         }
       );
 
-      const extracted = JSON.parse(response.data.choices[0].message.content);
+      let extracted;
+      try {
+        extracted = JSON.parse(response.data.choices[0].message.content);
+      } catch (parseError) {
+        logger.warn({ parseError, subject: emailData.subject }, 'Failed to parse AI response as JSON');
+        return null;
+      }
 
       if (!extracted || !extracted.productName) {
         return null;
@@ -477,7 +491,11 @@ ${emailData.body.substring(0, 2000)}`,
 
       const warrantyMonths = receipt.warrantyPeriod || 12;
       const warrantyEndDate = new Date(purchaseDate);
+      const expectedMonth = (warrantyEndDate.getMonth() + warrantyMonths) % 12;
       warrantyEndDate.setMonth(warrantyEndDate.getMonth() + warrantyMonths);
+      if (warrantyEndDate.getMonth() !== expectedMonth) {
+        warrantyEndDate.setDate(0);
+      }
 
       // Create item
       await client.query(

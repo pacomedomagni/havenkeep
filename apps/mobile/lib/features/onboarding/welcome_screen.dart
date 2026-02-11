@@ -62,7 +62,7 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
   }
 
   Future<void> _submitEmail() async {
-    if (!_formKey.currentState!.validate()) {
+    if (_formKey.currentState?.validate() != true) {
       HapticFeedback.lightImpact();
       return;
     }

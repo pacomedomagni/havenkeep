@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import { logger } from './logger';
 
 type AsyncFunction = (req: Request, res: Response, next: NextFunction) => Promise<any>;
 
@@ -7,6 +8,9 @@ type AsyncFunction = (req: Request, res: Response, next: NextFunction) => Promis
  */
 export const asyncHandler = (fn: AsyncFunction) => {
   return (req: Request, res: Response, next: NextFunction) => {
-    Promise.resolve(fn(req, res, next)).catch(next);
+    Promise.resolve(fn(req, res, next)).catch((error) => {
+      logger.error({ error, method: req.method, path: req.path }, 'Unhandled route error');
+      next(error);
+    });
   };
 };

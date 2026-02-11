@@ -54,11 +54,9 @@ export function validateEnvironment() {
 
   if (errors.length > 0) {
     logger.error({ errors }, 'Environment validation failed');
-    console.error('\n❌ Environment Configuration Errors:\n');
-    errors.forEach(err => console.error(`  - ${err}`));
-    console.error('\n');
+    errors.forEach(err => logger.error(err));
     process.exit(1);
   }
 
-  logger.info('✅ Environment configuration validated');
+  logger.info('Environment configuration validated');
 }

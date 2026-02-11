@@ -354,7 +354,7 @@ class _ItemDetailBody extends ConsumerWidget {
               ),
             ),
             initiallyExpanded:
-                docsAsync.value != null && docsAsync.value!.isNotEmpty,
+                (docsAsync.value?.isNotEmpty ?? false),
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: HavenSpacing.md),
               child: docsAsync.when(

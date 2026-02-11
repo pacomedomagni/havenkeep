@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { TrashIcon, BanIcon, CheckCircleIcon } from '@heroicons/react/24/outline'
+import { TrashIcon, NoSymbolIcon } from '@heroicons/react/24/outline'
 
 interface User {
   id: string
@@ -24,10 +24,10 @@ export default function UserTable({ users: initialUsers }: UserTableProps) {
   const [filterPlan, setFilterPlan] = useState<string>('all')
 
   const filteredUsers = users.filter(user => {
-    const matchesSearch = 
+    const matchesSearch =
       user.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
       user.full_name.toLowerCase().includes(searchQuery.toLowerCase())
-    
+
     const matchesPlan = filterPlan === 'all' || user.plan === filterPlan
 
     return matchesSearch && matchesPlan
@@ -46,7 +46,7 @@ export default function UserTable({ users: initialUsers }: UserTableProps) {
       if (!response.ok) throw new Error('Failed to suspend user')
 
       alert('User suspended successfully')
-    } catch (error) {
+    } catch {
       alert('Error suspending user')
     }
   }
@@ -65,7 +65,7 @@ export default function UserTable({ users: initialUsers }: UserTableProps) {
 
       setUsers(users.filter(u => u.id !== userId))
       alert('User deleted successfully')
-    } catch (error) {
+    } catch {
       alert('Error deleting user')
     }
   }
@@ -73,7 +73,7 @@ export default function UserTable({ users: initialUsers }: UserTableProps) {
   return (
     <div>
       {/* Filters */}
-      <div className="bg-white rounded-lg shadow p-4 mb-6">
+      <div className="card mb-6">
         <div className="flex flex-col md:flex-row gap-4">
           <div className="flex-1">
             <input
@@ -81,103 +81,103 @@ export default function UserTable({ users: initialUsers }: UserTableProps) {
               placeholder="Search by name or email..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+              className="input-field"
             />
           </div>
           <select
             value={filterPlan}
             onChange={(e) => setFilterPlan(e.target.value)}
-            className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+            className="input-field w-auto"
           >
             <option value="all">All Plans</option>
             <option value="free">Free</option>
             <option value="premium">Premium</option>
           </select>
         </div>
-        <p className="text-sm text-gray-600 mt-2">
+        <p className="text-sm text-haven-text-tertiary mt-2">
           Showing {filteredUsers.length} of {users.length} users
         </p>
       </div>
 
       {/* Table */}
-      <div className="bg-white rounded-lg shadow overflow-hidden">
+      <div className="card p-0 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+          <table className="min-w-full">
+            <thead>
+              <tr className="border-b border-haven-border">
+                <th className="px-6 py-3 text-left text-xs font-medium text-haven-text-tertiary uppercase tracking-wider">
                   User
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-haven-text-tertiary uppercase tracking-wider">
                   Plan
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-haven-text-tertiary uppercase tracking-wider">
                   Items
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-haven-text-tertiary uppercase tracking-wider">
                   Value
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-haven-text-tertiary uppercase tracking-wider">
                   Joined
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-haven-text-tertiary uppercase tracking-wider">
                   Last Activity
                 </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-right text-xs font-medium text-haven-text-tertiary uppercase tracking-wider">
                   Actions
                 </th>
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
+            <tbody className="divide-y divide-haven-border">
               {filteredUsers.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-8 text-center text-gray-500">
+                  <td colSpan={7} className="px-6 py-8 text-center text-haven-text-tertiary">
                     No users found
                   </td>
                 </tr>
               ) : (
                 filteredUsers.map((user) => (
-                  <tr key={user.id} className="hover:bg-gray-50">
+                  <tr key={user.id} className="hover:bg-haven-elevated/50 transition-colors">
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div>
-                        <div className="text-sm font-medium text-gray-900">{user.full_name}</div>
-                        <div className="text-sm text-gray-500">{user.email}</div>
+                        <div className="text-sm font-medium text-white">{user.full_name}</div>
+                        <div className="text-sm text-haven-text-secondary">{user.email}</div>
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
                         user.plan === 'premium'
-                          ? 'bg-primary-100 text-primary-800'
-                          : 'bg-gray-100 text-gray-800'
+                          ? 'bg-haven-primary/20 text-haven-primary'
+                          : 'bg-haven-elevated text-haven-text-secondary'
                       }`}>
                         {user.plan}
                       </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-white">
                       {user.total_items}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-white">
                       ${Number(user.total_value).toLocaleString()}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-haven-text-secondary">
                       {new Date(user.created_at).toLocaleDateString()}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {user.last_activity 
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-haven-text-secondary">
+                      {user.last_activity
                         ? new Date(user.last_activity).toLocaleDateString()
                         : 'Never'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                       <button
                         onClick={() => handleSuspendUser(user.id)}
-                        className="text-yellow-600 hover:text-yellow-900 mr-3"
+                        className="text-haven-warning hover:text-haven-warning/80 mr-3"
                         title="Suspend user"
                       >
-                        <BanIcon className="h-5 w-5" />
+                        <NoSymbolIcon className="h-5 w-5" />
                       </button>
                       <button
                         onClick={() => handleDeleteUser(user.id)}
-                        className="text-red-600 hover:text-red-900"
+                        className="text-haven-error hover:text-haven-error/80"
                         title="Delete user"
                       >
                         <TrashIcon className="h-5 w-5" />

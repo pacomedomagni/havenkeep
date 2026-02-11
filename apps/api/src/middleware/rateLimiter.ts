@@ -146,3 +146,9 @@ export const passwordResetRateLimiter = rateLimit({
   max: 3,
   message: 'Too many password reset attempts, please try again later.',
 });
+
+export const activationCodeRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10,
+  message: 'Too many activation code attempts, please try again later.',
+});

@@ -103,8 +103,15 @@ class OfflineSyncService {
 
   /// Process a single queue entry by dispatching to the appropriate repository.
   Future<void> _processEntry(OfflineQueueData entry) async {
-    final action = OfflineAction.fromJson(entry.action);
-    final payload = jsonDecode(entry.payload) as Map<String, dynamic>;
+    late final OfflineAction action;
+    late final Map<String, dynamic> payload;
+    try {
+      action = OfflineAction.fromJson(entry.action);
+      payload = jsonDecode(entry.payload) as Map<String, dynamic>;
+    } catch (e) {
+      debugPrint('[OfflineSync] Skipping malformed entry ${entry.id}: $e');
+      return;
+    }
 
     switch (action) {
       case OfflineAction.create_item:

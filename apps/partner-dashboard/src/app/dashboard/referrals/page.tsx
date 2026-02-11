@@ -89,7 +89,7 @@ export default function ReferralsPage() {
 
       {/* Error Banner */}
       {error && (
-        <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 text-red-400 text-sm">
+        <div className="bg-haven-error/10 border border-haven-error/30 rounded-lg p-4 text-haven-error text-sm">
           {error}
           <button onClick={fetchReferrals} className="ml-2 underline">
             Retry

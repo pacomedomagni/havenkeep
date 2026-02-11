@@ -99,10 +99,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     ),
                   ),
                 ),
-                if (user.value?.avatarUrl != null)
+                if (user.value?.avatarUrl != null && user.value!.avatarUrl!.isNotEmpty)
                   CircleAvatar(
                     radius: 20,
                     backgroundImage: NetworkImage(user.value!.avatarUrl!),
+                    onBackgroundImageError: (_, __) {},
                   ),
               ],
             ),
@@ -144,7 +145,13 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     borderRadius: BorderRadius.circular(20),
                   ),
                 ),
-                error: (_, __) => const SizedBox.shrink(),
+                error: (error, _) => Center(
+                  child: TextButton.icon(
+                    onPressed: () => ref.invalidate(warrantyStatsProvider),
+                    icon: const Icon(Icons.refresh, size: 16),
+                    label: const Text('Retry'),
+                  ),
+                ),
               ),
               const SizedBox(height: HavenSpacing.lg),
 

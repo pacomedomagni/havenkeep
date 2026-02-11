@@ -63,7 +63,7 @@ export default function GenerateReferral({ isOpen, onClose }: GenerateReferralPr
 
   if (!isOpen) return null;
 
-  const shareableLink = code ? `https://havenkeep.app/referral/${code}` : '';
+  const shareableLink = code ? `${process.env.NEXT_PUBLIC_APP_URL || 'https://havenkeep.app'}/referral/${code}` : '';
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 px-4">

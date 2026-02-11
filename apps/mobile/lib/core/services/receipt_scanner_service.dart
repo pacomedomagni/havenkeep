@@ -33,6 +33,9 @@ class ReceiptScannerService {
         );
       }
 
+      if (response.data == null) {
+        throw Exception('Empty response from receipt scanner');
+      }
       final data = response.data as Map<String, dynamic>;
       return ReceiptScanResult.fromJson(data);
     } catch (e) {

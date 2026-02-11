@@ -10,6 +10,7 @@ import {
   getCommissionsQuerySchema,
 } from '../validators/partners.validator';
 import { asyncHandler } from '../utils/async-handler';
+import { activationCodeRateLimiter } from '../middleware/rateLimiter';
 
 const router = Router();
 
@@ -39,13 +40,22 @@ router.get(
  */
 router.post(
   '/gifts/verify-code',
+  activationCodeRateLimiter,
   asyncHandler(async (req, res) => {
     const { activation_code } = req.body;
 
-    if (!activation_code) {
+    if (!activation_code || typeof activation_code !== 'string') {
       return res.status(400).json({
         success: false,
         message: 'Activation code is required',
+      });
+    }
+
+    // Validate activation code format (alphanumeric, reasonable length)
+    if (activation_code.length < 6 || activation_code.length > 64 || !/^[A-Za-z0-9_-]+$/.test(activation_code)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid activation code format',
       });
     }
 

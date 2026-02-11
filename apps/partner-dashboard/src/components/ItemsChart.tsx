@@ -13,30 +13,32 @@ export default function ItemsChart({ data }: ItemsChartProps) {
   }))
 
   return (
-    <div className="bg-white rounded-lg shadow p-6">
-      <h3 className="text-lg font-semibold text-gray-900 mb-4">Daily Items Created (Last 30 Days)</h3>
+    <div className="card">
+      <h3 className="text-lg font-semibold text-white mb-4">Daily Items Created (Last 30 Days)</h3>
       <ResponsiveContainer width="100%" height={300}>
         <BarChart data={formattedData}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-          <XAxis 
-            dataKey="date" 
-            stroke="#6b7280"
+          <CartesianGrid strokeDasharray="3 3" stroke="#2A2A2A" />
+          <XAxis
+            dataKey="date"
+            stroke="#707070"
             style={{ fontSize: '12px' }}
           />
-          <YAxis 
-            stroke="#6b7280"
+          <YAxis
+            stroke="#707070"
             style={{ fontSize: '12px' }}
           />
-          <Tooltip 
+          <Tooltip
             contentStyle={{
-              backgroundColor: '#fff',
-              border: '1px solid #e5e7eb',
+              backgroundColor: '#1E1E1E',
+              border: '1px solid #2A2A2A',
               borderRadius: '8px',
+              color: '#FFFFFF',
             }}
+            labelStyle={{ color: '#B0B0B0' }}
           />
-          <Bar 
-            dataKey="items" 
-            fill="#0ea5e9" 
+          <Bar
+            dataKey="items"
+            fill="#BB86FC"
             radius={[4, 4, 0, 0]}
           />
         </BarChart>

@@ -34,15 +34,31 @@ final currentUserProvider =
 );
 
 class CurrentUserNotifier extends AsyncNotifier<User?> {
+  /// Flag to skip the auto-rebuild when we've already set the user
+  /// from a sign-up/sign-in method (avoids race condition).
+  bool _skipNextRebuild = false;
+
   @override
   Future<User?> build() async {
     // Re-fetch when auth state changes
     ref.watch(authStateProvider);
 
+    // If we just set the user manually from sign-up/sign-in,
+    // skip the rebuild to avoid a race where profile isn't yet in DB.
+    if (_skipNextRebuild) {
+      _skipNextRebuild = false;
+      return state.valueOrNull;
+    }
+
     final repo = ref.read(authRepositoryProvider);
     if (!repo.isAuthenticated) return null;
 
-    return repo.getCurrentUser();
+    try {
+      return await repo.getCurrentUser();
+    } catch (e) {
+      debugPrint('[Auth] Failed to fetch user profile: $e');
+      return null;
+    }
   }
 
   /// Register push notification token for the current user.
@@ -63,12 +79,18 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
     String? referralCode,
   }) async {
     final repo = ref.read(authRepositoryProvider);
+
+    // signUpWithEmail creates both auth user AND public profile atomically,
+    // so we set the user directly and skip the auth-state-triggered rebuild
+    // to avoid a race where the profile query runs before insert completes.
     final user = await repo.signUpWithEmail(
       email: email,
       password: password,
       fullName: fullName,
       referralCode: referralCode,
     );
+
+    _skipNextRebuild = true;
     state = AsyncValue.data(user);
 
     // Register push token after signup
@@ -89,6 +111,8 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
       email: email,
       password: password,
     );
+
+    _skipNextRebuild = true;
     state = AsyncValue.data(user);
 
     // Register push token after login
@@ -112,6 +136,7 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
   /// Sign out.
   Future<void> signOut() async {
     await ref.read(authRepositoryProvider).signOut();
+    _skipNextRebuild = false;
     state = const AsyncValue.data(null);
   }
 

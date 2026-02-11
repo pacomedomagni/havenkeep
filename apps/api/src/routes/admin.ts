@@ -41,7 +41,7 @@ router.get('/users', validate(paginationSchema, 'query'), async (req, res, next)
       query(`SELECT COUNT(*) FROM users`),
     ]);
 
-    const total = parseInt(countResult.rows[0].count);
+    const total = parseInt(countResult.rows[0].count, 10);
 
     res.json({
       users: result.rows,

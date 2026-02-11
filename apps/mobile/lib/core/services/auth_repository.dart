@@ -153,7 +153,10 @@ class AuthRepository {
   Future<models.User> ensureProfile({
     required String authProvider,
   }) async {
-    final authUser = _client.auth.currentUser!;
+    final authUser = _client.auth.currentUser;
+    if (authUser == null) {
+      throw Exception('Not authenticated');
+    }
 
     // Check if profile already exists
     final existing = await _client

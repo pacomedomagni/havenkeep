@@ -36,15 +36,17 @@ router.get('/health/detailed', async (req, res, next) => {
     }
 
     // Redis check
+    let redis;
     try {
-      const redis = createClient({ url: config.redis.url });
+      redis = createClient({ url: config.redis.url });
       await redis.connect();
       await redis.ping();
-      await redis.quit();
       health.checks.redis = { status: 'ok' };
     } catch (error: any) {
       health.status = 'degraded';
       health.checks.redis = { status: 'error', message: error.message };
+    } finally {
+      try { if (redis) await redis.quit(); } catch { /* ignore cleanup errors */ }
     }
 
     const statusCode = health.status === 'ok' ? 200 : 503;

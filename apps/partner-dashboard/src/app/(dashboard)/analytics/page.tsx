@@ -7,7 +7,7 @@ import { UsersIcon, CubeIcon, ChartBarIcon } from '@heroicons/react/24/outline'
 
 async function getAnalyticsData() {
   const supabase = await createServerSupabaseClient()
-  
+
   const [statsResult, signupsResult, itemsResult] = await Promise.all([
     supabase.from('admin_stats').select('*').single(),
     supabase.from('admin_daily_signups').select('*'),
@@ -43,8 +43,8 @@ export default async function AnalyticsPage() {
 
   return (
     <>
-      <Header 
-        title="Analytics" 
+      <Header
+        title="Analytics"
         subtitle="Platform metrics and insights"
       />
 
@@ -58,15 +58,15 @@ export default async function AnalyticsPage() {
               value: `${stats.signups_last_7d} this week`,
               positive: parseFloat(growthRate) > 0,
             }}
-            icon={<UsersIcon className="h-6 w-6 text-primary-600" />}
+            icon={<UsersIcon className="h-6 w-6 text-haven-primary" />}
           />
-          
+
           <StatsCard
             title="Avg Items Per User"
             value={avgItemsPerUser}
-            icon={<CubeIcon className="h-6 w-6 text-primary-600" />}
+            icon={<CubeIcon className="h-6 w-6 text-haven-primary" />}
           />
-          
+
           <StatsCard
             title="Active Users (DAU/MAU)"
             value={`${stats.dau}/${stats.mau}`}
@@ -74,7 +74,7 @@ export default async function AnalyticsPage() {
               value: `${stats.wau} weekly`,
               positive: stats.dau > 0,
             }}
-            icon={<ChartBarIcon className="h-6 w-6 text-primary-600" />}
+            icon={<ChartBarIcon className="h-6 w-6 text-haven-primary" />}
           />
         </div>
 
@@ -86,25 +86,25 @@ export default async function AnalyticsPage() {
 
         {/* Additional Metrics */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Retention Metrics</h3>
+          <div className="card">
+            <h3 className="text-lg font-semibold text-white mb-4">Retention Metrics</h3>
             <div className="space-y-4">
               <div className="flex justify-between items-center">
-                <span className="text-gray-600">Daily Active Users</span>
-                <span className="text-2xl font-bold text-gray-900">{stats.dau}</span>
+                <span className="text-haven-text-secondary">Daily Active Users</span>
+                <span className="text-2xl font-bold text-white">{stats.dau}</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-gray-600">Weekly Active Users</span>
-                <span className="text-2xl font-bold text-gray-900">{stats.wau}</span>
+                <span className="text-haven-text-secondary">Weekly Active Users</span>
+                <span className="text-2xl font-bold text-white">{stats.wau}</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-gray-600">Monthly Active Users</span>
-                <span className="text-2xl font-bold text-gray-900">{stats.mau}</span>
+                <span className="text-haven-text-secondary">Monthly Active Users</span>
+                <span className="text-2xl font-bold text-white">{stats.mau}</span>
               </div>
-              <div className="pt-4 border-t border-gray-200">
+              <div className="pt-4 border-t border-haven-border">
                 <div className="flex justify-between items-center">
-                  <span className="text-gray-600">DAU/MAU Ratio</span>
-                  <span className="text-2xl font-bold text-primary-600">
+                  <span className="text-haven-text-secondary">DAU/MAU Ratio</span>
+                  <span className="text-2xl font-bold text-haven-primary">
                     {stats.mau > 0 ? ((stats.dau / stats.mau) * 100).toFixed(1) : '0.0'}%
                   </span>
                 </div>
@@ -112,28 +112,28 @@ export default async function AnalyticsPage() {
             </div>
           </div>
 
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Conversion Metrics</h3>
+          <div className="card">
+            <h3 className="text-lg font-semibold text-white mb-4">Conversion Metrics</h3>
             <div className="space-y-4">
               <div className="flex justify-between items-center">
-                <span className="text-gray-600">Total Users</span>
-                <span className="text-2xl font-bold text-gray-900">{stats.total_users}</span>
+                <span className="text-haven-text-secondary">Total Users</span>
+                <span className="text-2xl font-bold text-white">{stats.total_users}</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-gray-600">Premium Users</span>
-                <span className="text-2xl font-bold text-gray-900">{stats.premium_users}</span>
+                <span className="text-haven-text-secondary">Premium Users</span>
+                <span className="text-2xl font-bold text-white">{stats.premium_users}</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-gray-600">Free Users</span>
-                <span className="text-2xl font-bold text-gray-900">
+                <span className="text-haven-text-secondary">Free Users</span>
+                <span className="text-2xl font-bold text-white">
                   {stats.total_users - stats.premium_users}
                 </span>
               </div>
-              <div className="pt-4 border-t border-gray-200">
+              <div className="pt-4 border-t border-haven-border">
                 <div className="flex justify-between items-center">
-                  <span className="text-gray-600">Conversion Rate</span>
-                  <span className="text-2xl font-bold text-primary-600">
-                    {stats.total_users > 0 
+                  <span className="text-haven-text-secondary">Conversion Rate</span>
+                  <span className="text-2xl font-bold text-haven-primary">
+                    {stats.total_users > 0
                       ? ((stats.premium_users / stats.total_users) * 100).toFixed(1)
                       : '0.0'}%
                   </span>

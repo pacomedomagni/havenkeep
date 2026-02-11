@@ -176,7 +176,7 @@ export class EmailService {
               <table width="100%" cellpadding="0" cellspacing="0">
                 <tr>
                   <td align="center" style="padding-bottom: 15px;">
-                    <img src="https://havenkeep.com/logo.png" alt="HavenKeep" style="height: 32px;">
+                    <img src="${config.app.baseUrl}/logo.png" alt="HavenKeep" style="height: 32px;">
                   </td>
                 </tr>
                 <tr>
