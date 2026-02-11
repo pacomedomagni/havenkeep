@@ -10,19 +10,23 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 
-const topReferralCodes = [
-  { code: 'HK-ABCD-1234', conversions: 18 },
-  { code: 'HK-MNOP-3456', conversions: 14 },
-  { code: 'HK-CDEF-0123', conversions: 11 },
-  { code: 'HK-GHIJ-4567', conversions: 8 },
-  { code: 'HK-KLMN-8901', conversions: 6 },
-];
+interface TopReferralsProps {
+  data?: { code: string; conversions: number }[];
+}
 
-export default function TopReferrals() {
+export default function TopReferrals({ data }: TopReferralsProps) {
+  if (!data || data.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-[300px] text-haven-text-tertiary text-sm">
+        No referral data yet. Send your first gift to get started.
+      </div>
+    );
+  }
+
   return (
     <ResponsiveContainer width="100%" height={300}>
       <BarChart
-        data={topReferralCodes}
+        data={data}
         layout="vertical"
         margin={{ top: 5, right: 20, left: 20, bottom: 5 }}
       >
@@ -33,6 +37,7 @@ export default function TopReferrals() {
           fontSize={12}
           tickLine={false}
           axisLine={{ stroke: '#2A2A2A' }}
+          allowDecimals={false}
         />
         <YAxis
           type="category"

@@ -1,12 +1,15 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import { query } from '../db';
 import { config } from '../config';
 import { AppError } from '../middleware/errorHandler';
 import { authRateLimiter } from '../middleware/rateLimiter';
 import { validate } from '../middleware/validate';
 import { registerSchema, loginSchema, refreshTokenSchema } from '../validators';
+import { forgotPasswordSchema, resetPasswordSchema, verifyEmailSchema } from '../validators/auth.validator';
+import { logger } from '../utils/logger';
 
 const router = Router();
 
@@ -205,6 +208,133 @@ router.post('/logout', validate(refreshTokenSchema), async (req, res, next) => {
     }
 
     res.json({ message: 'Logged out successfully' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Forgot password - request reset
+router.post('/forgot-password', authRateLimiter, validate(forgotPasswordSchema), async (req, res, next) => {
+  try {
+    const { email } = req.body;
+
+    const result = await query(
+      `SELECT id, email, full_name FROM users WHERE email = $1`,
+      [email.toLowerCase()]
+    );
+
+    // Always return success to prevent email enumeration
+    if (result.rows.length === 0) {
+      res.json({ message: 'If an account exists with that email, a reset link has been sent.' });
+      return;
+    }
+
+    const user = result.rows[0];
+
+    // Invalidate any existing reset tokens
+    await query(
+      `UPDATE password_reset_tokens SET used = TRUE WHERE user_id = $1 AND used = FALSE`,
+      [user.id]
+    );
+
+    // Generate reset token
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date();
+    expiresAt.setHours(expiresAt.getHours() + 1); // 1 hour expiry
+
+    await query(
+      `INSERT INTO password_reset_tokens (user_id, token, expires_at)
+       VALUES ($1, $2, $3)`,
+      [user.id, resetToken, expiresAt]
+    );
+
+    // In production, send email with reset link
+    const resetUrl = `${config.app.frontendUrl}/reset-password?token=${resetToken}`;
+
+    logger.info({ userId: user.id, resetUrl }, 'Password reset requested');
+
+    res.json({ message: 'If an account exists with that email, a reset link has been sent.' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Reset password with token
+router.post('/reset-password', authRateLimiter, validate(resetPasswordSchema), async (req, res, next) => {
+  try {
+    const { token, newPassword } = req.body;
+
+    // Find valid reset token
+    const tokenResult = await query(
+      `SELECT user_id FROM password_reset_tokens
+       WHERE token = $1 AND expires_at > NOW() AND used = FALSE`,
+      [token]
+    );
+
+    if (tokenResult.rows.length === 0) {
+      throw new AppError(400, 'Invalid or expired reset token');
+    }
+
+    const userId = tokenResult.rows[0].user_id;
+
+    // Hash new password
+    const passwordHash = await bcrypt.hash(newPassword, 12);
+
+    // Update password
+    await query(
+      `UPDATE users SET password_hash = $1 WHERE id = $2`,
+      [passwordHash, userId]
+    );
+
+    // Mark token as used
+    await query(
+      `UPDATE password_reset_tokens SET used = TRUE WHERE token = $1`,
+      [token]
+    );
+
+    // Invalidate all refresh tokens
+    await query(
+      `DELETE FROM refresh_tokens WHERE user_id = $1`,
+      [userId]
+    );
+
+    res.json({ message: 'Password has been reset successfully' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Verify email
+router.post('/verify-email', validate(verifyEmailSchema), async (req, res, next) => {
+  try {
+    const { token } = req.body;
+
+    // Find valid verification token
+    const tokenResult = await query(
+      `SELECT user_id FROM email_verification_tokens
+       WHERE token = $1 AND expires_at > NOW()`,
+      [token]
+    );
+
+    if (tokenResult.rows.length === 0) {
+      throw new AppError(400, 'Invalid or expired verification token');
+    }
+
+    const userId = tokenResult.rows[0].user_id;
+
+    // Mark email as verified
+    await query(
+      `UPDATE users SET email_verified = TRUE WHERE id = $1`,
+      [userId]
+    );
+
+    // Clean up verification tokens
+    await query(
+      `DELETE FROM email_verification_tokens WHERE user_id = $1`,
+      [userId]
+    );
+
+    res.json({ message: 'Email verified successfully' });
   } catch (error) {
     next(error);
   }

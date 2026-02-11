@@ -1,83 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import ReferralTable from '@/components/referral-table';
 import GenerateReferral from '@/components/generate-referral';
 import { PlusIcon } from '@heroicons/react/24/outline';
 import type { Referral, ReferralStatus } from '@/lib/types';
 
-// Mock data
-const mockReferrals: Referral[] = [
-  {
-    id: '1',
-    partnerId: 'p1',
-    code: 'HK-ABCD-1234',
-    referredEmail: 'john@example.com',
-    referredUserId: 'u1',
-    status: 'converted',
-    convertedAt: '2025-03-15T10:30:00Z',
-    createdAt: '2025-03-01T08:00:00Z',
-  },
-  {
-    id: '2',
-    partnerId: 'p1',
-    code: 'HK-EFGH-5678',
-    referredEmail: 'sarah@example.com',
-    status: 'pending',
-    createdAt: '2025-03-10T14:00:00Z',
-  },
-  {
-    id: '3',
-    partnerId: 'p1',
-    code: 'HK-IJKL-9012',
-    referredEmail: 'mike@example.com',
-    status: 'expired',
-    createdAt: '2025-01-05T09:00:00Z',
-  },
-  {
-    id: '4',
-    partnerId: 'p1',
-    code: 'HK-MNOP-3456',
-    referredEmail: 'emma@example.com',
-    referredUserId: 'u4',
-    status: 'converted',
-    convertedAt: '2025-03-20T16:45:00Z',
-    createdAt: '2025-03-12T11:00:00Z',
-  },
-  {
-    id: '5',
-    partnerId: 'p1',
-    code: 'HK-QRST-7890',
-    status: 'pending',
-    createdAt: '2025-03-22T07:30:00Z',
-  },
-  {
-    id: '6',
-    partnerId: 'p1',
-    code: 'HK-UVWX-2345',
-    referredEmail: 'alex@example.com',
-    status: 'pending',
-    createdAt: '2025-03-25T13:15:00Z',
-  },
-  {
-    id: '7',
-    partnerId: 'p1',
-    code: 'HK-YZAB-6789',
-    referredEmail: 'lisa@example.com',
-    status: 'expired',
-    createdAt: '2025-02-10T10:00:00Z',
-  },
-  {
-    id: '8',
-    partnerId: 'p1',
-    code: 'HK-CDEF-0123',
-    referredEmail: 'tom@example.com',
-    referredUserId: 'u8',
-    status: 'converted',
-    convertedAt: '2025-03-28T09:20:00Z',
-    createdAt: '2025-03-18T15:00:00Z',
-  },
-];
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || '';
 
 const filterTabs: { label: string; value: ReferralStatus | 'all' }[] = [
   { label: 'All', value: 'all' },
@@ -87,13 +16,65 @@ const filterTabs: { label: string; value: ReferralStatus | 'all' }[] = [
 ];
 
 export default function ReferralsPage() {
+  const [referrals, setReferrals] = useState<Referral[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<ReferralStatus | 'all'>('all');
   const [showGenerateModal, setShowGenerateModal] = useState(false);
 
+  useEffect(() => {
+    fetchReferrals();
+  }, []);
+
+  const fetchReferrals = async () => {
+    try {
+      setError(null);
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE}/api/v1/partners/gifts`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        // Map gifts to referral format for display
+        const mapped: Referral[] = (data.data || []).map((gift: any) => ({
+          id: gift.id,
+          partnerId: gift.partner_id,
+          code: gift.activation_code || gift.id.substring(0, 12).toUpperCase(),
+          referredEmail: gift.homebuyer_email,
+          referredUserId: gift.activated_user_id,
+          status: gift.is_activated
+            ? 'converted'
+            : new Date(gift.expires_at) < new Date()
+            ? 'expired'
+            : 'pending',
+          convertedAt: gift.activated_at,
+          createdAt: gift.created_at,
+        }));
+        setReferrals(mapped);
+      }
+    } catch (err) {
+      setError('Failed to load referrals. Please try again.');
+      console.error('Error fetching referrals:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const filteredReferrals =
     activeFilter === 'all'
-      ? mockReferrals
-      : mockReferrals.filter((r) => r.status === activeFilter);
+      ? referrals
+      : referrals.filter((r) => r.status === activeFilter);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-haven-primary"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -114,6 +95,16 @@ export default function ReferralsPage() {
         </button>
       </div>
 
+      {/* Error Banner */}
+      {error && (
+        <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 text-red-400 text-sm">
+          {error}
+          <button onClick={fetchReferrals} className="ml-2 underline">
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Filter tabs */}
       <div className="flex gap-2">
         {filterTabs.map((tab) => (
@@ -129,8 +120,8 @@ export default function ReferralsPage() {
             {tab.label}
             <span className="ml-1.5 text-xs opacity-70">
               ({tab.value === 'all'
-                ? mockReferrals.length
-                : mockReferrals.filter((r) => r.status === tab.value).length})
+                ? referrals.length
+                : referrals.filter((r) => r.status === tab.value).length})
             </span>
           </button>
         ))}
@@ -144,7 +135,10 @@ export default function ReferralsPage() {
       {/* Generate Referral Modal */}
       <GenerateReferral
         isOpen={showGenerateModal}
-        onClose={() => setShowGenerateModal(false)}
+        onClose={() => {
+          setShowGenerateModal(false);
+          fetchReferrals();
+        }}
       />
     </div>
   );

@@ -1,71 +1,11 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import CommissionTable from '@/components/commission-table';
 import { CurrencyDollarIcon, ClockIcon } from '@heroicons/react/24/outline';
-import type { Commission } from '@/lib/types';
+import type { Commission, CommissionStatus } from '@/lib/types';
 
-// Mock data
-const mockCommissions: Commission[] = [
-  {
-    id: 'c1',
-    partnerId: 'john@example.com',
-    referralId: 'HK-ABCD-1234',
-    amount: 25.0,
-    status: 'paid',
-    paidAt: '2025-03-20T10:00:00Z',
-    createdAt: '2025-03-15T10:30:00Z',
-  },
-  {
-    id: 'c2',
-    partnerId: 'emma@example.com',
-    referralId: 'HK-MNOP-3456',
-    amount: 25.0,
-    status: 'paid',
-    paidAt: '2025-03-25T14:00:00Z',
-    createdAt: '2025-03-20T16:45:00Z',
-  },
-  {
-    id: 'c3',
-    partnerId: 'tom@example.com',
-    referralId: 'HK-CDEF-0123',
-    amount: 25.0,
-    status: 'pending',
-    createdAt: '2025-03-28T09:20:00Z',
-  },
-  {
-    id: 'c4',
-    partnerId: 'kate@example.com',
-    referralId: 'HK-GHIJ-4567',
-    amount: 50.0,
-    status: 'pending',
-    createdAt: '2025-04-01T12:00:00Z',
-  },
-  {
-    id: 'c5',
-    partnerId: 'dave@example.com',
-    referralId: 'HK-KLMN-8901',
-    amount: 25.0,
-    status: 'paid',
-    paidAt: '2025-03-10T08:00:00Z',
-    createdAt: '2025-03-05T15:30:00Z',
-  },
-  {
-    id: 'c6',
-    partnerId: 'nina@example.com',
-    referralId: 'HK-OPQR-2345',
-    amount: 25.0,
-    status: 'cancelled',
-    createdAt: '2025-02-20T11:00:00Z',
-  },
-  {
-    id: 'c7',
-    partnerId: 'chris@example.com',
-    referralId: 'HK-STUV-6789',
-    amount: 50.0,
-    status: 'pending',
-    createdAt: '2025-04-02T09:00:00Z',
-  },
-];
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || '';
 
 function formatDollar(amount: number): string {
   return new Intl.NumberFormat('en-US', {
@@ -75,13 +15,60 @@ function formatDollar(amount: number): string {
 }
 
 export default function CommissionsPage() {
-  const pendingTotal = mockCommissions
+  const [commissions, setCommissions] = useState<Commission[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchCommissions();
+  }, []);
+
+  const fetchCommissions = async () => {
+    try {
+      setError(null);
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE}/api/v1/partners/commissions`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        const mapped: Commission[] = (data.data || []).map((c: any) => ({
+          id: c.id,
+          partnerId: c.reference_name || c.partner_id,
+          referralId: c.reference_type || c.type,
+          amount: parseFloat(c.amount),
+          status: c.status as CommissionStatus,
+          paidAt: c.paid_at,
+          createdAt: c.created_at,
+        }));
+        setCommissions(mapped);
+      }
+    } catch (err) {
+      setError('Failed to load commissions. Please try again.');
+      console.error('Error fetching commissions:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const pendingTotal = commissions
     .filter((c) => c.status === 'pending')
     .reduce((sum, c) => sum + c.amount, 0);
 
-  const paidTotal = mockCommissions
+  const paidTotal = commissions
     .filter((c) => c.status === 'paid')
     .reduce((sum, c) => sum + c.amount, 0);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-haven-primary"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -92,6 +79,16 @@ export default function CommissionsPage() {
           Track your earnings from referral conversions
         </p>
       </div>
+
+      {/* Error Banner */}
+      {error && (
+        <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 text-red-400 text-sm">
+          {error}
+          <button onClick={fetchCommissions} className="ml-2 underline">
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* Summary cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -113,7 +110,7 @@ export default function CommissionsPage() {
 
       {/* Table */}
       <div className="card p-0 overflow-hidden">
-        <CommissionTable commissions={mockCommissions} />
+        <CommissionTable commissions={commissions} />
       </div>
     </div>
   );

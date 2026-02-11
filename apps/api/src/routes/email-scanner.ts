@@ -3,7 +3,7 @@ import { authenticate } from '../middleware/auth';
 import { EmailScannerService } from '../services/email-scanner.service';
 import { asyncHandler } from '../utils/async-handler';
 import Joi from 'joi';
-import { validate } from '../middleware/validator';
+import { validate } from '../middleware/validate';
 
 const router = Router();
 

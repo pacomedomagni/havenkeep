@@ -10,20 +10,28 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 
-// Mock data for last 30 days
-const mockData = Array.from({ length: 30 }, (_, i) => {
-  const date = new Date();
-  date.setDate(date.getDate() - (29 - i));
-  return {
-    date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-    referrals: Math.floor(Math.random() * 8) + 1,
-  };
-});
+interface ReferralChartProps {
+  data?: { date: string; referrals: number }[];
+}
 
-export default function ReferralChart() {
+// Generate empty chart data for last 30 days when no data provided
+function generateEmptyData() {
+  return Array.from({ length: 30 }, (_, i) => {
+    const date = new Date();
+    date.setDate(date.getDate() - (29 - i));
+    return {
+      date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      referrals: 0,
+    };
+  });
+}
+
+export default function ReferralChart({ data }: ReferralChartProps) {
+  const chartData = data && data.length > 0 ? data : generateEmptyData();
+
   return (
     <ResponsiveContainer width="100%" height={320}>
-      <AreaChart data={mockData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+      <AreaChart data={chartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
         <defs>
           <linearGradient id="referralGradient" x1="0" y1="0" x2="0" y2="1">
             <stop offset="5%" stopColor="#6C63FF" stopOpacity={0.3} />
@@ -44,6 +52,7 @@ export default function ReferralChart() {
           fontSize={12}
           tickLine={false}
           axisLine={{ stroke: '#2A2A2A' }}
+          allowDecimals={false}
         />
         <Tooltip
           contentStyle={{

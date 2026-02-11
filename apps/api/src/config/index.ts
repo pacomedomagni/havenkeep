@@ -51,8 +51,13 @@ export const config = {
     replyToEmail: process.env.SENDGRID_REPLY_TO_EMAIL || 'support@havenkeep.com',
   },
 
+  openai: {
+    apiKey: process.env.OPENAI_API_KEY || '',
+  },
+
   app: {
     baseUrl: process.env.APP_BASE_URL || 'http://localhost:3000',
+    frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3000',
     dashboardUrl: process.env.DASHBOARD_URL || 'http://localhost:3001',
     apiUrl: process.env.API_URL || 'http://localhost:3000',
   },

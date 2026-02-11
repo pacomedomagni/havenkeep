@@ -1,32 +1,121 @@
 import { Router } from 'express';
+import bcrypt from 'bcryptjs';
 import { query } from '../db';
-import { authenticate, AuthRequest } from '../middleware/auth';
+import { authenticate } from '../middleware/auth';
+import { AppError } from '../middleware/errorHandler';
+import { validate } from '../middleware/validate';
+import { updateUserSchema } from '../validators';
+import { changePasswordSchema, deleteAccountSchema } from '../validators/users.validator';
 
 const router = Router();
 router.use(authenticate);
 
-router.get('/me', async (req: AuthRequest, res, next) => {
+// Get current user profile
+router.get('/me', async (req, res, next) => {
   try {
     const result = await query(
       `SELECT id, email, full_name, avatar_url, plan, plan_expires_at, created_at
        FROM users WHERE id = $1`,
       [req.user!.id]
     );
+
+    if (result.rows.length === 0) {
+      throw new AppError(404, 'User not found');
+    }
+
     res.json({ user: result.rows[0] });
   } catch (error) {
     next(error);
   }
 });
 
-router.put('/me', async (req: AuthRequest, res, next) => {
+// Update user profile
+router.put('/me', validate(updateUserSchema), async (req, res, next) => {
   try {
     const { fullName, avatarUrl } = req.body;
     const result = await query(
-      `UPDATE users SET full_name = COALESCE($1, full_name), avatar_url = COALESCE($2, avatar_url)
-       WHERE id = $3 RETURNING id, email, full_name, avatar_url, plan`,
-      [fullName, avatarUrl, req.user!.id]
+      `UPDATE users SET
+        full_name = COALESCE($1, full_name),
+        avatar_url = $2
+       WHERE id = $3
+       RETURNING id, email, full_name, avatar_url, plan`,
+      [fullName, avatarUrl !== undefined ? avatarUrl : null, req.user!.id]
     );
+
+    if (result.rows.length === 0) {
+      throw new AppError(404, 'User not found');
+    }
+
     res.json({ user: result.rows[0] });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Change password
+router.put('/me/password', validate(changePasswordSchema), async (req, res, next) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+
+    // Get current password hash
+    const userResult = await query(
+      `SELECT password_hash FROM users WHERE id = $1`,
+      [req.user!.id]
+    );
+
+    if (userResult.rows.length === 0) {
+      throw new AppError(404, 'User not found');
+    }
+
+    // Verify current password
+    const valid = await bcrypt.compare(currentPassword, userResult.rows[0].password_hash);
+    if (!valid) {
+      throw new AppError(401, 'Current password is incorrect');
+    }
+
+    // Hash and update new password
+    const newHash = await bcrypt.hash(newPassword, 12);
+    await query(
+      `UPDATE users SET password_hash = $1 WHERE id = $2`,
+      [newHash, req.user!.id]
+    );
+
+    // Invalidate all refresh tokens (force re-login on other devices)
+    await query(
+      `DELETE FROM refresh_tokens WHERE user_id = $1`,
+      [req.user!.id]
+    );
+
+    res.json({ message: 'Password changed successfully' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Delete account
+router.delete('/me', validate(deleteAccountSchema), async (req, res, next) => {
+  try {
+    const { password } = req.body;
+
+    // Verify password before deletion
+    const userResult = await query(
+      `SELECT password_hash FROM users WHERE id = $1`,
+      [req.user!.id]
+    );
+
+    if (userResult.rows.length === 0) {
+      throw new AppError(404, 'User not found');
+    }
+
+    const valid = await bcrypt.compare(password, userResult.rows[0].password_hash);
+    if (!valid) {
+      throw new AppError(401, 'Invalid password');
+    }
+
+    // Delete user (cascades to all related data)
+    await query(`DELETE FROM users WHERE id = $1`, [req.user!.id]);
+
+    res.json({ message: 'Account deleted successfully' });
   } catch (error) {
     next(error);
   }

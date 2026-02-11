@@ -11,17 +11,29 @@ import {
   Cell,
 } from 'recharts';
 
-const funnelData = [
-  { stage: 'Referrals', count: 127, color: '#6C63FF' },
-  { stage: 'Signups', count: 84, color: '#BB86FC' },
-  { stage: 'Active', count: 62, color: '#4CAF50' },
-  { stage: 'Premium', count: 28, color: '#FFC107' },
+interface FunnelStage {
+  stage: string;
+  count: number;
+  color: string;
+}
+
+interface ConversionFunnelProps {
+  data?: FunnelStage[];
+}
+
+const defaultData: FunnelStage[] = [
+  { stage: 'Gifts Sent', count: 0, color: '#6C63FF' },
+  { stage: 'Activated', count: 0, color: '#BB86FC' },
+  { stage: 'Active Users', count: 0, color: '#4CAF50' },
+  { stage: 'Premium', count: 0, color: '#FFC107' },
 ];
 
-export default function ConversionFunnel() {
+export default function ConversionFunnel({ data }: ConversionFunnelProps) {
+  const chartData = data && data.length > 0 ? data : defaultData;
+
   return (
     <ResponsiveContainer width="100%" height={300}>
-      <BarChart data={funnelData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+      <BarChart data={chartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="#2A2A2A" />
         <XAxis
           dataKey="stage"
@@ -35,6 +47,7 @@ export default function ConversionFunnel() {
           fontSize={12}
           tickLine={false}
           axisLine={{ stroke: '#2A2A2A' }}
+          allowDecimals={false}
         />
         <Tooltip
           contentStyle={{
@@ -46,7 +59,7 @@ export default function ConversionFunnel() {
           labelStyle={{ color: '#B0B0B0' }}
         />
         <Bar dataKey="count" radius={[6, 6, 0, 0]}>
-          {funnelData.map((entry, index) => (
+          {chartData.map((entry, index) => (
             <Cell key={`cell-${index}`} fill={entry.color} />
           ))}
         </Bar>

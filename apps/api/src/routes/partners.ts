@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { authenticate } from '../middleware/auth';
-import { validate } from '../middleware/validator';
+import { validate } from '../middleware/validate';
 import { PartnersService } from '../services/partners.service';
 import {
   registerPartnerSchema,

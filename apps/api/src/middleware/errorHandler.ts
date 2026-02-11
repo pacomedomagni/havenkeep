@@ -19,6 +19,11 @@ export function errorHandler(
   res: Response,
   next: NextFunction
 ) {
+  // If response already sent, delegate to Express default handler
+  if (res.headersSent) {
+    return next(err);
+  }
+
   if (err instanceof AppError) {
     logger.error({
       statusCode: err.statusCode,

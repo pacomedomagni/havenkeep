@@ -7,6 +7,34 @@ if (config.sendgrid.apiKey) {
   sgMail.setApiKey(config.sendgrid.apiKey);
 }
 
+// Sanitize user input for safe HTML embedding
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+// Validate hex color format
+function sanitizeColor(color: string): string {
+  return /^#[0-9A-Fa-f]{6}$/.test(color) ? color : '#3B82F6';
+}
+
+// Validate URL is https
+function sanitizeUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
+      return url;
+    }
+    return '';
+  } catch {
+    return '';
+  }
+}
+
 export class EmailService {
   /**
    * Send partner gift activation email to homebuyer
@@ -33,12 +61,18 @@ export class EmailService {
         activation_url,
         activation_code,
         custom_message,
-        brand_color = '#3B82F6',
-        logo_url,
+        brand_color: rawColor = '#3B82F6',
+        logo_url: rawLogoUrl,
       } = data;
 
-      const fromName = partner_company || partner_name;
-      const firstName = homebuyer_name.split(' ')[0];
+      // Sanitize all user-provided inputs
+      const brand_color = sanitizeColor(rawColor);
+      const logo_url = rawLogoUrl ? sanitizeUrl(rawLogoUrl) : '';
+
+      const fromName = escapeHtml(partner_company || partner_name);
+      const firstName = escapeHtml(homebuyer_name.split(' ')[0]);
+      const safeActivationUrl = sanitizeUrl(activation_url);
+      const safeCustomMessage = custom_message ? escapeHtml(custom_message) : '';
 
       const htmlContent = `
 <!DOCTYPE html>
@@ -73,10 +107,10 @@ export class EmailService {
                 Congratulations on your new home! ${fromName} is excited to share a special gift with you: <strong>${premium_months} months of HavenKeep Premium</strong> — completely free!
               </p>
 
-              ${custom_message ? `
+              ${safeCustomMessage ? `
               <div style="background-color: ${brand_color}10; border-left: 4px solid ${brand_color}; padding: 20px; margin: 0 0 30px; border-radius: 4px;">
                 <p style="color: #374151; font-size: 15px; line-height: 1.6; margin: 0; font-style: italic;">
-                  "${custom_message}"
+                  "${safeCustomMessage}"
                 </p>
               </div>
               ` : ''}
@@ -117,7 +151,7 @@ export class EmailService {
               <table width="100%" cellpadding="0" cellspacing="0" style="margin: 0 0 30px;">
                 <tr>
                   <td align="center">
-                    <a href="${activation_url}" style="display: inline-block; background-color: ${brand_color}; color: #ffffff; text-decoration: none; padding: 16px 40px; border-radius: 8px; font-size: 16px; font-weight: 600; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);">
+                    <a href="${safeActivationUrl}" style="display: inline-block; background-color: ${brand_color}; color: #ffffff; text-decoration: none; padding: 16px 40px; border-radius: 8px; font-size: 16px; font-weight: 600; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);">
                       Activate Your Gift
                     </a>
                   </td>
@@ -183,7 +217,7 @@ What's Included:
 - Smart Reminders — Never miss a warranty expiration
 
 Activate Your Gift:
-${activation_url}
+${safeActivationUrl}
 
 Or use activation code: ${activation_code}
 

@@ -208,14 +208,42 @@ router.put('/:id', validate(uuidParamSchema, 'params'), validate(updateItemSchem
       throw new AppError(400, 'No valid fields to update');
     }
 
-    // If warranty_months is being updated, recalculate warranty_end_date
-    if (updates.warrantyMonths && updates.purchaseDate) {
-      const purchaseDateObj = new Date(updates.purchaseDate);
-      const warrantyEndDate = new Date(purchaseDateObj);
-      warrantyEndDate.setMonth(warrantyEndDate.getMonth() + updates.warrantyMonths);
-      fields.push(`warranty_end_date = $${paramCount}`);
-      values.push(warrantyEndDate);
-      paramCount++;
+    // Recalculate warranty_end_date when warrantyMonths or purchaseDate changes
+    if (updates.warrantyMonths !== undefined || updates.purchaseDate !== undefined) {
+      // If purchaseDate is provided, use it; otherwise fetch existing from DB
+      let purchaseDateForCalc: Date | null = null;
+      let warrantyMonthsForCalc: number | null = null;
+
+      if (updates.purchaseDate) {
+        purchaseDateForCalc = new Date(updates.purchaseDate);
+      }
+      if (updates.warrantyMonths !== undefined) {
+        warrantyMonthsForCalc = updates.warrantyMonths;
+      }
+
+      // If we only have one value, fetch the other from the existing item
+      if (!purchaseDateForCalc || warrantyMonthsForCalc === null) {
+        const existing = await query(
+          `SELECT purchase_date, warranty_months FROM items WHERE id = $1 AND user_id = $2`,
+          [id, req.user!.id]
+        );
+        if (existing.rows.length > 0) {
+          if (!purchaseDateForCalc) {
+            purchaseDateForCalc = new Date(existing.rows[0].purchase_date);
+          }
+          if (warrantyMonthsForCalc === null) {
+            warrantyMonthsForCalc = existing.rows[0].warranty_months;
+          }
+        }
+      }
+
+      if (purchaseDateForCalc && warrantyMonthsForCalc !== null) {
+        const warrantyEndDate = new Date(purchaseDateForCalc);
+        warrantyEndDate.setMonth(warrantyEndDate.getMonth() + warrantyMonthsForCalc);
+        fields.push(`warranty_end_date = $${paramCount}`);
+        values.push(warrantyEndDate);
+        paramCount++;
+      }
     }
 
     values.push(id, req.user!.id);
