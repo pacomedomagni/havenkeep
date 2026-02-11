@@ -39,9 +39,9 @@ export default function ReferralsPage() {
           referredUserId: gift.activated_user_id,
           status: gift.is_activated
             ? 'converted'
-            : new Date(gift.expires_at) < new Date()
+            : (gift.expires_at && new Date(gift.expires_at) < new Date())
             ? 'expired'
-            : 'pending',
+            : ('pending' as ReferralStatus),
           convertedAt: gift.activated_at,
           createdAt: gift.created_at,
         }));

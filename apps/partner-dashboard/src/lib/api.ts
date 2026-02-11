@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase';
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || '';
 
 interface ApiOptions {
-  method?: string;
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   body?: any;
   headers?: Record<string, string>;
 }
@@ -11,7 +11,7 @@ interface ApiOptions {
 export async function apiClient<T = any>(
   endpoint: string,
   options: ApiOptions = {}
-): Promise<{ success: boolean; data?: T; message?: string; pagination?: any }> {
+): Promise<{ success: boolean; data?: T; message?: string; pagination?: any; error?: string }> {
   const supabase = createClient();
   const { data: { session } } = await supabase.auth.getSession();
 

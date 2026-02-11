@@ -16,9 +16,10 @@ import { createClient } from '@/lib/supabase'
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: HomeIcon },
   { name: 'Closing Gifts', href: '/dashboard/gifts', icon: GiftIcon },
-  { name: 'Analytics', href: '/dashboard/partner-analytics', icon: ChartBarIcon },
-  { name: 'Commissions', href: '/dashboard/partner-commissions', icon: BanknotesIcon },
-  { name: 'Settings', href: '/dashboard/partner-settings', icon: Cog6ToothIcon },
+  { name: 'Referrals', href: '/dashboard/referrals', icon: ChartBarIcon },
+  { name: 'Analytics', href: '/dashboard/analytics', icon: ChartBarIcon },
+  { name: 'Commissions', href: '/dashboard/commissions', icon: BanknotesIcon },
+  { name: 'Settings', href: '/dashboard/settings', icon: Cog6ToothIcon },
 ]
 
 export default function Sidebar() {
@@ -48,13 +49,15 @@ export default function Sidebar() {
           <path d="M27 30l4 4 8-8" stroke="#10B981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
         </svg>
         <h1 className="text-xl font-bold text-white">HavenKeep</h1>
-        <span className="ml-2 text-xs text-gray-400">Admin</span>
+        <span className="ml-2 text-xs text-gray-400">Partner</span>
       </div>
 
       {/* Navigation */}
       <nav className="flex-1 px-4 py-6 space-y-1">
         {navigation.map((item) => {
-          const isActive = pathname === item.href
+          const isActive = item.href === '/dashboard'
+            ? pathname === '/dashboard'
+            : pathname.startsWith(item.href)
           return (
             <Link
               key={item.name}

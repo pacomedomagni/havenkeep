@@ -23,7 +23,8 @@ export function csrfProtection(req: Request, res: Response, next: NextFunction) 
   const tokenFromCookie = req.cookies?.[CSRF_COOKIE];
 
   if (!tokenFromHeader || !tokenFromCookie || tokenFromHeader !== tokenFromCookie) {
-    return res.status(403).json({ error: 'Invalid CSRF token' });
+    res.status(403).json({ error: 'Invalid CSRF token', statusCode: 403 });
+    return;
   }
 
   // Rotate token after successful validation

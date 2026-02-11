@@ -19,9 +19,21 @@ export const config = {
   },
   
   jwt: {
-    secret: process.env.JWT_SECRET || 'your-secret-key-change-this',
+    get secret(): string {
+      const secret = process.env.JWT_SECRET;
+      if (!secret && process.env.NODE_ENV === 'production') {
+        throw new Error('JWT_SECRET must be set in production');
+      }
+      return secret || 'dev-only-secret-do-not-use-in-production';
+    },
     expiresIn: process.env.JWT_EXPIRES_IN || '1h',
-    refreshSecret: process.env.REFRESH_TOKEN_SECRET || 'your-refresh-secret',
+    get refreshSecret(): string {
+      const secret = process.env.REFRESH_TOKEN_SECRET;
+      if (!secret && process.env.NODE_ENV === 'production') {
+        throw new Error('REFRESH_TOKEN_SECRET must be set in production');
+      }
+      return secret || 'dev-only-refresh-secret';
+    },
     refreshExpiresIn: process.env.REFRESH_TOKEN_EXPIRES_IN || '7d',
   },
   

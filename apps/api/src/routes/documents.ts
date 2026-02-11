@@ -167,23 +167,38 @@ router.post(
           const fileUrl = getPublicUrl(objectKey);
           const thumbnailUrl = thumbnailKey ? getPublicUrl(thumbnailKey) : null;
 
-          // Save to database
-          const docResult = await query(
-            `INSERT INTO documents (
-              user_id, item_id, type, file_url, file_name, file_size, mime_type, thumbnail_url
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            RETURNING *`,
-            [
-              req.user!.id,
-              itemId,
-              type || 'other',
-              fileUrl,
-              file.originalname,
-              fileBuffer.length,
-              file.mimetype,
-              thumbnailUrl,
-            ]
-          );
+          // Save to database - if this fails, clean up the MinIO objects
+          let docResult;
+          try {
+            docResult = await query(
+              `INSERT INTO documents (
+                user_id, item_id, type, file_url, file_name, file_size, mime_type, thumbnail_url
+              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+              RETURNING *`,
+              [
+                req.user!.id,
+                itemId,
+                type || 'other',
+                fileUrl,
+                file.originalname,
+                fileBuffer.length,
+                file.mimetype,
+                thumbnailUrl,
+              ]
+            );
+          } catch (dbError) {
+            // Clean up MinIO objects on DB failure
+            logger.warn({ objectKey, thumbnailKey }, 'DB insert failed, cleaning up MinIO objects');
+            try {
+              await minioClient.removeObject(BUCKET_NAME, objectKey);
+              if (thumbnailKey) {
+                await minioClient.removeObject(BUCKET_NAME, thumbnailKey);
+              }
+            } catch (cleanupError) {
+              logger.error({ cleanupError, objectKey }, 'Failed to clean up orphaned MinIO object');
+            }
+            throw dbError;
+          }
 
           uploadedDocuments.push(docResult.rows[0]);
 

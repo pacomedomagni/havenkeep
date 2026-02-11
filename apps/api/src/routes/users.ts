@@ -107,6 +107,9 @@ router.delete('/me', validate(deleteAccountSchema), async (req, res, next) => {
       throw new AppError(404, 'User not found');
     }
 
+    if (!userResult.rows[0].password_hash) {
+      throw new AppError(400, 'Cannot verify password for SSO accounts');
+    }
     const valid = await bcrypt.compare(password, userResult.rows[0].password_hash);
     if (!valid) {
       throw new AppError(401, 'Invalid password');

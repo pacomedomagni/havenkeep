@@ -18,4 +18,28 @@
   .input-field {
     @apply w-full bg-haven-elevated border border-haven-border rounded-lg px-4 py-2.5 text-white placeholder-haven-text-tertiary focus:outline-none focus:ring-2 focus:ring-haven-primary/50 focus:border-haven-primary transition-colors;
   }
+
+  .badge-converted {
+    @apply px-2 py-0.5 text-xs font-semibold rounded-full bg-haven-active/20 text-haven-active;
+  }
+
+  .badge-pending {
+    @apply px-2 py-0.5 text-xs font-semibold rounded-full bg-haven-warning/20 text-haven-warning;
+  }
+
+  .badge-expired {
+    @apply px-2 py-0.5 text-xs font-semibold rounded-full bg-haven-error/20 text-haven-error;
+  }
+
+  .badge-paid {
+    @apply px-2 py-0.5 text-xs font-semibold rounded-full bg-haven-active/20 text-haven-active;
+  }
+
+  .badge-cancelled {
+    @apply px-2 py-0.5 text-xs font-semibold rounded-full bg-haven-error/20 text-haven-error;
+  }
+
+  .badge-approved {
+    @apply px-2 py-0.5 text-xs font-semibold rounded-full bg-haven-primary/20 text-haven-primary;
+  }
 }

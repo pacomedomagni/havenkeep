@@ -16,42 +16,46 @@ router.get('/health', (req, res) => {
 });
 
 // Detailed health check
-router.get('/health/detailed', async (req, res) => {
-  const health: any = {
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-    environment: config.env,
-    checks: {},
-  };
-
-  // Database check
+router.get('/health/detailed', async (req, res, next) => {
   try {
-    await pool.query('SELECT 1');
-    health.checks.database = { status: 'ok' };
-  } catch (error: any) {
-    health.status = 'degraded';
-    health.checks.database = { status: 'error', message: error.message };
-  }
+    const health: any = {
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      environment: config.env,
+      checks: {},
+    };
 
-  // Redis check
-  try {
-    const redis = createClient({ url: config.redis.url });
-    await redis.connect();
-    await redis.ping();
-    await redis.quit();
-    health.checks.redis = { status: 'ok' };
-  } catch (error: any) {
-    health.status = 'degraded';
-    health.checks.redis = { status: 'error', message: error.message };
-  }
+    // Database check
+    try {
+      await pool.query('SELECT 1');
+      health.checks.database = { status: 'ok' };
+    } catch (error: any) {
+      health.status = 'degraded';
+      health.checks.database = { status: 'error', message: error.message };
+    }
 
-  const statusCode = health.status === 'ok' ? 200 : 503;
-  res.status(statusCode).json(health);
+    // Redis check
+    try {
+      const redis = createClient({ url: config.redis.url });
+      await redis.connect();
+      await redis.ping();
+      await redis.quit();
+      health.checks.redis = { status: 'ok' };
+    } catch (error: any) {
+      health.status = 'degraded';
+      health.checks.redis = { status: 'error', message: error.message };
+    }
+
+    const statusCode = health.status === 'ok' ? 200 : 503;
+    res.status(statusCode).json(health);
+  } catch (error) {
+    next(error);
+  }
 });
 
 // Readiness check (for Kubernetes)
-router.get('/ready', async (req, res) => {
+router.get('/ready', async (req, res, next) => {
   try {
     await pool.query('SELECT 1');
     res.status(200).json({ ready: true });

@@ -59,7 +59,7 @@ router.get('/', validate(paginationSchema, 'query'), async (req: AuthRequest, re
       query(countSql, countParams),
     ]);
 
-    const total = parseInt(countResult.rows[0].count);
+    const total = parseInt(countResult.rows[0].count, 10);
 
     res.json({
       items: result.rows,
@@ -122,7 +122,7 @@ router.post('/', validate(createItemSchema), async (req: AuthRequest, res, next)
         [req.user!.id]
       );
 
-      if (parseInt(countResult.rows[0].count) >= 10) {
+      if (parseInt(countResult.rows[0].count, 10) >= 10) {
         throw new AppError(403, 'Free plan limit reached. Upgrade to Premium for unlimited items.');
       }
     }
@@ -139,8 +139,16 @@ router.post('/', validate(createItemSchema), async (req: AuthRequest, res, next)
 
     // Calculate warranty end date
     const purchaseDateObj = new Date(purchaseDate);
+    if (isNaN(purchaseDateObj.getTime())) {
+      throw new AppError(400, 'Invalid purchase date');
+    }
     const warrantyEndDate = new Date(purchaseDateObj);
+    const expectedMonth = (warrantyEndDate.getMonth() + warrantyMonths) % 12;
     warrantyEndDate.setMonth(warrantyEndDate.getMonth() + warrantyMonths);
+    // Handle day overflow (e.g., Jan 31 + 1 month = Mar 3 instead of Feb 28)
+    if (warrantyEndDate.getMonth() !== expectedMonth) {
+      warrantyEndDate.setDate(0); // Set to last day of previous month
+    }
 
     const result = await query(
       `INSERT INTO items (
@@ -239,7 +247,12 @@ router.put('/:id', validate(uuidParamSchema, 'params'), validate(updateItemSchem
 
       if (purchaseDateForCalc && warrantyMonthsForCalc !== null) {
         const warrantyEndDate = new Date(purchaseDateForCalc);
+        const expectedMonth = (warrantyEndDate.getMonth() + warrantyMonthsForCalc) % 12;
         warrantyEndDate.setMonth(warrantyEndDate.getMonth() + warrantyMonthsForCalc);
+        // Handle day overflow (e.g., Jan 31 + 1 month = Mar 3 instead of Feb 28)
+        if (warrantyEndDate.getMonth() !== expectedMonth) {
+          warrantyEndDate.setDate(0); // Set to last day of previous month
+        }
         fields.push(`warranty_end_date = $${paramCount}`);
         values.push(warrantyEndDate);
         paramCount++;

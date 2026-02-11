@@ -1,6 +1,6 @@
 import { pool } from '../db';
 import { logger } from '../utils/logger';
-import { WarrantyClaim, CreateWarrantyClaimDto } from '../types/database.types';
+import { WarrantyClaim, CreateWarrantyClaimDto, SavingsFeedEntry } from '../types/database.types';
 import { AppError } from '../utils/errors';
 
 export class WarrantyClaimsService {

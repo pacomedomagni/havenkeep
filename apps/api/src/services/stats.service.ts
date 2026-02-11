@@ -264,6 +264,7 @@ export class StatsService {
         barcode_add: 'items_added_via_barcode',
         document_upload: 'documents_uploaded',
         report_generated: 'reports_generated',
+        claim_filed: 'total_claims_filed',
       };
 
       const field = fieldMap[feature];
