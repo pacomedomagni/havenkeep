@@ -1,10 +1,9 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_models/shared_models.dart';
-import 'package:supabase_client/supabase_client.dart';
+import 'package:api_client/api_client.dart';
 
-/// Looks up product information using a barcode via the
-/// `lookup-barcode` Supabase Edge Function.
+/// Looks up product information using a barcode via the Express API.
 class BarcodeLookupService {
   final Ref _ref;
 
@@ -16,20 +15,14 @@ class BarcodeLookupService {
   /// or an empty result if no match was found.
   Future<BarcodeLookupResult> lookupBarcode(String barcode) async {
     try {
-      final client = _ref.read(supabaseClientProvider);
-      final response = await client.functions.invoke(
-        'lookup-barcode',
+      final client = _ref.read(apiClientProvider);
+      final data = await client.post(
+        '/api/v1/barcode/lookup',
         body: {'barcode': barcode},
       );
 
-      if (response.status != 200) {
-        throw Exception(
-          'Barcode lookup failed with status ${response.status}',
-        );
-      }
-
-      final data = response.data as Map<String, dynamic>;
-      return BarcodeLookupResult.fromJson(data);
+      return BarcodeLookupResult.fromJson(
+          data['data'] as Map<String, dynamic>? ?? data);
     } catch (e) {
       debugPrint('[BarcodeLookup] Lookup failed: $e');
       // Return empty result instead of throwing

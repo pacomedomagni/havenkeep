@@ -2,13 +2,13 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_models/shared_models.dart';
-import 'package:supabase_client/supabase_client.dart';
+import 'package:api_client/api_client.dart';
 import '../services/documents_repository.dart';
 import 'auth_provider.dart';
 
 /// Provides the documents repository instance.
 final documentsRepositoryProvider = Provider<DocumentsRepository>((ref) {
-  return DocumentsRepository(ref.read(supabaseClientProvider));
+  return DocumentsRepository(ref.read(apiClientProvider));
 });
 
 /// Documents for a specific item.

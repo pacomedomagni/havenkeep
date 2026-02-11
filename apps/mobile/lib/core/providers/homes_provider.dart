@@ -2,13 +2,13 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_models/shared_models.dart';
-import 'package:supabase_client/supabase_client.dart';
+import 'package:api_client/api_client.dart';
 import '../services/homes_repository.dart';
 import 'auth_provider.dart';
 
 /// Provides the homes repository instance.
 final homesRepositoryProvider = Provider<HomesRepository>((ref) {
-  return HomesRepository(ref.read(supabaseClientProvider));
+  return HomesRepository(ref.read(apiClientProvider));
 });
 
 /// All homes for the current user.

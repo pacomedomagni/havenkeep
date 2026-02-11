@@ -1,10 +1,9 @@
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:api_client/api_client.dart';
 import 'package:shared_models/shared_models.dart';
-import 'package:supabase_client/supabase_client.dart';
 
-/// Handles reference data: category defaults and brand suggestions.
+/// Handles reference data: category defaults and brand suggestions via the Express API.
 class CategoryRepository {
-  final SupabaseClient _client;
+  final ApiClient _client;
 
   // Local cache (reference data doesn't change often)
   List<CategoryDefault>? _cachedDefaults;
@@ -20,13 +19,11 @@ class CategoryRepository {
   Future<List<CategoryDefault>> getCategoryDefaults() async {
     if (_cachedDefaults != null) return _cachedDefaults!;
 
-    final data = await _client
-        .from(kCategoryDefaultsTable)
-        .select()
-        .order('category', ascending: true);
+    final data = await _client.get('/api/v1/categories/defaults');
+    final defaults = data['data'] as List;
 
-    _cachedDefaults = (data as List)
-        .map((json) => CategoryDefault.fromJson(json))
+    _cachedDefaults = defaults
+        .map((json) => CategoryDefault.fromJson(json as Map<String, dynamic>))
         .toList();
 
     return _cachedDefaults!;
@@ -54,14 +51,13 @@ class CategoryRepository {
       return _cachedBrands[category]!;
     }
 
-    final data = await _client
-        .from(kBrandSuggestionsTable)
-        .select()
-        .eq('category', category.toJson())
-        .order('sort_order', ascending: true);
+    final data = await _client.get(
+      '/api/v1/categories/${category.toJson()}/brands',
+    );
+    final brandsData = data['data'] as List;
 
-    final brands = (data as List)
-        .map((json) => BrandSuggestion.fromJson(json))
+    final brands = brandsData
+        .map((json) => BrandSuggestion.fromJson(json as Map<String, dynamic>))
         .toList();
 
     _cachedBrands[category] = brands;

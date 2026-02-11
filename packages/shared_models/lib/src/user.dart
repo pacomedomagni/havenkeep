@@ -1,6 +1,6 @@
 import 'enums.dart';
 
-/// User profile — extends Supabase auth.users with app-specific fields.
+/// User profile with app-specific fields.
 class User {
   final String id;
   final String email;

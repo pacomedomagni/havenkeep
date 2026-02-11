@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_models/shared_models.dart';
-import 'package:supabase_client/supabase_client.dart';
+import 'package:api_client/api_client.dart';
 
 import 'auth_provider.dart';
 
@@ -14,49 +14,38 @@ final isPremiumProvider = Provider<bool>((ref) {
 /// Mock premium subscription handler.
 ///
 /// In production, this would integrate with Stripe. For now, it
-/// directly updates the user's plan in Supabase.
+/// updates the user's plan via the Express API.
 class PremiumService {
   final Ref _ref;
 
   PremiumService(this._ref);
 
-  /// Subscribe to premium (mock — updates user metadata directly).
+  /// Subscribe to premium (mock — updates user plan via API).
   Future<void> subscribeToPremium({String plan = 'monthly'}) async {
     try {
-      final client = _ref.read(supabaseClientProvider);
-      final userId = client.auth.currentUser?.id;
-      if (userId == null) throw Exception('Not authenticated');
+      final client = _ref.read(apiClientProvider);
 
-      // Mock: directly update user plan
-      await client
-          .from('users')
-          .update({'plan': 'premium'})
-          .eq('id', userId);
+      // Mock: directly update user plan via API
+      await client.put('/api/v1/users/me', body: {'plan': 'premium'});
 
       // Refresh user data
       _ref.invalidate(currentUserProvider);
 
-      debugPrint('[Premium] User $userId subscribed to $plan plan');
+      debugPrint('[Premium] User subscribed to $plan plan');
     } catch (e) {
       debugPrint('[Premium] Subscription failed: $e');
       rethrow;
     }
   }
 
-  /// Restore a previous purchase (mock — checks current plan).
+  /// Restore a previous purchase (mock — checks current plan via API).
   Future<bool> restorePurchase() async {
     try {
-      final client = _ref.read(supabaseClientProvider);
-      final userId = client.auth.currentUser?.id;
-      if (userId == null) return false;
+      final client = _ref.read(apiClientProvider);
+      final data = await client.get('/api/v1/users/me');
 
-      final result = await client
-          .from('users')
-          .select('plan')
-          .eq('id', userId)
-          .single();
-
-      final isPremium = result['plan'] == 'premium';
+      final user = data['user'] as Map<String, dynamic>;
+      final isPremium = user['plan'] == 'premium';
       if (isPremium) {
         _ref.invalidate(currentUserProvider);
       }

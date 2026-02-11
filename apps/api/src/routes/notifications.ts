@@ -126,6 +126,43 @@ router.post(
 );
 
 /**
+ * @route   GET /api/v1/notifications/preferences
+ * @desc    Get notification preferences for the current user
+ * @access  Private
+ */
+router.get(
+  '/preferences',
+  asyncHandler(async (req, res) => {
+    const userId = req.user!.id;
+    const result = await NotificationsService.getPreferences(userId);
+
+    res.json({
+      success: true,
+      data: result,
+    });
+  })
+);
+
+/**
+ * @route   PUT /api/v1/notifications/preferences
+ * @desc    Create or update notification preferences
+ * @access  Private
+ */
+router.put(
+  '/preferences',
+  asyncHandler(async (req, res) => {
+    const userId = req.user!.id;
+    const prefs = { ...req.body, user_id: userId };
+    const result = await NotificationsService.upsertPreferences(userId, prefs);
+
+    res.json({
+      success: true,
+      data: result,
+    });
+  })
+);
+
+/**
  * @route   DELETE /api/v1/notifications/:id
  * @desc    Delete a notification
  * @access  Private

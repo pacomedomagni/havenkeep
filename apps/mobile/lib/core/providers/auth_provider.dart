@@ -2,32 +2,33 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:supabase_flutter/supabase_flutter.dart' hide User;
+import 'package:api_client/api_client.dart';
 import 'package:shared_models/shared_models.dart';
-import 'package:supabase_client/supabase_client.dart';
 import '../services/auth_repository.dart';
 import '../services/push_notification_service.dart';
 
 /// Provides the auth repository instance.
 final authRepositoryProvider = Provider<AuthRepository>((ref) {
-  return AuthRepository(ref.read(supabaseClientProvider));
+  return AuthRepository(ref.read(apiClientProvider));
 });
 
-/// Stream of Supabase auth state changes.
-final authStateProvider = StreamProvider<AuthState>((ref) {
+/// Stream of API auth state changes.
+final authStateProvider = StreamProvider<ApiAuthState>((ref) {
   return ref.watch(authRepositoryProvider).authStateChanges();
 });
 
 /// Whether the user is currently authenticated.
 final isAuthenticatedProvider = Provider<bool>((ref) {
-  final authState = ref.watch(authStateProvider);
-  return authState.whenOrNull(
-        data: (state) => state.session != null,
-      ) ??
-      false;
+  // Check the API client's token state directly
+  final client = ref.watch(apiClientProvider);
+
+  // Also watch the auth state stream so we react to login/logout events
+  ref.watch(authStateProvider);
+
+  return client.isAuthenticated;
 });
 
-/// Current user profile from public.users.
+/// Current user profile from the API.
 final currentUserProvider =
     AsyncNotifierProvider<CurrentUserNotifier, User?>(
   () => CurrentUserNotifier(),
@@ -80,9 +81,6 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
   }) async {
     final repo = ref.read(authRepositoryProvider);
 
-    // signUpWithEmail creates both auth user AND public profile atomically,
-    // so we set the user directly and skip the auth-state-triggered rebuild
-    // to avoid a race where the profile query runs before insert completes.
     final user = await repo.signUpWithEmail(
       email: email,
       password: password,
@@ -124,13 +122,39 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
   }
 
   /// Sign in with Google.
-  Future<void> signInWithGoogle() async {
-    await ref.read(authRepositoryProvider).signInWithGoogle();
+  Future<User?> signInWithGoogle({required String idToken}) async {
+    final repo = ref.read(authRepositoryProvider);
+    final user = await repo.signInWithGoogle(idToken: idToken);
+
+    _skipNextRebuild = true;
+    state = AsyncValue.data(user);
+
+    if (user != null) {
+      _registerPushToken(user.id);
+    }
+
+    return user;
   }
 
   /// Sign in with Apple.
-  Future<void> signInWithApple() async {
-    await ref.read(authRepositoryProvider).signInWithApple();
+  Future<User?> signInWithApple({
+    required String idToken,
+    String? fullName,
+  }) async {
+    final repo = ref.read(authRepositoryProvider);
+    final user = await repo.signInWithApple(
+      idToken: idToken,
+      fullName: fullName,
+    );
+
+    _skipNextRebuild = true;
+    state = AsyncValue.data(user);
+
+    if (user != null) {
+      _registerPushToken(user.id);
+    }
+
+    return user;
   }
 
   /// Sign out.

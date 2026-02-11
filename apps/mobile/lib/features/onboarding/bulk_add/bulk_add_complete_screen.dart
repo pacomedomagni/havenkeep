@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_models/shared_models.dart';
 import 'package:shared_ui/shared_ui.dart';
-import 'package:supabase_client/supabase_client.dart';
 
 import '../../../core/providers/auth_provider.dart';
 import '../../../core/providers/items_provider.dart';

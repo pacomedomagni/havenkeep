@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:api_client/api_client.dart';
 import 'package:shared_ui/shared_ui.dart';
 
 import 'core/config/environment.dart';
@@ -46,16 +46,15 @@ Future<void> main() async {
   await LoggingService.initialize(config);
   LoggingService.info('App starting', {
     'environment': config.environment.name,
-    'supabaseUrl': config.supabaseUrl,
+    'apiBaseUrl': config.apiBaseUrl,
   });
 
-  // Initialize Supabase with environment-specific config
-  await Supabase.initialize(
-    url: config.supabaseUrl,
-    anonKey: config.supabaseAnonKey,
-  );
+  // Initialize API client
+  final apiClient = ApiClient(baseUrl: config.apiBaseUrl);
+  setGlobalApiClient(apiClient);
+  await apiClient.restoreSession();
 
-  LoggingService.info('Supabase initialized');
+  LoggingService.info('API client initialized');
 
   // Initialize Firebase (guarded — stub config may not be valid)
   // TODO: Enable Firebase after completing Phase 1.3
@@ -73,6 +72,7 @@ Future<void> main() async {
     ProviderScope(
       overrides: [
         environmentConfigProvider.overrideWithValue(config),
+        apiClientProvider.overrideWithValue(apiClient),
       ],
       child: const HavenKeepApp(),
     ),

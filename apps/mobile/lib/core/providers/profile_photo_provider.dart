@@ -33,7 +33,7 @@ Future<String?> pickAndUploadProfilePhoto(Ref ref) async {
 
   final imageFile = File(image.path);
 
-  // Upload to Supabase Storage
+  // Upload via the Express API
   final url = await ref.read(imageUploadServiceProvider).uploadProfilePhoto(
         userId: user.id,
         imageFile: imageFile,

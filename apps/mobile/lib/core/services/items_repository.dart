@@ -1,11 +1,10 @@
 import 'package:flutter/foundation.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:api_client/api_client.dart';
 import 'package:shared_models/shared_models.dart';
-import 'package:supabase_client/supabase_client.dart';
 
-/// Handles CRUD operations for items and warranty data.
+/// Handles CRUD operations for items and warranty data via the Express API.
 class ItemsRepository {
-  final SupabaseClient _client;
+  final ApiClient _client;
 
   ItemsRepository(this._client);
 
@@ -21,30 +20,31 @@ class ItemsRepository {
     bool includeArchived = false,
   }) async {
     try {
-      final userId = requireCurrentUserId();
+      final params = <String, String>{
+        'page': '1',
+        'limit': '1000',
+      };
 
-      var query = _client
-          .from(kItemsTable)
-          .select()
-          .eq('user_id', userId);
+      if (homeId != null) params['homeId'] = homeId;
+      if (!includeArchived) params['archived'] = 'false';
 
-      if (homeId != null) {
-        query = query.eq('home_id', homeId);
-      }
+      final data = await _client.get('/api/v1/items', queryParams: params);
+      final items = (data['items'] as List)
+          .map((json) => Item.fromJson(json as Map<String, dynamic>))
+          .toList();
+
+      // Client-side filtering for category and room
+      var filtered = items;
       if (category != null) {
-        query = query.eq('category', category.toJson());
+        filtered = filtered.where((i) => i.category == category).toList();
       }
       if (room != null) {
-        query = query.eq('room', room.toJson());
-      }
-      if (!includeArchived) {
-        query = query.eq('is_archived', false);
+        filtered = filtered.where((i) => i.room == room).toList();
       }
 
-      final data = await query.order('created_at', ascending: false);
-      return (data as List).map((json) => Item.fromJson(json)).toList();
-    } on PostgrestException catch (e) {
-      debugPrint('[ItemsRepository] getItems failed: ${e.message}');
+      return filtered;
+    } catch (e) {
+      debugPrint('[ItemsRepository] getItems failed: $e');
       rethrow;
     }
   }
@@ -52,37 +52,31 @@ class ItemsRepository {
   /// Get a single item by ID.
   Future<Item> getItemById(String id) async {
     try {
-      final data = await _client
-          .from(kItemsTable)
-          .select()
-          .eq('id', id)
-          .single();
-
-      return Item.fromJson(data);
-    } on PostgrestException catch (e) {
-      debugPrint('[ItemsRepository] getItemById failed: ${e.message}');
+      final data = await _client.get('/api/v1/items/$id');
+      return Item.fromJson(data['item'] as Map<String, dynamic>);
+    } catch (e) {
+      debugPrint('[ItemsRepository] getItemById failed: $e');
       rethrow;
     }
   }
 
-  /// Get items with computed warranty status (uses the view).
+  /// Get items with computed warranty status.
+  /// The Express API returns raw items; status is computed client-side.
   Future<List<Item>> getItemsWithStatus({String? homeId}) async {
     try {
-      final userId = requireCurrentUserId();
+      final params = <String, String>{
+        'page': '1',
+        'limit': '1000',
+        'archived': 'false',
+      };
+      if (homeId != null) params['homeId'] = homeId;
 
-      var query = _client
-          .from(kItemsWithStatusView)
-          .select()
-          .eq('user_id', userId);
-
-      if (homeId != null) {
-        query = query.eq('home_id', homeId);
-      }
-
-      final data = await query.order('warranty_end_date', ascending: true);
-      return (data as List).map((json) => Item.fromJson(json)).toList();
-    } on PostgrestException catch (e) {
-      debugPrint('[ItemsRepository] getItemsWithStatus failed: ${e.message}');
+      final data = await _client.get('/api/v1/items', queryParams: params);
+      return (data['items'] as List)
+          .map((json) => Item.fromJson(json as Map<String, dynamic>))
+          .toList();
+    } catch (e) {
+      debugPrint('[ItemsRepository] getItemsWithStatus failed: $e');
       rethrow;
     }
   }
@@ -90,17 +84,10 @@ class ItemsRepository {
   /// Get warranty stats for the dashboard.
   Future<Map<String, dynamic>?> getDashboardSummary() async {
     try {
-      final userId = requireCurrentUserId();
-
-      final data = await _client
-          .from(kDashboardSummaryView)
-          .select()
-          .eq('user_id', userId)
-          .maybeSingle();
-
-      return data;
-    } on PostgrestException catch (e) {
-      debugPrint('[ItemsRepository] getDashboardSummary failed: ${e.message}');
+      final data = await _client.get('/api/v1/stats/dashboard');
+      return data['data'] as Map<String, dynamic>?;
+    } catch (e) {
+      debugPrint('[ItemsRepository] getDashboardSummary failed: $e');
       rethrow;
     }
   }
@@ -108,17 +95,15 @@ class ItemsRepository {
   /// Get items that need attention (expiring + expired).
   Future<List<Item>> getNeedsAttention({int limit = kNeedsAttentionLimit}) async {
     try {
-      final userId = requireCurrentUserId();
+      final data = await _client.get('/api/v1/stats/items-needing-attention',
+          queryParams: {'limit': limit.toString()});
 
-      final data = await _client
-          .from(kNeedsAttentionView)
-          .select()
-          .eq('user_id', userId)
-          .limit(limit);
-
-      return (data as List).map((json) => Item.fromJson(json)).toList();
-    } on PostgrestException catch (e) {
-      debugPrint('[ItemsRepository] getNeedsAttention failed: ${e.message}');
+      final items = data['data'] as List? ?? [];
+      return items
+          .map((json) => Item.fromJson(json as Map<String, dynamic>))
+          .toList();
+    } catch (e) {
+      debugPrint('[ItemsRepository] getNeedsAttention failed: $e');
       rethrow;
     }
   }
@@ -141,14 +126,10 @@ class ItemsRepository {
   /// Count non-archived items (for free plan limit check).
   Future<int> countActiveItems() async {
     try {
-      final userId = requireCurrentUserId();
-
-      final data = await _client
-          .rpc(kCountActiveItemsFn, params: {'p_user_id': userId});
-
-      return data as int? ?? 0;
-    } on PostgrestException catch (e) {
-      debugPrint('[ItemsRepository] countActiveItems failed: ${e.message}');
+      final data = await _client.get('/api/v1/items/count');
+      return data['count'] as int? ?? 0;
+    } catch (e) {
+      debugPrint('[ItemsRepository] countActiveItems failed: $e');
       rethrow;
     }
   }
@@ -160,15 +141,10 @@ class ItemsRepository {
   /// Create a new item.
   Future<Item> createItem(Item item) async {
     try {
-      final data = await _client
-          .from(kItemsTable)
-          .insert(item.toInsertJson())
-          .select()
-          .single();
-
-      return Item.fromJson(data);
-    } on PostgrestException catch (e) {
-      debugPrint('[ItemsRepository] createItem failed: ${e.message}');
+      final data = await _client.post('/api/v1/items', body: item.toInsertJson());
+      return Item.fromJson(data['item'] as Map<String, dynamic>);
+    } catch (e) {
+      debugPrint('[ItemsRepository] createItem failed: $e');
       rethrow;
     }
   }
@@ -181,20 +157,16 @@ class ItemsRepository {
   Future<Item> updateItem(Item item) async {
     try {
       final json = item.toJson();
-      // Remove fields that shouldn't be updated
+      // Remove fields that shouldn't be sent in updates
       json.remove('warranty_end_date');
       json.remove('created_at');
+      json.remove('id');
+      json.remove('user_id');
 
-      final data = await _client
-          .from(kItemsTable)
-          .update(json)
-          .eq('id', item.id)
-          .select()
-          .single();
-
-      return Item.fromJson(data);
-    } on PostgrestException catch (e) {
-      debugPrint('[ItemsRepository] updateItem failed: ${e.message}');
+      final data = await _client.put('/api/v1/items/${item.id}', body: json);
+      return Item.fromJson(data['item'] as Map<String, dynamic>);
+    } catch (e) {
+      debugPrint('[ItemsRepository] updateItem failed: $e');
       rethrow;
     }
   }
@@ -202,12 +174,9 @@ class ItemsRepository {
   /// Archive an item (soft delete — doesn't count toward free limit).
   Future<void> archiveItem(String id) async {
     try {
-      await _client
-          .from(kItemsTable)
-          .update({'is_archived': true})
-          .eq('id', id);
-    } on PostgrestException catch (e) {
-      debugPrint('[ItemsRepository] archiveItem failed: ${e.message}');
+      await _client.put('/api/v1/items/$id', body: {'isArchived': true});
+    } catch (e) {
+      debugPrint('[ItemsRepository] archiveItem failed: $e');
       rethrow;
     }
   }
@@ -215,12 +184,9 @@ class ItemsRepository {
   /// Unarchive an item.
   Future<void> unarchiveItem(String id) async {
     try {
-      await _client
-          .from(kItemsTable)
-          .update({'is_archived': false})
-          .eq('id', id);
-    } on PostgrestException catch (e) {
-      debugPrint('[ItemsRepository] unarchiveItem failed: ${e.message}');
+      await _client.put('/api/v1/items/$id', body: {'isArchived': false});
+    } catch (e) {
+      debugPrint('[ItemsRepository] unarchiveItem failed: $e');
       rethrow;
     }
   }
@@ -232,27 +198,10 @@ class ItemsRepository {
   /// Permanently delete an item.
   Future<void> deleteItem(String id) async {
     try {
-      await _client
-          .from(kItemsTable)
-          .delete()
-          .eq('id', id);
-    } on PostgrestException catch (e) {
-      debugPrint('[ItemsRepository] deleteItem failed: ${e.message}');
+      await _client.delete('/api/v1/items/$id');
+    } catch (e) {
+      debugPrint('[ItemsRepository] deleteItem failed: $e');
       rethrow;
     }
-  }
-
-  // ============================================
-  // REALTIME
-  // ============================================
-
-  /// Watch items changes in realtime.
-  Stream<List<Map<String, dynamic>>> watchItems() {
-    final userId = requireCurrentUserId();
-
-    return _client
-        .from(kItemsTable)
-        .stream(primaryKey: ['id'])
-        .eq('user_id', userId);
   }
 }

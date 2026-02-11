@@ -1,6 +1,6 @@
 /// HavenKeep enum definitions.
 ///
-/// All enum values use snake_case to match Supabase column values exactly.
+/// All enum values use snake_case to match database column values exactly.
 /// Dart's `.name` property returns the snake_case string automatically.
 
 // ============================================

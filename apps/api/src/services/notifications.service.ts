@@ -345,6 +345,65 @@ export class NotificationsService {
   }
 
   /**
+   * Get notification preferences for a user
+   */
+  static async getPreferences(userId: string): Promise<Record<string, any> | null> {
+    try {
+      const result = await pool.query(
+        `SELECT * FROM notification_preferences WHERE user_id = $1`,
+        [userId]
+      );
+
+      return result.rows.length > 0 ? result.rows[0] : null;
+    } catch (error) {
+      logger.error({ error, userId }, 'Error fetching notification preferences');
+      throw error;
+    }
+  }
+
+  /**
+   * Create or update notification preferences for a user
+   */
+  static async upsertPreferences(
+    userId: string,
+    prefs: Record<string, any>
+  ): Promise<Record<string, any>> {
+    try {
+      const result = await pool.query(
+        `INSERT INTO notification_preferences (user_id, reminders_enabled, first_reminder_days, reminder_time, warranty_offers_enabled, tips_enabled, push_enabled, email_enabled)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT (user_id)
+         DO UPDATE SET
+           reminders_enabled = COALESCE($2, notification_preferences.reminders_enabled),
+           first_reminder_days = COALESCE($3, notification_preferences.first_reminder_days),
+           reminder_time = COALESCE($4, notification_preferences.reminder_time),
+           warranty_offers_enabled = COALESCE($5, notification_preferences.warranty_offers_enabled),
+           tips_enabled = COALESCE($6, notification_preferences.tips_enabled),
+           push_enabled = COALESCE($7, notification_preferences.push_enabled),
+           email_enabled = COALESCE($8, notification_preferences.email_enabled)
+         RETURNING *`,
+        [
+          userId,
+          prefs.reminders_enabled ?? true,
+          prefs.first_reminder_days ?? 30,
+          prefs.reminder_time ?? '09:00',
+          prefs.warranty_offers_enabled ?? true,
+          prefs.tips_enabled ?? true,
+          prefs.push_enabled ?? true,
+          prefs.email_enabled ?? true,
+        ]
+      );
+
+      logger.info({ userId }, 'Notification preferences updated');
+
+      return result.rows[0];
+    } catch (error) {
+      logger.error({ error, userId }, 'Error upserting notification preferences');
+      throw error;
+    }
+  }
+
+  /**
    * Delete a notification
    */
   static async deleteNotification(notificationId: string, userId: string): Promise<void> {

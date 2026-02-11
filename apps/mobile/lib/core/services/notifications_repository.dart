@@ -1,10 +1,9 @@
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:api_client/api_client.dart';
 import 'package:shared_models/shared_models.dart';
-import 'package:supabase_client/supabase_client.dart';
 
-/// Handles notification fetching and management.
+/// Handles notification fetching and management via the Express API.
 class NotificationsRepository {
-  final SupabaseClient _client;
+  final ApiClient _client;
 
   NotificationsRepository(this._client);
 
@@ -16,34 +15,26 @@ class NotificationsRepository {
   Future<List<AppNotification>> getNotifications({
     bool unreadOnly = false,
   }) async {
-    final userId = requireCurrentUserId();
-
-    var query = _client
-        .from(kNotificationsTable)
-        .select()
-        .eq('user_id', userId);
+    final params = <String, String>{
+      'limit': '100',
+      'offset': '0',
+    };
 
     if (unreadOnly) {
-      query = query.eq('is_read', false);
+      params['unread'] = 'true';
     }
 
-    final data = await query.order('scheduled_at', ascending: false);
-    return (data as List)
-        .map((json) => AppNotification.fromJson(json))
+    final data = await _client.get('/api/v1/notifications', queryParams: params);
+    final notifications = data['data'] as List;
+    return notifications
+        .map((json) => AppNotification.fromJson(json as Map<String, dynamic>))
         .toList();
   }
 
   /// Get the count of unread notifications.
   Future<int> getUnreadCount() async {
-    final userId = requireCurrentUserId();
-
-    final data = await _client
-        .from(kNotificationsTable)
-        .select('id')
-        .eq('user_id', userId)
-        .eq('is_read', false);
-
-    return (data as List).length;
+    final data = await _client.get('/api/v1/notifications/unread-count');
+    return (data['data'] as Map<String, dynamic>)['count'] as int? ?? 0;
   }
 
   // ============================================
@@ -52,21 +43,12 @@ class NotificationsRepository {
 
   /// Mark a single notification as read.
   Future<void> markAsRead(String notificationId) async {
-    await _client
-        .from(kNotificationsTable)
-        .update({'is_read': true})
-        .eq('id', notificationId);
+    await _client.put('/api/v1/notifications/$notificationId/read');
   }
 
   /// Mark all notifications as read for the current user.
   Future<void> markAllAsRead() async {
-    final userId = requireCurrentUserId();
-
-    await _client
-        .from(kNotificationsTable)
-        .update({'is_read': true})
-        .eq('user_id', userId)
-        .eq('is_read', false);
+    await _client.put('/api/v1/notifications/read-all');
   }
 
   // ============================================
@@ -75,42 +57,21 @@ class NotificationsRepository {
 
   /// Get the current user's notification preferences.
   Future<NotificationPreferences?> getPreferences() async {
-    final userId = requireCurrentUserId();
-
-    final data = await _client
-        .from(kNotificationPreferencesTable)
-        .select()
-        .eq('user_id', userId)
-        .maybeSingle();
-
-    if (data == null) return null;
-    return NotificationPreferences.fromJson(data);
+    final data = await _client.get('/api/v1/notifications/preferences');
+    final prefsData = data['data'];
+    if (prefsData == null) return null;
+    return NotificationPreferences.fromJson(prefsData as Map<String, dynamic>);
   }
 
   /// Create or update notification preferences.
   Future<NotificationPreferences> upsertPreferences(
     NotificationPreferences prefs,
   ) async {
-    final data = await _client
-        .from(kNotificationPreferencesTable)
-        .upsert(prefs.toJson())
-        .select()
-        .single();
-
-    return NotificationPreferences.fromJson(data);
-  }
-
-  // ============================================
-  // REALTIME
-  // ============================================
-
-  /// Watch unread notification count in realtime.
-  Stream<List<Map<String, dynamic>>> watchNotifications() {
-    final userId = requireCurrentUserId();
-
-    return _client
-        .from(kNotificationsTable)
-        .stream(primaryKey: ['id'])
-        .eq('user_id', userId);
+    final data = await _client.put(
+      '/api/v1/notifications/preferences',
+      body: prefs.toJson(),
+    );
+    return NotificationPreferences.fromJson(
+        data['data'] as Map<String, dynamic>);
   }
 }

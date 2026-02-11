@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:api_client/api_client.dart';
 import '../../core/services/partners_repository.dart';
 import '../../core/widgets/havenkeep_logo.dart';
 
-class GiftWelcomeScreen extends StatefulWidget {
+class GiftWelcomeScreen extends ConsumerStatefulWidget {
   final String giftId;
 
   const GiftWelcomeScreen({
@@ -12,11 +14,11 @@ class GiftWelcomeScreen extends StatefulWidget {
   }) : super(key: key);
 
   @override
-  State<GiftWelcomeScreen> createState() => _GiftWelcomeScreenState();
+  ConsumerState<GiftWelcomeScreen> createState() => _GiftWelcomeScreenState();
 }
 
-class _GiftWelcomeScreenState extends State<GiftWelcomeScreen> {
-  final PartnersRepository _partnersRepo = PartnersRepository();
+class _GiftWelcomeScreenState extends ConsumerState<GiftWelcomeScreen> {
+  late final PartnersRepository _partnersRepo = PartnersRepository(ref.read(apiClientProvider));
   bool _isLoading = true;
   String? _error;
   Map<String, dynamic>? _giftData;

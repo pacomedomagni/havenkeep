@@ -16,11 +16,8 @@ dependencies:
     path: ../../packages/shared_models
   shared_ui:
     path: ../../packages/shared_ui
-  supabase_client:
-    path: ../../packages/supabase_client
-
-  # --- Supabase ---
-  supabase_flutter: ^2.0.0
+  api_client:
+    path: ../../packages/api_client
 
   # --- State Management ---
   flutter_riverpod: ^2.0.0

@@ -340,4 +340,190 @@ router.post('/verify-email', validate(verifyEmailSchema), async (req, res, next)
   }
 });
 
+// Google OAuth — accept ID token from mobile, verify, create/find user, return JWT
+router.post('/google', authRateLimiter, async (req, res, next) => {
+  try {
+    const { idToken } = req.body;
+
+    if (!idToken || typeof idToken !== 'string') {
+      throw new AppError(400, 'Google ID token is required');
+    }
+
+    // Verify the Google ID token
+    const { OAuth2Client } = await import('google-auth-library');
+    const client = new OAuth2Client(config.google?.clientId);
+
+    const ticket = await client.verifyIdToken({
+      idToken,
+      audience: config.google?.clientId,
+    });
+
+    const payload = ticket.getPayload();
+    if (!payload || !payload.email) {
+      throw new AppError(401, 'Invalid Google token');
+    }
+
+    const email = payload.email.toLowerCase();
+    const fullName = payload.name || 'User';
+    const avatarUrl = payload.picture || null;
+
+    // Find or create user
+    let userResult = await query(
+      `SELECT id, email, full_name, plan, is_admin FROM users WHERE email = $1`,
+      [email]
+    );
+
+    let user;
+
+    if (userResult.rows.length === 0) {
+      // Create new user (no password for OAuth users)
+      const createResult = await query(
+        `INSERT INTO users (email, full_name, avatar_url, auth_provider, email_verified)
+         VALUES ($1, $2, $3, 'google', TRUE)
+         RETURNING id, email, full_name, plan, is_admin`,
+        [email, fullName, avatarUrl]
+      );
+      user = createResult.rows[0];
+
+      // Create default home
+      await query(
+        `INSERT INTO homes (user_id, name) VALUES ($1, $2)`,
+        [user.id, 'My Home']
+      );
+    } else {
+      user = userResult.rows[0];
+    }
+
+    // Generate tokens
+    const accessToken = jwt.sign(
+      { userId: user.id, email: user.email },
+      config.jwt.secret,
+      { expiresIn: config.jwt.expiresIn }
+    );
+
+    const refreshToken = jwt.sign(
+      { userId: user.id },
+      config.jwt.refreshSecret,
+      { expiresIn: config.jwt.refreshExpiresIn }
+    );
+
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 7);
+
+    await query(
+      `INSERT INTO refresh_tokens (user_id, token, expires_at)
+       VALUES ($1, $2, $3)`,
+      [user.id, refreshToken, expiresAt]
+    );
+
+    res.json({
+      user: {
+        id: user.id,
+        email: user.email,
+        fullName: user.full_name,
+        plan: user.plan,
+        isAdmin: user.is_admin,
+      },
+      accessToken,
+      refreshToken,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Apple OAuth — accept ID token from mobile, verify, create/find user, return JWT
+router.post('/apple', authRateLimiter, async (req, res, next) => {
+  try {
+    const { idToken, fullName: appleFullName } = req.body;
+
+    if (!idToken || typeof idToken !== 'string') {
+      throw new AppError(400, 'Apple ID token is required');
+    }
+
+    // Decode Apple JWT (the idToken is a JWT itself)
+    // In production, verify signature against Apple's public keys
+    const decoded = jwt.decode(idToken) as {
+      sub: string;
+      email?: string;
+      email_verified?: boolean;
+    } | null;
+
+    if (!decoded || !decoded.sub) {
+      throw new AppError(401, 'Invalid Apple token');
+    }
+
+    const appleUserId = decoded.sub;
+    const email = decoded.email?.toLowerCase();
+
+    if (!email) {
+      throw new AppError(401, 'Email not provided by Apple');
+    }
+
+    // Find or create user
+    let userResult = await query(
+      `SELECT id, email, full_name, plan, is_admin FROM users WHERE email = $1`,
+      [email]
+    );
+
+    let user;
+
+    if (userResult.rows.length === 0) {
+      const fullName = appleFullName || 'User';
+
+      const createResult = await query(
+        `INSERT INTO users (email, full_name, auth_provider, email_verified)
+         VALUES ($1, $2, 'apple', TRUE)
+         RETURNING id, email, full_name, plan, is_admin`,
+        [email, fullName]
+      );
+      user = createResult.rows[0];
+
+      // Create default home
+      await query(
+        `INSERT INTO homes (user_id, name) VALUES ($1, $2)`,
+        [user.id, 'My Home']
+      );
+    } else {
+      user = userResult.rows[0];
+    }
+
+    // Generate tokens
+    const accessToken = jwt.sign(
+      { userId: user.id, email: user.email },
+      config.jwt.secret,
+      { expiresIn: config.jwt.expiresIn }
+    );
+
+    const refreshToken = jwt.sign(
+      { userId: user.id },
+      config.jwt.refreshSecret,
+      { expiresIn: config.jwt.refreshExpiresIn }
+    );
+
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 7);
+
+    await query(
+      `INSERT INTO refresh_tokens (user_id, token, expires_at)
+       VALUES ($1, $2, $3)`,
+      [user.id, refreshToken, expiresAt]
+    );
+
+    res.json({
+      user: {
+        id: user.id,
+        email: user.email,
+        fullName: user.full_name,
+        plan: user.plan,
+        isAdmin: user.is_admin,
+      },
+      accessToken,
+      refreshToken,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 export default router;

@@ -11,11 +11,8 @@ class EnvironmentConfig {
   /// The current environment (development, staging, or production).
   final Environment environment;
 
-  /// Supabase project URL.
-  final String supabaseUrl;
-
-  /// Supabase anonymous key for client authentication.
-  final String supabaseAnonKey;
+  /// Base URL for the HavenKeep Express API.
+  final String apiBaseUrl;
 
   /// Loki URL for log aggregation (optional).
   final String? lokiUrl;
@@ -29,9 +26,6 @@ class EnvironmentConfig {
   /// Whether to enable debug logging.
   final bool enableDebugLogging;
 
-  /// Base API URL (same as Supabase URL for now).
-  String get baseApiUrl => supabaseUrl;
-
   /// Whether this is the production environment.
   bool get isProduction => environment.isProduction;
 
@@ -41,29 +35,19 @@ class EnvironmentConfig {
   /// Private constructor with validation.
   EnvironmentConfig._({
     required this.environment,
-    required this.supabaseUrl,
-    required this.supabaseAnonKey,
+    required this.apiBaseUrl,
     this.lokiUrl,
     required this.enableAnalytics,
     required this.enableCrashReporting,
     required this.enableDebugLogging,
   }) {
-    // Validate Supabase URL
-    if (!supabaseUrl.startsWith('http://') &&
-        !supabaseUrl.startsWith('https://')) {
+    // Validate API base URL
+    if (!apiBaseUrl.startsWith('http://') &&
+        !apiBaseUrl.startsWith('https://')) {
       throw StateError(
-        'Invalid SUPABASE_URL: must start with http:// or https://. Got: $supabaseUrl',
+        'Invalid API_BASE_URL: must start with http:// or https://. Got: $apiBaseUrl',
       );
     }
-
-    // Validate Supabase anon key
-    if (supabaseAnonKey.isEmpty || supabaseAnonKey == 'your-anon-key-here') {
-      throw StateError(
-        'Invalid SUPABASE_ANON_KEY: must not be empty or placeholder value',
-      );
-    }
-
-    // Loki URL is optional - logs will just be local if not provided
   }
 
   /// Factory constructor that loads configuration from environment variables.
@@ -72,13 +56,8 @@ class EnvironmentConfig {
   /// .env file for the current environment.
   factory EnvironmentConfig.fromEnvironment(Environment env) {
     // Get required values with validation
-    final supabaseUrl = dotenv.get(
-      'SUPABASE_URL',
-      fallback: '',
-    );
-
-    final supabaseAnonKey = dotenv.get(
-      'SUPABASE_ANON_KEY',
+    final apiBaseUrl = dotenv.get(
+      'API_BASE_URL',
       fallback: '',
     );
 
@@ -92,8 +71,7 @@ class EnvironmentConfig {
 
     return EnvironmentConfig._(
       environment: env,
-      supabaseUrl: supabaseUrl,
-      supabaseAnonKey: supabaseAnonKey,
+      apiBaseUrl: apiBaseUrl,
       lokiUrl: lokiUrl,
       enableAnalytics: enableAnalytics,
       enableCrashReporting: enableCrashReporting,
@@ -105,7 +83,7 @@ class EnvironmentConfig {
   String toString() {
     return 'EnvironmentConfig('
         'environment: ${environment.name}, '
-        'supabaseUrl: $supabaseUrl, '
+        'apiBaseUrl: $apiBaseUrl, '
         'enableAnalytics: $enableAnalytics, '
         'enableCrashReporting: $enableCrashReporting, '
         'enableDebugLogging: $enableDebugLogging'

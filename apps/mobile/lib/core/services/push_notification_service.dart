@@ -3,8 +3,7 @@ import 'dart:async';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
-import 'package:supabase_client/supabase_client.dart';
+import 'package:api_client/api_client.dart';
 
 import '../router/router.dart';
 import 'notification_display_service.dart';
@@ -13,7 +12,7 @@ import 'notification_display_service.dart';
 ///
 /// Responsibilities:
 /// - Request notification permission from the user
-/// - Obtain and register the FCM device token with Supabase
+/// - Obtain and register the FCM device token with the Express API
 /// - Listen for foreground and background messages
 /// - Handle notification tap navigation
 class PushNotificationService {
@@ -76,7 +75,7 @@ class PushNotificationService {
     }
   }
 
-  /// Register the user's FCM token with the Supabase backend.
+  /// Register the user's FCM token with the backend.
   Future<void> registerToken(String userId) async {
     try {
       final messaging = FirebaseMessaging.instance;
@@ -89,21 +88,19 @@ class PushNotificationService {
     }
   }
 
-  /// Save the FCM token to the `user_push_tokens` table in Supabase.
+  /// Save the FCM token via the Express API.
   Future<void> _registerTokenWithBackend(
     String token, {
     String? userId,
   }) async {
     try {
-      final client = _ref.read(supabaseClientProvider);
-      await client.from('user_push_tokens').upsert({
-        'user_id': userId ?? client.auth.currentUser?.id,
-        'fcm_token': token,
+      final client = _ref.read(apiClientProvider);
+      await client.post('/api/v1/users/push-token', body: {
+        'fcmToken': token,
         'platform': defaultTargetPlatform.name,
-        'updated_at': DateTime.now().toIso8601String(),
-      }, onConflict: 'user_id, fcm_token');
+      });
     } catch (e) {
-      debugPrint('[Push] Failed to save token to Supabase: $e');
+      debugPrint('[Push] Failed to save token to backend: $e');
     }
   }
 

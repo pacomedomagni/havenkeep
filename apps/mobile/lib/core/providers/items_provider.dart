@@ -2,19 +2,19 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_models/shared_models.dart';
-import 'package:supabase_client/supabase_client.dart';
+import 'package:api_client/api_client.dart';
 import '../services/items_repository.dart';
 import '../services/category_repository.dart';
 import 'auth_provider.dart';
 
 /// Provides the items repository instance.
 final itemsRepositoryProvider = Provider<ItemsRepository>((ref) {
-  return ItemsRepository(ref.read(supabaseClientProvider));
+  return ItemsRepository(ref.read(apiClientProvider));
 });
 
 /// Provides the category repository instance (reference data).
 final categoryRepositoryProvider = Provider<CategoryRepository>((ref) {
-  return CategoryRepository(ref.read(supabaseClientProvider));
+  return CategoryRepository(ref.read(apiClientProvider));
 });
 
 /// All non-archived items for the current user.

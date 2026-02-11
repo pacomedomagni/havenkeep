@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:api_client/api_client.dart';
 import '../../core/services/partners_repository.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/widgets/celebration_overlay.dart';
@@ -18,7 +19,7 @@ class GiftActivationScreen extends ConsumerStatefulWidget {
 }
 
 class _GiftActivationScreenState extends ConsumerState<GiftActivationScreen> {
-  final PartnersRepository _partnersRepo = PartnersRepository();
+  late final PartnersRepository _partnersRepo = PartnersRepository(ref.read(apiClientProvider));
   bool _isActivating = false;
   String? _error;
   bool _showCelebration = false;

@@ -27,6 +27,9 @@ import partnersRoutes from './routes/partners';
 import maintenanceRoutes from './routes/maintenance';
 import notificationsRoutes from './routes/notifications';
 import warrantyPurchasesRoutes from './routes/warranty-purchases';
+import categoriesRoutes from './routes/categories';
+import uploadsRoutes from './routes/uploads';
+import receiptsRoutes from './routes/receipts';
 
 // Validate environment before starting
 validateEnvironment();
@@ -97,6 +100,9 @@ apiV1.use('/partners', partnersRoutes);
 apiV1.use('/maintenance', maintenanceRoutes);
 apiV1.use('/notifications', notificationsRoutes);
 apiV1.use('/warranty-purchases', warrantyPurchasesRoutes);
+apiV1.use('/categories', categoriesRoutes);
+apiV1.use('/uploads', uploadsRoutes);
+apiV1.use('/receipts', receiptsRoutes);
 
 app.use('/api/v1', apiV1);
 

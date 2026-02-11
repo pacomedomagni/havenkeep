@@ -52,6 +52,29 @@ router.put('/me', validate(updateUserSchema), async (req, res, next) => {
   }
 });
 
+// Register push notification token
+router.post('/push-token', async (req, res, next) => {
+  try {
+    const { fcmToken, platform } = req.body;
+
+    if (!fcmToken || typeof fcmToken !== 'string') {
+      return res.status(400).json({ error: 'fcmToken is required' });
+    }
+
+    await query(
+      `INSERT INTO user_push_tokens (user_id, fcm_token, platform, updated_at)
+       VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (user_id, fcm_token)
+       DO UPDATE SET platform = $3, updated_at = NOW()`,
+      [req.user!.id, fcmToken, platform || 'unknown']
+    );
+
+    res.json({ message: 'Push token registered' });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Change password
 router.put('/me/password', validate(changePasswordSchema), async (req, res, next) => {
   try {

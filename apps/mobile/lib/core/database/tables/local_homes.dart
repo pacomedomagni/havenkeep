@@ -1,6 +1,6 @@
 import 'package:drift/drift.dart';
 
-/// Drift table mirroring the Supabase `homes` table for offline storage.
+/// Drift table mirroring the `homes` table for offline storage.
 class LocalHomes extends Table {
   TextColumn get id => text()();
   TextColumn get userId => text()();

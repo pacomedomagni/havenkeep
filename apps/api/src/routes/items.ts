@@ -17,6 +17,22 @@ const ALLOWED_UPDATE_FIELDS = new Set([
   'warranty_provider', 'notes', 'is_archived', 'product_image_url', 'barcode'
 ]);
 
+// Get active item count (for free plan limit check)
+router.get('/count', async (req: AuthRequest, res, next) => {
+  try {
+    const result = await query(
+      `SELECT COUNT(*) FROM items WHERE user_id = $1 AND is_archived = FALSE`,
+      [req.user!.id]
+    );
+
+    res.json({
+      count: parseInt(result.rows[0].count, 10),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Get all items for user (with pagination)
 router.get('/', validate(paginationSchema, 'query'), async (req: AuthRequest, res, next) => {
   try {

@@ -2,13 +2,13 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_models/shared_models.dart';
-import 'package:supabase_client/supabase_client.dart';
+import 'package:api_client/api_client.dart';
 import '../services/notifications_repository.dart';
 import 'auth_provider.dart';
 
 /// Provides the notifications repository instance.
 final notificationsRepositoryProvider = Provider<NotificationsRepository>((ref) {
-  return NotificationsRepository(ref.read(supabaseClientProvider));
+  return NotificationsRepository(ref.read(apiClientProvider));
 });
 
 /// All notifications for the current user.
