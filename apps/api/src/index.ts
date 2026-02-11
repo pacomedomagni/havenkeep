@@ -20,6 +20,10 @@ import documentsRoutes from './routes/documents';
 import barcodeRoutes from './routes/barcode';
 import adminRoutes from './routes/admin';
 import healthRoutes from './routes/health';
+import warrantyClaimsRoutes from './routes/warranty-claims';
+import statsRoutes from './routes/stats';
+import emailScannerRoutes from './routes/email-scanner';
+import partnersRoutes from './routes/partners';
 
 // Validate environment before starting
 validateEnvironment();
@@ -83,6 +87,10 @@ apiV1.use('/items', itemsRoutes);
 apiV1.use('/documents', documentsRoutes);
 apiV1.use('/barcode', barcodeRoutes);
 apiV1.use('/admin', adminRoutes);
+apiV1.use('/warranty-claims', warrantyClaimsRoutes);
+apiV1.use('/stats', statsRoutes);
+apiV1.use('/email-scanner', emailScannerRoutes);
+apiV1.use('/partners', partnersRoutes);
 
 app.use('/api/v1', apiV1);
 

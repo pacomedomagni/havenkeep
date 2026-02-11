@@ -44,11 +44,23 @@ export const config = {
     webhookSecret: process.env.STRIPE_WEBHOOK_SECRET || '',
     premiumPriceId: process.env.STRIPE_PRICE_ID_PREMIUM || '',
   },
-  
+
+  sendgrid: {
+    apiKey: process.env.SENDGRID_API_KEY || '',
+    fromEmail: process.env.SENDGRID_FROM_EMAIL || 'noreply@havenkeep.com',
+    replyToEmail: process.env.SENDGRID_REPLY_TO_EMAIL || 'support@havenkeep.com',
+  },
+
+  app: {
+    baseUrl: process.env.APP_BASE_URL || 'http://localhost:3000',
+    dashboardUrl: process.env.DASHBOARD_URL || 'http://localhost:3001',
+    apiUrl: process.env.API_URL || 'http://localhost:3000',
+  },
+
   cors: {
     origins: (process.env.CORS_ORIGINS || 'http://localhost:3000,http://localhost:3001').split(','),
   },
-  
+
   rateLimit: {
     windowMs: 15 * 60 * 1000, // 15 minutes
     max: 100, // limit each IP to 100 requests per windowMs

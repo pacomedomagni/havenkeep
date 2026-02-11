@@ -4,19 +4,20 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
   HomeIcon,
-  UsersIcon,
+  GiftIcon,
   ChartBarIcon,
+  BanknotesIcon,
   Cog6ToothIcon,
   ArrowRightOnRectangleIcon,
 } from '@heroicons/react/24/outline'
-import { createClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 
 const navigation = [
-  { name: 'Dashboard', href: '/', icon: HomeIcon },
-  { name: 'Users', href: '/users', icon: UsersIcon },
-  { name: 'Analytics', href: '/analytics', icon: ChartBarIcon },
-  { name: 'Settings', href: '/settings', icon: Cog6ToothIcon },
+  { name: 'Dashboard', href: '/dashboard', icon: HomeIcon },
+  { name: 'Closing Gifts', href: '/dashboard/gifts', icon: GiftIcon },
+  { name: 'Analytics', href: '/dashboard/partner-analytics', icon: ChartBarIcon },
+  { name: 'Commissions', href: '/dashboard/partner-commissions', icon: BanknotesIcon },
+  { name: 'Settings', href: '/dashboard/partner-settings', icon: Cog6ToothIcon },
 ]
 
 export default function Sidebar() {
@@ -24,8 +25,7 @@ export default function Sidebar() {
   const router = useRouter()
 
   const handleSignOut = async () => {
-    const supabase = createClient()
-    await supabase.auth.signOut()
+    localStorage.removeItem('token')
     router.push('/login')
     router.refresh()
   }
