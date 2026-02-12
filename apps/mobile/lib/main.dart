@@ -72,7 +72,10 @@ Future<void> main() async {
     ProviderScope(
       overrides: [
         environmentConfigProvider.overrideWithValue(config),
-        apiClientProvider.overrideWithValue(apiClient),
+        apiClientProvider.overrideWith((ref) {
+          ref.onDispose(() => apiClient.dispose());
+          return apiClient;
+        }),
       ],
       child: const HavenKeepApp(),
     ),

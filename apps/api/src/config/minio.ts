@@ -54,8 +54,13 @@ export function generateObjectKey(userId: string, itemId: string, filename: stri
   return `documents/${userId}/${itemId}/${timestamp}-${sanitizedFilename}`;
 }
 
-// Helper to get public URL
+// Helper to get public URL (for public/* paths only)
 export function getPublicUrl(objectKey: string): string {
   const protocol = config.minio.useSSL ? 'https' : 'http';
   return `${protocol}://${config.minio.endpoint}:${config.minio.port}/${BUCKET_NAME}/${objectKey}`;
+}
+
+// Generate a pre-signed URL for private documents (expires in 1 hour by default)
+export async function getSignedUrl(objectKey: string, expirySeconds = 3600): Promise<string> {
+  return minioClient.presignedGetObject(BUCKET_NAME, objectKey, expirySeconds);
 }

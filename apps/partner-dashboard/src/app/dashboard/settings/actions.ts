@@ -1,18 +1,8 @@
 'use server';
 
-import { createClient } from '@/lib/supabase/server';
+import { serverApiClient } from '@/lib/auth';
 
 export async function updatePartnerProfile(formData: FormData) {
-  const supabase = createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return { error: 'Not authenticated' };
-  }
-
   const companyName = formData.get('companyName') as string;
   const partnerType = formData.get('partnerType') as string;
   const licenseNumber = formData.get('licenseNumber') as string;
@@ -23,19 +13,19 @@ export async function updatePartnerProfile(formData: FormData) {
     .map((area) => area.trim())
     .filter(Boolean);
 
-  const { error } = await supabase
-    .from('referral_partners')
-    .update({
-      company_name: companyName,
-      partner_type: partnerType,
-      license_number: licenseNumber || null,
-      service_areas: serviceAreas,
-    })
-    .eq('user_id', user.id);
+  try {
+    await serverApiClient('/api/v1/partners/me', {
+      method: 'PUT',
+      body: {
+        companyName,
+        partnerType,
+        phone: licenseNumber || undefined,
+        serviceAreas,
+      },
+    });
 
-  if (error) {
-    return { error: error.message };
+    return { success: true };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : 'Failed to update profile' };
   }
-
-  return { success: true };
 }

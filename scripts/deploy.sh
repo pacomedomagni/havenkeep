@@ -90,10 +90,13 @@ migrate_database() {
 
   # Create backup before migration
   echo "Creating database backup..."
-  supabase db dump --project-ref "$SUPABASE_PROJECT_REF" > "backups/backup-$(date +%Y%m%d-%H%M%S).sql"
+  mkdir -p backups
+  pg_dump "$DATABASE_URL" > "backups/backup-$(date +%Y%m%d-%H%M%S).sql"
 
-  # Run migrations
-  supabase db push --project-ref "$SUPABASE_PROJECT_REF"
+  # Run migrations via Express API migration runner
+  cd apps/api
+  npx ts-node src/db/migrations/run-migration.ts
+  cd ../..
 
   echo -e "${GREEN}✅ Migrations complete${NC}"
 }
@@ -116,11 +119,11 @@ health_check() {
     echo -e "${RED}❌ Admin dashboard is down${NC}"
   fi
 
-  # Check Supabase API
-  if curl -f -s "$SUPABASE_URL/rest/v1/" -H "apikey: $SUPABASE_ANON_KEY" > /dev/null; then
-    echo -e "${GREEN}✅ Supabase API is up${NC}"
+  # Check Express API
+  if curl -f -s "$API_URL/api/v1/health" > /dev/null 2>&1; then
+    echo -e "${GREEN}✅ Express API is up${NC}"
   else
-    echo -e "${RED}❌ Supabase API is down${NC}"
+    echo -e "${RED}❌ Express API is down${NC}"
   fi
 }
 

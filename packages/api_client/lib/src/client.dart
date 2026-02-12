@@ -88,6 +88,17 @@ class ApiClient {
       _userId = await _storage.read(key: _keyUserId);
 
       if (_accessToken != null && refreshToken != null && _userId != null) {
+        // Validate JWT expiration before accepting the restored token
+        if (_isTokenExpired(_accessToken!)) {
+          debugPrint('[ApiClient] Stored access token is expired, refreshing...');
+          try {
+            await refreshAccessToken();
+            return true;
+          } catch (_) {
+            await clearTokens();
+            return false;
+          }
+        }
         _authStateController.add(ApiAuthState.signedIn);
         return true;
       }
@@ -107,6 +118,41 @@ class ApiClient {
     } catch (e) {
       debugPrint('[ApiClient] Failed to restore session: $e');
       return false;
+    }
+  }
+
+  /// Decode a JWT and check if the `exp` claim indicates the token is expired.
+  bool _isTokenExpired(String token) {
+    try {
+      final parts = token.split('.');
+      if (parts.length != 3) return true;
+
+      // Decode the payload (second segment)
+      String payload = parts[1];
+      // Pad to multiple of 4 for base64 decoding
+      switch (payload.length % 4) {
+        case 2:
+          payload += '==';
+          break;
+        case 3:
+          payload += '=';
+          break;
+      }
+
+      final decoded = utf8.decode(base64Url.decode(payload));
+      final claims = jsonDecode(decoded) as Map<String, dynamic>;
+      final exp = claims['exp'] as int?;
+
+      if (exp == null) return true;
+
+      final expirationDate = DateTime.fromMillisecondsSinceEpoch(exp * 1000);
+      // Consider expired if less than 30 seconds remaining
+      return DateTime.now().isAfter(
+        expirationDate.subtract(const Duration(seconds: 30)),
+      );
+    } catch (e) {
+      debugPrint('[ApiClient] Failed to decode JWT for expiration check: $e');
+      return true;
     }
   }
 
@@ -302,6 +348,8 @@ class ApiClient {
         Uri.parse('$baseUrl$path'),
       );
 
+      // Use _accessToken at request time (not closure capture time)
+      // so that after a token refresh, the new token is used.
       if (_accessToken != null) {
         request.headers['Authorization'] = 'Bearer $_accessToken';
       }

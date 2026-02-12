@@ -22,7 +22,12 @@ export function csrfProtection(req: Request, res: Response, next: NextFunction) 
   const tokenFromHeader = req.get(CSRF_HEADER);
   const tokenFromCookie = req.cookies?.[CSRF_COOKIE];
 
-  if (!tokenFromHeader || !tokenFromCookie || tokenFromHeader !== tokenFromCookie) {
+  if (
+    !tokenFromHeader ||
+    !tokenFromCookie ||
+    tokenFromHeader.length !== tokenFromCookie.length ||
+    !crypto.timingSafeEqual(Buffer.from(tokenFromHeader), Buffer.from(tokenFromCookie))
+  ) {
     res.status(403).json({ error: 'Invalid CSRF token', statusCode: 403 });
     return;
   }

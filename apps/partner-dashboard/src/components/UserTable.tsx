@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { TrashIcon, NoSymbolIcon } from '@heroicons/react/24/outline'
+import { apiClient } from '@/lib/api'
 
 interface User {
   id: string
@@ -37,13 +38,9 @@ export default function UserTable({ users: initialUsers }: UserTableProps) {
     if (!confirm('Are you sure you want to suspend this user?')) return
 
     try {
-      const response = await fetch('/api/users/suspend', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId }),
+      await apiClient(`/api/v1/admin/users/${userId}/suspend`, {
+        method: 'PUT',
       })
-
-      if (!response.ok) throw new Error('Failed to suspend user')
 
       alert('User suspended successfully')
     } catch {
@@ -55,13 +52,9 @@ export default function UserTable({ users: initialUsers }: UserTableProps) {
     if (!confirm('Are you sure you want to delete this user? This action cannot be undone.')) return
 
     try {
-      const response = await fetch('/api/users/delete', {
+      await apiClient(`/api/v1/admin/users/${userId}`, {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId }),
       })
-
-      if (!response.ok) throw new Error('Failed to delete user')
 
       setUsers(users.filter(u => u.id !== userId))
       alert('User deleted successfully')

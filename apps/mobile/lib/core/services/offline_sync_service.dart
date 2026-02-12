@@ -1,6 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
+import 'dart:math' as math;
 
+import 'package:api_client/api_client.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
@@ -8,13 +11,18 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_models/shared_models.dart';
 
 import '../database/database.dart';
+import '../providers/documents_provider.dart';
 import '../providers/items_provider.dart';
+import '../utils/conflict_resolver.dart';
 
 /// Maximum number of retry attempts for a single queued action.
 const _kMaxRetries = 3;
 
-/// Delay between processing individual queue entries.
-const _kProcessDelay = Duration(milliseconds: 300);
+/// Base delay in milliseconds for exponential backoff.
+const _kBaseDelayMs = 300;
+
+/// Maximum delay cap in milliseconds for exponential backoff.
+const _kMaxDelayMs = 30000;
 
 /// Manages offline sync — listens for connectivity changes and processes
 /// pending queue entries when the device comes online.
@@ -63,6 +71,23 @@ class OfflineSyncService {
     ));
   }
 
+  /// Whether a status code is a client error that should not be retried.
+  bool _isNonRetriableClientError(int statusCode) {
+    return statusCode == 400 ||
+        statusCode == 401 ||
+        statusCode == 403 ||
+        statusCode == 404;
+  }
+
+  /// Compute exponential backoff delay for the given attempt number.
+  Duration _backoffDelay(int attempts) {
+    final delayMs = math.min(
+      _kBaseDelayMs * math.pow(2, attempts).toInt(),
+      _kMaxDelayMs,
+    );
+    return Duration(milliseconds: delayMs);
+  }
+
   /// Process all pending queue entries in FIFO order.
   Future<void> syncPendingChanges() async {
     if (_isSyncing) return;
@@ -80,18 +105,33 @@ class OfflineSyncService {
         try {
           await _processEntry(entry);
           await _db.markActionSynced(entry.id);
+        } on ApiException catch (e) {
+          debugPrint('[OfflineSync] Failed to sync entry ${entry.id}: $e');
+
+          // Don't retry on 4xx client errors - mark as failed immediately
+          if (_isNonRetriableClientError(e.statusCode)) {
+            await _db.markActionFailed(entry.id, entry.attempts + 1);
+            continue;
+          }
+
+          await _db.markActionFailed(entry.id, entry.attempts + 1);
+
+          // If it's a retriable error (5xx / network), re-queue for later
+          if (entry.attempts + 1 < _kMaxRetries) {
+            await _db.retryAction(entry.id);
+          }
         } catch (e) {
           debugPrint('[OfflineSync] Failed to sync entry ${entry.id}: $e');
           await _db.markActionFailed(entry.id, entry.attempts + 1);
 
-          // If it's a retriable error, re-queue for later
+          // Network errors are retriable
           if (entry.attempts + 1 < _kMaxRetries) {
             await _db.retryAction(entry.id);
           }
         }
 
-        // Small delay between entries to avoid hammering the API
-        await Future.delayed(_kProcessDelay);
+        // Exponential backoff delay between entries
+        await Future.delayed(_backoffDelay(entry.attempts));
       }
 
       // Clean up synced entries
@@ -121,7 +161,16 @@ class OfflineSyncService {
 
       case OfflineAction.update_item:
         final item = Item.fromJson(payload);
-        await _ref.read(itemsRepositoryProvider).updateItem(item);
+        try {
+          await _ref.read(itemsRepositoryProvider).updateItem(item);
+        } on ApiException catch (e) {
+          if (e.isConflict) {
+            // 409 Conflict: server version differs — resolve using ConflictResolver
+            await _resolveUpdateConflict(item);
+          } else {
+            rethrow;
+          }
+        }
         break;
 
       case OfflineAction.delete_item:
@@ -131,11 +180,7 @@ class OfflineSyncService {
         break;
 
       case OfflineAction.create_document:
-        // Document upload requires file path — store path in payload
-        // and re-attempt upload when online.
-        debugPrint(
-          '[OfflineSync] Document upload queued — will attempt on next sync.',
-        );
+        await _processDocumentUpload(entry, payload);
         break;
 
       case OfflineAction.update_preferences:
@@ -145,6 +190,79 @@ class OfflineSyncService {
         );
         break;
     }
+  }
+
+  /// Resolve a 409 conflict for an update_item action using ConflictResolver.
+  Future<void> _resolveUpdateConflict(Item localItem) async {
+    try {
+      // Fetch the current server version
+      final serverItem = await _ref
+          .read(itemsRepositoryProvider)
+          .getItemById(localItem.id);
+
+      final conflict = Conflict<Item>(
+        localVersion: localItem,
+        serverVersion: serverItem,
+      );
+
+      // Auto-resolve using mostRecent strategy
+      final resolved = ConflictResolver.resolveItem(
+        conflict,
+        ConflictResolutionStrategy.mostRecent,
+      );
+
+      // Push the resolved version to the server
+      await _ref.read(itemsRepositoryProvider).updateItem(resolved);
+
+      debugPrint(
+        '[OfflineSync] Conflict resolved for item ${localItem.id} using mostRecent strategy.',
+      );
+    } catch (e) {
+      debugPrint('[OfflineSync] Conflict resolution failed for item ${localItem.id}: $e');
+      rethrow;
+    }
+  }
+
+  /// Process a queued document upload action.
+  Future<void> _processDocumentUpload(
+    OfflineQueueData entry,
+    Map<String, dynamic> payload,
+  ) async {
+    final filePath = payload['filePath'] as String?;
+    final itemId = payload['itemId'] as String?;
+    final fileName = payload['fileName'] as String?;
+    final typeStr = payload['type'] as String?;
+
+    if (filePath == null || itemId == null) {
+      debugPrint(
+        '[OfflineSync] Document upload entry ${entry.id} missing required fields.',
+      );
+      throw ApiException(400, 'Missing filePath or itemId in payload');
+    }
+
+    // Check if the file still exists on disk
+    final file = File(filePath);
+    if (!file.existsSync()) {
+      debugPrint(
+        '[OfflineSync] File no longer exists at $filePath — marking entry ${entry.id} as failed.',
+      );
+      throw ApiException(400, 'File no longer exists at $filePath');
+    }
+
+    final docType = typeStr != null
+        ? DocumentType.fromJson(typeStr)
+        : DocumentType.other;
+
+    await _ref.read(documentsRepositoryProvider).uploadDocument(
+          itemId: itemId,
+          filePath: filePath,
+          fileName: fileName ?? file.uri.pathSegments.last,
+          type: docType,
+        );
+
+    debugPrint(
+      '[OfflineSync] Document uploaded successfully for item $itemId.',
+    );
   }
 }
 

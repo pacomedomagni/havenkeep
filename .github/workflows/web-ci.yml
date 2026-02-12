@@ -71,8 +71,7 @@ jobs:
         working-directory: apps/partner-dashboard
         run: npm run build
         env:
-          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder_key
+          API_URL: http://localhost:3000
 
   deploy-staging:
     name: Deploy to Staging
@@ -132,8 +131,7 @@ jobs:
           npx vercel deploy --prod --token=${{ secrets.VERCEL_TOKEN }}
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          API_URL: ${{ secrets.API_URL }}
 
       - name: Notify deployment
         run: |

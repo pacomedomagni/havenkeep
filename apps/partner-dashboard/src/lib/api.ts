@@ -1,5 +1,3 @@
-import { createClient } from '@/lib/supabase';
-
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || '';
 
 interface ApiOptions {
@@ -8,22 +6,22 @@ interface ApiOptions {
   headers?: Record<string, string>;
 }
 
+/**
+ * Client-side API helper. JWT is stored in httpOnly cookies,
+ * so credentials are included automatically on same-origin requests
+ * that go through the Next.js rewrite proxy (/api/v1/*).
+ */
 export async function apiClient<T = any>(
   endpoint: string,
   options: ApiOptions = {}
 ): Promise<{ success: boolean; data?: T; message?: string; pagination?: any; error?: string }> {
-  const supabase = createClient();
-  const { data: { session } } = await supabase.auth.getSession();
-
-  const token = session?.access_token;
-
   const { method = 'GET', body, headers = {} } = options;
 
   const fetchOptions: RequestInit = {
     method,
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...headers,
     },
   };
@@ -54,4 +52,12 @@ export class ApiError extends Error {
     super(message);
     this.name = 'ApiError';
   }
+}
+
+/**
+ * Client-side logout — calls the server action to clear cookies and invalidate tokens.
+ */
+export async function logout(): Promise<void> {
+  await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+  window.location.href = '/login';
 }

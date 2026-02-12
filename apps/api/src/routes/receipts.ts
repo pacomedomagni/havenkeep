@@ -19,11 +19,11 @@ router.post(
     const { image } = req.body;
 
     if (!image || typeof image !== 'string') {
-      throw new AppError(400, 'Base64 image is required');
+      throw new AppError('Base64 image is required', 400);
     }
 
     if (!config.openai?.apiKey) {
-      throw new AppError(503, 'Receipt scanning is not configured');
+      throw new AppError('Receipt scanning is not configured', 503);
     }
 
     // Call OpenAI Vision API to extract receipt data
@@ -66,14 +66,14 @@ If you cannot extract a field, use null.`,
 
     if (!response.ok) {
       logger.error({ status: response.status }, 'OpenAI receipt scan failed');
-      throw new AppError(502, 'Receipt scanning service unavailable');
+      throw new AppError('Receipt scanning service unavailable', 502);
     }
 
     const data = await response.json() as any;
     const content = data.choices?.[0]?.message?.content;
 
     if (!content) {
-      throw new AppError(502, 'Empty response from receipt scanner');
+      throw new AppError('Empty response from receipt scanner', 502);
     }
 
     let extracted;
@@ -81,7 +81,7 @@ If you cannot extract a field, use null.`,
       extracted = JSON.parse(content);
     } catch {
       logger.warn({ content }, 'Failed to parse receipt scan response');
-      throw new AppError(502, 'Could not parse receipt data');
+      throw new AppError('Could not parse receipt data', 502);
     }
 
     res.json({

@@ -122,6 +122,23 @@ export const uploadDocumentSchema = Joi.object({
   type: Joi.string().valid('receipt', 'warranty_card', 'manual', 'invoice', 'other').default('other'),
 });
 
+// Push Token Validators
+export const pushTokenSchema = Joi.object({
+  fcmToken: Joi.string().min(1).max(512).required(),
+  platform: Joi.string().valid('ios', 'android', 'web', 'unknown').default('unknown'),
+});
+
+// Engagement Tracking Validators
+export const trackEngagementSchema = Joi.object({
+  type: Joi.string().min(1).max(100).required(),
+  session_duration: Joi.number().integer().min(0).max(86400).allow(null),
+});
+
+// Feature Tracking Validators
+export const trackFeatureSchema = Joi.object({
+  feature: Joi.string().min(1).max(100).required(),
+});
+
 // Query Validators
 export const paginationSchema = Joi.object({
   page: Joi.number().integer().min(1).default(1),

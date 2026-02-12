@@ -1,49 +1,46 @@
 import Header from '@/components/Header'
 import StatsCard from '@/components/StatsCard'
-import { createServerSupabaseClient } from '@/lib/supabase-server'
+import { serverApiClient } from '@/lib/auth'
 import { UsersIcon, CubeIcon, CurrencyDollarIcon, ChartBarIcon } from '@heroicons/react/24/outline'
 
 async function getAdminStats() {
-  const supabase = await createServerSupabaseClient()
-
-  const { data: stats } = await supabase
-    .from('admin_stats')
-    .select('*')
-    .single()
-
-  return stats || {
-    total_users: 0,
-    premium_users: 0,
-    total_items: 0,
-    items_last_24h: 0,
-    signups_last_24h: 0,
-    signups_last_7d: 0,
-    signups_last_30d: 0,
-    total_value_protected: 0,
-    dau: 0,
-    wau: 0,
-    mau: 0,
+  try {
+    const { stats } = await serverApiClient<{ stats: any }>('/api/v1/admin/stats/full')
+    return stats
+  } catch {
+    return {
+      total_users: 0,
+      premium_users: 0,
+      total_items: 0,
+      items_last_24h: 0,
+      signups_last_24h: 0,
+      signups_last_7d: 0,
+      signups_last_30d: 0,
+      total_value_protected: 0,
+      dau: 0,
+      wau: 0,
+      mau: 0,
+    }
   }
 }
 
 async function getRecentUsers() {
-  const supabase = await createServerSupabaseClient()
-
-  const { data: users } = await supabase
-    .from('users')
-    .select('id, email, full_name, created_at, plan')
-    .order('created_at', { ascending: false })
-    .limit(5)
-
-  return users || []
+  try {
+    const { users } = await serverApiClient<{ users: any[] }>('/api/v1/admin/users?page=1&limit=5')
+    return users || []
+  } catch {
+    return []
+  }
 }
 
 export default async function DashboardPage() {
-  const stats = await getAdminStats()
-  const recentUsers = await getRecentUsers()
+  const [stats, recentUsers] = await Promise.all([
+    getAdminStats(),
+    getRecentUsers(),
+  ])
 
-  const premiumPercentage = stats.total_users > 0
-    ? ((stats.premium_users / stats.total_users) * 100).toFixed(1)
+  const premiumPercentage = Number(stats.total_users) > 0
+    ? ((Number(stats.premium_users) / Number(stats.total_users)) * 100).toFixed(1)
     : '0.0'
 
   return (
@@ -58,17 +55,17 @@ export default async function DashboardPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           <StatsCard
             title="Total Users"
-            value={stats.total_users.toLocaleString()}
+            value={Number(stats.total_users).toLocaleString()}
             change={{
               value: `${stats.signups_last_7d} this week`,
-              positive: stats.signups_last_7d > 0,
+              positive: Number(stats.signups_last_7d) > 0,
             }}
             icon={<UsersIcon className="h-6 w-6 text-haven-primary" />}
           />
 
           <StatsCard
             title="Premium Users"
-            value={stats.premium_users.toLocaleString()}
+            value={Number(stats.premium_users).toLocaleString()}
             change={{
               value: `${premiumPercentage}% conversion`,
               positive: parseFloat(premiumPercentage) > 10,
@@ -78,20 +75,20 @@ export default async function DashboardPage() {
 
           <StatsCard
             title="Total Items"
-            value={stats.total_items.toLocaleString()}
+            value={Number(stats.total_items).toLocaleString()}
             change={{
               value: `${stats.items_last_24h} today`,
-              positive: stats.items_last_24h > 0,
+              positive: Number(stats.items_last_24h) > 0,
             }}
             icon={<CubeIcon className="h-6 w-6 text-haven-primary" />}
           />
 
           <StatsCard
             title="Daily Active Users"
-            value={stats.dau.toLocaleString()}
+            value={Number(stats.dau).toLocaleString()}
             change={{
               value: `${stats.wau} weekly`,
-              positive: stats.dau > 0,
+              positive: Number(stats.dau) > 0,
             }}
             icon={<ChartBarIcon className="h-6 w-6 text-haven-primary" />}
           />
@@ -104,7 +101,7 @@ export default async function DashboardPage() {
             ${Number(stats.total_value_protected).toLocaleString()}
           </p>
           <p className="text-white/70 mt-2">
-            Across {stats.total_items.toLocaleString()} items for {stats.total_users.toLocaleString()} users
+            Across {Number(stats.total_items).toLocaleString()} items for {Number(stats.total_users).toLocaleString()} users
           </p>
         </div>
 
@@ -121,7 +118,7 @@ export default async function DashboardPage() {
                   No users yet
                 </div>
               ) : (
-                recentUsers.map((user) => (
+                recentUsers.map((user: any) => (
                   <div key={user.id} className="px-6 py-4 hover:bg-haven-elevated/50 transition-colors">
                     <div className="flex items-center justify-between">
                       <div>

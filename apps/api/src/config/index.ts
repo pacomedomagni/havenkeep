@@ -63,6 +63,14 @@ export const config = {
     replyToEmail: process.env.SENDGRID_REPLY_TO_EMAIL || 'support@havenkeep.com',
   },
 
+  google: {
+    clientId: process.env.GOOGLE_CLIENT_ID || '',
+  },
+
+  apple: {
+    bundleId: process.env.APPLE_BUNDLE_ID || '',
+  },
+
   openai: {
     apiKey: process.env.OPENAI_API_KEY || '',
   },

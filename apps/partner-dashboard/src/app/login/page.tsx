@@ -1,49 +1,33 @@
 'use client'
 
 import { useState } from 'react'
-import { createClient } from '@/lib/supabase'
+import { signIn } from './actions'
 import { useRouter } from 'next/navigation'
 
 export default function LoginPage() {
   const router = useRouter()
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const handleLogin = async (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     setLoading(true)
     setError(null)
 
+    const formData = new FormData(e.currentTarget)
+
     try {
-      const supabase = createClient()
-      
-      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      })
-
-      if (authError) throw authError
-
-      // Check if user is admin
-      const { data: userData, error: userError } = await supabase
-        .from('users')
-        .select('is_admin')
-        .eq('id', authData.user.id)
-        .single()
-
-      if (userError) throw userError
-
-      if (!userData?.is_admin) {
-        await supabase.auth.signOut()
-        throw new Error('You do not have admin privileges')
+      const result = await signIn(formData)
+      if (result?.error) {
+        setError(result.error)
+      } else {
+        router.push('/dashboard')
+        router.refresh()
       }
-
-      router.push('/')
+    } catch {
+      // signIn redirects on success, so we only get here on actual errors
+      router.push('/dashboard')
       router.refresh()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred')
     } finally {
       setLoading(false)
     }
@@ -83,9 +67,8 @@ export default function LoginPage() {
             </label>
             <input
               id="email"
+              name="email"
               type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
               required
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
               placeholder="admin@havenkeep.com"
@@ -98,9 +81,8 @@ export default function LoginPage() {
             </label>
             <input
               id="password"
+              name="password"
               type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
               required
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
               placeholder="••••••••"

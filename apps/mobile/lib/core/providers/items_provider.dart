@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_models/shared_models.dart';
 import 'package:api_client/api_client.dart';
@@ -50,37 +51,58 @@ class ItemsNotifier extends AsyncNotifier<List<Item>> {
     final currentItems = state.value ?? [];
     final previousCount = currentItems.length;
 
-    final newItem = await repo.createItem(item);
+    // Save previous state for rollback
+    final previousState = AsyncValue.data(List<Item>.from(currentItems));
 
-    // Re-fetch to get computed fields (warranty_end_date, warranty_status)
-    final fullItem = await repo.getItemById(newItem.id);
+    try {
+      final newItem = await repo.createItem(item);
 
-    state = AsyncValue.data([fullItem, ...currentItems]);
+      // Re-fetch to get computed fields (warranty_end_date, warranty_status)
+      final fullItem = await repo.getItemById(newItem.id);
 
-    // Invalidate stats
-    ref.invalidate(warrantyStatsProvider);
-    ref.invalidate(needsAttentionProvider);
+      state = AsyncValue.data([fullItem, ...currentItems]);
 
-    return (fullItem, previousCount);
+      // Invalidate stats
+      ref.invalidate(warrantyStatsProvider);
+      ref.invalidate(needsAttentionProvider);
+
+      return (fullItem, previousCount);
+    } catch (e) {
+      // Rollback to previous state on failure
+      debugPrint('[ItemsNotifier] addItem failed, rolling back: $e');
+      state = previousState;
+      rethrow;
+    }
   }
 
   /// Update an existing item.
   Future<Item> updateItem(Item item) async {
     final repo = ref.read(itemsRepositoryProvider);
-    await repo.updateItem(item);
-
-    // Re-fetch to get updated computed fields
-    final updated = await repo.getItemById(item.id);
-
     final currentItems = state.value ?? [];
-    state = AsyncValue.data(
-      currentItems.map((i) => i.id == updated.id ? updated : i).toList(),
-    );
 
-    ref.invalidate(warrantyStatsProvider);
-    ref.invalidate(needsAttentionProvider);
+    // Save previous state for rollback
+    final previousState = AsyncValue.data(List<Item>.from(currentItems));
 
-    return updated;
+    try {
+      await repo.updateItem(item);
+
+      // Re-fetch to get updated computed fields
+      final updated = await repo.getItemById(item.id);
+
+      state = AsyncValue.data(
+        currentItems.map((i) => i.id == updated.id ? updated : i).toList(),
+      );
+
+      ref.invalidate(warrantyStatsProvider);
+      ref.invalidate(needsAttentionProvider);
+
+      return updated;
+    } catch (e) {
+      // Rollback to previous state on failure
+      debugPrint('[ItemsNotifier] updateItem failed, rolling back: $e');
+      state = previousState;
+      rethrow;
+    }
   }
 
   /// Delete an item.

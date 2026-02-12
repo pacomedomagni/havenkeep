@@ -47,7 +47,7 @@ router.post(
     try {
       const file = req.file;
       if (!file) {
-        throw new AppError(400, 'No file uploaded');
+        throw new AppError('No file uploaded', 400);
       }
 
       const userId = req.user!.id;
@@ -104,12 +104,12 @@ router.post(
     try {
       const file = req.file;
       if (!file) {
-        throw new AppError(400, 'No file uploaded');
+        throw new AppError('No file uploaded', 400);
       }
 
       const { itemId } = req.body;
       if (!itemId) {
-        throw new AppError(400, 'itemId is required');
+        throw new AppError('itemId is required', 400);
       }
 
       const timestamp = Date.now();

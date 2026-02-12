@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import StripeConnectButton from '@/components/stripe-connect-button';
 import { updatePartnerProfile } from './actions';
+import { apiClient } from '@/lib/api';
 
 export default function SettingsPage() {
   const [companyName, setCompanyName] = useState('');
@@ -20,22 +21,14 @@ export default function SettingsPage() {
 
   async function loadProfile() {
     try {
-      const { createClient } = await import('@/lib/supabase');
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const { data } = await supabase
-        .from('referral_partners')
-        .select('*')
-        .eq('user_id', user.id)
-        .single();
+      const result = await apiClient('/api/v1/partners/me');
+      const data = result.data as any;
 
       if (data) {
         setCompanyName(data.company_name || '');
         setPartnerType(data.partner_type || 'realtor');
-        setLicenseNumber(data.license_number || '');
-        setServiceAreas(Array.isArray(data.service_areas) ? data.service_areas.join(', ') : '');
+        setLicenseNumber(data.phone || '');
+        setServiceAreas('');
       }
     } catch (err) {
       console.error('Error loading profile:', err);
@@ -127,7 +120,7 @@ export default function SettingsPage() {
             >
               <option value="realtor">Realtor</option>
               <option value="builder">Builder</option>
-              <option value="property_manager">Property Manager</option>
+              <option value="contractor">Contractor</option>
               <option value="other">Other</option>
             </select>
           </div>

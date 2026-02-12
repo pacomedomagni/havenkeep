@@ -11,6 +11,7 @@ import { registerSchema, loginSchema, refreshTokenSchema } from '../validators';
 import { forgotPasswordSchema, resetPasswordSchema, verifyEmailSchema } from '../validators/auth.validator';
 import { logger } from '../utils/logger';
 import { AuditService } from '../services/audit.service';
+import { blacklistToken } from '../utils/token-blacklist';
 
 const router = Router();
 
@@ -22,6 +23,7 @@ const getIpAddress = (req: any): string => {
     req.socket.remoteAddress ||
     'unknown'
   );
+};
 
 // Register
 router.post('/register', authRateLimiter, validate(registerSchema), async (req, res, next) => {
@@ -35,7 +37,7 @@ router.post('/register', authRateLimiter, validate(registerSchema), async (req, 
     );
 
     if (existing.rows.length > 0) {
-      throw new AppError(409, 'Email already registered');
+      throw new AppError('Email already registered', 409);
     }
 
     // Hash password with bcrypt rounds=12
@@ -127,7 +129,7 @@ router.post('/login', authRateLimiter, validate(loginSchema), async (req, res, n
     );
 
     if (result.rows.length === 0) {
-      throw new AppError(401, 'Invalid credentials');
+      throw new AppError('Invalid credentials', 401);
     }
 
     const user = result.rows[0];
@@ -146,7 +148,7 @@ router.post('/login', authRateLimiter, validate(loginSchema), async (req, res, n
         success: false,
         errorMessage: 'Invalid password',
       });
-      throw new AppError(401, 'Invalid credentials');
+      throw new AppError('Invalid credentials', 401);
     }
 
     // Generate tokens
@@ -227,7 +229,7 @@ router.post('/refresh', validate(refreshTokenSchema), async (req, res, next) => 
     );
 
     if (tokenResult.rows.length === 0) {
-      throw new AppError(401, 'Invalid refresh token');
+      throw new AppError('Invalid refresh token', 401);
     }
 
     // Get user
@@ -237,7 +239,7 @@ router.post('/refresh', validate(refreshTokenSchema), async (req, res, next) => 
     );
 
     if (userResult.rows.length === 0) {
-      throw new AppError(401, 'User not found');
+      throw new AppError('User not found', 401);
     }
 
     const user = userResult.rows[0];
@@ -261,6 +263,14 @@ router.post('/logout', validate(refreshTokenSchema), async (req, res, next) => {
     const { refreshToken } = req.body;
 
     let userId: string | undefined;
+
+    // Blacklist the current access token so it can't be reused
+    const authHeader = req.headers.authorization;
+    if (authHeader?.startsWith('Bearer ')) {
+      const accessToken = authHeader.substring(7);
+      // Blacklist for 1 hour (access token max lifetime)
+      await blacklistToken(accessToken, 3600);
+    }
 
     if (refreshToken) {
       // Get user ID from refresh token before deleting
@@ -365,7 +375,7 @@ router.post('/reset-password', authRateLimiter, validate(resetPasswordSchema), a
     );
 
     if (tokenResult.rows.length === 0) {
-      throw new AppError(400, 'Invalid or expired reset token');
+      throw new AppError('Invalid or expired reset token', 400);
     }
 
     const userId = tokenResult.rows[0].user_id;
@@ -419,7 +429,7 @@ router.post('/verify-email', validate(verifyEmailSchema), async (req, res, next)
     );
 
     if (tokenResult.rows.length === 0) {
-      throw new AppError(400, 'Invalid or expired verification token');
+      throw new AppError('Invalid or expired verification token', 400);
     }
 
     const userId = tokenResult.rows[0].user_id;
@@ -457,7 +467,7 @@ router.post('/google', authRateLimiter, async (req, res, next) => {
     const { idToken } = req.body;
 
     if (!idToken || typeof idToken !== 'string') {
-      throw new AppError(400, 'Google ID token is required');
+      throw new AppError('Google ID token is required', 400);
     }
 
     // Verify the Google ID token
@@ -471,7 +481,7 @@ router.post('/google', authRateLimiter, async (req, res, next) => {
 
     const payload = ticket.getPayload();
     if (!payload || !payload.email) {
-      throw new AppError(401, 'Invalid Google token');
+      throw new AppError('Invalid Google token', 401);
     }
 
     const email = payload.email.toLowerCase();
@@ -565,26 +575,47 @@ router.post('/apple', authRateLimiter, async (req, res, next) => {
     const { idToken, fullName: appleFullName } = req.body;
 
     if (!idToken || typeof idToken !== 'string') {
-      throw new AppError(400, 'Apple ID token is required');
+      throw new AppError('Apple ID token is required', 400);
     }
 
-    // Decode Apple JWT (the idToken is a JWT itself)
-    // In production, verify signature against Apple's public keys
-    const decoded = jwt.decode(idToken) as {
+    // Verify Apple ID token against Apple's public keys (JWKS)
+    const jwksClient = await import('jwks-rsa');
+    const appleJwksClient = jwksClient.default({
+      jwksUri: 'https://appleid.apple.com/auth/keys',
+      cache: true,
+      cacheMaxAge: 86400000, // 24 hours
+    });
+
+    // Decode header to get the key ID
+    const decodedHeader = jwt.decode(idToken, { complete: true });
+    if (!decodedHeader || !decodedHeader.header.kid) {
+      throw new AppError('Invalid Apple token format', 401);
+    }
+
+    // Fetch the signing key from Apple's JWKS
+    const signingKey = await appleJwksClient.getSigningKey(decodedHeader.header.kid);
+    const publicKey = signingKey.getPublicKey();
+
+    // Verify the token signature and claims
+    const decoded = jwt.verify(idToken, publicKey, {
+      algorithms: ['RS256'],
+      issuer: 'https://appleid.apple.com',
+    }) as {
       sub: string;
       email?: string;
       email_verified?: boolean;
-    } | null;
+      aud?: string;
+    };
 
     if (!decoded || !decoded.sub) {
-      throw new AppError(401, 'Invalid Apple token');
+      throw new AppError('Invalid Apple token', 401);
     }
 
     const appleUserId = decoded.sub;
     const email = decoded.email?.toLowerCase();
 
     if (!email) {
-      throw new AppError(401, 'Email not provided by Apple');
+      throw new AppError('Email not provided by Apple', 401);
     }
 
     // Find or create user

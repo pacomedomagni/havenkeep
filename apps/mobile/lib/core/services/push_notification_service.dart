@@ -8,6 +8,17 @@ import 'package:api_client/api_client.dart';
 import '../router/router.dart';
 import 'notification_display_service.dart';
 
+/// Allowed route prefixes for deep link navigation from push notifications.
+/// Routes not matching any of these prefixes will be rejected.
+const _kAllowedRoutePrefixes = [
+  '/items',
+  '/homes',
+  '/warranties',
+  '/notifications',
+  '/settings',
+  '/profile',
+];
+
 /// Handles Firebase Cloud Messaging for push notifications.
 ///
 /// Responsibilities:
@@ -48,12 +59,16 @@ class PushNotificationService {
       // Get the FCM token
       final token = await messaging.getToken();
       if (token != null) {
-        debugPrint('[Push] FCM Token: ${token.substring(0, 20)}...');
+        if (kDebugMode) {
+          debugPrint('[Push] FCM Token: ${token.substring(0, 20)}...');
+        }
       }
 
       // Listen for token refresh
       messaging.onTokenRefresh.listen((newToken) {
-        debugPrint('[Push] Token refreshed.');
+        if (kDebugMode) {
+          debugPrint('[Push] Token refreshed.');
+        }
         _registerTokenWithBackend(newToken);
       });
 
@@ -119,12 +134,23 @@ class PushNotificationService {
         );
   }
 
+  /// Check whether a route matches the allowed deep link whitelist.
+  bool _isAllowedRoute(String route) {
+    return _kAllowedRoutePrefixes.any((prefix) => route.startsWith(prefix));
+  }
+
   /// Handle a notification tap (background or terminated state).
   void _handleNotificationTap(RemoteMessage message) {
     debugPrint('[Push] Notification tapped: ${message.data}');
 
     final route = message.data['route'] as String?;
     if (route == null || route.isEmpty) return;
+
+    // Validate route against whitelist before navigating
+    if (!_isAllowedRoute(route)) {
+      debugPrint('[Push] Blocked navigation to disallowed route: $route');
+      return;
+    }
 
     // Navigate to the specified route
     try {

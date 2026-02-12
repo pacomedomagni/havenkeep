@@ -66,4 +66,4 @@ scripts
 # Packages (handled separately)
 packages/shared_models
 packages/shared_ui
-packages/supabase_client
+packages/api_client

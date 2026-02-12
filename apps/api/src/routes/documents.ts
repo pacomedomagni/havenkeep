@@ -51,7 +51,7 @@ router.get('/', validate(uploadDocumentSchema, 'query'), async (req: AuthRequest
     );
 
     if (itemCheck.rows.length === 0) {
-      throw new AppError(404, 'Item not found');
+      throw new AppError('Item not found', 404);
     }
 
     const result = await query(
@@ -74,7 +74,7 @@ router.get('/:id', validate(uuidParamSchema, 'params'), async (req: AuthRequest,
     );
 
     if (result.rows.length === 0) {
-      throw new AppError(404, 'Document not found');
+      throw new AppError('Document not found', 404);
     }
 
     res.json({ document: result.rows[0] });
@@ -94,11 +94,11 @@ router.post(
       const files = req.files as Express.Multer.File[];
 
       if (!files || files.length === 0) {
-        throw new AppError(400, 'No files uploaded');
+        throw new AppError('No files uploaded', 400);
       }
 
       if (!itemId) {
-        throw new AppError(400, 'itemId is required');
+        throw new AppError('itemId is required', 400);
       }
 
       // Verify item belongs to user
@@ -108,7 +108,7 @@ router.post(
       );
 
       if (itemCheck.rows.length === 0) {
-        throw new AppError(404, 'Item not found');
+        throw new AppError('Item not found', 404);
       }
 
       const uploadedDocuments = [];
@@ -210,7 +210,7 @@ router.post(
           }, 'Document uploaded successfully');
         } catch (uploadError: any) {
           logger.error({ error: uploadError, filename: file.originalname }, 'File upload failed');
-          throw new AppError(500, `Failed to upload ${file.originalname}: ${uploadError.message}`);
+          throw new AppError(`Failed to upload ${file.originalname}: ${uploadError.message}`, 500);
         }
       }
 
@@ -234,7 +234,7 @@ router.delete('/:id', validate(uuidParamSchema, 'params'), async (req: AuthReque
     );
 
     if (docResult.rows.length === 0) {
-      throw new AppError(404, 'Document not found');
+      throw new AppError('Document not found', 404);
     }
 
     const document = docResult.rows[0];

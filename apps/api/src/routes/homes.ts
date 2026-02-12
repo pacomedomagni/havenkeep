@@ -30,7 +30,7 @@ router.get('/:id', validate(uuidParamSchema, 'params'), async (req, res, next) =
     );
 
     if (result.rows.length === 0) {
-      throw new AppError(404, 'Home not found');
+      throw new AppError('Home not found', 404);
     }
 
     res.json({ home: result.rows[0] });
@@ -74,7 +74,7 @@ router.put('/:id', validate(uuidParamSchema, 'params'), validate(updateHomeSchem
     );
 
     if (result.rows.length === 0) {
-      throw new AppError(404, 'Home not found');
+      throw new AppError('Home not found', 404);
     }
 
     res.json({ home: result.rows[0] });
@@ -93,7 +93,7 @@ router.delete('/:id', validate(uuidParamSchema, 'params'), async (req, res, next
     );
 
     if (parseInt(countResult.rows[0].count) <= 1) {
-      throw new AppError(400, 'Cannot delete your only home. You must have at least one home.');
+      throw new AppError('Cannot delete your only home. You must have at least one home.', 400);
     }
 
     const result = await query(
@@ -102,7 +102,7 @@ router.delete('/:id', validate(uuidParamSchema, 'params'), async (req, res, next
     );
 
     if (result.rows.length === 0) {
-      throw new AppError(404, 'Home not found');
+      throw new AppError('Home not found', 404);
     }
 
     res.json({ message: 'Home deleted successfully' });

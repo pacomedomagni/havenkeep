@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { authenticate } from '../middleware/auth';
 import { StatsService } from '../services/stats.service';
 import { asyncHandler } from '../utils/async-handler';
+import { validate } from '../middleware/validate';
+import { trackEngagementSchema, trackFeatureSchema } from '../validators';
 
 const router = Router();
 
@@ -106,6 +108,7 @@ router.get(
  */
 router.post(
   '/track-engagement',
+  validate(trackEngagementSchema),
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
     const { type, session_duration } = req.body;
@@ -129,6 +132,7 @@ router.post(
  */
 router.post(
   '/track-feature',
+  validate(trackFeatureSchema),
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
     const { feature } = req.body;

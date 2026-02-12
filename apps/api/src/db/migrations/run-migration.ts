@@ -1,5 +1,5 @@
 import { Pool } from 'pg';
-import { readFileSync } from 'fs';
+import { readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { logger } from '../../utils/logger';
 import { config } from '../../config';
@@ -9,29 +9,41 @@ const pool = new Pool({
   ssl: config.database.ssl ? { rejectUnauthorized: false } : undefined,
 });
 
+async function ensureMigrationsTable() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      id SERIAL PRIMARY KEY,
+      filename VARCHAR(255) NOT NULL UNIQUE,
+      executed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+}
+
+async function getExecutedMigrations(): Promise<Set<string>> {
+  const result = await pool.query('SELECT filename FROM schema_migrations ORDER BY filename');
+  return new Set(result.rows.map((r: { filename: string }) => r.filename));
+}
+
 async function runMigration(migrationFile: string) {
   const client = await pool.connect();
 
   try {
     logger.info(`Running migration: ${migrationFile}`);
 
-    // Read migration file
     const sql = readFileSync(join(__dirname, migrationFile), 'utf-8');
 
-    // Begin transaction
     await client.query('BEGIN');
-
-    // Execute migration
     await client.query(sql);
-
-    // Commit transaction
+    await client.query(
+      'INSERT INTO schema_migrations (filename) VALUES ($1)',
+      [migrationFile]
+    );
     await client.query('COMMIT');
 
-    logger.info(`✅ Migration ${migrationFile} completed successfully`);
+    logger.info(`Migration ${migrationFile} completed successfully`);
   } catch (error) {
-    // Rollback on error
     await client.query('ROLLBACK');
-    logger.error({ error, migrationFile }, `❌ Migration ${migrationFile} failed`);
+    logger.error({ error, migrationFile }, `Migration ${migrationFile} failed`);
     throw error;
   } finally {
     client.release();
@@ -40,10 +52,30 @@ async function runMigration(migrationFile: string) {
 
 async function main() {
   try {
-    // Run migrations in order
-    await runMigration('002_enhanced_features.sql');
+    await ensureMigrationsTable();
+    const executed = await getExecutedMigrations();
 
-    logger.info('🎉 All migrations completed successfully');
+    // Discover all .sql migration files, sorted by name
+    const files = readdirSync(__dirname)
+      .filter((f) => f.endsWith('.sql'))
+      .sort();
+
+    let ranCount = 0;
+    for (const file of files) {
+      if (executed.has(file)) {
+        logger.info(`Skipping already-executed migration: ${file}`);
+        continue;
+      }
+      await runMigration(file);
+      ranCount++;
+    }
+
+    if (ranCount === 0) {
+      logger.info('No pending migrations');
+    } else {
+      logger.info(`${ranCount} migration(s) completed successfully`);
+    }
+
     process.exit(0);
   } catch (error) {
     logger.error({ error }, 'Migration failed');
@@ -53,7 +85,6 @@ async function main() {
   }
 }
 
-// Run if called directly
 if (require.main === module) {
   main();
 }

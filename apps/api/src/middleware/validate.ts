@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import Joi from 'joi';
-import { AppError } from './errorHandler';
+import { ValidationError } from '../utils/errors';
 
 export function validate(schema: Joi.ObjectSchema, property: 'body' | 'query' | 'params' = 'body') {
   return (req: Request, res: Response, next: NextFunction) => {
@@ -15,7 +15,7 @@ export function validate(schema: Joi.ObjectSchema, property: 'body' | 'query' | 
         message: detail.message,
       }));
 
-      throw new AppError(400, 'Validation failed', true, errors);
+      throw new ValidationError('Validation failed', errors);
     }
 
     // Replace request property with validated and sanitized value

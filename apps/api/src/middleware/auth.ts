@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 import { config } from '../config';
 import { AppError } from './errorHandler';
 import { query } from '../db';
+import { isTokenBlacklisted } from '../utils/token-blacklist';
 
 // Re-export Request as AuthRequest for backward compatibility
 export type AuthRequest = Request;
@@ -16,10 +17,15 @@ export async function authenticate(
     const authHeader = req.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      throw new AppError(401, 'No token provided');
+      throw new AppError('No token provided', 401);
     }
 
     const token = authHeader.substring(7);
+
+    // Check if token has been revoked
+    if (await isTokenBlacklisted(token)) {
+      throw new AppError('Token has been revoked', 401);
+    }
 
     const decoded = jwt.verify(token, config.jwt.secret) as {
       userId: string;
@@ -33,7 +39,7 @@ export async function authenticate(
     );
 
     if (result.rows.length === 0) {
-      throw new AppError(401, 'Invalid token');
+      throw new AppError('Invalid token', 401);
     }
 
     req.user = {
@@ -46,7 +52,7 @@ export async function authenticate(
     next();
   } catch (error) {
     if (error instanceof jwt.JsonWebTokenError) {
-      next(new AppError(401, 'Invalid token'));
+      next(new AppError('Invalid token', 401));
     } else {
       next(error);
     }
@@ -59,7 +65,7 @@ export function requireAdmin(
   next: NextFunction
 ) {
   if (!req.user?.isAdmin) {
-    throw new AppError(403, 'Admin access required');
+    throw new AppError('Admin access required', 403);
   }
   next();
 }
@@ -70,7 +76,7 @@ export function requirePremium(
   next: NextFunction
 ) {
   if (req.user?.plan !== 'premium') {
-    throw new AppError(403, 'Premium plan required');
+    throw new AppError('Premium plan required', 403);
   }
   next();
 }

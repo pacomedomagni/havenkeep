@@ -4,8 +4,9 @@ import { query } from '../db';
 import { authenticate } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
 import { validate } from '../middleware/validate';
-import { updateUserSchema } from '../validators';
+import { updateUserSchema, pushTokenSchema } from '../validators';
 import { changePasswordSchema, deleteAccountSchema } from '../validators/users.validator';
+import { blacklistToken } from '../utils/token-blacklist';
 
 const router = Router();
 router.use(authenticate);
@@ -20,7 +21,7 @@ router.get('/me', async (req, res, next) => {
     );
 
     if (result.rows.length === 0) {
-      throw new AppError(404, 'User not found');
+      throw new AppError('User not found', 404);
     }
 
     res.json({ user: result.rows[0] });
@@ -43,7 +44,7 @@ router.put('/me', validate(updateUserSchema), async (req, res, next) => {
     );
 
     if (result.rows.length === 0) {
-      throw new AppError(404, 'User not found');
+      throw new AppError('User not found', 404);
     }
 
     res.json({ user: result.rows[0] });
@@ -53,13 +54,9 @@ router.put('/me', validate(updateUserSchema), async (req, res, next) => {
 });
 
 // Register push notification token
-router.post('/push-token', async (req, res, next) => {
+router.post('/push-token', validate(pushTokenSchema), async (req, res, next) => {
   try {
     const { fcmToken, platform } = req.body;
-
-    if (!fcmToken || typeof fcmToken !== 'string') {
-      return res.status(400).json({ error: 'fcmToken is required' });
-    }
 
     await query(
       `INSERT INTO user_push_tokens (user_id, fcm_token, platform, updated_at)
@@ -87,13 +84,13 @@ router.put('/me/password', validate(changePasswordSchema), async (req, res, next
     );
 
     if (userResult.rows.length === 0) {
-      throw new AppError(404, 'User not found');
+      throw new AppError('User not found', 404);
     }
 
     // Verify current password
     const valid = await bcrypt.compare(currentPassword, userResult.rows[0].password_hash);
     if (!valid) {
-      throw new AppError(401, 'Current password is incorrect');
+      throw new AppError('Current password is incorrect', 401);
     }
 
     // Hash and update new password
@@ -102,6 +99,13 @@ router.put('/me/password', validate(changePasswordSchema), async (req, res, next
       `UPDATE users SET password_hash = $1 WHERE id = $2`,
       [newHash, req.user!.id]
     );
+
+    // Blacklist the current access token so it can't be reused
+    const authHeader = req.headers.authorization;
+    if (authHeader?.startsWith('Bearer ')) {
+      const accessToken = authHeader.substring(7);
+      await blacklistToken(accessToken, 3600);
+    }
 
     // Invalidate all refresh tokens (force re-login on other devices)
     await query(
@@ -127,15 +131,15 @@ router.delete('/me', validate(deleteAccountSchema), async (req, res, next) => {
     );
 
     if (userResult.rows.length === 0) {
-      throw new AppError(404, 'User not found');
+      throw new AppError('User not found', 404);
     }
 
     if (!userResult.rows[0].password_hash) {
-      throw new AppError(400, 'Cannot verify password for SSO accounts');
+      throw new AppError('Cannot verify password for SSO accounts', 400);
     }
     const valid = await bcrypt.compare(password, userResult.rows[0].password_hash);
     if (!valid) {
-      throw new AppError(401, 'Invalid password');
+      throw new AppError('Invalid password', 401);
     }
 
     // Delete user (cascades to all related data)

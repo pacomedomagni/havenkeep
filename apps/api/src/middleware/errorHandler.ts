@@ -1,26 +1,9 @@
 import { Request, Response, NextFunction } from 'express';
 import { logger } from '../utils/logger';
-import { AppError as UtilsAppError } from '../utils/errors';
+import { AppError } from '../utils/errors';
 
-export class AppError extends Error {
-  constructor(
-    public statusCode: number,
-    public message: string,
-    public isOperational = true,
-    public details?: any[]
-  ) {
-    super(message);
-    Object.setPrototypeOf(this, AppError.prototype);
-  }
-}
-
-function isOperationalError(err: Error): err is (AppError | UtilsAppError) {
-  return err instanceof AppError || err instanceof UtilsAppError;
-}
-
-function getStatusCode(err: AppError | UtilsAppError): number {
-  return err.statusCode;
-}
+// Re-export AppError so existing imports from this file continue to work
+export { AppError } from '../utils/errors';
 
 export function errorHandler(
   err: Error,
@@ -33,25 +16,22 @@ export function errorHandler(
     return next(err);
   }
 
-  if (isOperationalError(err)) {
-    const statusCode = getStatusCode(err);
-
+  if (err instanceof AppError) {
     logger.error({
-      statusCode,
+      statusCode: err.statusCode,
       message: err.message,
+      code: err.code,
       path: req.path,
       method: req.method,
-      ...('details' in err && { details: (err as AppError).details }),
     }, 'Operational error');
 
-    return res.status(statusCode).json({
+    return res.status(err.statusCode).json({
       error: err.message,
-      statusCode,
-      ...('details' in err && (err as AppError).details && { details: (err as AppError).details }),
+      statusCode: err.statusCode,
     });
   }
 
-  // Unexpected errors
+  // Unexpected errors — don't leak details in production
   logger.error({
     error: err.message,
     stack: err.stack,
@@ -59,7 +39,6 @@ export function errorHandler(
     method: req.method,
   }, 'Unexpected error');
 
-  // Don't leak error details in production
   res.status(500).json({
     error: 'Internal server error',
     statusCode: 500,

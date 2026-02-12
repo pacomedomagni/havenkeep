@@ -27,16 +27,18 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install Supabase CLI
-        run: npm install -g supabase
+      - name: Install dependencies
+        working-directory: apps/api
+        run: npm ci
 
       - name: Run migrations
+        working-directory: apps/api
         run: |
-          echo "🔄 Running migrations on ${{ github.event.inputs.environment }}"
-          supabase db push --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+          echo "Running migrations on ${{ github.event.inputs.environment }}"
+          npx ts-node src/db/migrations/run-migration.ts
         env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
       - name: Verify migration
         run: |
-          echo "✅ Migration complete for ${{ github.event.inputs.environment }}"
+          echo "Migration complete for ${{ github.event.inputs.environment }}"

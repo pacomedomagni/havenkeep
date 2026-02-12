@@ -1,16 +1,14 @@
 import Header from '@/components/Header'
 import UserTable from '@/components/UserTable'
-import { createServerSupabaseClient } from '@/lib/supabase-server'
+import { serverApiClient } from '@/lib/auth'
 
 async function getUsers() {
-  const supabase = await createServerSupabaseClient()
-  
-  const { data: users } = await supabase
-    .from('admin_user_activity')
-    .select('*')
-    .order('created_at', { ascending: false })
-
-  return users || []
+  try {
+    const { users } = await serverApiClient<{ users: any[] }>('/api/v1/admin/users/activity')
+    return users || []
+  } catch {
+    return []
+  }
 }
 
 export default async function UsersPage() {
@@ -18,8 +16,8 @@ export default async function UsersPage() {
 
   return (
     <>
-      <Header 
-        title="User Management" 
+      <Header
+        title="User Management"
         subtitle={`${users.length} total users`}
       />
 

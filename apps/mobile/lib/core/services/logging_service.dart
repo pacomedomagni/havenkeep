@@ -6,6 +6,17 @@ import 'package:http/http.dart' as http;
 
 import '../config/environment_config.dart';
 
+/// Keys that contain sensitive data and must be stripped before logging.
+const _kSensitiveKeys = {
+  'password',
+  'token',
+  'accessToken',
+  'refreshToken',
+  'secret',
+  'authorization',
+  'cookie',
+};
+
 /// Lightweight logging service inspired by Pino.
 ///
 /// Logs are:
@@ -107,13 +118,34 @@ class LoggingService {
     );
   }
 
+  /// Remove sensitive keys from a context map before logging.
+  static Map<String, dynamic> _sanitizeContext(Map<String, dynamic> context) {
+    final sanitized = <String, dynamic>{};
+    for (final entry in context.entries) {
+      if (_kSensitiveKeys.contains(entry.key)) {
+        sanitized[entry.key] = '[REDACTED]';
+      } else if (entry.value is Map<String, dynamic>) {
+        sanitized[entry.key] =
+            _sanitizeContext(entry.value as Map<String, dynamic>);
+      } else {
+        sanitized[entry.key] = entry.value;
+      }
+    }
+    return sanitized;
+  }
+
   void _log(LogLevel level, String message, Map<String, dynamic>? context) {
+    // Sanitize context before any logging output
+    final sanitizedContext =
+        context != null && context.isNotEmpty ? _sanitizeContext(context) : context;
+
     final logEntry = {
       'timestamp': DateTime.now().toIso8601String(),
       'level': level.name.toUpperCase(),
       'message': message,
       'pid': pid,
-      if (context != null && context.isNotEmpty) 'context': context,
+      if (sanitizedContext != null && sanitizedContext.isNotEmpty)
+        'context': sanitizedContext,
     };
 
     final jsonLog = jsonEncode(logEntry);
@@ -122,8 +154,8 @@ class LoggingService {
     if (kDebugMode) {
       final color = _getColorForLevel(level);
       debugPrint('$color[${level.name.toUpperCase()}] $message${_resetColor()}');
-      if (context != null && context.isNotEmpty) {
-        debugPrint('  Context: $context');
+      if (sanitizedContext != null && sanitizedContext.isNotEmpty) {
+        debugPrint('  Context: $sanitizedContext');
       }
     } else {
       debugPrint(jsonLog);

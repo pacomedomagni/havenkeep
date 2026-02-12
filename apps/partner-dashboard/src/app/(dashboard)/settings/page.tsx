@@ -1,8 +1,8 @@
 import Header from '@/components/Header'
-import { getSession } from '@/lib/supabase-server'
+import { requireAdmin } from '@/lib/auth'
 
 export default async function SettingsPage() {
-  const session = await getSession()
+  const user = await requireAdmin()
 
   return (
     <>
@@ -21,13 +21,13 @@ export default async function SettingsPage() {
                 <label className="block text-sm font-medium text-haven-text-tertiary mb-1">
                   Email
                 </label>
-                <p className="text-white">{session?.user?.email}</p>
+                <p className="text-white">{user.email}</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-haven-text-tertiary mb-1">
                   User ID
                 </label>
-                <p className="text-haven-text-secondary text-sm font-mono">{session?.user?.id}</p>
+                <p className="text-haven-text-secondary text-sm font-mono">{user.id}</p>
               </div>
             </div>
           </div>

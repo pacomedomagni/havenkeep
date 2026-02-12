@@ -10,8 +10,7 @@ import {
   Cog6ToothIcon,
   ArrowRightOnRectangleIcon,
 } from '@heroicons/react/24/outline'
-import { useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase'
+import { logout } from '@/lib/api'
 
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: HomeIcon },
@@ -24,13 +23,9 @@ const navigation = [
 
 export default function Sidebar() {
   const pathname = usePathname()
-  const router = useRouter()
 
   const handleSignOut = async () => {
-    const supabase = createClient()
-    await supabase.auth.signOut()
-    router.push('/login')
-    router.refresh()
+    await logout()
   }
 
   return (

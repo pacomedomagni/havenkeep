@@ -101,7 +101,7 @@ router.get('/:id', validate(uuidParamSchema, 'params'), async (req: AuthRequest,
     );
 
     if (result.rows.length === 0) {
-      throw new AppError(404, 'Item not found');
+      throw new AppError('Item not found', 404);
     }
 
     res.json({ item: result.rows[0] });
@@ -140,7 +140,7 @@ router.post('/', validate(createItemSchema), async (req: AuthRequest, res, next)
       );
 
       if (parseInt(countResult.rows[0].count, 10) >= 25) {
-        throw new AppError(403, 'Free plan limit reached. Upgrade to Premium for unlimited items.');
+        throw new AppError('Free plan limit reached. Upgrade to Premium for unlimited items.', 403);
       }
     }
 
@@ -151,13 +151,13 @@ router.post('/', validate(createItemSchema), async (req: AuthRequest, res, next)
     );
 
     if (homeResult.rows.length === 0) {
-      throw new AppError(404, 'Home not found');
+      throw new AppError('Home not found', 404);
     }
 
     // Calculate warranty end date
     const purchaseDateObj = new Date(purchaseDate);
     if (isNaN(purchaseDateObj.getTime())) {
-      throw new AppError(400, 'Invalid purchase date');
+      throw new AppError('Invalid purchase date', 400);
     }
     const warrantyEndDate = new Date(purchaseDateObj);
     const expectedMonth = (warrantyEndDate.getMonth() + warrantyMonths) % 12;
@@ -243,7 +243,7 @@ router.put('/:id', validate(uuidParamSchema, 'params'), validate(updateItemSchem
     }
 
     if (fields.length === 0) {
-      throw new AppError(400, 'No valid fields to update');
+      throw new AppError('No valid fields to update', 400);
     }
 
     // Recalculate warranty_end_date when warrantyMonths or purchaseDate changes
@@ -299,7 +299,7 @@ router.put('/:id', validate(uuidParamSchema, 'params'), validate(updateItemSchem
     );
 
     if (result.rows.length === 0) {
-      throw new AppError(404, 'Item not found');
+      throw new AppError('Item not found', 404);
     }
 
     const item = result.rows[0];
@@ -330,7 +330,7 @@ router.delete('/:id', validate(uuidParamSchema, 'params'), async (req: AuthReque
     );
 
     if (itemResult.rows.length === 0) {
-      throw new AppError(404, 'Item not found');
+      throw new AppError('Item not found', 404);
     }
 
     const item = itemResult.rows[0];
