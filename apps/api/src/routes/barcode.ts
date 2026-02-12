@@ -20,7 +20,7 @@ router.post('/lookup', validate(barcodeLookupSchema), async (req: AuthRequest, r
     );
 
     if (response.ok) {
-      const data = await response.json();
+      const data: any = await response.json();
       if (data.status === 1 && data.product && typeof data.product === 'object') {
         logger.info({ barcode, found: true }, 'Barcode found');
         return res.json({

@@ -1,4 +1,5 @@
 import dotenv from 'dotenv';
+import type { SignOptions } from 'jsonwebtoken';
 import path from 'path';
 
 // Load environment variables
@@ -7,7 +8,7 @@ dotenv.config({ path: path.join(__dirname, '../../.env') });
 export const config = {
   env: process.env.NODE_ENV || 'development',
   port: parseInt(process.env.PORT || '3000', 10),
-  
+
   database: {
     url: process.env.DATABASE_URL || '',
     host: process.env.DB_HOST || 'localhost',
@@ -17,7 +18,7 @@ export const config = {
     password: process.env.DB_PASSWORD || '',
     ssl: process.env.NODE_ENV === 'production',
   },
-  
+
   jwt: {
     get secret(): string {
       const secret = process.env.JWT_SECRET;
@@ -26,7 +27,7 @@ export const config = {
       }
       return secret || 'dev-only-secret-do-not-use-in-production';
     },
-    expiresIn: process.env.JWT_EXPIRES_IN || '1h',
+    expiresIn: (process.env.JWT_EXPIRES_IN || '1h') as SignOptions['expiresIn'],
     get refreshSecret(): string {
       const secret = process.env.REFRESH_TOKEN_SECRET;
       if (!secret && process.env.NODE_ENV === 'production') {
@@ -34,7 +35,7 @@ export const config = {
       }
       return secret || 'dev-only-refresh-secret';
     },
-    refreshExpiresIn: process.env.REFRESH_TOKEN_EXPIRES_IN || '7d',
+    refreshExpiresIn: (process.env.REFRESH_TOKEN_EXPIRES_IN || '7d') as SignOptions['expiresIn'],
   },
   
   redis: {

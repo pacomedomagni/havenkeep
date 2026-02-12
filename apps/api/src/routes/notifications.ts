@@ -30,7 +30,7 @@ router.get(
       limit: Number(limit),
       offset: Number(offset),
       type: type as any,
-      unread: unread !== undefined ? unread === 'true' || unread === true : undefined,
+      unread: unread !== undefined ? unread === 'true' : undefined,
     });
 
     res.json({

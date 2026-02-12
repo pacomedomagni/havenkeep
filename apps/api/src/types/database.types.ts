@@ -317,6 +317,8 @@ export interface PartnerGift {
   // Activation
   status: GiftStatus;
   is_activated: boolean;
+  activation_code: string | null;
+  activation_url: string | null;
   activated_at: Date | null;
   activated_user_id: string | null;
   expires_at: Date | null;

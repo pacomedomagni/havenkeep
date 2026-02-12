@@ -466,7 +466,7 @@ export class PartnersService {
         throw new AppError('Gift has already been activated', 400);
       }
 
-      if (new Date() > new Date(gift.expires_at)) {
+      if (gift.expires_at && new Date() > new Date(gift.expires_at)) {
         throw new AppError('Gift has expired', 400);
       }
 
@@ -528,7 +528,7 @@ export class PartnersService {
         throw new AppError('Gift already activated', 400);
       }
 
-      if (new Date() > new Date(gift.expires_at)) {
+      if (gift.expires_at && new Date() > new Date(gift.expires_at)) {
         throw new AppError('Gift has expired', 400);
       }
 
@@ -728,7 +728,7 @@ export class PartnersService {
         throw new AppError('Gift has already been activated', 400);
       }
 
-      if (new Date() > new Date(gift.expires_at)) {
+      if (gift.expires_at && new Date() > new Date(gift.expires_at)) {
         throw new AppError('Gift has expired', 400);
       }
 
@@ -747,11 +747,11 @@ export class PartnersService {
         partner_name: partner.company_name || `Partner ${partner.id.slice(0, 8)}`,
         partner_company: partner.company_name,
         premium_months: gift.premium_months,
-        activation_url: gift.activation_url,
-        activation_code: gift.activation_code,
-        custom_message: gift.custom_message,
-        brand_color: partner.brand_color,
-        logo_url: partner.logo_url,
+        activation_url: gift.activation_url ?? '',
+        activation_code: gift.activation_code ?? '',
+        custom_message: gift.custom_message ?? undefined,
+        brand_color: partner.brand_color ?? undefined,
+        logo_url: partner.logo_url ?? undefined,
       });
 
       // Update gift status to 'sent' if it was 'created'

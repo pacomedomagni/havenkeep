@@ -236,7 +236,7 @@ export class EmailScannerService {
           }
         }
       } catch (error) {
-        logger.warn({ error, query }, 'Failed to query Gmail');
+        logger.warn({ error, query: baseQuery }, 'Failed to query Gmail');
       }
     }
 
