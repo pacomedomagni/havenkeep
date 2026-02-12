@@ -18,6 +18,16 @@ final notificationsProvider =
 );
 
 class NotificationsNotifier extends AsyncNotifier<List<AppNotification>> {
+  static const _pageSize = 30;
+  bool _hasMore = true;
+  bool _isLoadingMore = false;
+
+  /// Whether more pages are available.
+  bool get hasMore => _hasMore;
+
+  /// Whether a load-more request is in-flight.
+  bool get isLoadingMore => _isLoadingMore;
+
   @override
   Future<List<AppNotification>> build() async {
     ref.watch(currentUserProvider);
@@ -25,14 +35,41 @@ class NotificationsNotifier extends AsyncNotifier<List<AppNotification>> {
     final user = ref.read(currentUserProvider).value;
     if (user == null) return [];
 
-    return ref.read(notificationsRepositoryProvider).getNotifications();
+    _hasMore = true;
+    final page = await ref
+        .read(notificationsRepositoryProvider)
+        .getNotifications(limit: _pageSize, offset: 0);
+    _hasMore = page.length >= _pageSize;
+    return page;
+  }
+
+  /// Load the next page of notifications.
+  Future<void> loadMore() async {
+    if (!_hasMore || _isLoadingMore) return;
+    _isLoadingMore = true;
+
+    try {
+      final current = state.value ?? [];
+      final page = await ref
+          .read(notificationsRepositoryProvider)
+          .getNotifications(limit: _pageSize, offset: current.length);
+      _hasMore = page.length >= _pageSize;
+      state = AsyncValue.data([...current, ...page]);
+    } finally {
+      _isLoadingMore = false;
+    }
   }
 
   /// Refresh notifications from the server.
   Future<void> refresh() async {
+    _hasMore = true;
     state = const AsyncValue.loading();
     state = await AsyncValue.guard(() async {
-      return ref.read(notificationsRepositoryProvider).getNotifications();
+      final page = await ref
+          .read(notificationsRepositoryProvider)
+          .getNotifications(limit: _pageSize, offset: 0);
+      _hasMore = page.length >= _pageSize;
+      return page;
     });
   }
 

@@ -41,6 +41,7 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
   String _searchQuery = '';
   final Set<ItemRoom?> _collapsedRooms = {};
   bool _didApplyRouteFilter = false;
+  final Set<String> _archivingIds = {};
 
   @override
   void initState() {
@@ -157,6 +158,7 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
   }
 
   void _showSortPicker() {
+    HapticFeedback.lightImpact();
     final currentSort = ref.read(itemsSortProvider);
     showModalBottomSheet(
       context: context,
@@ -527,8 +529,15 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
         key: ValueKey(item.id),
         direction: DismissDirection.endToStart,
         confirmDismiss: (direction) async {
-          // Archive with undo instead of multi-step confirmation
-          await ref.read(itemsProvider.notifier).archiveItem(item.id);
+          // Prevent double-fire while archive API is in-flight
+          if (_archivingIds.contains(item.id)) return false;
+          _archivingIds.add(item.id);
+
+          try {
+            await ref.read(itemsProvider.notifier).archiveItem(item.id);
+          } finally {
+            _archivingIds.remove(item.id);
+          }
           if (!mounted) return false;
 
           final displayName = '${item.brand ?? ''} ${item.name}'.trim();

@@ -135,6 +135,7 @@ class _EditItemScreenState extends ConsumerState<EditItemScreen> {
     final orig = _originalItem;
     if (orig == null) return;
 
+    HapticFeedback.mediumImpact();
     setState(() => _saving = true);
 
     try {
@@ -194,7 +195,16 @@ class _EditItemScreenState extends ConsumerState<EditItemScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(ErrorHandler.getUserMessage(e))),
+          SnackBar(
+            content: Text(ErrorHandler.getUserMessage(e)),
+            behavior: SnackBarBehavior.floating,
+            action: SnackBarAction(
+              label: 'Retry',
+              textColor: HavenColors.primary,
+              onPressed: _handleSave,
+            ),
+            duration: const Duration(seconds: 6),
+          ),
         );
       }
     } finally {
@@ -203,6 +213,7 @@ class _EditItemScreenState extends ConsumerState<EditItemScreen> {
   }
 
   Future<void> _pickPurchaseDate() async {
+    HapticFeedback.lightImpact();
     final picked = await showDatePicker(
       context: context,
       initialDate: _purchaseDate,
@@ -213,6 +224,7 @@ class _EditItemScreenState extends ConsumerState<EditItemScreen> {
           data: Theme.of(context).copyWith(
             colorScheme: const ColorScheme.dark(
               primary: HavenColors.primary,
+              onPrimary: HavenColors.textPrimary,
               surface: HavenColors.elevated,
               onSurface: HavenColors.textPrimary,
             ),

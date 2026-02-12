@@ -44,6 +44,9 @@ class NotificationsScreen extends ConsumerWidget {
           if (notifications.isEmpty) {
             return _buildEmptyState();
           }
+          final notifier = ref.read(notificationsProvider.notifier);
+          final hasMore = notifier.hasMore;
+
           return RefreshIndicator(
             color: HavenColors.primary,
             onRefresh: () async {
@@ -51,13 +54,30 @@ class NotificationsScreen extends ConsumerWidget {
             },
             child: ListView.separated(
               padding: const EdgeInsets.symmetric(vertical: HavenSpacing.sm),
-              itemCount: notifications.length,
+              itemCount: notifications.length + (hasMore ? 1 : 0),
               separatorBuilder: (_, __) => const Divider(
                 height: 1,
                 color: HavenColors.border,
                 indent: HavenSpacing.lg + 40, // icon width + padding
               ),
               itemBuilder: (context, index) {
+                // Load-more trigger at the end
+                if (index == notifications.length) {
+                  notifier.loadMore();
+                  return const Padding(
+                    padding: EdgeInsets.all(HavenSpacing.lg),
+                    child: Center(
+                      child: SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: HavenColors.primary,
+                        ),
+                      ),
+                    ),
+                  );
+                }
                 return _NotificationCard(
                   notification: notifications[index],
                 );
@@ -150,12 +170,16 @@ class _NotificationCard extends ConsumerWidget {
     final now = DateTime.now();
     final diff = now.difference(date);
 
-    if (diff.inMinutes < 1) return 'Just now';
+    if (diff.isNegative || diff.inMinutes < 1) return 'Just now';
     if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
     if (diff.inHours < 24) return '${diff.inHours}h ago';
     if (diff.inDays < 7) return '${diff.inDays}d ago';
-    if (diff.inDays < 30) return '${diff.inDays ~/ 7}w ago';
-    return '${diff.inDays ~/ 30}mo ago';
+    final weeks = diff.inDays ~/ 7;
+    if (diff.inDays < 30) return '${weeks}w ago';
+    final months = diff.inDays ~/ 30;
+    if (months < 12) return '${months}mo ago';
+    final years = months ~/ 12;
+    return '${years}y ago';
   }
 
   void _handleTap(BuildContext context, WidgetRef ref) {

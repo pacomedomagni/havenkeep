@@ -1,11 +1,15 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:shared_models/shared_models.dart';
 import 'package:shared_ui/shared_ui.dart';
 
 import '../../core/providers/auth_provider.dart';
 import '../../core/providers/items_provider.dart';
 import '../../core/providers/profile_photo_provider.dart';
+import '../../core/services/image_upload_service.dart';
 import '../../core/utils/error_handler.dart';
 import '../../core/widgets/error_state_widget.dart';
 
@@ -66,6 +70,67 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     } catch (e) {
       if (mounted) {
         setState(() => _isSaving = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(ErrorHandler.getUserMessage(e))),
+        );
+      }
+    }
+  }
+
+  Future<void> _changePhoto() async {
+    final picker = ImagePicker();
+    final image = await picker.pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 512,
+      maxHeight: 512,
+      imageQuality: 80,
+    );
+    if (image == null || !mounted) return;
+
+    final imageFile = File(image.path);
+
+    // Show preview and confirm
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: HavenColors.elevated,
+        title: const Text('Update profile photo?'),
+        content: ClipRRect(
+          borderRadius: BorderRadius.circular(HavenRadius.card),
+          child: Image.file(imageFile, width: 200, height: 200, fit: BoxFit.cover),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Use Photo'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    try {
+      final user = ref.read(currentUserProvider).value;
+      if (user == null) return;
+
+      final url = await ref.read(imageUploadServiceProvider).uploadProfilePhoto(
+            userId: user.id,
+            imageFile: imageFile,
+          );
+      await ref.read(currentUserProvider.notifier).updateProfile(avatarUrl: url);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Photo updated')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(ErrorHandler.getUserMessage(e))),
         );
@@ -135,17 +200,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       ),
                       const SizedBox(height: HavenSpacing.sm),
                       TextButton(
-                        onPressed: () async {
-                          try {
-                            await pickAndUploadProfilePhoto(ref);
-                          } catch (e) {
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text(ErrorHandler.getUserMessage(e))),
-                              );
-                            }
-                          }
-                        },
+                        onPressed: () => _changePhoto(),
                         child: const Text(
                           'Change Photo',
                           style: TextStyle(color: HavenColors.secondary),

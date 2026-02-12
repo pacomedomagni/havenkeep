@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -33,6 +34,7 @@ class _QuickAddScreenState extends ConsumerState<QuickAddScreen> {
   DateTime? _purchaseDate;
   int _warrantyMonths = 12;
   ItemRoom? _selectedRoom;
+  bool _defaultsApplied = false;
   bool _showMoreDetails = false;
   bool _isSaving = false;
 
@@ -54,6 +56,7 @@ class _QuickAddScreenState extends ConsumerState<QuickAddScreen> {
   bool get _isFormValid => _brand.isNotEmpty && _purchaseDate != null;
 
   Future<void> _pickDate() async {
+    HapticFeedback.lightImpact();
     final now = DateTime.now();
     final picked = await showDatePicker(
       context: context,
@@ -84,6 +87,7 @@ class _QuickAddScreenState extends ConsumerState<QuickAddScreen> {
   Future<void> _save() async {
     if (!_formKey.currentState!.validate() || !_isFormValid) return;
 
+    HapticFeedback.mediumImpact();
     setState(() => _isSaving = true);
 
     try {
@@ -172,22 +176,25 @@ class _QuickAddScreenState extends ConsumerState<QuickAddScreen> {
     final brandsAsync = ref.watch(brandSuggestionsProvider(_category));
     final categoryDefaultsAsync = ref.watch(categoryDefaultsProvider);
 
-    // Set defaults from category defaults on first load
-    categoryDefaultsAsync.whenData((defaults) {
-      final catDefault = defaults
-          .where((d) => d.category == _category)
-          .toList();
-      if (catDefault.isNotEmpty && _selectedRoom == null) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted && _selectedRoom == null) {
-            setState(() {
-              _selectedRoom = catDefault.first.defaultRoom;
-              _warrantyMonths = catDefault.first.warrantyMonths;
-            });
-          }
-        });
-      }
-    });
+    // Set defaults from category defaults — only on the very first load
+    if (!_defaultsApplied) {
+      categoryDefaultsAsync.whenData((defaults) {
+        final catDefault = defaults
+            .where((d) => d.category == _category)
+            .toList();
+        if (catDefault.isNotEmpty) {
+          _defaultsApplied = true;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              setState(() {
+                _selectedRoom = catDefault.first.defaultRoom;
+                _warrantyMonths = catDefault.first.warrantyMonths;
+              });
+            }
+          });
+        }
+      });
+    }
 
     final defaultWarrantyMonths = categoryDefaultsAsync.whenOrNull(
           data: (defaults) {
@@ -326,37 +333,41 @@ class _QuickAddScreenState extends ConsumerState<QuickAddScreen> {
                           ),
                         ),
                       ),
-                      TextButton(
-                        onPressed: () async {
-                          await showDialog<ItemRoom?>(
-                            context: context,
-                            builder: (ctx) => AlertDialog(
-                              backgroundColor: HavenColors.elevated,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(
-                                    HavenRadius.card),
-                              ),
-                              title: const Text('Select Room'),
-                              content: SizedBox(
-                                width: double.maxFinite,
-                                child: RoomPicker(
-                                  value: _selectedRoom,
-                                  onChanged: (room) {
-                                    setState(() {
-                                      _selectedRoom = room;
-                                    });
-                                    Navigator.of(ctx).pop();
-                                  },
+                      Semantics(
+                        label: 'Change room',
+                        child: TextButton(
+                          onPressed: () async {
+                            HapticFeedback.lightImpact();
+                            await showDialog<ItemRoom?>(
+                              context: context,
+                              builder: (ctx) => AlertDialog(
+                                backgroundColor: HavenColors.elevated,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(
+                                      HavenRadius.card),
+                                ),
+                                title: const Text('Select Room'),
+                                content: SizedBox(
+                                  width: double.maxFinite,
+                                  child: RoomPicker(
+                                    value: _selectedRoom,
+                                    onChanged: (room) {
+                                      setState(() {
+                                        _selectedRoom = room;
+                                      });
+                                      Navigator.of(ctx).pop();
+                                    },
+                                  ),
                                 ),
                               ),
+                            );
+                          },
+                          child: const Text(
+                            'change',
+                            style: TextStyle(
+                              color: HavenColors.secondary,
+                              fontSize: 13,
                             ),
-                          );
-                        },
-                        child: const Text(
-                          'change',
-                          style: TextStyle(
-                            color: HavenColors.secondary,
-                            fontSize: 13,
                           ),
                         ),
                       ),

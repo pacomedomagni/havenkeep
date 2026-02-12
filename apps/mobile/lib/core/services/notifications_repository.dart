@@ -11,13 +11,15 @@ class NotificationsRepository {
   // READ
   // ============================================
 
-  /// Get all notifications for the current user.
+  /// Get notifications for the current user with pagination.
   Future<List<AppNotification>> getNotifications({
+    int limit = 30,
+    int offset = 0,
     bool unreadOnly = false,
   }) async {
     final params = <String, String>{
-      'limit': '100',
-      'offset': '0',
+      'limit': '$limit',
+      'offset': '$offset',
     };
 
     if (unreadOnly) {

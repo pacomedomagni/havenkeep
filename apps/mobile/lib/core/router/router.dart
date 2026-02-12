@@ -101,16 +101,23 @@ final routerProvider = Provider<GoRouter>((ref) {
         return AppRoutes.welcome;
       }
 
-      // Authenticated but no home → allow first-action, home-setup, and
-      // room-setup flows; redirect everything else to first-action
+      // Authenticated but no home → allow first-action, home-setup,
+      // and the flows that first-action links to; redirect anything
+      // else to first-action
       if (!hasHome) {
         const allowedPaths = [
           AppRoutes.firstAction,
           AppRoutes.homeSetup,
+          AppRoutes.addItem,
+          AppRoutes.manualEntry,
+          AppRoutes.scanReceipt,
+          AppRoutes.scanBarcode,
+          AppRoutes.dashboard,
+          AppRoutes.items,
         ];
-        // Allow first-action, home-setup, and any sub-paths of home-setup
         if (allowedPaths.contains(location) ||
-            location.startsWith('/home-setup/')) {
+            location.startsWith('/home-setup/') ||
+            location.startsWith('/add-item/')) {
           return null;
         }
         return AppRoutes.firstAction;
