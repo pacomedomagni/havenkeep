@@ -39,27 +39,37 @@ const upload = multer({
   },
 });
 
-// Get all documents for an item
-router.get('/', validate(uploadDocumentSchema, 'query'), async (req: AuthRequest, res, next) => {
+// Get all documents (optionally filtered by item)
+router.get('/', async (req: AuthRequest, res, next) => {
   try {
     const { itemId } = req.query;
 
-    // Verify item belongs to user
-    const itemCheck = await query(
-      `SELECT id FROM items WHERE id = $1 AND user_id = $2`,
-      [itemId, req.user!.id]
-    );
+    if (itemId) {
+      // Verify item belongs to user
+      const itemCheck = await query(
+        `SELECT id FROM items WHERE id = $1 AND user_id = $2`,
+        [itemId, req.user!.id]
+      );
 
-    if (itemCheck.rows.length === 0) {
-      throw new AppError('Item not found', 404);
+      if (itemCheck.rows.length === 0) {
+        throw new AppError('Item not found', 404);
+      }
+
+      const result = await query(
+        `SELECT * FROM documents WHERE user_id = $1 AND item_id = $2 ORDER BY created_at DESC`,
+        [req.user!.id, itemId]
+      );
+
+      res.json({ documents: result.rows });
+    } else {
+      // Return all documents for the user
+      const result = await query(
+        `SELECT * FROM documents WHERE user_id = $1 ORDER BY created_at DESC`,
+        [req.user!.id]
+      );
+
+      res.json({ documents: result.rows });
     }
-
-    const result = await query(
-      `SELECT * FROM documents WHERE user_id = $1 AND item_id = $2 ORDER BY created_at DESC`,
-      [req.user!.id, itemId]
-    );
-
-    res.json({ documents: result.rows });
   } catch (error) {
     next(error);
   }

@@ -48,7 +48,7 @@ router.post('/register', authRateLimiter, validate(registerSchema), async (req, 
       `INSERT INTO users (email, password_hash, full_name)
        VALUES ($1, $2, $3)
        RETURNING id, email, full_name, avatar_url, auth_provider, plan, plan_expires_at,
-                 referred_by, referral_code, created_at, updated_at`,
+                 referred_by, referral_code, is_admin, created_at, updated_at`,
       [email.toLowerCase(), passwordHash, fullName]
     );
 
@@ -104,6 +104,7 @@ router.post('/register', authRateLimiter, validate(registerSchema), async (req, 
         plan_expires_at: user.plan_expires_at || null,
         referred_by: user.referred_by || null,
         referral_code: user.referral_code || null,
+        is_admin: user.is_admin || false,
         created_at: user.created_at,
         updated_at: user.updated_at,
       },

@@ -15,7 +15,8 @@ router.use(authenticate);
 const ALLOWED_UPDATE_FIELDS = new Set([
   'name', 'brand', 'model_number', 'serial_number', 'category', 'room',
   'purchase_date', 'store', 'price', 'warranty_months', 'warranty_type',
-  'warranty_provider', 'notes', 'is_archived', 'product_image_url', 'barcode'
+  'warranty_provider', 'notes', 'is_archived', 'product_image_url', 'barcode',
+  'added_via'
 ]);
 
 // Get active item count (for free plan limit check)
@@ -130,6 +131,7 @@ router.post('/', validate(createItemSchema), async (req: AuthRequest, res, next)
       notes,
       productImageUrl,
       barcode,
+      addedVia,
     } = req.body;
 
     // Check free plan limit (5 items)
@@ -172,14 +174,14 @@ router.post('/', validate(createItemSchema), async (req: AuthRequest, res, next)
         user_id, home_id, name, brand, model_number, serial_number,
         category, room, purchase_date, store, price,
         warranty_months, warranty_end_date, warranty_type, warranty_provider, notes,
-        product_image_url, barcode
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+        product_image_url, barcode, added_via
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
       RETURNING *`,
       [
         req.user!.id, homeId, name, brand, modelNumber, serialNumber,
         category, room, purchaseDate, store, price,
         warrantyMonths, warrantyEndDate, warrantyType,
-        warrantyProvider, notes, productImageUrl, barcode
+        warrantyProvider, notes, productImageUrl, barcode, addedVia || 'manual'
       ]
     );
 
@@ -231,6 +233,7 @@ router.put('/:id', validate(uuidParamSchema, 'params'), validate(updateItemSchem
       isArchived: 'is_archived',
       productImageUrl: 'product_image_url',
       barcode: 'barcode',
+      addedVia: 'added_via',
     };
 
     for (const [camelKey, value] of Object.entries(updates)) {

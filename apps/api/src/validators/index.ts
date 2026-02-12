@@ -13,7 +13,9 @@ export const registerSchema = Joi.object({
       'string.min': 'Password must be at least 8 characters long',
     }),
   fullName: Joi.string().min(1).max(255).required(),
-});
+})
+  // Accept snake_case from mobile clients
+  .rename('full_name', 'fullName', { ignoreUndefined: true, override: false });
 
 export const loginSchema = Joi.object({
   email: Joi.string().email().required(),
@@ -22,7 +24,8 @@ export const loginSchema = Joi.object({
 
 export const refreshTokenSchema = Joi.object({
   refreshToken: Joi.string().required(),
-});
+})
+  .rename('refresh_token', 'refreshToken', { ignoreUndefined: true, override: false });
 
 // Item Validators
 export const createItemSchema = Joi.object({
@@ -55,7 +58,19 @@ export const createItemSchema = Joi.object({
   notes: Joi.string().max(5000).allow(null, ''),
   productImageUrl: Joi.string().uri().max(500).allow(null, ''),
   barcode: Joi.string().max(100).allow(null, ''),
-});
+  addedVia: Joi.string().valid('manual', 'email', 'barcode', 'receipt_scan').default('manual'),
+})
+  // Accept snake_case from mobile clients
+  .rename('home_id', 'homeId', { ignoreUndefined: true, override: false })
+  .rename('model_number', 'modelNumber', { ignoreUndefined: true, override: false })
+  .rename('serial_number', 'serialNumber', { ignoreUndefined: true, override: false })
+  .rename('purchase_date', 'purchaseDate', { ignoreUndefined: true, override: false })
+  .rename('warranty_months', 'warrantyMonths', { ignoreUndefined: true, override: false })
+  .rename('warranty_type', 'warrantyType', { ignoreUndefined: true, override: false })
+  .rename('warranty_provider', 'warrantyProvider', { ignoreUndefined: true, override: false })
+  .rename('product_image_url', 'productImageUrl', { ignoreUndefined: true, override: false })
+  .rename('added_via', 'addedVia', { ignoreUndefined: true, override: false })
+  .rename('user_id', 'userId', { ignoreUndefined: true, override: false });
 
 export const updateItemSchema = Joi.object({
   name: Joi.string().min(1).max(255),
@@ -87,7 +102,18 @@ export const updateItemSchema = Joi.object({
   isArchived: Joi.boolean(),
   productImageUrl: Joi.string().uri().max(500).allow(null, ''),
   barcode: Joi.string().max(100).allow(null, ''),
-}).min(1); // At least one field must be provided
+  addedVia: Joi.string().valid('manual', 'email', 'barcode', 'receipt_scan'),
+}).min(1) // At least one field must be provided
+  // Accept snake_case from mobile clients
+  .rename('model_number', 'modelNumber', { ignoreUndefined: true, override: false })
+  .rename('serial_number', 'serialNumber', { ignoreUndefined: true, override: false })
+  .rename('purchase_date', 'purchaseDate', { ignoreUndefined: true, override: false })
+  .rename('warranty_months', 'warrantyMonths', { ignoreUndefined: true, override: false })
+  .rename('warranty_type', 'warrantyType', { ignoreUndefined: true, override: false })
+  .rename('warranty_provider', 'warrantyProvider', { ignoreUndefined: true, override: false })
+  .rename('is_archived', 'isArchived', { ignoreUndefined: true, override: false })
+  .rename('product_image_url', 'productImageUrl', { ignoreUndefined: true, override: false })
+  .rename('added_via', 'addedVia', { ignoreUndefined: true, override: false });
 
 // Home Validators
 export const createHomeSchema = Joi.object({
@@ -98,7 +124,9 @@ export const createHomeSchema = Joi.object({
   zip: Joi.string().max(20).allow(null, ''),
   homeType: Joi.string().valid('house', 'condo', 'apartment', 'townhouse', 'other').default('house'),
   moveInDate: Joi.date().max('now').allow(null),
-});
+})
+  .rename('home_type', 'homeType', { ignoreUndefined: true, override: false })
+  .rename('move_in_date', 'moveInDate', { ignoreUndefined: true, override: false });
 
 export const updateHomeSchema = Joi.object({
   name: Joi.string().min(1).max(255),
@@ -108,25 +136,31 @@ export const updateHomeSchema = Joi.object({
   zip: Joi.string().max(20).allow(null, ''),
   homeType: Joi.string().valid('house', 'condo', 'apartment', 'townhouse', 'other'),
   moveInDate: Joi.date().max('now').allow(null),
-}).min(1);
+}).min(1)
+  .rename('home_type', 'homeType', { ignoreUndefined: true, override: false })
+  .rename('move_in_date', 'moveInDate', { ignoreUndefined: true, override: false });
 
 // User Validators
 export const updateUserSchema = Joi.object({
   fullName: Joi.string().min(1).max(255),
   avatarUrl: Joi.string().uri().max(500).allow(null, ''),
-}).min(1);
+}).min(1)
+  .rename('full_name', 'fullName', { ignoreUndefined: true, override: false })
+  .rename('avatar_url', 'avatarUrl', { ignoreUndefined: true, override: false });
 
 // Document Validators
 export const uploadDocumentSchema = Joi.object({
   itemId: Joi.string().uuid().required(),
   type: Joi.string().valid('receipt', 'warranty_card', 'manual', 'invoice', 'other').default('other'),
-});
+})
+  .rename('item_id', 'itemId', { ignoreUndefined: true, override: false });
 
 // Push Token Validators
 export const pushTokenSchema = Joi.object({
   fcmToken: Joi.string().min(1).max(512).required(),
   platform: Joi.string().valid('ios', 'android', 'web', 'unknown').default('unknown'),
-});
+})
+  .rename('fcm_token', 'fcmToken', { ignoreUndefined: true, override: false });
 
 // Engagement Tracking Validators
 export const trackEngagementSchema = Joi.object({
@@ -145,7 +179,8 @@ export const paginationSchema = Joi.object({
   limit: Joi.number().integer().min(1).max(100).default(20),
   homeId: Joi.string().uuid(),
   archived: Joi.string().valid('true', 'false'),
-});
+})
+  .rename('home_id', 'homeId', { ignoreUndefined: true, override: false });
 
 export const uuidParamSchema = Joi.object({
   id: Joi.string().uuid().required(),

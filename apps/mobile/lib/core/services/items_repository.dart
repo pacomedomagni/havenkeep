@@ -117,9 +117,9 @@ class ItemsRepository {
     }
 
     return {
-      'active': summary['active_count'] as int? ?? 0,
-      'expiring': summary['expiring_count'] as int? ?? 0,
-      'expired': summary['expired_count'] as int? ?? 0,
+      'active': summary['active_warranties'] as int? ?? 0,
+      'expiring': summary['expiring_soon'] as int? ?? 0,
+      'expired': summary['expired'] as int? ?? 0,
     };
   }
 

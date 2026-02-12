@@ -62,7 +62,7 @@ class DocumentsRepository {
       final data = await _client.upload(
         '/api/v1/documents/upload',
         file: file,
-        fieldName: 'file',
+        fieldName: 'files',
         fields: {
           'itemId': itemId,
           'type': type.toJson(),
