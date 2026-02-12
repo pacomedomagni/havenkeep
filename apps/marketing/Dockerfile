@@ -1,59 +1,37 @@
 # Base image
 FROM node:20-alpine AS base
 
-# Install pnpm
-RUN npm install -g pnpm
+# Development stage
+FROM base AS development
+WORKDIR /app
+
+COPY package.json package-lock.json* ./
+RUN npm install
+
+COPY . .
+
+EXPOSE 4321
+
+CMD ["npx", "astro", "dev", "--host"]
 
 # Builder stage
 FROM base AS builder
 WORKDIR /app
 
-# Copy workspace files
-COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
-COPY apps/marketing/package.json ./apps/marketing/
+COPY package.json package-lock.json* ./
+RUN npm ci
 
-# Install dependencies
-RUN pnpm install --frozen-lockfile
-
-# Copy source code
-COPY apps/marketing ./apps/marketing
-
-# Build the application
-WORKDIR /app/apps/marketing
-RUN pnpm run build
+COPY . .
+RUN npm run build
 
 # Production stage
 FROM base AS production
 WORKDIR /app
 
-# Copy dependencies and built files
 COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/apps/marketing/node_modules ./apps/marketing/node_modules
-COPY --from=builder /app/apps/marketing/dist ./apps/marketing/dist
-COPY --from=builder /app/apps/marketing/package.json ./apps/marketing/
-
-WORKDIR /app/apps/marketing
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/package.json ./
 
 EXPOSE 4321
 
-CMD ["pnpm", "run", "preview"]
-
-# Development stage
-FROM base AS development
-WORKDIR /app
-
-# Copy workspace files
-COPY package.json pnpm-workspace.yaml ./
-COPY apps/marketing/package.json ./apps/marketing/package.json
-
-# Install all dependencies
-RUN pnpm install --no-frozen-lockfile
-
-# Copy source code
-COPY apps/marketing ./apps/marketing
-
-WORKDIR /app/apps/marketing
-
-EXPOSE 4321
-
-CMD ["sh", "-c", "pnpm run dev -- --host"]
+CMD ["npx", "astro", "preview", "--host"]

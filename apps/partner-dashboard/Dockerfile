@@ -1,61 +1,39 @@
 # Base image
 FROM node:20-alpine AS base
 
-# Install pnpm
-RUN npm install -g pnpm
+# Development stage
+FROM base AS development
+WORKDIR /app
+
+COPY package.json package-lock.json* ./
+RUN npm install
+
+COPY . .
+
+EXPOSE 3001
+
+CMD ["npx", "next", "dev", "--port", "3001"]
 
 # Builder stage
 FROM base AS builder
 WORKDIR /app
 
-# Copy workspace files
-COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
-COPY apps/partner-dashboard/package.json ./apps/partner-dashboard/
+COPY package.json package-lock.json* ./
+RUN npm ci
 
-# Install dependencies
-RUN pnpm install --frozen-lockfile
-
-# Copy source code
-COPY apps/partner-dashboard ./apps/partner-dashboard
-
-# Build the application
-WORKDIR /app/apps/partner-dashboard
-RUN pnpm run build
+COPY . .
+RUN npm run build
 
 # Production stage
 FROM base AS production
 WORKDIR /app
 
-# Copy dependencies and built files
 COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/apps/partner-dashboard/node_modules ./apps/partner-dashboard/node_modules
-COPY --from=builder /app/apps/partner-dashboard/.next ./apps/partner-dashboard/.next
-COPY --from=builder /app/apps/partner-dashboard/public ./apps/partner-dashboard/public
-COPY --from=builder /app/apps/partner-dashboard/package.json ./apps/partner-dashboard/
-COPY --from=builder /app/apps/partner-dashboard/next.config.js ./apps/partner-dashboard/
-
-WORKDIR /app/apps/partner-dashboard
+COPY --from=builder /app/.next ./.next
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/package.json ./
+COPY --from=builder /app/next.config.js ./
 
 EXPOSE 3001
 
-CMD ["pnpm", "run", "start"]
-
-# Development stage
-FROM base AS development
-WORKDIR /app
-
-# Copy workspace files
-COPY package.json pnpm-workspace.yaml ./
-COPY apps/partner-dashboard/package.json ./apps/partner-dashboard/package.json
-
-# Install all dependencies
-RUN pnpm install --no-frozen-lockfile
-
-# Copy source code
-COPY apps/partner-dashboard ./apps/partner-dashboard
-
-WORKDIR /app/apps/partner-dashboard
-
-EXPOSE 3001
-
-CMD ["sh", "-c", "pnpm run dev"]
+CMD ["npx", "next", "start", "--port", "3001"]

@@ -124,8 +124,8 @@ function createMemoryRateLimiter() {
   });
 }
 
-// Export as a promise that resolves to the middleware
-export const rateLimiter = await initializeRateLimiter();
+// Export the initializer — must be awaited in index.ts
+export { initializeRateLimiter };
 
 // Specific rate limiters for sensitive endpoints
 export const authRateLimiter = rateLimit({

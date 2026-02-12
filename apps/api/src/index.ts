@@ -8,7 +8,7 @@ import { validateEnvironment } from './config/validator';
 import { logger } from './utils/logger';
 import { errorHandler } from './middleware/errorHandler';
 import { requestLogger } from './middleware/requestLogger';
-import { rateLimiter } from './middleware/rateLimiter';
+import { initializeRateLimiter } from './middleware/rateLimiter';
 import { setCsrfToken } from './middleware/csrf';
 
 // Routes
@@ -75,9 +75,6 @@ app.use(cookieParser());
 // Request logging
 app.use(requestLogger);
 
-// Rate limiting
-app.use(rateLimiter);
-
 // CSRF token generation (for non-API routes)
 app.use(setCsrfToken);
 
@@ -129,15 +126,28 @@ app.use((req, res) => {
 // Error handler (must be last)
 app.use(errorHandler);
 
-// Start server
+// Start server (async to initialize rate limiter)
+let server: ReturnType<typeof app.listen>;
 const PORT = config.port;
-const server = app.listen(PORT, () => {
-  logger.info(`🚀 HavenKeep API running on port ${PORT}`);
-  logger.info(`📦 Environment: ${config.env}`);
-  logger.info(`🔒 CORS origins: ${config.cors.origins.join(', ')}`);
-  logger.info(`✅ Environment validated`);
-  logger.info(`🔐 Security: Helmet, CORS, Rate Limiting, CSRF Protection`);
-  logger.info(`📊 Monitoring: Pino → Promtail → Loki`);
+
+async function start() {
+  const rateLimiter = await initializeRateLimiter();
+  // Insert rate limiter before routes (after requestLogger)
+  app.use(rateLimiter);
+
+  server = app.listen(PORT, () => {
+    logger.info(`🚀 HavenKeep API running on port ${PORT}`);
+    logger.info(`📦 Environment: ${config.env}`);
+    logger.info(`🔒 CORS origins: ${config.cors.origins.join(', ')}`);
+    logger.info(`✅ Environment validated`);
+    logger.info(`🔐 Security: Helmet, CORS, Rate Limiting, CSRF Protection`);
+    logger.info(`📊 Monitoring: Pino → Promtail → Loki`);
+  });
+}
+
+start().catch((err) => {
+  logger.error({ err }, 'Failed to start server');
+  process.exit(1);
 });
 
 // Graceful shutdown
