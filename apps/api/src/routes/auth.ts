@@ -47,7 +47,8 @@ router.post('/register', authRateLimiter, validate(registerSchema), async (req, 
     const result = await query(
       `INSERT INTO users (email, password_hash, full_name)
        VALUES ($1, $2, $3)
-       RETURNING id, email, full_name, plan, created_at`,
+       RETURNING id, email, full_name, avatar_url, auth_provider, plan, plan_expires_at,
+                 referred_by, referral_code, created_at, updated_at`,
       [email.toLowerCase(), passwordHash, fullName]
     );
 
@@ -96,8 +97,15 @@ router.post('/register', authRateLimiter, validate(registerSchema), async (req, 
       user: {
         id: user.id,
         email: user.email,
-        fullName: user.full_name,
+        full_name: user.full_name,
+        avatar_url: user.avatar_url || null,
+        auth_provider: user.auth_provider || 'email',
         plan: user.plan,
+        plan_expires_at: user.plan_expires_at || null,
+        referred_by: user.referred_by || null,
+        referral_code: user.referral_code || null,
+        created_at: user.created_at,
+        updated_at: user.updated_at,
       },
       accessToken,
       refreshToken,
@@ -123,7 +131,8 @@ router.post('/login', authRateLimiter, validate(loginSchema), async (req, res, n
 
     // Get user
     const result = await query(
-      `SELECT id, email, password_hash, full_name, plan, is_admin
+      `SELECT id, email, password_hash, full_name, avatar_url, auth_provider, plan,
+              plan_expires_at, referred_by, referral_code, is_admin, created_at, updated_at
        FROM users WHERE email = $1`,
       [email.toLowerCase()]
     );
@@ -188,9 +197,16 @@ router.post('/login', authRateLimiter, validate(loginSchema), async (req, res, n
       user: {
         id: user.id,
         email: user.email,
-        fullName: user.full_name,
+        full_name: user.full_name,
+        avatar_url: user.avatar_url || null,
+        auth_provider: user.auth_provider || 'email',
         plan: user.plan,
-        isAdmin: user.is_admin,
+        plan_expires_at: user.plan_expires_at || null,
+        referred_by: user.referred_by || null,
+        referral_code: user.referral_code || null,
+        is_admin: user.is_admin,
+        created_at: user.created_at,
+        updated_at: user.updated_at,
       },
       accessToken,
       refreshToken,
@@ -490,7 +506,9 @@ router.post('/google', authRateLimiter, async (req, res, next) => {
 
     // Find or create user
     let userResult = await query(
-      `SELECT id, email, full_name, plan, is_admin FROM users WHERE email = $1`,
+      `SELECT id, email, full_name, avatar_url, auth_provider, plan, plan_expires_at,
+              referred_by, referral_code, is_admin, created_at, updated_at
+       FROM users WHERE email = $1`,
       [email]
     );
 
@@ -502,7 +520,8 @@ router.post('/google', authRateLimiter, async (req, res, next) => {
       const createResult = await query(
         `INSERT INTO users (email, full_name, avatar_url, auth_provider, email_verified)
          VALUES ($1, $2, $3, 'google', TRUE)
-         RETURNING id, email, full_name, plan, is_admin`,
+         RETURNING id, email, full_name, avatar_url, auth_provider, plan, plan_expires_at,
+                   referred_by, referral_code, is_admin, created_at, updated_at`,
         [email, fullName, avatarUrl]
       );
       user = createResult.rows[0];
@@ -557,9 +576,16 @@ router.post('/google', authRateLimiter, async (req, res, next) => {
       user: {
         id: user.id,
         email: user.email,
-        fullName: user.full_name,
+        full_name: user.full_name,
+        avatar_url: user.avatar_url || null,
+        auth_provider: user.auth_provider || 'google',
         plan: user.plan,
-        isAdmin: user.is_admin,
+        plan_expires_at: user.plan_expires_at || null,
+        referred_by: user.referred_by || null,
+        referral_code: user.referral_code || null,
+        is_admin: user.is_admin,
+        created_at: user.created_at,
+        updated_at: user.updated_at,
       },
       accessToken,
       refreshToken,
@@ -620,7 +646,9 @@ router.post('/apple', authRateLimiter, async (req, res, next) => {
 
     // Find or create user
     let userResult = await query(
-      `SELECT id, email, full_name, plan, is_admin FROM users WHERE email = $1`,
+      `SELECT id, email, full_name, avatar_url, auth_provider, plan, plan_expires_at,
+              referred_by, referral_code, is_admin, created_at, updated_at
+       FROM users WHERE email = $1`,
       [email]
     );
 
@@ -633,7 +661,8 @@ router.post('/apple', authRateLimiter, async (req, res, next) => {
       const createResult = await query(
         `INSERT INTO users (email, full_name, auth_provider, email_verified)
          VALUES ($1, $2, 'apple', TRUE)
-         RETURNING id, email, full_name, plan, is_admin`,
+         RETURNING id, email, full_name, avatar_url, auth_provider, plan, plan_expires_at,
+                   referred_by, referral_code, is_admin, created_at, updated_at`,
         [email, fullName]
       );
       user = createResult.rows[0];
@@ -688,9 +717,16 @@ router.post('/apple', authRateLimiter, async (req, res, next) => {
       user: {
         id: user.id,
         email: user.email,
-        fullName: user.full_name,
+        full_name: user.full_name,
+        avatar_url: user.avatar_url || null,
+        auth_provider: user.auth_provider || 'apple',
         plan: user.plan,
-        isAdmin: user.is_admin,
+        plan_expires_at: user.plan_expires_at || null,
+        referred_by: user.referred_by || null,
+        referral_code: user.referral_code || null,
+        is_admin: user.is_admin,
+        created_at: user.created_at,
+        updated_at: user.updated_at,
       },
       accessToken,
       refreshToken,

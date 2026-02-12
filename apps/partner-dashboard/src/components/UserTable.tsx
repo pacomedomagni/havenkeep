@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { TrashIcon, NoSymbolIcon } from '@heroicons/react/24/outline'
+import { useState, useEffect } from 'react'
+import { TrashIcon, NoSymbolIcon, CheckCircleIcon, XCircleIcon } from '@heroicons/react/24/outline'
 import { apiClient } from '@/lib/api'
 
 interface User {
@@ -19,10 +19,23 @@ interface UserTableProps {
   users: User[]
 }
 
+interface Toast {
+  message: string
+  type: 'success' | 'error'
+}
+
 export default function UserTable({ users: initialUsers }: UserTableProps) {
   const [users, setUsers] = useState(initialUsers)
   const [searchQuery, setSearchQuery] = useState('')
   const [filterPlan, setFilterPlan] = useState<string>('all')
+  const [toast, setToast] = useState<Toast | null>(null)
+
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => setToast(null), 4000)
+      return () => clearTimeout(timer)
+    }
+  }, [toast])
 
   const filteredUsers = users.filter(user => {
     const matchesSearch =
@@ -42,9 +55,10 @@ export default function UserTable({ users: initialUsers }: UserTableProps) {
         method: 'PUT',
       })
 
-      alert('User suspended successfully')
+      setUsers(users.map(u => u.id === userId ? { ...u, plan: 'free' } : u))
+      setToast({ message: 'User suspended successfully', type: 'success' })
     } catch {
-      alert('Error suspending user')
+      setToast({ message: 'Failed to suspend user. Please try again.', type: 'error' })
     }
   }
 
@@ -57,14 +71,29 @@ export default function UserTable({ users: initialUsers }: UserTableProps) {
       })
 
       setUsers(users.filter(u => u.id !== userId))
-      alert('User deleted successfully')
+      setToast({ message: 'User deleted successfully', type: 'success' })
     } catch {
-      alert('Error deleting user')
+      setToast({ message: 'Failed to delete user. Please try again.', type: 'error' })
     }
   }
 
   return (
     <div>
+      {/* Toast notification */}
+      {toast && (
+        <div className={`mb-4 flex items-center gap-2 rounded-lg px-4 py-3 text-sm ${
+          toast.type === 'success'
+            ? 'bg-haven-active/10 border border-haven-active/30 text-haven-active'
+            : 'bg-haven-error/10 border border-haven-error/30 text-haven-error'
+        }`}>
+          {toast.type === 'success'
+            ? <CheckCircleIcon className="h-5 w-5 flex-shrink-0" />
+            : <XCircleIcon className="h-5 w-5 flex-shrink-0" />
+          }
+          {toast.message}
+        </div>
+      )}
+
       {/* Filters */}
       <div className="card mb-6">
         <div className="flex flex-col md:flex-row gap-4">

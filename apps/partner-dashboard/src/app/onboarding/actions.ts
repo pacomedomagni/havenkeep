@@ -7,7 +7,7 @@ import type { PartnerType } from '@/lib/types';
 export async function createPartnerProfile(formData: FormData) {
   const companyName = formData.get('companyName') as string;
   const partnerType = formData.get('partnerType') as PartnerType;
-  const licenseNumber = formData.get('licenseNumber') as string;
+  const phone = formData.get('phone') as string;
   const serviceAreasRaw = formData.get('serviceAreas') as string;
 
   const serviceAreas = serviceAreasRaw
@@ -21,7 +21,7 @@ export async function createPartnerProfile(formData: FormData) {
       body: {
         companyName,
         partnerType,
-        phone: licenseNumber || undefined,
+        phone: phone || undefined,
         serviceAreas,
       },
     });

@@ -5,7 +5,7 @@ import { serverApiClient } from '@/lib/auth';
 export async function updatePartnerProfile(formData: FormData) {
   const companyName = formData.get('companyName') as string;
   const partnerType = formData.get('partnerType') as string;
-  const licenseNumber = formData.get('licenseNumber') as string;
+  const phone = formData.get('phone') as string;
   const serviceAreasRaw = formData.get('serviceAreas') as string;
 
   const serviceAreas = serviceAreasRaw
@@ -19,7 +19,7 @@ export async function updatePartnerProfile(formData: FormData) {
       body: {
         companyName,
         partnerType,
-        phone: licenseNumber || undefined,
+        phone: phone || undefined,
         serviceAreas,
       },
     });

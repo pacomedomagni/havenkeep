@@ -273,7 +273,8 @@ router.post(
   '/gifts/:id/activate',
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
-    const gift = await PartnersService.activateGift(req.params.id, userId);
+    const userEmail = req.user!.email;
+    const gift = await PartnersService.activateGift(req.params.id, userId, userEmail);
 
     res.json({
       success: true,

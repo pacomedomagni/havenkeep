@@ -1,6 +1,6 @@
 import Header from '@/components/Header'
 import StatsCard from '@/components/StatsCard'
-import { serverApiClient } from '@/lib/auth'
+import { serverApiClient, requireAdmin } from '@/lib/auth'
 import { UsersIcon, CubeIcon, CurrencyDollarIcon, ChartBarIcon } from '@heroicons/react/24/outline'
 
 async function getAdminStats() {
@@ -34,6 +34,8 @@ async function getRecentUsers() {
 }
 
 export default async function DashboardPage() {
+  await requireAdmin()
+
   const [stats, recentUsers] = await Promise.all([
     getAdminStats(),
     getRecentUsers(),

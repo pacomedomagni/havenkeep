@@ -34,16 +34,13 @@ class _GiftActivationScreenState extends ConsumerState<GiftActivationScreen> {
   }
 
   Future<void> _checkAuthAndActivate() async {
-    final authState = ref.read(authProvider);
+    final isAuthenticated = ref.read(isAuthenticatedProvider);
 
-    if (authState.isAuthenticated) {
+    if (isAuthenticated) {
       // User is logged in, activate immediately
       await _activateGift();
     } else {
       // User needs to sign up or log in first
-      // Store gift ID for after authentication
-      // Then navigate to sign up
-      // For now, show a message
       if (mounted) {
         setState(() {
           _error = 'Please sign up or log in to activate your gift';
@@ -97,13 +94,13 @@ class _GiftActivationScreenState extends ConsumerState<GiftActivationScreen> {
   }
 
   void _handleLogin() {
-    // Store gift ID in preferences/storage for after login
-    context.go('/login?giftId=${widget.giftId}');
+    // Welcome screen handles both sign up and log in
+    context.go('/welcome?giftId=${widget.giftId}');
   }
 
   @override
   Widget build(BuildContext context) {
-    final authState = ref.watch(authProvider);
+    final isAuthenticated = ref.watch(isAuthenticatedProvider);
 
     return Scaffold(
       body: Stack(
@@ -145,7 +142,7 @@ class _GiftActivationScreenState extends ConsumerState<GiftActivationScreen> {
                     ),
                     const SizedBox(height: 32),
 
-                    if (!authState.isAuthenticated) ...[
+                    if (!isAuthenticated) ...[
                       ElevatedButton(
                         onPressed: _handleSignUp,
                         style: ElevatedButton.styleFrom(

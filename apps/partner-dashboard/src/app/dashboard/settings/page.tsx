@@ -8,7 +8,7 @@ import { apiClient } from '@/lib/api';
 export default function SettingsPage() {
   const [companyName, setCompanyName] = useState('');
   const [partnerType, setPartnerType] = useState('realtor');
-  const [licenseNumber, setLicenseNumber] = useState('');
+  const [phone, setPhone] = useState('');
   const [serviceAreas, setServiceAreas] = useState('');
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
@@ -27,7 +27,7 @@ export default function SettingsPage() {
       if (data) {
         setCompanyName(data.company_name || '');
         setPartnerType(data.partner_type || 'realtor');
-        setLicenseNumber(data.phone || '');
+        setPhone(data.phone || '');
         setServiceAreas('');
       }
     } catch (err) {
@@ -46,7 +46,7 @@ export default function SettingsPage() {
     const formData = new FormData();
     formData.set('companyName', companyName);
     formData.set('partnerType', partnerType);
-    formData.set('licenseNumber', licenseNumber);
+    formData.set('phone', phone);
     formData.set('serviceAreas', serviceAreas);
 
     const result = await updatePartnerProfile(formData);
@@ -120,22 +120,22 @@ export default function SettingsPage() {
             >
               <option value="realtor">Realtor</option>
               <option value="builder">Builder</option>
-              <option value="contractor">Contractor</option>
+              <option value="property_manager">Property Manager</option>
               <option value="other">Other</option>
             </select>
           </div>
 
           <div>
-            <label htmlFor="licenseNumber" className="block text-sm font-medium text-haven-text-secondary mb-1.5">
-              License number <span className="text-haven-text-tertiary">(optional)</span>
+            <label htmlFor="phone" className="block text-sm font-medium text-haven-text-secondary mb-1.5">
+              Phone number <span className="text-haven-text-tertiary">(optional)</span>
             </label>
             <input
-              id="licenseNumber"
-              type="text"
-              value={licenseNumber}
-              onChange={(e) => setLicenseNumber(e.target.value)}
+              id="phone"
+              type="tel"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
               className="input-field"
-              placeholder="e.g., RE-12345678"
+              placeholder="(555) 123-4567"
             />
           </div>
 

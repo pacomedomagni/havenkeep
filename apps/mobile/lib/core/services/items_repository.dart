@@ -160,6 +160,7 @@ class ItemsRepository {
       // Remove fields that shouldn't be sent in updates
       json.remove('warranty_end_date');
       json.remove('created_at');
+      json.remove('updated_at');
       json.remove('id');
       json.remove('user_id');
 

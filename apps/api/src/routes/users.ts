@@ -15,7 +15,8 @@ router.use(authenticate);
 router.get('/me', async (req, res, next) => {
   try {
     const result = await query(
-      `SELECT id, email, full_name, avatar_url, plan, plan_expires_at, created_at
+      `SELECT id, email, full_name, avatar_url, auth_provider, plan, plan_expires_at,
+              referred_by, referral_code, created_at, updated_at
        FROM users WHERE id = $1`,
       [req.user!.id]
     );

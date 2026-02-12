@@ -41,6 +41,20 @@ export default function SignUpPage() {
         )}
 
         <div>
+          <label htmlFor="fullName" className="block text-sm font-medium text-haven-text-secondary mb-1.5">
+            Full name
+          </label>
+          <input
+            id="fullName"
+            name="fullName"
+            type="text"
+            required
+            className="input-field"
+            placeholder="Jane Smith"
+          />
+        </div>
+
+        <div>
           <label htmlFor="email" className="block text-sm font-medium text-haven-text-secondary mb-1.5">
             Email
           </label>

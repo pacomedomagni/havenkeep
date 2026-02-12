@@ -214,10 +214,18 @@ router.post(
         }
       }
 
-      res.status(201).json({
-        message: 'Documents uploaded successfully',
-        documents: uploadedDocuments,
-      });
+      // Return single document if one file, array if multiple
+      if (uploadedDocuments.length === 1) {
+        res.status(201).json({
+          message: 'Document uploaded successfully',
+          document: uploadedDocuments[0],
+        });
+      } else {
+        res.status(201).json({
+          message: 'Documents uploaded successfully',
+          documents: uploadedDocuments,
+        });
+      }
     } catch (error) {
       next(error);
     }

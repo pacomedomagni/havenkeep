@@ -501,7 +501,7 @@ export class PartnersService {
   /**
    * Activate gift (when homebuyer signs up)
    */
-  static async activateGift(giftId: string, newUserId: string): Promise<PartnerGift> {
+  static async activateGift(giftId: string, newUserId: string, userEmail: string): Promise<PartnerGift> {
     const client = await pool.connect();
 
     try {
@@ -518,6 +518,11 @@ export class PartnersService {
       }
 
       const gift = giftResult.rows[0];
+
+      // Verify the calling user is the intended homebuyer
+      if (gift.homebuyer_email.toLowerCase() !== userEmail.toLowerCase()) {
+        throw new AppError('This gift was not issued to your email address', 403);
+      }
 
       if (gift.is_activated) {
         throw new AppError('Gift already activated', 400);

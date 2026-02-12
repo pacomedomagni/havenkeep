@@ -177,11 +177,14 @@ router.put('/users/:id/suspend', validate(userIdParamSchema, 'params'), async (r
 });
 
 // Delete user (cascades via FK constraints)
+// Note: Even if the user has an active access token, the authenticate middleware
+// fetches the user from DB on every request — once the user row is deleted,
+// any subsequent API call with the old token will fail with "Invalid token".
 router.delete('/users/:id', validate(userIdParamSchema, 'params'), async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    // Delete refresh tokens first
+    // Delete refresh tokens first (prevents token refresh after deletion)
     await query(`DELETE FROM refresh_tokens WHERE user_id = $1`, [id]);
 
     // Delete user (FK cascades handle items, homes, documents, etc.)

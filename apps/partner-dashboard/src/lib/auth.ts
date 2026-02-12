@@ -53,12 +53,35 @@ export async function getUser(): Promise<AuthUser | null> {
   const payload = decodeJwtPayload(tokens.accessToken);
   if (!payload) return null;
 
-  // We store minimal info in the JWT. For full user info, call the API.
+  // Fetch real user data from API to get accurate plan + isAdmin status
+  try {
+    const response = await fetch(`${API_URL}/api/v1/admin/me`, {
+      headers: {
+        Authorization: `Bearer ${tokens.accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      cache: 'no-store',
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      return {
+        id: data.user.id,
+        email: data.user.email,
+        plan: data.user.plan,
+        isAdmin: data.user.isAdmin,
+      };
+    }
+  } catch {
+    // Fall through to JWT-only data
+  }
+
+  // Fallback: use JWT data only (isAdmin defaults to false for safety)
   return {
     id: payload.userId,
     email: payload.email,
-    plan: 'free', // Will be overridden by API calls when needed
-    isAdmin: true, // Middleware already validated admin status
+    plan: 'free',
+    isAdmin: false,
   };
 }
 
@@ -71,7 +94,11 @@ export async function requireAuth(): Promise<AuthUser> {
 }
 
 export async function requireAdmin(): Promise<AuthUser> {
-  return requireAuth();
+  const user = await requireAuth();
+  if (!user.isAdmin) {
+    redirect('/unauthorized');
+  }
+  return user;
 }
 
 export function setAuthCookies(

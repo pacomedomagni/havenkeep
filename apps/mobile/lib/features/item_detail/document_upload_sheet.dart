@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
@@ -7,6 +9,23 @@ import 'package:shared_ui/shared_ui.dart';
 
 import '../../core/providers/documents_provider.dart';
 import '../../core/utils/error_handler.dart';
+
+/// Maximum file size for document uploads (20 MB).
+const _kMaxFileSizeBytes = 20 * 1024 * 1024;
+
+/// Detect MIME type from file name extension.
+String _detectMimeType(String fileName) {
+  final lower = fileName.toLowerCase();
+  if (lower.endsWith('.pdf')) return 'application/pdf';
+  if (lower.endsWith('.doc')) return 'application/msword';
+  if (lower.endsWith('.docx')) {
+    return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  }
+  if (lower.endsWith('.png')) return 'image/png';
+  if (lower.endsWith('.heic') || lower.endsWith('.heif')) return 'image/heic';
+  if (lower.endsWith('.webp')) return 'image/webp';
+  return 'image/jpeg';
+}
 
 /// Bottom sheet for uploading a document (photo) to an item.
 class DocumentUploadSheet extends ConsumerStatefulWidget {
@@ -84,6 +103,19 @@ class _DocumentUploadSheetState extends ConsumerState<DocumentUploadSheet> {
   Future<void> _upload() async {
     if (_selectedImage == null) return;
 
+    // Validate file exists and check size
+    final file = File(_selectedImage!.path);
+    if (!file.existsSync()) {
+      setState(() => _errorMessage = 'File no longer exists. Please select again.');
+      return;
+    }
+    final fileSize = file.lengthSync();
+    if (fileSize > _kMaxFileSizeBytes) {
+      final sizeMb = (fileSize / (1024 * 1024)).toStringAsFixed(1);
+      setState(() => _errorMessage = 'File too large ($sizeMb MB). Maximum is 20 MB.');
+      return;
+    }
+
     setState(() {
       _isUploading = true;
       _errorMessage = null;
@@ -96,7 +128,7 @@ class _DocumentUploadSheetState extends ConsumerState<DocumentUploadSheet> {
         filePath: _selectedImage!.path,
         fileName: _selectedImage!.name,
         type: _selectedType,
-        mimeType: 'image/jpeg',
+        mimeType: _detectMimeType(_selectedImage!.name),
       );
 
       if (mounted) {

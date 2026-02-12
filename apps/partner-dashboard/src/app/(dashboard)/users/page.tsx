@@ -1,6 +1,6 @@
 import Header from '@/components/Header'
 import UserTable from '@/components/UserTable'
-import { serverApiClient } from '@/lib/auth'
+import { serverApiClient, requireAdmin } from '@/lib/auth'
 
 async function getUsers() {
   try {
@@ -12,6 +12,8 @@ async function getUsers() {
 }
 
 export default async function UsersPage() {
+  await requireAdmin()
+
   const users = await getUsers()
 
   return (

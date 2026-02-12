@@ -200,22 +200,35 @@ class OfflineSyncService {
           .read(itemsRepositoryProvider)
           .getItemById(localItem.id);
 
+      // Verify there's an actual conflict by comparing timestamps
+      if (!ConflictResolver.hasConflict(localItem, serverItem)) {
+        // No real conflict — server accepted our version or timestamps match.
+        // Just push the local version again.
+        await _ref.read(itemsRepositoryProvider).updateItem(localItem);
+        debugPrint(
+          '[OfflineSync] No actual conflict for item ${localItem.id} — retried update.',
+        );
+        return;
+      }
+
       final conflict = Conflict<Item>(
         localVersion: localItem,
         serverVersion: serverItem,
       );
 
-      // Auto-resolve using mostRecent strategy
-      final resolved = ConflictResolver.resolveItem(
-        conflict,
-        ConflictResolutionStrategy.mostRecent,
-      );
+      // Choose strategy: if auto-resolvable (non-overlapping fields), use merge;
+      // otherwise fall back to mostRecent
+      final strategy = ConflictResolver.canAutoResolve(conflict)
+          ? ConflictResolutionStrategy.merge
+          : ConflictResolutionStrategy.mostRecent;
+
+      final resolved = ConflictResolver.resolveItem(conflict, strategy);
 
       // Push the resolved version to the server
       await _ref.read(itemsRepositoryProvider).updateItem(resolved);
 
       debugPrint(
-        '[OfflineSync] Conflict resolved for item ${localItem.id} using mostRecent strategy.',
+        '[OfflineSync] Conflict resolved for item ${localItem.id} using $strategy strategy.',
       );
     } catch (e) {
       debugPrint('[OfflineSync] Conflict resolution failed for item ${localItem.id}: $e');

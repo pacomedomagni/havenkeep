@@ -2,7 +2,7 @@ import Header from '@/components/Header'
 import StatsCard from '@/components/StatsCard'
 import SignupsChart from '@/components/SignupsChart'
 import ItemsChart from '@/components/ItemsChart'
-import { serverApiClient } from '@/lib/auth'
+import { serverApiClient, requireAdmin } from '@/lib/auth'
 import { UsersIcon, CubeIcon, ChartBarIcon } from '@heroicons/react/24/outline'
 
 async function getAnalyticsData() {
@@ -46,6 +46,8 @@ async function getAnalyticsData() {
 }
 
 export default async function AnalyticsPage() {
+  await requireAdmin()
+
   const { stats, signups, items } = await getAnalyticsData()
 
   const growthRate = Number(stats.signups_last_7d) > 0 && Number(stats.signups_last_30d) > 0
