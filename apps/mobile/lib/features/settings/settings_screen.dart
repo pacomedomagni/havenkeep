@@ -11,15 +11,6 @@ import '../../core/providers/items_provider.dart';
 import '../../core/router/router.dart';
 
 /// Profile & Settings screen (Screen 7.1).
-///
-/// Shows:
-/// - User profile card
-/// - Home management section
-/// - Notification preferences
-/// - Archived items
-/// - Plan info
-/// - About / legal
-/// - Sign out
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
 
@@ -56,9 +47,12 @@ class SettingsScreen extends ConsumerWidget {
                       backgroundImage: u?.avatarUrl != null
                           ? NetworkImage(u!.avatarUrl!)
                           : null,
+                      onBackgroundImageError: u?.avatarUrl != null
+                          ? (_, __) {}
+                          : null,
                       child: u?.avatarUrl == null
                           ? Text(
-                              (u?.fullName ?? '?')[0].toUpperCase(),
+                              _getInitials(u?.fullName),
                               style: const TextStyle(
                                 color: Colors.white,
                                 fontWeight: FontWeight.bold,
@@ -195,6 +189,74 @@ class SettingsScreen extends ConsumerWidget {
 
           const SizedBox(height: HavenSpacing.lg),
 
+          // SECURITY section
+          const SectionHeader(title: 'SECURITY'),
+          const SizedBox(height: HavenSpacing.sm),
+
+          // Only show Change Password for email auth users
+          user.when(
+            data: (u) {
+              if (u?.authProvider == AuthProvider.email) {
+                return Column(
+                  children: [
+                    _SettingsTile(
+                      icon: Icons.lock_outline,
+                      title: 'Change Password',
+                      onTap: () => context.push(AppRoutes.changePassword),
+                    ),
+                    const SizedBox(height: HavenSpacing.xs),
+                  ],
+                );
+              }
+              return const SizedBox.shrink();
+            },
+            loading: () => const SizedBox.shrink(),
+            error: (_, __) => const SizedBox.shrink(),
+          ),
+
+          _SettingsTile(
+            icon: Icons.delete_outline,
+            title: 'Delete Account',
+            subtitle: 'Permanently delete your account and data',
+            onTap: () => context.push(AppRoutes.deleteAccount),
+          ),
+
+          const SizedBox(height: HavenSpacing.lg),
+
+          // HELP & SUPPORT section
+          const SectionHeader(title: 'HELP & SUPPORT'),
+          const SizedBox(height: HavenSpacing.sm),
+
+          _SettingsTile(
+            icon: Icons.help_outline,
+            title: 'Help Center',
+            subtitle: 'FAQs and guides',
+            onTap: () async {
+              final uri = Uri.parse('https://havenkeep.app/help');
+              if (await canLaunchUrl(uri)) {
+                await launchUrl(uri, mode: LaunchMode.externalApplication);
+              }
+            },
+          ),
+          const SizedBox(height: HavenSpacing.xs),
+          _SettingsTile(
+            icon: Icons.email_outlined,
+            title: 'Contact Support',
+            subtitle: 'support@havenkeep.app',
+            onTap: () async {
+              final uri = Uri(
+                scheme: 'mailto',
+                path: 'support@havenkeep.app',
+                queryParameters: {'subject': 'HavenKeep Support Request'},
+              );
+              if (await canLaunchUrl(uri)) {
+                await launchUrl(uri);
+              }
+            },
+          ),
+
+          const SizedBox(height: HavenSpacing.lg),
+
           // ABOUT section
           const SectionHeader(title: 'ABOUT'),
           const SizedBox(height: HavenSpacing.sm),
@@ -292,6 +354,15 @@ class SettingsScreen extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  String _getInitials(String? name) {
+    if (name == null || name.isEmpty) return '?';
+    final parts = name.trim().split(' ');
+    if (parts.length >= 2) {
+      return '${parts.first[0]}${parts.last[0]}'.toUpperCase();
+    }
+    return parts.first[0].toUpperCase();
   }
 }
 

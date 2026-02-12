@@ -35,6 +35,8 @@ import '../../features/settings/profile_screen.dart';
 import '../../features/settings/notification_preferences_screen.dart';
 import '../../features/settings/home_detail_screen.dart';
 import '../../features/settings/archived_items_screen.dart';
+import '../../features/settings/change_password_screen.dart';
+import '../../features/settings/delete_account_screen.dart';
 import '../../features/notifications/notifications_screen.dart';
 
 /// Route path constants.
@@ -61,6 +63,8 @@ abstract class AppRoutes {
   static const notificationPreferences = '/settings/notifications';
   static const homeDetail = '/settings/home/:id';
   static const archivedItems = '/settings/archived';
+  static const changePassword = '/settings/change-password';
+  static const deleteAccount = '/settings/delete-account';
   static const scanReceipt = '/add-item/scan-receipt';
   static const scanBarcode = '/add-item/scan-barcode';
   static const pdfPreview = '/items/:id/pdf';
@@ -310,6 +314,20 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: AppRoutes.archivedItems,
         parentNavigatorKey: _rootNavigatorKey,
         builder: (context, state) => const ArchivedItemsScreen(),
+      ),
+
+      // Change Password
+      GoRoute(
+        path: AppRoutes.changePassword,
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) => const ChangePasswordScreen(),
+      ),
+
+      // Delete Account
+      GoRoute(
+        path: AppRoutes.deleteAccount,
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) => const DeleteAccountScreen(),
       ),
 
       // Scan Receipt

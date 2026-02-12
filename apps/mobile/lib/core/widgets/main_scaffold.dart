@@ -2,8 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_ui/shared_ui.dart';
 import '../router/router.dart';
+import 'connectivity_banner.dart';
 
-/// Main scaffold with bottom navigation bar and centered FAB.
+/// Main scaffold with bottom navigation bar, centered FAB, and connectivity banner.
 ///
 /// This is the shell for the two main tabs: Home (Dashboard) and Items.
 /// The FAB ("+") opens the Add Item flow.
@@ -15,7 +16,12 @@ class MainScaffold extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: child,
+      body: Column(
+        children: [
+          const ConnectivityBanner(),
+          Expanded(child: child),
+        ],
+      ),
       bottomNavigationBar: _BottomNav(),
       floatingActionButton: FloatingActionButton(
         onPressed: () => context.push(AppRoutes.addItem),

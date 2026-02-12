@@ -186,16 +186,73 @@ class _ItemDetailBody extends ConsumerWidget {
           // Hero section (always visible)
           // ----------------------------------------------------------------
 
-          // Category icon container
+          // Hero section with category icon + warranty status integrated
           Container(
             width: double.infinity,
-            height: 200,
             decoration: BoxDecoration(
               color: HavenColors.elevated,
               borderRadius: BorderRadius.circular(HavenRadius.card),
             ),
-            child: Center(
-              child: CategoryIcon.widget(item.category, size: 64),
+            child: Column(
+              children: [
+                // Category icon
+                Padding(
+                  padding: const EdgeInsets.only(top: HavenSpacing.xl),
+                  child: CategoryIcon.widget(item.category, size: 64),
+                ),
+                const SizedBox(height: HavenSpacing.md),
+
+                // Warranty status badge (prominent)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: HavenSpacing.md,
+                    vertical: HavenSpacing.sm,
+                  ),
+                  decoration: BoxDecoration(
+                    color: statusColor.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(HavenRadius.chip),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        status == WarrantyStatus.active
+                            ? Icons.check_circle
+                            : status == WarrantyStatus.expiring
+                                ? Icons.schedule
+                                : Icons.cancel,
+                        size: 16,
+                        color: statusColor,
+                      ),
+                      const SizedBox(width: HavenSpacing.xs),
+                      Text(
+                        _buildTimeRemainingText(status, days),
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: statusColor,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                // Expiry date (always visible)
+                if (item.warrantyEndDate != null) ...[
+                  const SizedBox(height: HavenSpacing.sm),
+                  Text(
+                    status == WarrantyStatus.expired
+                        ? 'Expired ${_formatDate(item.warrantyEndDate!)}'
+                        : 'Expires ${_formatDate(item.warrantyEndDate!)}',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: HavenColors.textSecondary,
+                    ),
+                  ),
+                ],
+
+                const SizedBox(height: HavenSpacing.lg),
+              ],
             ),
           ),
 
@@ -221,7 +278,31 @@ class _ItemDetailBody extends ConsumerWidget {
 
           const SizedBox(height: HavenSpacing.md),
 
-          // Warranty status card
+          // Start Claim button (prominent action)
+          if (status != WarrantyStatus.expired)
+            Padding(
+              padding: const EdgeInsets.only(bottom: HavenSpacing.md),
+              child: SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    final brand = item.brand ?? item.name;
+                    final query = Uri.encodeComponent('$brand warranty claim');
+                    final searchUrl = 'https://www.google.com/search?q=$query';
+                    launchUrl(Uri.parse(searchUrl), mode: LaunchMode.externalApplication);
+                  },
+                  icon: const Icon(Icons.support_agent, size: 20),
+                  label: const Text('Start a Warranty Claim'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: HavenColors.primary,
+                    side: const BorderSide(color: HavenColors.primary),
+                  ),
+                ),
+              ),
+            ),
+
+          // Warranty details card
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(HavenSpacing.md),
@@ -232,57 +313,8 @@ class _ItemDetailBody extends ConsumerWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const SectionHeader(title: 'WARRANTY STATUS'),
+                const SectionHeader(title: 'WARRANTY'),
                 const SizedBox(height: HavenSpacing.sm),
-
-                // Status row
-                Row(
-                  children: [
-                    Container(
-                      width: 10,
-                      height: 10,
-                      decoration: BoxDecoration(
-                        color: statusColor,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    const SizedBox(width: HavenSpacing.sm),
-                    Text(
-                      status.displayLabel,
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: statusColor,
-                      ),
-                    ),
-                  ],
-                ),
-
-                const SizedBox(height: HavenSpacing.sm),
-
-                // Time remaining
-                Text(
-                  _buildTimeRemainingText(status, days),
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: statusColor,
-                  ),
-                ),
-
-                const SizedBox(height: HavenSpacing.sm),
-
-                // Expiry date
-                if (item.warrantyEndDate != null)
-                  Text(
-                    status == WarrantyStatus.expired
-                        ? 'Expired ${_formatDate(item.warrantyEndDate!)}'
-                        : 'Expires ${_formatDate(item.warrantyEndDate!)}',
-                    style: theme.textTheme.bodyMedium,
-                  ),
-
-                const SizedBox(height: HavenSpacing.xs),
-
                 // Purchase info
                 Text(
                   'Purchased: ${_formatDate(item.purchaseDate)}',
@@ -291,6 +323,18 @@ class _ItemDetailBody extends ConsumerWidget {
                 const SizedBox(height: HavenSpacing.xs),
                 Text(
                   'Duration: ${_formatDuration(item.warrantyMonths)}',
+                  style: theme.textTheme.bodyMedium,
+                ),
+                if (item.warrantyProvider != null) ...[
+                  const SizedBox(height: HavenSpacing.xs),
+                  Text(
+                    'Provider: ${item.warrantyProvider}',
+                    style: theme.textTheme.bodyMedium,
+                  ),
+                ],
+                const SizedBox(height: HavenSpacing.xs),
+                Text(
+                  'Type: ${item.warrantyType.displayLabel}',
                   style: theme.textTheme.bodyMedium,
                 ),
               ],

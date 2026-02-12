@@ -10,7 +10,25 @@ import '../../core/router/router.dart';
 import '../../core/utils/error_handler.dart';
 import '../../core/widgets/error_state_widget.dart';
 
-/// Items list screen with search, filter chips, room grouping, and swipe actions.
+/// Sort mode for the items list.
+enum ItemSortMode {
+  warrantyExpiry('Warranty Expiry'),
+  dateAdded('Date Added'),
+  name('Name'),
+  price('Price');
+
+  final String label;
+  const ItemSortMode(this.label);
+}
+
+/// Persisted filter/sort state so it survives tab navigation.
+final itemsFilterProvider =
+    StateProvider<Set<WarrantyStatus>>((ref) => {});
+
+final itemsSortProvider =
+    StateProvider<ItemSortMode>((ref) => ItemSortMode.warrantyExpiry);
+
+/// Items list screen with search, filter chips, sort, room grouping, and swipe actions.
 class ItemsScreen extends ConsumerStatefulWidget {
   const ItemsScreen({super.key});
 
@@ -21,8 +39,8 @@ class ItemsScreen extends ConsumerStatefulWidget {
 class _ItemsScreenState extends ConsumerState<ItemsScreen> {
   final _searchController = TextEditingController();
   String _searchQuery = '';
-  Set<WarrantyStatus> _activeFilters = {};
   final Set<ItemRoom?> _collapsedRooms = {};
+  bool _didApplyRouteFilter = false;
 
   @override
   void initState() {
@@ -37,14 +55,17 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // Check for initial filter passed via route extra
-    final extra = GoRouterState.of(context).extra;
-    if (extra is Map<String, dynamic> && extra.containsKey('filter')) {
-      final filterStr = extra['filter'] as String;
-      final status = WarrantyStatus.values.where((s) => s.name == filterStr);
-      if (status.isNotEmpty) {
-        _activeFilters = {status.first};
+    // Check for initial filter passed via route extra (only once)
+    if (!_didApplyRouteFilter) {
+      final extra = GoRouterState.of(context).extra;
+      if (extra is Map<String, dynamic> && extra.containsKey('filter')) {
+        final filterStr = extra['filter'] as String;
+        final status = WarrantyStatus.values.where((s) => s.name == filterStr);
+        if (status.isNotEmpty) {
+          ref.read(itemsFilterProvider.notifier).state = {status.first};
+        }
       }
+      _didApplyRouteFilter = true;
     }
   }
 
@@ -56,6 +77,7 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
 
   List<Item> _applyFilters(List<Item> items) {
     var filtered = items.where((item) => !item.isArchived).toList();
+    final activeFilters = ref.read(itemsFilterProvider);
 
     // Apply search
     if (_searchQuery.isNotEmpty) {
@@ -70,13 +92,43 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
     }
 
     // Apply status filters
-    if (_activeFilters.isNotEmpty) {
+    if (activeFilters.isNotEmpty) {
       filtered = filtered.where((item) {
-        return _activeFilters.contains(item.computedWarrantyStatus);
+        return activeFilters.contains(item.computedWarrantyStatus);
       }).toList();
     }
 
     return filtered;
+  }
+
+  List<Item> _applySorting(List<Item> items) {
+    final sorted = List<Item>.from(items);
+    final sortMode = ref.read(itemsSortProvider);
+    switch (sortMode) {
+      case ItemSortMode.warrantyExpiry:
+        sorted.sort((a, b) {
+          final aEnd = a.warrantyEndDate ??
+              DateTime(a.purchaseDate.year, a.purchaseDate.month + a.warrantyMonths, a.purchaseDate.day);
+          final bEnd = b.warrantyEndDate ??
+              DateTime(b.purchaseDate.year, b.purchaseDate.month + b.warrantyMonths, b.purchaseDate.day);
+          return aEnd.compareTo(bEnd);
+        });
+      case ItemSortMode.dateAdded:
+        sorted.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      case ItemSortMode.name:
+        sorted.sort((a, b) {
+          final aName = '${a.brand ?? ''} ${a.name}'.trim().toLowerCase();
+          final bName = '${b.brand ?? ''} ${b.name}'.trim().toLowerCase();
+          return aName.compareTo(bName);
+        });
+      case ItemSortMode.price:
+        sorted.sort((a, b) {
+          final aPrice = a.price ?? 0;
+          final bPrice = b.price ?? 0;
+          return bPrice.compareTo(aPrice);
+        });
+    }
+    return sorted;
   }
 
   Map<ItemRoom?, List<Item>> _groupByRoom(List<Item> items) {
@@ -86,40 +138,88 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
       grouped.putIfAbsent(room, () => []);
       grouped[room]!.add(item);
     }
-    // Sort items within each room by warranty end date
-    for (final list in grouped.values) {
-      list.sort((a, b) {
-        final aEnd = a.warrantyEndDate ??
-            DateTime(a.purchaseDate.year, a.purchaseDate.month + a.warrantyMonths, a.purchaseDate.day);
-        final bEnd = b.warrantyEndDate ??
-            DateTime(b.purchaseDate.year, b.purchaseDate.month + b.warrantyMonths, b.purchaseDate.day);
-        return aEnd.compareTo(bEnd);
-      });
-    }
     return grouped;
   }
 
   void _toggleFilter(WarrantyStatus status) {
-    setState(() {
-      if (_activeFilters.contains(status)) {
-        _activeFilters.remove(status);
-      } else {
-        _activeFilters.add(status);
-      }
-    });
+    final current = ref.read(itemsFilterProvider);
+    final updated = Set<WarrantyStatus>.from(current);
+    if (updated.contains(status)) {
+      updated.remove(status);
+    } else {
+      updated.add(status);
+    }
+    ref.read(itemsFilterProvider.notifier).state = updated;
   }
 
   void _selectAll() {
-    setState(() {
-      _activeFilters.clear();
-    });
+    ref.read(itemsFilterProvider.notifier).state = {};
+  }
+
+  void _showSortPicker() {
+    final currentSort = ref.read(itemsSortProvider);
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: HavenColors.elevated,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(HavenRadius.card),
+        ),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(HavenSpacing.md),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Sort by',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: HavenColors.textPrimary,
+                ),
+              ),
+              const SizedBox(height: HavenSpacing.md),
+              ...ItemSortMode.values.map((mode) => ListTile(
+                    leading: Icon(
+                      currentSort == mode
+                          ? Icons.radio_button_checked
+                          : Icons.radio_button_off,
+                      color: currentSort == mode
+                          ? HavenColors.primary
+                          : HavenColors.textTertiary,
+                    ),
+                    title: Text(
+                      mode.label,
+                      style: TextStyle(
+                        color: currentSort == mode
+                            ? HavenColors.primary
+                            : HavenColors.textPrimary,
+                        fontWeight: currentSort == mode
+                            ? FontWeight.w600
+                            : FontWeight.normal,
+                      ),
+                    ),
+                    onTap: () {
+                      ref.read(itemsSortProvider.notifier).state = mode;
+                      Navigator.of(ctx).pop();
+                    },
+                  )),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final itemsAsync = ref.watch(itemsProvider);
     final itemCountAsync = ref.watch(activeItemCountProvider);
-    final isAtLimitAsync = ref.watch(isAtItemLimitProvider);
+    final activeFilters = ref.watch(itemsFilterProvider);
+    ref.watch(itemsSortProvider);
 
     return Scaffold(
       backgroundColor: HavenColors.background,
@@ -128,6 +228,13 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
           'My Items',
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.sort, size: 22),
+            tooltip: 'Sort',
+            onPressed: _showSortPicker,
+          ),
+        ],
       ),
       body: itemsAsync.when(
         data: (allItems) {
@@ -136,12 +243,14 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
           }
 
           final filtered = _applyFilters(allItems);
+          final sorted = _applySorting(filtered);
           final itemCount = itemCountAsync.value ?? 0;
-          final showLimitBanner = itemCount >= 20;
+          // Soft warn at 15+ items, hard block at limit
+          final showLimitBanner = itemCount >= 15;
 
           return Column(
             children: [
-              // Item limit banner
+              // Item limit banner (soft warning)
               if (showLimitBanner)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(
@@ -223,14 +332,14 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
                     children: [
                       _FilterChip(
                         label: 'All',
-                        isActive: _activeFilters.isEmpty,
+                        isActive: activeFilters.isEmpty,
                         onTap: _selectAll,
                       ),
                       const SizedBox(width: HavenSpacing.sm),
                       _FilterChip(
                         label: 'Active',
                         isActive:
-                            _activeFilters.contains(WarrantyStatus.active),
+                            activeFilters.contains(WarrantyStatus.active),
                         dotColor: HavenColors.active,
                         onTap: () => _toggleFilter(WarrantyStatus.active),
                       ),
@@ -238,7 +347,7 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
                       _FilterChip(
                         label: 'Expiring',
                         isActive:
-                            _activeFilters.contains(WarrantyStatus.expiring),
+                            activeFilters.contains(WarrantyStatus.expiring),
                         dotColor: HavenColors.expiring,
                         onTap: () => _toggleFilter(WarrantyStatus.expiring),
                       ),
@@ -246,7 +355,7 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
                       _FilterChip(
                         label: 'Expired',
                         isActive:
-                            _activeFilters.contains(WarrantyStatus.expired),
+                            activeFilters.contains(WarrantyStatus.expired),
                         dotColor: HavenColors.expired,
                         onTap: () => _toggleFilter(WarrantyStatus.expired),
                       ),
@@ -258,9 +367,9 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
 
               // Items list
               Expanded(
-                child: filtered.isEmpty
+                child: sorted.isEmpty
                     ? _buildNoResults()
-                    : _buildGroupedList(filtered),
+                    : _buildGroupedList(sorted),
               ),
             ],
           );
@@ -332,6 +441,26 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
             ),
             textAlign: TextAlign.center,
           ),
+          const SizedBox(height: HavenSpacing.lg),
+          // Actionable suggestions
+          if (_searchQuery.isNotEmpty)
+            TextButton.icon(
+              onPressed: () => _searchController.clear(),
+              icon: const Icon(Icons.clear, size: 16),
+              label: const Text('Clear search'),
+              style: TextButton.styleFrom(
+                foregroundColor: HavenColors.secondary,
+              ),
+            ),
+          if (ref.read(itemsFilterProvider).isNotEmpty)
+            TextButton.icon(
+              onPressed: _selectAll,
+              icon: const Icon(Icons.filter_alt_off, size: 16),
+              label: const Text('Clear filters'),
+              style: TextButton.styleFrom(
+                foregroundColor: HavenColors.secondary,
+              ),
+            ),
         ],
       ),
     );
@@ -398,24 +527,52 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
         key: ValueKey(item.id),
         direction: DismissDirection.endToStart,
         confirmDismiss: (direction) async {
-          // Show action sheet with archive/delete
-          return await _showSwipeActions(item);
+          // Archive with undo instead of multi-step confirmation
+          await ref.read(itemsProvider.notifier).archiveItem(item.id);
+          if (!mounted) return false;
+
+          final displayName = '${item.brand ?? ''} ${item.name}'.trim();
+          ScaffoldMessenger.of(context).clearSnackBars();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('$displayName archived'),
+              behavior: SnackBarBehavior.floating,
+              action: SnackBarAction(
+                label: 'Undo',
+                textColor: HavenColors.primary,
+                onPressed: () {
+                  ref.read(itemsProvider.notifier).unarchiveItem(item.id);
+                },
+              ),
+              duration: const Duration(seconds: 4),
+            ),
+          );
+          return false; // Don't remove from list — provider handles it
         },
         background: const SizedBox.shrink(),
-        secondaryBackground: Row(
-          mainAxisAlignment: MainAxisAlignment.end,
-          children: [
-            _SwipeAction(
-              color: HavenColors.primary,
-              icon: Icons.archive_outlined,
-              label: 'Archive',
-            ),
-            _SwipeAction(
-              color: HavenColors.expired,
-              icon: Icons.delete_outline,
-              label: 'Delete',
-            ),
-          ],
+        secondaryBackground: Container(
+          alignment: Alignment.centerRight,
+          padding: const EdgeInsets.only(right: HavenSpacing.lg),
+          margin: const EdgeInsets.only(left: HavenSpacing.xs),
+          decoration: BoxDecoration(
+            color: HavenColors.primary,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: const Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.archive_outlined, color: Colors.white, size: 22),
+              SizedBox(height: 2),
+              Text(
+                'Archive',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
         ),
         child: GestureDetector(
           onTap: () {
@@ -483,85 +640,6 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
       ),
     );
   }
-
-  Future<bool?> _showSwipeActions(Item item) async {
-    final action = await showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: HavenColors.elevated,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(
-          top: Radius.circular(HavenRadius.card),
-        ),
-      ),
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(HavenSpacing.md),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: const Icon(Icons.archive_outlined,
-                    color: HavenColors.primary),
-                title: const Text(
-                  'Archive',
-                  style: TextStyle(color: HavenColors.textPrimary),
-                ),
-                subtitle: const Text(
-                  'Hide from list but keep data',
-                  style: TextStyle(color: HavenColors.textTertiary),
-                ),
-                onTap: () => Navigator.of(ctx).pop('archive'),
-              ),
-              ListTile(
-                leading: const Icon(Icons.delete_outline,
-                    color: HavenColors.expired),
-                title: const Text(
-                  'Delete',
-                  style: TextStyle(color: HavenColors.expired),
-                ),
-                subtitle: const Text(
-                  'Permanently remove this item',
-                  style: TextStyle(color: HavenColors.textTertiary),
-                ),
-                onTap: () => Navigator.of(ctx).pop('delete'),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-
-    if (action == null || !mounted) return false;
-
-    if (action == 'archive') {
-      final confirmed = await showHavenConfirmDialog(
-        context,
-        title: 'Archive item?',
-        body:
-            'This will hide "${'${item.brand ?? ''} ${item.name}'.trim()}" from your list. You can restore it later.',
-        confirmLabel: 'Archive',
-      );
-      if (confirmed && mounted) {
-        await ref.read(itemsProvider.notifier).archiveItem(item.id);
-        return true;
-      }
-    } else if (action == 'delete') {
-      final confirmed = await showHavenConfirmDialog(
-        context,
-        title: 'Delete item?',
-        body:
-            'This will permanently delete "${'${item.brand ?? ''} ${item.name}'.trim()}". This action cannot be undone.',
-        confirmLabel: 'Delete',
-        isDestructive: true,
-      );
-      if (confirmed && mounted) {
-        await ref.read(itemsProvider.notifier).deleteItem(item.id);
-        return true;
-      }
-    }
-
-    return false;
-  }
 }
 
 /// A filter chip for the status filter row.
@@ -620,47 +698,6 @@ class _FilterChip extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-/// Colored action shown behind a dismissible item card.
-class _SwipeAction extends StatelessWidget {
-  final Color color;
-  final IconData icon;
-  final String label;
-
-  const _SwipeAction({
-    required this.color,
-    required this.icon,
-    required this.label,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 72,
-      alignment: Alignment.center,
-      margin: const EdgeInsets.only(left: HavenSpacing.xs),
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(icon, color: Colors.white, size: 22),
-          const SizedBox(height: 2),
-          Text(
-            label,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 11,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ],
       ),
     );
   }

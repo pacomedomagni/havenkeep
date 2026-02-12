@@ -60,15 +60,13 @@ class FirstActionScreen extends ConsumerWidget {
 
               const SizedBox(height: HavenSpacing.md),
 
-              // Option 2: Scan receipt (disabled for Phase 1)
+              // Option 2: Scan receipt
               _ActionCard(
                 icon: '📷',
                 title: 'Scan a receipt',
                 description:
                     'Snap a photo and we\'ll extract the details automatically.',
-                isDisabled: true,
-                disabledLabel: 'Coming soon',
-                onTap: () {},
+                onTap: () => context.push(AppRoutes.scanReceipt),
               ),
 
               const SizedBox(height: HavenSpacing.md),

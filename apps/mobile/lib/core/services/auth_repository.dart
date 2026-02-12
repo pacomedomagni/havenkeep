@@ -154,6 +154,51 @@ class AuthRepository {
     return models.User.fromJson(userJson);
   }
 
+  // ============================================
+  // PASSWORD MANAGEMENT
+  // ============================================
+
+  /// Request a password reset email.
+  Future<void> forgotPassword({required String email}) async {
+    await _client.post('/api/v1/auth/forgot-password', body: {
+      'email': email,
+    });
+  }
+
+  /// Reset password with a token (from email link).
+  Future<void> resetPassword({
+    required String token,
+    required String newPassword,
+  }) async {
+    await _client.post('/api/v1/auth/reset-password', body: {
+      'token': token,
+      'newPassword': newPassword,
+    });
+  }
+
+  /// Change password for the current user (authenticated).
+  Future<void> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    await _client.put('/api/v1/users/me/password', body: {
+      'currentPassword': currentPassword,
+      'newPassword': newPassword,
+    });
+  }
+
+  // ============================================
+  // ACCOUNT MANAGEMENT
+  // ============================================
+
+  /// Delete the current user's account permanently.
+  Future<void> deleteAccount({required String password}) async {
+    await _client.delete('/api/v1/users/me', body: {
+      'password': password,
+    });
+    await _client.clearTokens();
+  }
+
   /// Normalize API user response to match the User model's fromJson expectations.
   Map<String, dynamic> _normalizeUserJson(Map<String, dynamic> json) {
     return {

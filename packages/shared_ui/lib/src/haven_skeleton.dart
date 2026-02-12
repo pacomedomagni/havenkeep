@@ -1,17 +1,16 @@
 import 'package:flutter/material.dart';
 import 'theme.dart';
 
-/// Internal base widget that provides the shimmer opacity animation.
+/// Internal base widget that provides a shimmer animation.
 ///
-/// All skeleton placeholders wrap this widget to share a single
-/// [AnimationController] pattern: opacity oscillates between 0.3 and 0.7
-/// over 1500ms with an ease-in-out curve, repeating in reverse.
+/// All skeleton placeholders wrap this widget. A gradient highlight
+/// sweeps across the child from left to right, creating a shimmer effect
+/// on top of the base opacity pulse.
 class _SkeletonBase extends StatefulWidget {
   const _SkeletonBase({
     required this.child,
   });
 
-  /// The child widget whose opacity is animated.
   final Widget child;
 
   @override
@@ -21,7 +20,6 @@ class _SkeletonBase extends StatefulWidget {
 class _SkeletonBaseState extends State<_SkeletonBase>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
-  late final Animation<double> _opacity;
 
   @override
   void initState() {
@@ -29,11 +27,7 @@ class _SkeletonBaseState extends State<_SkeletonBase>
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1500),
-    );
-    _opacity = Tween<double>(begin: 0.3, end: 0.7).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
-    );
-    _controller.repeat(reverse: true);
+    )..repeat();
   }
 
   @override
@@ -44,17 +38,42 @@ class _SkeletonBaseState extends State<_SkeletonBase>
 
   @override
   Widget build(BuildContext context) {
-    return FadeTransition(
-      opacity: _opacity,
-      child: widget.child,
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) {
+        return ShaderMask(
+          shaderCallback: (bounds) {
+            return LinearGradient(
+              begin: Alignment.centerLeft,
+              end: Alignment.centerRight,
+              colors: const [
+                Color(0x00FFFFFF),
+                Color(0x33FFFFFF),
+                Color(0x00FFFFFF),
+              ],
+              stops: [
+                (_controller.value - 0.3).clamp(0.0, 1.0),
+                _controller.value,
+                (_controller.value + 0.3).clamp(0.0, 1.0),
+              ],
+            ).createShader(bounds);
+          },
+          blendMode: BlendMode.srcATop,
+          child: child,
+        );
+      },
+      child: Opacity(
+        opacity: 0.5,
+        child: widget.child,
+      ),
     );
   }
 }
 
 /// A single animated line placeholder used for text loading states.
 ///
-/// Renders a rounded rectangle in [HavenColors.elevated] with a pulsing
-/// opacity animation. Use [width] to control the line length (defaults to
+/// Renders a rounded rectangle in [HavenColors.elevated] with a shimmer
+/// animation. Use [width] to control the line length (defaults to
 /// full available width) and [height] for thickness (defaults to 16).
 class SkeletonLine extends StatelessWidget {
   const SkeletonLine({
@@ -87,7 +106,7 @@ class SkeletonLine extends StatelessWidget {
 /// A rectangular placeholder for images or larger content areas.
 ///
 /// Renders a rounded rectangle in [HavenColors.elevated] with the same
-/// pulsing opacity animation as [SkeletonLine]. Both [width] and [height]
+/// shimmer animation as [SkeletonLine]. Both [width] and [height]
 /// are required.
 class SkeletonBox extends StatelessWidget {
   const SkeletonBox({

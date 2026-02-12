@@ -174,12 +174,18 @@ class _NotificationCard extends ConsumerWidget {
       }
     }
 
-    // For other actions, show "Coming soon"
-    if (notification.actionType == NotificationAction.get_protection ||
-        notification.actionType == NotificationAction.find_repair) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('This feature is not yet available')),
-      );
+    // For protection actions, navigate to premium screen
+    if (notification.actionType == NotificationAction.get_protection) {
+      context.push('/premium');
+      return;
+    }
+
+    // For repair actions, open search for repair services
+    if (notification.actionType == NotificationAction.find_repair) {
+      final itemId = notification.actionData?['item_id'] as String?;
+      if (itemId != null) {
+        context.push('/items/$itemId');
+      }
     }
   }
 

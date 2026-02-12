@@ -175,4 +175,27 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
       return user;
     });
   }
+
+  /// Request a password reset email.
+  Future<void> forgotPassword({required String email}) async {
+    await ref.read(authRepositoryProvider).forgotPassword(email: email);
+  }
+
+  /// Change password for the current user.
+  Future<void> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    await ref.read(authRepositoryProvider).changePassword(
+          currentPassword: currentPassword,
+          newPassword: newPassword,
+        );
+  }
+
+  /// Delete the current user's account permanently.
+  Future<void> deleteAccount({required String password}) async {
+    await ref.read(authRepositoryProvider).deleteAccount(password: password);
+    _skipNextRebuild = false;
+    state = const AsyncValue.data(null);
+  }
 }

@@ -1,11 +1,16 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import 'package:shared_ui/shared_ui.dart';
 
 import '../../core/providers/auth_provider.dart';
 import '../../core/utils/error_handler.dart';
 import '../../core/widgets/havenkeep_logo.dart';
+import 'forgot_password_screen.dart';
 
 /// Welcome screen — sign up / sign in (Screen 1.2).
 ///
@@ -14,6 +19,7 @@ import '../../core/widgets/havenkeep_logo.dart';
 /// - Hero headline
 /// - Apple / Google / Email auth buttons
 /// - Toggle between sign-up and sign-in modes
+/// - Forgot password link (sign-in mode)
 class WelcomeScreen extends ConsumerStatefulWidget {
   const WelcomeScreen({super.key});
 
@@ -41,13 +47,75 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
   }
 
   Future<void> _signInWithApple() async {
-    // TODO: Phase 1.3 — integrate sign_in_with_apple SDK
-    ErrorHandler.showInfo(context, 'Apple sign-in coming soon');
+    setState(() => _isLoading = true);
+    try {
+      final credential = await SignInWithApple.getAppleIDCredential(
+        scopes: [
+          AppleIDAuthorizationScopes.email,
+          AppleIDAuthorizationScopes.fullName,
+        ],
+      );
+
+      final idToken = credential.identityToken;
+      if (idToken == null) {
+        if (mounted) _showError('Could not get Apple credentials. Please try again.');
+        return;
+      }
+
+      // Build display name from Apple's provided name (only available on first sign-in)
+      String? fullName;
+      if (credential.givenName != null || credential.familyName != null) {
+        fullName = [credential.givenName, credential.familyName]
+            .where((n) => n != null && n.isNotEmpty)
+            .join(' ');
+        if (fullName.isEmpty) fullName = null;
+      }
+
+      await ref.read(currentUserProvider.notifier).signInWithApple(
+            idToken: idToken,
+            fullName: fullName,
+          );
+      // Navigation handled by GoRouter auth guard
+    } catch (e) {
+      if (e is SignInWithAppleAuthorizationException &&
+          e.code == AuthorizationErrorCode.canceled) {
+        // User cancelled — do nothing
+        return;
+      }
+      if (mounted) _showError(ErrorHandler.getUserMessage(e));
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   Future<void> _signInWithGoogle() async {
-    // TODO: Phase 1.3 — integrate google_sign_in SDK
-    ErrorHandler.showInfo(context, 'Google sign-in coming soon');
+    setState(() => _isLoading = true);
+    try {
+      final googleSignIn = GoogleSignIn(scopes: ['email', 'profile']);
+      final account = await googleSignIn.signIn();
+
+      if (account == null) {
+        // User cancelled
+        return;
+      }
+
+      final auth = await account.authentication;
+      final idToken = auth.idToken;
+
+      if (idToken == null) {
+        if (mounted) _showError('Could not get Google credentials. Please try again.');
+        return;
+      }
+
+      await ref.read(currentUserProvider.notifier).signInWithGoogle(
+            idToken: idToken,
+          );
+      // Navigation handled by GoRouter auth guard
+    } catch (e) {
+      if (mounted) _showError(ErrorHandler.getUserMessage(e));
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   Future<void> _submitEmail() async {
@@ -79,6 +147,7 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
   }
 
   void _showError(String message) {
+    HapticFeedback.mediumImpact();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
@@ -97,6 +166,16 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
       _emailController.clear();
       _passwordController.clear();
     });
+  }
+
+  void _openForgotPassword() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ForgotPasswordScreen(
+          initialEmail: _emailController.text.trim(),
+        ),
+      ),
+    );
   }
 
   @override
@@ -163,8 +242,10 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
                 const SizedBox(height: HavenSpacing.xl),
 
                 // Auth buttons
-                _buildAppleButton(),
-                const SizedBox(height: HavenSpacing.sm),
+                if (Platform.isIOS) ...[
+                  _buildAppleButton(),
+                  const SizedBox(height: HavenSpacing.sm),
+                ],
                 _buildGoogleButton(),
                 const SizedBox(height: HavenSpacing.sm),
                 _buildEmailButton(),
@@ -301,7 +382,7 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
                 controller: _nameController,
                 textCapitalization: TextCapitalization.words,
                 decoration: const InputDecoration(
-                  labelText: 'Full Name',
+                  labelText: 'Full Name *',
                   hintText: 'Your name',
                   prefixIcon: Icon(Icons.person_outline),
                 ),
@@ -321,13 +402,13 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
               keyboardType: TextInputType.emailAddress,
               autocorrect: false,
               decoration: const InputDecoration(
-                labelText: 'Email',
+                labelText: 'Email *',
                 hintText: 'you@example.com',
                 prefixIcon: Icon(Icons.email_outlined),
               ),
               validator: (value) {
                 if (value == null || value.trim().isEmpty) {
-                  return 'Enter a valid email address';
+                  return 'Enter your email address';
                 }
                 if (!RegExp(r'^[^@]+@[^@]+\.[^@]+$').hasMatch(value.trim())) {
                   return 'Enter a valid email address';
@@ -342,7 +423,7 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
               controller: _passwordController,
               obscureText: _obscurePassword,
               decoration: InputDecoration(
-                labelText: 'Password',
+                labelText: 'Password *',
                 hintText: 'Min 8 characters',
                 prefixIcon: const Icon(Icons.lock_outline),
                 suffixIcon: IconButton(
@@ -364,6 +445,26 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
                 return null;
               },
             ),
+
+            // Forgot password link (sign-in only)
+            if (!_isSignUp) ...[
+              const SizedBox(height: HavenSpacing.sm),
+              Align(
+                alignment: Alignment.centerRight,
+                child: GestureDetector(
+                  onTap: _openForgotPassword,
+                  child: const Text(
+                    'Forgot password?',
+                    style: TextStyle(
+                      color: HavenColors.secondary,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+
             const SizedBox(height: HavenSpacing.lg),
 
             // Submit button

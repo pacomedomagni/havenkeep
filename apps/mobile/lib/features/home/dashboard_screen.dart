@@ -112,12 +112,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     ),
                   ),
                 ),
-                if (user.value?.avatarUrl != null && user.value!.avatarUrl!.isNotEmpty)
-                  CircleAvatar(
-                    radius: 20,
-                    backgroundImage: NetworkImage(user.value!.avatarUrl!),
-                    onBackgroundImageError: (_, __) {},
-                  ),
+                _UserAvatar(user: user.value),
               ],
             ),
             const SizedBox(height: HavenSpacing.lg),
@@ -575,6 +570,44 @@ class _StatCard extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+/// User avatar with initials fallback.
+class _UserAvatar extends StatelessWidget {
+  final User? user;
+
+  const _UserAvatar({this.user});
+
+  @override
+  Widget build(BuildContext context) {
+    final hasAvatar = user?.avatarUrl != null && user!.avatarUrl!.isNotEmpty;
+
+    return CircleAvatar(
+      radius: 20,
+      backgroundColor: HavenColors.primary,
+      backgroundImage: hasAvatar ? NetworkImage(user!.avatarUrl!) : null,
+      onBackgroundImageError: hasAvatar ? (_, __) {} : null,
+      child: hasAvatar
+          ? null
+          : Text(
+              _getInitials(user?.fullName),
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 14,
+              ),
+            ),
+    );
+  }
+
+  String _getInitials(String? name) {
+    if (name == null || name.isEmpty) return '?';
+    final parts = name.trim().split(' ');
+    if (parts.length >= 2) {
+      return '${parts.first[0]}${parts.last[0]}'.toUpperCase();
+    }
+    return parts.first[0].toUpperCase();
   }
 }
 

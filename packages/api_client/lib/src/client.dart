@@ -274,12 +274,16 @@ class ApiClient {
     return _parseResponse(response);
   }
 
-  /// DELETE request.
-  Future<Map<String, dynamic>> delete(String path) async {
+  /// DELETE request with optional JSON body.
+  Future<Map<String, dynamic>> delete(
+    String path, {
+    Map<String, dynamic>? body,
+  }) async {
     final response = await _withAutoRefresh(
       () => _http.delete(
         Uri.parse('$baseUrl$path'),
         headers: _headers(),
+        body: body != null ? jsonEncode(body) : null,
       ),
     );
     return _parseResponse(response);

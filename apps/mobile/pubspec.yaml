@@ -59,6 +59,10 @@ dependencies:
   # --- Deep Links ---
   app_links: ^6.0.0
 
+  # --- Auth / OAuth ---
+  google_sign_in: ^6.0.0
+  sign_in_with_apple: ^6.0.0
+
   # --- Security ---
   flutter_secure_storage: ^9.0.0
   local_auth: ^2.0.0
