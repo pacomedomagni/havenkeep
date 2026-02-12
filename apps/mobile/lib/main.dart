@@ -1,3 +1,4 @@
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -8,6 +9,7 @@ import 'package:shared_ui/shared_ui.dart';
 
 import 'core/config/environment.dart';
 import 'core/config/environment_config.dart';
+import 'core/config/firebase_options.dart';
 import 'core/router/router.dart';
 import 'core/database/database.dart';
 import 'core/services/logging_service.dart';
@@ -56,16 +58,14 @@ Future<void> main() async {
 
   LoggingService.info('API client initialized');
 
-  // Initialize Firebase (guarded — stub config may not be valid)
-  // TODO: Enable Firebase after completing Phase 1.3
+  // Initialize Firebase for push notifications and analytics
   try {
-    // Uncomment when Firebase project is configured:
-    // await Firebase.initializeApp(
-    //   options: DefaultFirebaseOptions.currentPlatform,
-    // );
-    debugPrint('[Main] Firebase init skipped (stub config)');
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+    debugPrint('[Main] Firebase initialized successfully');
   } catch (e) {
-    debugPrint('[Main] Firebase init failed (expected with stub): $e');
+    debugPrint('[Main] Firebase init failed: $e');
   }
 
   runApp(

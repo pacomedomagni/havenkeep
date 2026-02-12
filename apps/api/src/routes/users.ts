@@ -7,6 +7,8 @@ import { validate } from '../middleware/validate';
 import { updateUserSchema, pushTokenSchema } from '../validators';
 import { changePasswordSchema, deleteAccountSchema } from '../validators/users.validator';
 import { blacklistToken } from '../utils/token-blacklist';
+import { config } from '../config';
+import { logger } from '../utils/logger';
 
 const router = Router();
 router.use(authenticate);
@@ -68,6 +70,98 @@ router.post('/push-token', validate(pushTokenSchema), async (req, res, next) => 
     );
 
     res.json({ message: 'Push token registered' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Verify premium subscription via RevenueCat
+router.post('/me/verify-premium', async (req, res, next) => {
+  try {
+    const { revenueCatAppUserId } = req.body;
+
+    if (!revenueCatAppUserId || typeof revenueCatAppUserId !== 'string') {
+      throw new AppError('revenueCatAppUserId is required', 400);
+    }
+
+    const rcApiKey = config.revenuecat.apiKey;
+    if (!rcApiKey) {
+      throw new AppError('RevenueCat is not configured on this server', 503);
+    }
+
+    // Call RevenueCat REST API to get subscriber info
+    const rcResponse = await fetch(
+      `https://api.revenuecat.com/v1/subscribers/${encodeURIComponent(revenueCatAppUserId)}`,
+      {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${rcApiKey}`,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+
+    if (!rcResponse.ok) {
+      const errorBody = await rcResponse.text();
+      logger.error({ statusCode: rcResponse.status, body: errorBody }, 'RevenueCat API error');
+      throw new AppError('Failed to verify subscription with RevenueCat', 502);
+    }
+
+    const rcData = await rcResponse.json() as {
+      subscriber: {
+        entitlements: Record<string, {
+          expires_date: string | null;
+          purchase_date: string;
+          product_identifier: string;
+        }>;
+      };
+    };
+
+    // Check for active premium entitlement
+    const premiumEntitlement = rcData.subscriber?.entitlements?.premium;
+    let isPremium = false;
+    let expiresAt: string | null = null;
+
+    if (premiumEntitlement) {
+      const expiresDate = premiumEntitlement.expires_date;
+      if (expiresDate === null) {
+        // Lifetime / non-expiring entitlement
+        isPremium = true;
+      } else {
+        isPremium = new Date(expiresDate) > new Date();
+        expiresAt = expiresDate;
+      }
+    }
+
+    // Update user plan in the database
+    const newPlan = isPremium ? 'premium' : 'free';
+    const result = await query(
+      `UPDATE users SET
+        plan = $1,
+        plan_expires_at = $2,
+        updated_at = NOW()
+       WHERE id = $3
+       RETURNING id, email, plan, plan_expires_at`,
+      [newPlan, expiresAt, req.user!.id]
+    );
+
+    if (result.rows.length === 0) {
+      throw new AppError('User not found', 404);
+    }
+
+    logger.info(
+      { userId: req.user!.id, plan: newPlan, expiresAt },
+      'Premium verification completed'
+    );
+
+    res.json({
+      success: true,
+      data: {
+        plan: result.rows[0].plan,
+        planExpiresAt: result.rows[0].plan_expires_at,
+        verified: true,
+      },
+    });
   } catch (error) {
     next(error);
   }

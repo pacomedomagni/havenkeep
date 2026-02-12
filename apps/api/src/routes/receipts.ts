@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { authenticate } from '../middleware/auth';
+import { authenticate, requirePremium } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
 import { asyncHandler } from '../utils/async-handler';
 import { logger } from '../utils/logger';
@@ -15,6 +15,7 @@ router.use(authenticate);
  */
 router.post(
   '/scan',
+  requirePremium,
   asyncHandler(async (req, res) => {
     const { image } = req.body;
 
@@ -23,7 +24,10 @@ router.post(
     }
 
     if (!config.openai?.apiKey) {
-      throw new AppError('Receipt scanning is not configured', 503);
+      throw new AppError(
+        'Receipt scanning requires OpenAI API key configuration. Set OPENAI_API_KEY in environment.',
+        501,
+      );
     }
 
     // Call OpenAI Vision API to extract receipt data

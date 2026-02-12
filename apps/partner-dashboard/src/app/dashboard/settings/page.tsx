@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import StripeConnectButton from '@/components/stripe-connect-button';
 import { updatePartnerProfile } from './actions';
 import { apiClient } from '@/lib/api';
 
@@ -73,7 +72,7 @@ export default function SettingsPage() {
       <div>
         <h1 className="text-2xl font-bold text-white">Settings</h1>
         <p className="text-haven-text-secondary text-sm mt-1">
-          Manage your partner profile and payment settings
+          Manage your partner profile
         </p>
       </div>
 
@@ -174,14 +173,6 @@ export default function SettingsPage() {
         </form>
       </div>
 
-      {/* Payment Settings */}
-      <div className="card">
-        <h2 className="text-lg font-semibold text-white mb-2">Payment Settings</h2>
-        <p className="text-sm text-haven-text-secondary mb-6">
-          Connect your Stripe account to receive commission payouts directly to your bank account.
-        </p>
-        <StripeConnectButton />
-      </div>
     </div>
   );
 }

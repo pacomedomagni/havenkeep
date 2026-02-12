@@ -31,6 +31,7 @@ import categoriesRoutes from './routes/categories';
 import uploadsRoutes from './routes/uploads';
 import receiptsRoutes from './routes/receipts';
 import auditRoutes from './routes/audit';
+import webhooksRoutes from './routes/webhooks';
 
 // Validate environment before starting
 validateEnvironment();
@@ -65,9 +66,21 @@ app.use(cors({
 // Compression
 app.use(compression());
 
+// Stripe webhooks — mounted BEFORE body parsing because Stripe
+// signature verification requires the raw (unparsed) request body.
+// Only the /stripe sub-path needs raw body; RevenueCat uses Bearer token auth.
+app.use(
+  '/api/v1/webhooks/stripe',
+  express.raw({ type: 'application/json' })
+);
+
 // Body parsing
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Webhooks — mounted AFTER body parsing so RevenueCat gets parsed JSON.
+// Stripe's raw body was already handled above, and express.json won't overwrite it.
+app.use('/api/v1/webhooks', webhooksRoutes);
 
 // Cookie parser for CSRF
 app.use(cookieParser());

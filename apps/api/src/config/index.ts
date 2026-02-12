@@ -76,6 +76,23 @@ export const config = {
     apiKey: process.env.OPENAI_API_KEY || '',
   },
 
+  revenuecat: {
+    get apiKey(): string {
+      const key = process.env.REVENUECAT_SECRET_API_KEY;
+      if (!key && process.env.NODE_ENV === 'production') {
+        throw new Error('REVENUECAT_SECRET_API_KEY must be set in production');
+      }
+      return key || '';
+    },
+    get webhookSecret(): string {
+      const secret = process.env.REVENUECAT_WEBHOOK_SECRET;
+      if (!secret && process.env.NODE_ENV === 'production') {
+        throw new Error('REVENUECAT_WEBHOOK_SECRET must be set in production');
+      }
+      return secret || '';
+    },
+  },
+
   app: {
     baseUrl: process.env.APP_BASE_URL || 'http://localhost:3000',
     frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3000',

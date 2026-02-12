@@ -4,15 +4,18 @@ import 'package:flutter/foundation.dart'
 
 /// Default Firebase configuration for HavenKeep.
 ///
-/// **IMPORTANT**: Replace the placeholder values below with your actual
-/// Firebase project credentials from the Firebase Console:
-/// https://console.firebase.google.com/
+/// WARNING: This file contains PLACEHOLDER values. Push notifications and
+/// other Firebase features will NOT work until you replace them with real
+/// credentials from your Firebase project.
 ///
-/// You can generate this file automatically using the FlutterFire CLI:
+/// To generate valid configuration, run:
 ///   ```
 ///   dart pub global activate flutterfire_cli
 ///   flutterfire configure
 ///   ```
+///
+/// This will overwrite this file with your actual Firebase project keys.
+/// See: https://firebase.google.com/docs/flutter/setup
 class DefaultFirebaseOptions {
   static FirebaseOptions get currentPlatform {
     switch (defaultTargetPlatform) {

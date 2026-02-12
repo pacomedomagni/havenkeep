@@ -22,6 +22,12 @@ COPY package.json package-lock.json* ./
 RUN npm ci
 
 COPY . .
+
+# API_URL is used at runtime via next.config.js rewrites (server-side)
+# NEXT_PUBLIC_API_URL is baked into client JS at build time
+ARG NEXT_PUBLIC_API_URL=http://localhost:8001
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+
 RUN npm run build
 
 # Production stage

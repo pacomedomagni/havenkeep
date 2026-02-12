@@ -41,17 +41,6 @@ else
     echo "⏭️  Database password already exists"
 fi
 
-# Create placeholders for external secrets
-if [ ! -f "$SECRETS_DIR/stripe_secret_key.txt" ]; then
-    echo "sk_live_REPLACE_WITH_ACTUAL_STRIPE_KEY" > "$SECRETS_DIR/stripe_secret_key.txt"
-    echo "⚠️  Created Stripe secret placeholder - REPLACE WITH ACTUAL KEY"
-fi
-
-if [ ! -f "$SECRETS_DIR/do_spaces_secret.txt" ]; then
-    echo "REPLACE_WITH_ACTUAL_DO_SPACES_SECRET" > "$SECRETS_DIR/do_spaces_secret.txt"
-    echo "⚠️  Created DO Spaces secret placeholder - REPLACE WITH ACTUAL KEY"
-fi
-
 # Secure permissions
 chmod 600 "$SECRETS_DIR"/*
 chmod 700 "$SECRETS_DIR"
@@ -61,12 +50,25 @@ echo "=================================="
 echo "✅ Secret generation complete!"
 echo "=================================="
 echo ""
-echo "⚠️  IMPORTANT:"
-echo "  1. Review all files in $SECRETS_DIR/"
-echo "  2. Replace placeholder values with actual credentials"
-echo "  3. NEVER commit secrets to git"
-echo "  4. Backup secrets securely (1Password, AWS Secrets Manager, etc.)"
-echo ""
 echo "Generated secrets:"
 ls -lh "$SECRETS_DIR"
+echo ""
+echo "⚠️  IMPORTANT: The following external secrets must be configured manually."
+echo "   Obtain these from their respective providers and add them to your"
+echo "   environment variables or secrets manager — do NOT store placeholder"
+echo "   files that could be mistaken for valid credentials."
+echo ""
+echo "   External secrets required:"
+echo "     - STRIPE_SECRET_KEY         (Stripe Dashboard → API keys)"
+echo "     - STRIPE_WEBHOOK_SECRET     (Stripe Dashboard → Webhooks → Signing secret)"
+echo "     - SENDGRID_API_KEY          (SendGrid → Settings → API Keys)"
+echo "     - OPENAI_API_KEY            (OpenAI Platform → API keys)"
+echo "     - GOOGLE_CLIENT_ID          (Google Cloud Console → Credentials)"
+echo "     - MINIO_ACCESS_KEY          (MinIO Console or cloud provider)"
+echo "     - MINIO_SECRET_KEY          (MinIO Console or cloud provider)"
+echo ""
+echo "   General guidelines:"
+echo "     1. NEVER commit secrets to git"
+echo "     2. Backup secrets securely (1Password, AWS Secrets Manager, etc.)"
+echo "     3. Rotate secrets periodically in production"
 echo ""

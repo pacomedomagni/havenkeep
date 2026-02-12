@@ -26,6 +26,9 @@ class EnvironmentConfig {
   /// Whether to enable debug logging.
   final bool enableDebugLogging;
 
+  /// RevenueCat API key for in-app purchases.
+  final String revenueCatApiKey;
+
   /// Whether this is the production environment.
   bool get isProduction => environment.isProduction;
 
@@ -40,12 +43,20 @@ class EnvironmentConfig {
     required this.enableAnalytics,
     required this.enableCrashReporting,
     required this.enableDebugLogging,
+    required this.revenueCatApiKey,
   }) {
     // Validate API base URL
     if (!apiBaseUrl.startsWith('http://') &&
         !apiBaseUrl.startsWith('https://')) {
       throw StateError(
         'Invalid API_BASE_URL: must start with http:// or https://. Got: $apiBaseUrl',
+      );
+    }
+
+    // Validate RevenueCat API key in production
+    if (environment.isProduction && revenueCatApiKey.isEmpty) {
+      throw StateError(
+        'REVENUECAT_API_KEY must be set in production',
       );
     }
   }
@@ -64,6 +75,12 @@ class EnvironmentConfig {
     // Get optional values
     final lokiUrl = dotenv.maybeGet('LOKI_URL');
 
+    // Get RevenueCat API key
+    final revenueCatApiKey = dotenv.get(
+      'REVENUECAT_API_KEY',
+      fallback: '',
+    );
+
     // Environment-specific defaults
     final enableAnalytics = env.isProduction;
     final enableCrashReporting = !env.isDevelopment;
@@ -76,6 +93,7 @@ class EnvironmentConfig {
       enableAnalytics: enableAnalytics,
       enableCrashReporting: enableCrashReporting,
       enableDebugLogging: enableDebugLogging,
+      revenueCatApiKey: revenueCatApiKey,
     );
   }
 
@@ -86,7 +104,8 @@ class EnvironmentConfig {
         'apiBaseUrl: $apiBaseUrl, '
         'enableAnalytics: $enableAnalytics, '
         'enableCrashReporting: $enableCrashReporting, '
-        'enableDebugLogging: $enableDebugLogging'
+        'enableDebugLogging: $enableDebugLogging, '
+        'revenueCatApiKey: ${revenueCatApiKey.isNotEmpty ? "***" : "(empty)"}'
         ')';
   }
 }

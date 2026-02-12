@@ -481,6 +481,10 @@ router.post('/verify-email', validate(verifyEmailSchema), async (req, res, next)
 // Google OAuth — accept ID token from mobile, verify, create/find user, return JWT
 router.post('/google', authRateLimiter, async (req, res, next) => {
   try {
+    if (!config.google?.clientId) {
+      throw new AppError('Google OAuth is not configured', 501);
+    }
+
     const { idToken } = req.body;
 
     if (!idToken || typeof idToken !== 'string') {
@@ -599,6 +603,10 @@ router.post('/google', authRateLimiter, async (req, res, next) => {
 // Apple OAuth — accept ID token from mobile, verify, create/find user, return JWT
 router.post('/apple', authRateLimiter, async (req, res, next) => {
   try {
+    if (!config.apple?.bundleId) {
+      throw new AppError('Apple Sign-In is not configured', 501);
+    }
+
     const { idToken, fullName: appleFullName } = req.body;
 
     if (!idToken || typeof idToken !== 'string') {
