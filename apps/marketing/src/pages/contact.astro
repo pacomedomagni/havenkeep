@@ -28,7 +28,7 @@ import Footer from '../components/Footer.astro';
           <!-- Contact Form -->
           <div>
             <h2 class="text-3xl font-bold text-white mb-6">Send us a message</h2>
-            <form class="space-y-6">
+            <form id="contact-form" class="space-y-6">
               <div>
                 <label for="name" class="block text-sm font-medium text-gray-300 mb-2">Name</label>
                 <input
@@ -40,7 +40,7 @@ import Footer from '../components/Footer.astro';
                   required
                 />
               </div>
-              
+
               <div>
                 <label for="email" class="block text-sm font-medium text-gray-300 mb-2">Email</label>
                 <input
@@ -52,7 +52,7 @@ import Footer from '../components/Footer.astro';
                   required
                 />
               </div>
-              
+
               <div>
                 <label for="subject" class="block text-sm font-medium text-gray-300 mb-2">Subject</label>
                 <select
@@ -62,14 +62,14 @@ import Footer from '../components/Footer.astro';
                   required
                 >
                   <option value="">Select a topic</option>
-                  <option value="support">Technical Support</option>
-                  <option value="billing">Billing Question</option>
-                  <option value="feature">Feature Request</option>
-                  <option value="partnership">Partnership Inquiry</option>
-                  <option value="other">Other</option>
+                  <option value="Technical Support">Technical Support</option>
+                  <option value="Billing Question">Billing Question</option>
+                  <option value="Feature Request">Feature Request</option>
+                  <option value="Partnership Inquiry">Partnership Inquiry</option>
+                  <option value="Other">Other</option>
                 </select>
               </div>
-              
+
               <div>
                 <label for="message" class="block text-sm font-medium text-gray-300 mb-2">Message</label>
                 <textarea
@@ -81,13 +81,21 @@ import Footer from '../components/Footer.astro';
                   required
                 ></textarea>
               </div>
-              
+
               <button
                 type="submit"
+                id="contact-submit"
                 class="w-full bg-primary hover:bg-secondary text-white font-semibold py-4 px-6 rounded-lg transition-colors duration-200"
               >
                 Send Message
               </button>
+
+              <div id="contact-success" class="hidden text-center py-4">
+                <div class="inline-flex items-center gap-2 text-accent font-semibold">
+                  <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" /></svg>
+                  Message sent! We'll get back to you within 24 hours.
+                </div>
+              </div>
             </form>
           </div>
 
@@ -147,7 +155,7 @@ import Footer from '../components/Footer.astro';
 
             <!-- Response Time -->
             <div class="border border-gray-700 rounded-lg p-6 bg-gray-800">
-              <h3 class="text-lg font-semibold text-white mb-2">⚡ Fast Response Times</h3>
+              <h3 class="text-lg font-semibold text-white mb-2">Fast Response Times</h3>
               <p class="text-gray-300">
                 We typically respond within 24 hours during business days. Premium users get priority support with response times under 4 hours.
               </p>
@@ -176,3 +184,33 @@ import Footer from '../components/Footer.astro';
   </main>
   <Footer />
 </Layout>
+
+<script>
+  const form = document.getElementById('contact-form') as HTMLFormElement;
+  const submitBtn = document.getElementById('contact-submit');
+  const successMsg = document.getElementById('contact-success');
+
+  form?.addEventListener('submit', (e) => {
+    e.preventDefault();
+
+    const name = (document.getElementById('name') as HTMLInputElement).value;
+    const email = (document.getElementById('email') as HTMLInputElement).value;
+    const subject = (document.getElementById('subject') as HTMLSelectElement).value;
+    const message = (document.getElementById('message') as HTMLTextAreaElement).value;
+
+    const body = `Name: ${name}\nEmail: ${email}\n\n${message}`;
+    const mailto = `mailto:hello@havenkeep.com?subject=${encodeURIComponent(subject + ' - ' + name)}&body=${encodeURIComponent(body)}`;
+
+    window.location.href = mailto;
+
+    // Show success state
+    if (submitBtn) submitBtn.classList.add('hidden');
+    successMsg?.classList.remove('hidden');
+
+    setTimeout(() => {
+      form.reset();
+      if (submitBtn) submitBtn.classList.remove('hidden');
+      successMsg?.classList.add('hidden');
+    }, 5000);
+  });
+</script>

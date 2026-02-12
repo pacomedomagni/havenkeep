@@ -24,205 +24,191 @@ import Footer from '../components/Footer.astro';
       </div>
     </section>
 
-    <!-- Main Features Grid -->
+    <!-- Hero Features (top 2 — the core differentiators) -->
     <section class="py-20 bg-gray-900">
       <div class="container">
-        <div class="grid md:grid-cols-2 gap-16 max-w-6xl mx-auto">
-          <!-- Feature 1 -->
-          <div>
-            <div class="w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center mb-6">
-              <svg class="w-8 h-8 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
-              </svg>
+        <div class="max-w-6xl mx-auto space-y-20">
+          <!-- Feature 1: Scanner — left text, right visual -->
+          <div class="grid md:grid-cols-2 gap-12 items-center">
+            <div>
+              <div class="inline-flex items-center gap-2 bg-primary/10 border border-primary/20 rounded-full px-4 py-1.5 mb-4">
+                <span class="text-primary text-sm font-semibold">Core Feature</span>
+              </div>
+              <h2 class="text-3xl md:text-4xl font-bold text-white mb-4">Smart Barcode Scanner</h2>
+              <p class="text-gray-300 text-lg mb-6">
+                Point your camera at any UPC or QR code and we auto-fill product details, warranty info, and purchase data in seconds.
+              </p>
+              <ul class="space-y-3 text-gray-400">
+                <li class="flex items-start gap-3">
+                  <svg class="w-5 h-5 text-accent mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" /></svg>
+                  Works offline &mdash; syncs when you reconnect
+                </li>
+                <li class="flex items-start gap-3">
+                  <svg class="w-5 h-5 text-accent mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" /></svg>
+                  Auto-fills product name, brand, and model
+                </li>
+                <li class="flex items-start gap-3">
+                  <svg class="w-5 h-5 text-accent mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" /></svg>
+                  Supports UPC, QR, EAN, and Code 128
+                </li>
+              </ul>
             </div>
-            <h2 class="text-3xl font-bold text-white mb-4">Smart Barcode Scanner</h2>
-            <p class="text-gray-300 text-lg mb-4">
-              Add items to your collection in seconds with our intelligent barcode scanner. Simply point your camera at any UPC or QR code, and we'll automatically fetch product details, warranty information, and more.
-            </p>
-            <ul class="space-y-2 text-gray-400">
-              <li class="flex items-start">
-                <svg class="w-5 h-5 text-accent mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                  <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-                </svg>
-                Works offline for later sync
-              </li>
-              <li class="flex items-start">
-                <svg class="w-5 h-5 text-accent mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                  <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-                </svg>
-                Auto-fills product information
-              </li>
-              <li class="flex items-start">
-                <svg class="w-5 h-5 text-accent mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                  <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-                </svg>
-                Supports all major barcode formats
-              </li>
-            </ul>
+            <!-- Visual: scanner mockup -->
+            <div class="relative">
+              <div class="absolute -inset-4 bg-gradient-to-br from-primary/10 to-secondary/10 rounded-2xl blur-xl"></div>
+              <div class="relative bg-gray-800 border border-gray-700 rounded-2xl p-8">
+                <div class="flex items-center gap-2 mb-6">
+                  <div class="w-3 h-3 rounded-full bg-primary animate-pulse"></div>
+                  <span class="text-primary text-sm font-medium">Scanner Active</span>
+                </div>
+                <div class="border-2 border-dashed border-primary/40 rounded-xl p-8 flex flex-col items-center gap-4">
+                  <svg class="w-16 h-16 text-primary/60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
+                  </svg>
+                  <div class="h-1 w-full bg-gradient-to-r from-transparent via-primary to-transparent rounded animate-pulse"></div>
+                  <p class="text-gray-500 text-sm">Point camera at barcode</p>
+                </div>
+                <div class="mt-6 bg-gray-900 rounded-lg p-4 border border-accent/30">
+                  <div class="flex items-center gap-2 mb-2">
+                    <svg class="w-4 h-4 text-accent" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" /></svg>
+                    <span class="text-accent text-sm font-medium">Product Found</span>
+                  </div>
+                  <p class="text-white text-sm font-medium">Samsung Dishwasher DW80R5061</p>
+                  <p class="text-gray-400 text-xs">2-year manufacturer warranty detected</p>
+                </div>
+              </div>
+            </div>
           </div>
 
-          <!-- Feature 2 -->
-          <div>
-            <div class="w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center mb-6">
-              <svg class="w-8 h-8 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
+          <!-- Feature 2: OCR — right text, left visual -->
+          <div class="grid md:grid-cols-2 gap-12 items-center">
+            <!-- Visual: receipt scan mockup -->
+            <div class="relative md:order-1 order-2">
+              <div class="absolute -inset-4 bg-gradient-to-br from-secondary/10 to-accent/10 rounded-2xl blur-xl"></div>
+              <div class="relative bg-gray-800 border border-gray-700 rounded-2xl p-8">
+                <div class="flex items-center gap-2 mb-6">
+                  <div class="w-3 h-3 rounded-full bg-secondary animate-pulse"></div>
+                  <span class="text-secondary text-sm font-medium">AI Processing</span>
+                </div>
+                <!-- Receipt visual -->
+                <div class="bg-white rounded-lg p-6 text-gray-800 font-mono text-xs space-y-1 mb-4 shadow-inner">
+                  <p class="text-center font-bold text-sm">BEST BUY #1247</p>
+                  <p class="text-center text-gray-500">02/08/2025 3:47 PM</p>
+                  <div class="border-t border-dashed border-gray-300 my-2"></div>
+                  <div class="flex justify-between"><span>LG OLED65C3 TV</span><span>$1,799.99</span></div>
+                  <div class="flex justify-between"><span>4YR PROTECTION</span><span>$249.99</span></div>
+                  <div class="border-t border-dashed border-gray-300 my-2"></div>
+                  <div class="flex justify-between font-bold"><span>TOTAL</span><span>$2,049.98</span></div>
+                </div>
+                <div class="space-y-2">
+                  <div class="flex items-center gap-2">
+                    <svg class="w-4 h-4 text-accent flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" /></svg>
+                    <span class="text-gray-300 text-sm">Store: Best Buy</span>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <svg class="w-4 h-4 text-accent flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" /></svg>
+                    <span class="text-gray-300 text-sm">Date: Feb 8, 2025</span>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <svg class="w-4 h-4 text-accent flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" /></svg>
+                    <span class="text-gray-300 text-sm">Warranty: 4 years (extended)</span>
+                  </div>
+                </div>
+              </div>
             </div>
-            <h2 class="text-3xl font-bold text-white mb-4">OCR Receipt Scanning</h2>
-            <p class="text-gray-300 text-lg mb-4">
-              Take a photo of your receipt and let our AI extract all the important details automatically. Purchase date, warranty period, store information - all captured in seconds.
-            </p>
-            <ul class="space-y-2 text-gray-400">
-              <li class="flex items-start">
-                <svg class="w-5 h-5 text-accent mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                  <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-                </svg>
-                AI-powered text recognition
-              </li>
-              <li class="flex items-start">
-                <svg class="w-5 h-5 text-accent mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                  <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-                </svg>
-                Works with faded or crumpled receipts
-              </li>
-              <li class="flex items-start">
-                <svg class="w-5 h-5 text-accent mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                  <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-                </svg>
-                Secure cloud storage for originals
-              </li>
-            </ul>
+            <div class="md:order-2 order-1">
+              <div class="inline-flex items-center gap-2 bg-secondary/10 border border-secondary/20 rounded-full px-4 py-1.5 mb-4">
+                <span class="text-secondary text-sm font-semibold">Core Feature</span>
+              </div>
+              <h2 class="text-3xl md:text-4xl font-bold text-white mb-4">AI Receipt Scanning</h2>
+              <p class="text-gray-300 text-lg mb-6">
+                Snap a photo of any receipt. Our AI reads the store, date, items, and warranty details &mdash; even from crumpled or faded paper.
+              </p>
+              <ul class="space-y-3 text-gray-400">
+                <li class="flex items-start gap-3">
+                  <svg class="w-5 h-5 text-accent mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" /></svg>
+                  AI-powered OCR text recognition
+                </li>
+                <li class="flex items-start gap-3">
+                  <svg class="w-5 h-5 text-accent mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" /></svg>
+                  Works with faded, wrinkled, or low-contrast receipts
+                </li>
+                <li class="flex items-start gap-3">
+                  <svg class="w-5 h-5 text-accent mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" /></svg>
+                  Originals stored securely in the cloud
+                </li>
+              </ul>
+            </div>
           </div>
+        </div>
+      </div>
+    </section>
 
-          <!-- Feature 3 -->
-          <div>
-            <div class="w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center mb-6">
-              <svg class="w-8 h-8 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <!-- Supporting Features Grid -->
+    <section class="py-20 bg-gray-800">
+      <div class="container">
+        <div class="max-w-3xl mx-auto text-center mb-16">
+          <h2 class="text-3xl md:text-4xl font-bold text-white mb-4">Everything else you need</h2>
+          <p class="text-gray-300 text-lg">Built-in tools that make warranty management effortless</p>
+        </div>
+        <div class="grid md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-6xl mx-auto">
+          <!-- Smart Reminders -->
+          <div class="bg-gray-900 rounded-2xl p-6 border border-gray-700 hover:border-accent/50 transition-colors">
+            <div class="w-12 h-12 bg-accent/10 rounded-xl flex items-center justify-center mb-4">
+              <svg class="w-6 h-6 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
               </svg>
             </div>
-            <h2 class="text-3xl font-bold text-white mb-4">Smart Reminders</h2>
-            <p class="text-gray-300 text-lg mb-4">
-              Never miss a warranty claim deadline again. Get intelligent notifications before your warranties expire, with customizable timing and delivery preferences.
-            </p>
-            <ul class="space-y-2 text-gray-400">
-              <li class="flex items-start">
-                <svg class="w-5 h-5 text-accent mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                  <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-                </svg>
-                Push, email, and SMS notifications
-              </li>
-              <li class="flex items-start">
-                <svg class="w-5 h-5 text-accent mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                  <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-                </svg>
-                Custom reminder schedules
-              </li>
-              <li class="flex items-start">
-                <svg class="w-5 h-5 text-accent mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                  <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-                </svg>
-                Priority alerts for high-value items
-              </li>
+            <h3 class="text-lg font-bold text-white mb-2">Smart Reminders</h3>
+            <p class="text-gray-400 text-sm mb-3">Push notifications weeks before warranties expire. Customizable timing for each item.</p>
+            <ul class="space-y-1.5 text-gray-500 text-xs">
+              <li class="flex items-center gap-1.5"><svg class="w-3.5 h-3.5 text-accent flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" /></svg>Push &amp; email alerts</li>
+              <li class="flex items-center gap-1.5"><svg class="w-3.5 h-3.5 text-accent flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" /></svg>Priority alerts for high-value items</li>
             </ul>
           </div>
 
-          <!-- Feature 4 -->
-          <div>
-            <div class="w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center mb-6">
-              <svg class="w-8 h-8 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <!-- Multi-Device Sync -->
+          <div class="bg-gray-900 rounded-2xl p-6 border border-gray-700 hover:border-primary/50 transition-colors">
+            <div class="w-12 h-12 bg-primary/10 rounded-xl flex items-center justify-center mb-4">
+              <svg class="w-6 h-6 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
               </svg>
             </div>
-            <h2 class="text-3xl font-bold text-white mb-4">Multi-Device Sync</h2>
-            <p class="text-gray-300 text-lg mb-4">
-              Access your warranty collection from any device. Changes sync instantly across your phone, tablet, and computer with end-to-end encryption.
-            </p>
-            <ul class="space-y-2 text-gray-400">
-              <li class="flex items-start">
-                <svg class="w-5 h-5 text-accent mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                  <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-                </svg>
-                Real-time synchronization
-              </li>
-              <li class="flex items-start">
-                <svg class="w-5 h-5 text-accent mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                  <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-                </svg>
-                Offline mode with auto-sync
-              </li>
-              <li class="flex items-start">
-                <svg class="w-5 h-5 text-accent mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                  <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-                </svg>
-                iOS, Android, and web support
-              </li>
+            <h3 class="text-lg font-bold text-white mb-2">Multi-Device Sync</h3>
+            <p class="text-gray-400 text-sm mb-3">Access everything from phone, tablet, or desktop. Changes sync instantly with offline support.</p>
+            <ul class="space-y-1.5 text-gray-500 text-xs">
+              <li class="flex items-center gap-1.5"><svg class="w-3.5 h-3.5 text-accent flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" /></svg>iOS, Android &amp; web</li>
+              <li class="flex items-center gap-1.5"><svg class="w-3.5 h-3.5 text-accent flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" /></svg>Offline mode with auto-sync</li>
             </ul>
           </div>
 
-          <!-- Feature 5 -->
-          <div>
-            <div class="w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center mb-6">
-              <svg class="w-8 h-8 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <!-- Bank-Level Security -->
+          <div class="bg-gray-900 rounded-2xl p-6 border border-gray-700 hover:border-secondary/50 transition-colors">
+            <div class="w-12 h-12 bg-secondary/10 rounded-xl flex items-center justify-center mb-4">
+              <svg class="w-6 h-6 text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
               </svg>
             </div>
-            <h2 class="text-3xl font-bold text-white mb-4">Bank-Level Security</h2>
-            <p class="text-gray-300 text-lg mb-4">
-              Your data is protected with enterprise-grade encryption. All receipts and documents are stored securely with automatic backups and version history.
-            </p>
-            <ul class="space-y-2 text-gray-400">
-              <li class="flex items-start">
-                <svg class="w-5 h-5 text-accent mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                  <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-                </svg>
-                256-bit AES encryption
-              </li>
-              <li class="flex items-start">
-                <svg class="w-5 h-5 text-accent mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                  <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-                </svg>
-                Automatic daily backups
-              </li>
-              <li class="flex items-start">
-                <svg class="w-5 h-5 text-accent mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                  <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-                </svg>
-                GDPR and SOC 2 compliant
-              </li>
+            <h3 class="text-lg font-bold text-white mb-2">Bank-Level Security</h3>
+            <p class="text-gray-400 text-sm mb-3">AES-256 encryption protects your data. Automatic backups and version history included.</p>
+            <ul class="space-y-1.5 text-gray-500 text-xs">
+              <li class="flex items-center gap-1.5"><svg class="w-3.5 h-3.5 text-accent flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" /></svg>256-bit AES encryption</li>
+              <li class="flex items-center gap-1.5"><svg class="w-3.5 h-3.5 text-accent flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" /></svg>Automatic daily backups</li>
             </ul>
           </div>
 
-          <!-- Feature 6 -->
-          <div>
-            <div class="w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center mb-6">
-              <svg class="w-8 h-8 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <!-- Flexible Export -->
+          <div class="bg-gray-900 rounded-2xl p-6 border border-gray-700 hover:border-yellow-500/50 transition-colors">
+            <div class="w-12 h-12 bg-yellow-500/10 rounded-xl flex items-center justify-center mb-4">
+              <svg class="w-6 h-6 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
               </svg>
             </div>
-            <h2 class="text-3xl font-bold text-white mb-4">Flexible Export Options</h2>
-            <p class="text-gray-300 text-lg mb-4">
-              Your data, your way. Export your warranty collection to PDF, CSV, or email. Perfect for insurance claims, moving, or sharing with family.
-            </p>
-            <ul class="space-y-2 text-gray-400">
-              <li class="flex items-start">
-                <svg class="w-5 h-5 text-accent mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                  <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-                </svg>
-                PDF reports with receipts
-              </li>
-              <li class="flex items-start">
-                <svg class="w-5 h-5 text-accent mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                  <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-                </svg>
-                CSV for spreadsheets
-              </li>
-              <li class="flex items-start">
-                <svg class="w-5 h-5 text-accent mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                  <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-                </svg>
-                Batch export by category
-              </li>
+            <h3 class="text-lg font-bold text-white mb-2">Flexible Exports</h3>
+            <p class="text-gray-400 text-sm mb-3">Export to PDF or CSV anytime. Great for insurance claims, moves, or sharing with family.</p>
+            <ul class="space-y-1.5 text-gray-500 text-xs">
+              <li class="flex items-center gap-1.5"><svg class="w-3.5 h-3.5 text-accent flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" /></svg>PDF reports with receipts</li>
+              <li class="flex items-center gap-1.5"><svg class="w-3.5 h-3.5 text-accent flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" /></svg>Batch export by category</li>
             </ul>
           </div>
         </div>
@@ -234,17 +220,23 @@ import Footer from '../components/Footer.astro';
       <div class="container">
         <div class="max-w-3xl mx-auto text-center text-white">
           <h2 class="text-4xl font-bold mb-6">
-            Ready to take control of your warranties?
+            All of this, starting at $0
           </h2>
-          <p class="text-xl text-white/90 mb-8">
-            Start with our free plan and upgrade as you grow
+          <p class="text-xl text-white/90 mb-4">
+            Track up to 5 items free, forever. Need more? Premium is just $2/mo.
+          </p>
+          <p class="text-white/70 text-sm mb-8">
+            No credit card required to start &bull; 30-day money-back guarantee on Premium
           </p>
           <div class="flex flex-col sm:flex-row gap-4 justify-center">
-            <a href="https://app.havenkeep.com/signup" class="bg-white text-primary hover:bg-gray-100 font-semibold py-4 px-8 rounded-lg transition-colors duration-200 text-lg">
-              Get Started Free
+            <a href="https://app.havenkeep.com/signup" class="bg-white text-primary hover:bg-gray-100 font-semibold py-4 px-8 rounded-lg transition-colors duration-200 text-lg flex items-center justify-center gap-2">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+              </svg>
+              Start Protecting My Stuff
             </a>
             <a href="/pricing" class="bg-white/10 hover:bg-white/20 text-white border-2 border-white font-semibold py-4 px-8 rounded-lg transition-colors duration-200 text-lg">
-              View Pricing
+              Compare Plans
             </a>
           </div>
         </div>

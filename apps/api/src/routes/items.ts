@@ -132,14 +132,14 @@ router.post('/', validate(createItemSchema), async (req: AuthRequest, res, next)
       barcode,
     } = req.body;
 
-    // Check free plan limit (25 items)
+    // Check free plan limit (5 items)
     if (req.user!.plan === 'free') {
       const countResult = await query(
         `SELECT COUNT(*) FROM items WHERE user_id = $1 AND is_archived = FALSE`,
         [req.user!.id]
       );
 
-      if (parseInt(countResult.rows[0].count, 10) >= 25) {
+      if (parseInt(countResult.rows[0].count, 10) >= 5) {
         throw new AppError('Free plan limit reached. Upgrade to Premium for unlimited items.', 403);
       }
     }

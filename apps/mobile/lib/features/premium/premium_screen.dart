@@ -208,7 +208,7 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
         _buildComparisonCard(
           title: 'Free',
           features: [
-            _FeatureItem(Icons.inventory_2, '25 items', false),
+            _FeatureItem(Icons.inventory_2, '5 items', false),
             _FeatureItem(Icons.category, 'Basic categories', false),
             _FeatureItem(Icons.edit, 'Manual entry only', false),
           ],
@@ -345,7 +345,7 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
           ),
           const SizedBox(height: HavenSpacing.md),
           Text(
-            _isAnnual ? '\$39.99/year' : '\$4.99/month',
+            _isAnnual ? '\$24/year' : '\$2.99/month',
             style: const TextStyle(
               fontSize: 32,
               fontWeight: FontWeight.bold,

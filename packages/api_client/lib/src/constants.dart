@@ -1,7 +1,7 @@
 /// App limit constants (server-agnostic).
 
 /// Maximum number of non-archived items on the free plan.
-const kFreePlanItemLimit = 25;
+const kFreePlanItemLimit = 5;
 
 /// Maximum document storage on free plan (200 MB).
 const kFreePlanStorageLimit = 200 * 1024 * 1024; // bytes

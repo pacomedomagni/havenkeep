@@ -7,7 +7,7 @@ const posts = [
   {
     title: 'How to Never Lose a Warranty Claim Again',
     excerpt: 'Americans throw away $16 billion in unused warranties every year. Here is the simple system that makes sure you never miss another claim.',
-    date: 'November 15, 2024',
+    date: 'February 10, 2025',
     category: 'Tips',
     slug: 'warranty-claims-guide',
     image: '🛡️'
@@ -15,7 +15,7 @@ const posts = [
   {
     title: '10 Warranties You Should Never Ignore',
     excerpt: 'Not all warranties are created equal. Here are the ones that can save you thousands of dollars.',
-    date: 'November 10, 2024',
+    date: 'February 3, 2025',
     category: 'Tips',
     slug: 'warranties-you-should-never-ignore',
     image: '📋'
@@ -23,7 +23,7 @@ const posts = [
   {
     title: 'How to Organize Your Home Warranties Like a Pro',
     excerpt: 'Transform warranty chaos into peace of mind with these simple organizational strategies.',
-    date: 'November 5, 2024',
+    date: 'January 27, 2025',
     category: 'Guides',
     slug: 'organize-home-warranties',
     image: '🏠'
@@ -31,7 +31,7 @@ const posts = [
   {
     title: 'The True Cost of Lost Warranties',
     excerpt: 'Americans lose over $16 billion annually from expired or forgotten warranties. Here is how to avoid becoming a statistic.',
-    date: 'October 28, 2024',
+    date: 'January 20, 2025',
     category: 'Research',
     slug: 'cost-of-lost-warranties',
     image: '💰'
@@ -39,7 +39,7 @@ const posts = [
   {
     title: 'Extended Warranties: Worth It or Waste of Money?',
     excerpt: 'An honest analysis of when extended warranties make sense and when you should skip them.',
-    date: 'October 22, 2024',
+    date: 'January 13, 2025',
     category: 'Analysis',
     slug: 'extended-warranties-worth-it',
     image: '🔍'
@@ -47,7 +47,7 @@ const posts = [
   {
     title: "Your Warranty Rights: What Manufacturers Don't Tell You",
     excerpt: 'Consumer protections that go beyond the written warranty. Know your legal rights.',
-    date: 'October 15, 2024',
+    date: 'January 6, 2025',
     category: 'Legal',
     slug: 'warranty-rights',
     image: '⚖️'
@@ -133,19 +133,23 @@ const posts = [
             <p class="text-gray-300 mb-6">
               Get the latest warranty tips and product updates delivered to your inbox
             </p>
-            <form class="max-w-md mx-auto flex gap-3">
+            <form id="newsletter-form" class="max-w-md mx-auto flex gap-3">
               <input
                 type="email"
+                id="newsletter-email"
                 placeholder="Enter your email"
                 class="flex-1 px-4 py-3 rounded-lg bg-gray-900 border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:border-primary"
+                required
               />
               <button
                 type="submit"
+                id="newsletter-submit"
                 class="bg-primary hover:bg-secondary text-white font-semibold px-6 py-3 rounded-lg transition-colors duration-200"
               >
                 Subscribe
               </button>
             </form>
+            <p id="newsletter-success" class="hidden text-accent font-semibold mt-4">You're subscribed! Check your inbox to confirm.</p>
           </div>
         </div>
       </div>
@@ -153,3 +157,28 @@ const posts = [
   </main>
   <Footer />
 </Layout>
+
+<script>
+  const form = document.getElementById('newsletter-form') as HTMLFormElement;
+  const submitBtn = document.getElementById('newsletter-submit');
+  const successMsg = document.getElementById('newsletter-success');
+
+  form?.addEventListener('submit', (e) => {
+    e.preventDefault();
+
+    const email = (document.getElementById('newsletter-email') as HTMLInputElement).value;
+    const mailto = `mailto:hello@havenkeep.com?subject=${encodeURIComponent('Newsletter Subscription')}&body=${encodeURIComponent('Please subscribe this email to the HavenKeep newsletter: ' + email)}`;
+
+    window.location.href = mailto;
+
+    // Show success UI
+    form.classList.add('hidden');
+    successMsg?.classList.remove('hidden');
+
+    setTimeout(() => {
+      form.reset();
+      form.classList.remove('hidden');
+      successMsg?.classList.add('hidden');
+    }, 5000);
+  });
+</script>

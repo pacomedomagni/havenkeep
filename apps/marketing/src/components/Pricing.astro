@@ -1,44 +1,5 @@
 ---
-// Pricing section - with cost anchoring and value framing
-const tiers = [
-  {
-    name: 'Free',
-    price: '$0',
-    period: 'forever',
-    description: 'Start protecting your purchases today',
-    features: [
-      { text: 'Up to 5 items', included: true },
-      { text: 'Basic warranty tracking', included: true },
-      { text: 'Mobile app access', included: true },
-      { text: 'Email reminders', included: true },
-      { text: 'Receipt scanning (OCR)', included: false },
-      { text: 'PDF & CSV export', included: false },
-      { text: 'Priority support', included: false },
-    ],
-    cta: 'Get Started Free',
-    ctaLink: 'https://app.havenkeep.com/signup',
-    popular: false,
-  },
-  {
-    name: 'Premium',
-    price: '$24',
-    period: '/year',
-    monthlyEquiv: '$2/mo',
-    description: 'For homeowners who want total protection',
-    features: [
-      { text: 'Unlimited items & properties', included: true },
-      { text: 'Advanced warranty intelligence', included: true },
-      { text: 'Mobile + web app', included: true },
-      { text: 'AI receipt scanning (OCR)', included: true },
-      { text: 'PDF, CSV & email export', included: true },
-      { text: 'Smart multi-stage reminders', included: true },
-      { text: 'Priority support & onboarding', included: true },
-    ],
-    cta: 'Start 14-Day Free Trial',
-    ctaLink: 'https://app.havenkeep.com/signup?plan=premium',
-    popular: true,
-  },
-];
+// Pricing section - with cost anchoring, value framing, and billing toggle
 ---
 
 <section class="py-24 bg-gray-800">
@@ -49,73 +10,164 @@ const tiers = [
       <h2 class="text-4xl md:text-5xl font-bold text-white mt-3 mb-4">
         Less than a coffee.<br />Saves you thousands.
       </h2>
-      <p class="text-xl text-gray-300 mb-4">
+      <p class="text-xl text-gray-300 mb-6">
         The average household wastes <strong class="text-white">$340/year</strong> on forgotten warranties.
-        HavenKeep Premium costs <strong class="text-white">$24/year</strong>. That&apos;s a <strong class="text-accent">14x return</strong>.
+        HavenKeep Premium starts at <strong class="text-white">$2/mo</strong>. That&apos;s a <strong class="text-accent">14x return</strong>.
       </p>
+
+      <!-- Billing Toggle -->
+      <div class="inline-flex items-center gap-3 bg-gray-900 border border-gray-700 rounded-full p-1.5">
+        <button id="billing-monthly" class="billing-toggle text-sm font-medium px-5 py-2 rounded-full transition-all duration-200 text-gray-400 hover:text-white">
+          Monthly
+        </button>
+        <button id="billing-annual" class="billing-toggle text-sm font-medium px-5 py-2 rounded-full transition-all duration-200 bg-primary text-white">
+          Annual <span class="text-accent text-xs font-semibold ml-1">Save 33%</span>
+        </button>
+      </div>
     </div>
 
     <!-- Pricing Cards -->
     <div class="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
-      {tiers.map((tier) => (
-        <div class={`reveal relative rounded-2xl border-2 ${tier.popular ? 'border-primary shadow-xl shadow-primary/10' : 'border-gray-700'} bg-gray-900 p-8`}>
-          {tier.popular && (
-            <div class="absolute -top-4 left-1/2 -translate-x-1/2">
-              <span class="bg-gradient-to-r from-primary to-secondary text-white text-sm font-semibold px-4 py-1.5 rounded-full shadow-lg">
-                Best Value &mdash; 14x ROI
-              </span>
-            </div>
-          )}
-
-          <!-- Header -->
-          <div class="mb-6">
-            <h3 class="text-2xl font-bold text-white mb-2">{tier.name}</h3>
-            <p class="text-gray-400 mb-4">{tier.description}</p>
-            <div class="flex items-baseline gap-3">
-              <span class="text-5xl font-bold text-white">{tier.price}</span>
-              <span class="text-gray-400">{tier.period}</span>
-              {tier.monthlyEquiv && (
-                <span class="text-sm text-accent font-medium bg-accent/10 px-2 py-0.5 rounded">({tier.monthlyEquiv})</span>
-              )}
-            </div>
-            {tier.popular && (
-              <p class="text-sm text-gray-500 mt-2">That&apos;s just $0.07/day &mdash; less than a penny per hour</p>
-            )}
+      <!-- Free Tier -->
+      <div class="reveal relative rounded-2xl border-2 border-gray-700 bg-gray-900 p-8">
+        <div class="mb-6">
+          <h3 class="text-2xl font-bold text-white mb-2">Free</h3>
+          <p class="text-gray-400 mb-4">Start protecting your purchases today</p>
+          <div class="flex items-baseline gap-3">
+            <span class="text-5xl font-bold text-white">$0</span>
+            <span class="text-gray-400">forever</span>
           </div>
-
-          <!-- Features -->
-          <ul class="space-y-4 mb-8">
-            {tier.features.map((feature) => (
-              <li class="flex items-start">
-                {feature.included ? (
-                  <svg class="w-5 h-5 text-accent mt-0.5 mr-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-                  </svg>
-                ) : (
-                  <svg class="w-5 h-5 text-gray-600 mt-0.5 mr-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
-                  </svg>
-                )}
-                <span class={feature.included ? 'text-gray-200' : 'text-gray-500'}>
-                  {feature.text}
-                </span>
-              </li>
-            ))}
-          </ul>
-
-          <!-- CTA -->
-          <a
-            href={tier.ctaLink}
-            class={tier.popular ? 'btn-primary w-full block text-center' : 'btn-secondary w-full block text-center'}
-          >
-            {tier.cta}
-          </a>
-
-          {tier.popular && (
-            <p class="text-center text-gray-500 text-xs mt-3">14-day free trial &bull; No credit card required &bull; Cancel anytime</p>
-          )}
         </div>
-      ))}
+
+        <ul class="space-y-4 mb-8">
+          <li class="flex items-start">
+            <svg class="w-5 h-5 text-accent mt-0.5 mr-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+            </svg>
+            <span class="text-gray-200">Up to 5 items</span>
+          </li>
+          <li class="flex items-start">
+            <svg class="w-5 h-5 text-accent mt-0.5 mr-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+            </svg>
+            <span class="text-gray-200">Basic warranty tracking</span>
+          </li>
+          <li class="flex items-start">
+            <svg class="w-5 h-5 text-accent mt-0.5 mr-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+            </svg>
+            <span class="text-gray-200">Mobile app access</span>
+          </li>
+          <li class="flex items-start">
+            <svg class="w-5 h-5 text-accent mt-0.5 mr-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+            </svg>
+            <span class="text-gray-200">Email reminders</span>
+          </li>
+          <li class="flex items-start">
+            <svg class="w-5 h-5 text-gray-600 mt-0.5 mr-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+            </svg>
+            <span class="text-gray-500">Receipt scanning (OCR)</span>
+          </li>
+          <li class="flex items-start">
+            <svg class="w-5 h-5 text-gray-600 mt-0.5 mr-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+            </svg>
+            <span class="text-gray-500">PDF & CSV export</span>
+          </li>
+          <li class="flex items-start">
+            <svg class="w-5 h-5 text-gray-600 mt-0.5 mr-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+            </svg>
+            <span class="text-gray-500">Priority support</span>
+          </li>
+        </ul>
+
+        <a href="https://app.havenkeep.com/signup" class="btn-secondary w-full block text-center">
+          Get Started Free
+        </a>
+      </div>
+
+      <!-- Premium Tier -->
+      <div class="reveal relative rounded-2xl border-2 border-primary shadow-xl shadow-primary/10 bg-gray-900 p-8">
+        <div class="absolute -top-4 left-1/2 -translate-x-1/2">
+          <span class="bg-gradient-to-r from-primary to-secondary text-white text-sm font-semibold px-4 py-1.5 rounded-full shadow-lg">
+            Best Value &mdash; 14x ROI
+          </span>
+        </div>
+
+        <div class="mb-6">
+          <h3 class="text-2xl font-bold text-white mb-2">Premium</h3>
+          <p class="text-gray-400 mb-4">For homeowners who want total protection</p>
+          <div class="flex items-baseline gap-3">
+            <!-- Annual pricing (default) -->
+            <div id="price-annual" class="flex items-baseline gap-3">
+              <span class="text-5xl font-bold text-white">$24</span>
+              <span class="text-gray-400">/year</span>
+              <span class="text-sm text-accent font-medium bg-accent/10 px-2 py-0.5 rounded">($2/mo)</span>
+            </div>
+            <!-- Monthly pricing (hidden by default) -->
+            <div id="price-monthly" class="hidden flex items-baseline gap-3">
+              <span class="text-5xl font-bold text-white">$2.99</span>
+              <span class="text-gray-400">/month</span>
+              <span class="text-sm text-gray-500 font-medium line-through ml-1">$35.88/yr</span>
+            </div>
+          </div>
+          <p id="price-subtext-annual" class="text-sm text-gray-500 mt-2">That&apos;s just $0.07/day &mdash; less than a penny per hour</p>
+          <p id="price-subtext-monthly" class="text-sm text-gray-500 mt-2 hidden">Switch to annual and <strong class="text-accent">save 33%</strong></p>
+        </div>
+
+        <ul class="space-y-4 mb-8">
+          <li class="flex items-start">
+            <svg class="w-5 h-5 text-accent mt-0.5 mr-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+            </svg>
+            <span class="text-gray-200">Unlimited items & properties</span>
+          </li>
+          <li class="flex items-start">
+            <svg class="w-5 h-5 text-accent mt-0.5 mr-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+            </svg>
+            <span class="text-gray-200">Advanced warranty intelligence</span>
+          </li>
+          <li class="flex items-start">
+            <svg class="w-5 h-5 text-accent mt-0.5 mr-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+            </svg>
+            <span class="text-gray-200">Mobile + web app</span>
+          </li>
+          <li class="flex items-start">
+            <svg class="w-5 h-5 text-accent mt-0.5 mr-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+            </svg>
+            <span class="text-gray-200">AI receipt scanning (OCR)</span>
+          </li>
+          <li class="flex items-start">
+            <svg class="w-5 h-5 text-accent mt-0.5 mr-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+            </svg>
+            <span class="text-gray-200">PDF, CSV & email export</span>
+          </li>
+          <li class="flex items-start">
+            <svg class="w-5 h-5 text-accent mt-0.5 mr-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+            </svg>
+            <span class="text-gray-200">Smart multi-stage reminders</span>
+          </li>
+          <li class="flex items-start">
+            <svg class="w-5 h-5 text-accent mt-0.5 mr-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+            </svg>
+            <span class="text-gray-200">Priority support & onboarding</span>
+          </li>
+        </ul>
+
+        <a href="https://app.havenkeep.com/signup?plan=premium" class="btn-primary w-full block text-center">
+          Start 14-Day Free Trial
+        </a>
+        <p class="text-center text-gray-500 text-xs mt-3">14-day free trial &bull; No credit card required &bull; Cancel anytime</p>
+      </div>
     </div>
 
     <!-- Money-back guarantee -->
@@ -134,3 +186,41 @@ const tiers = [
     </div>
   </div>
 </section>
+
+<script>
+  function initBillingToggle() {
+    const monthlyBtn = document.getElementById('billing-monthly');
+    const annualBtn = document.getElementById('billing-annual');
+    const priceAnnual = document.getElementById('price-annual');
+    const priceMonthly = document.getElementById('price-monthly');
+    const subtextAnnual = document.getElementById('price-subtext-annual');
+    const subtextMonthly = document.getElementById('price-subtext-monthly');
+
+    if (!monthlyBtn || !annualBtn) return;
+
+    monthlyBtn.addEventListener('click', () => {
+      monthlyBtn.classList.add('bg-primary', 'text-white');
+      monthlyBtn.classList.remove('text-gray-400');
+      annualBtn.classList.remove('bg-primary', 'text-white');
+      annualBtn.classList.add('text-gray-400');
+      priceAnnual?.classList.add('hidden');
+      priceMonthly?.classList.remove('hidden');
+      subtextAnnual?.classList.add('hidden');
+      subtextMonthly?.classList.remove('hidden');
+    });
+
+    annualBtn.addEventListener('click', () => {
+      annualBtn.classList.add('bg-primary', 'text-white');
+      annualBtn.classList.remove('text-gray-400');
+      monthlyBtn.classList.remove('bg-primary', 'text-white');
+      monthlyBtn.classList.add('text-gray-400');
+      priceAnnual?.classList.remove('hidden');
+      priceMonthly?.classList.add('hidden');
+      subtextAnnual?.classList.remove('hidden');
+      subtextMonthly?.classList.add('hidden');
+    });
+  }
+
+  initBillingToggle();
+  document.addEventListener('astro:after-swap', initBillingToggle);
+</script>

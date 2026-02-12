@@ -4,8 +4,8 @@ import 'theme.dart';
 /// A banner widget that warns users about their free plan item limit.
 ///
 /// Shows a progress bar and contextual message:
-/// - Approaching limit (20-24): "You've used {n}/25 free items"
-/// - At limit (25+): "Item limit reached. Archive old items or upgrade."
+/// - Approaching limit (4): "You've used {n}/5 free items"
+/// - At limit (5+): "Item limit reached. Archive old items or upgrade."
 class ItemLimitBanner extends StatelessWidget {
   final int currentCount;
   final int maxCount;
@@ -15,7 +15,7 @@ class ItemLimitBanner extends StatelessWidget {
   const ItemLimitBanner({
     super.key,
     required this.currentCount,
-    this.maxCount = 25,
+    this.maxCount = 5,
     this.onArchive,
     this.onUpgrade,
   });
