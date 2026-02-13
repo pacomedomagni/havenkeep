@@ -125,8 +125,9 @@ router.post(
 
       for (const file of files) {
         try {
-          const objectKey = generateObjectKey(req.user!.id, itemId, file.originalname);
+          let uploadFilename = file.originalname;
           let fileBuffer = file.buffer;
+          let contentType = file.mimetype;
           let thumbnailKey: string | null = null;
 
           // Generate thumbnail for images
@@ -137,6 +138,8 @@ router.post(
                 .resize(2000, 2000, { fit: 'inside', withoutEnlargement: true })
                 .webp({ quality: 85 })
                 .toBuffer();
+              contentType = 'image/webp';
+              uploadFilename = file.originalname.replace(/\.[^.]+$/, '') + '.webp';
 
               // Generate thumbnail
               const thumbnailBuffer = await sharp(file.buffer)
@@ -144,6 +147,7 @@ router.post(
                 .webp({ quality: 80 })
                 .toBuffer();
 
+              const objectKey = generateObjectKey(req.user!.id, itemId, uploadFilename);
               thumbnailKey = objectKey.replace(/\.[^.]+$/, '_thumb.webp');
 
               await minioClient.putObject(
@@ -158,8 +162,12 @@ router.post(
             } catch (imageError) {
               logger.warn({ error: imageError }, 'Image optimization failed, using original');
               fileBuffer = file.buffer;
+              contentType = file.mimetype;
+              uploadFilename = file.originalname;
             }
           }
+
+          const objectKey = generateObjectKey(req.user!.id, itemId, uploadFilename);
 
           // Upload to MinIO
           await minioClient.putObject(
@@ -168,7 +176,7 @@ router.post(
             fileBuffer,
             fileBuffer.length,
             {
-              'Content-Type': file.mimetype,
+              'Content-Type': contentType,
               'x-amz-meta-original-name': file.originalname,
               'x-amz-meta-user-id': req.user!.id,
             }
@@ -190,9 +198,9 @@ router.post(
                 itemId,
                 type || 'other',
                 fileUrl,
-                file.originalname,
+                uploadFilename,
                 fileBuffer.length,
-                file.mimetype,
+                contentType,
                 thumbnailUrl,
               ]
             );

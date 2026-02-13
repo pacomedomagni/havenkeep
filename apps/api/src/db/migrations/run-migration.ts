@@ -19,6 +19,17 @@ async function ensureMigrationsTable() {
   `);
 }
 
+async function ensureBaseSchema() {
+  const result = await pool.query(`SELECT to_regclass('public.users') AS users_table`);
+  if (result.rows[0]?.users_table) {
+    return;
+  }
+
+  const schemaSql = readFileSync(join(__dirname, '..', 'schema.sql'), 'utf-8');
+  logger.info('Applying base schema.sql before running migrations');
+  await pool.query(schemaSql);
+}
+
 async function getExecutedMigrations(): Promise<Set<string>> {
   const result = await pool.query('SELECT filename FROM schema_migrations ORDER BY filename');
   return new Set(result.rows.map((r: { filename: string }) => r.filename));
@@ -52,6 +63,7 @@ async function runMigration(migrationFile: string) {
 
 async function main() {
   try {
+    await ensureBaseSchema();
     await ensureMigrationsTable();
     const executed = await getExecutedMigrations();
 

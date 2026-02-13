@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shared_ui/shared_ui.dart';
 
 import '../../core/providers/auth_provider.dart';
@@ -128,11 +129,18 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
     setState(() => _isLoading = true);
     try {
       if (_isSignUp) {
+        final prefs = await SharedPreferences.getInstance();
+        final referralCode = prefs.getString('referral_code');
+
         await ref.read(currentUserProvider.notifier).signUpWithEmail(
               email: _emailController.text.trim(),
               password: _passwordController.text,
               fullName: _nameController.text.trim(),
+              referralCode: referralCode,
             );
+        if (referralCode != null) {
+          await prefs.remove('referral_code');
+        }
       } else {
         await ref.read(currentUserProvider.notifier).signInWithEmail(
               email: _emailController.text.trim(),

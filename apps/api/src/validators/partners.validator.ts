@@ -1,7 +1,9 @@
 import Joi from 'joi';
 
 export const registerPartnerSchema = Joi.object({
-  partner_type: Joi.string().valid('realtor', 'builder', 'property_manager', 'other').required(),
+  partner_type: Joi.string()
+    .valid('realtor', 'builder', 'contractor', 'property_manager', 'other')
+    .required(),
   company_name: Joi.string().max(255).optional(),
   phone: Joi.string().max(50).optional(),
   website: Joi.string().uri().max(255).optional(),
@@ -19,6 +21,7 @@ export const registerPartnerSchema = Joi.object({
   .rename('serviceAreas', 'service_areas', { ignoreUndefined: true, override: false });
 
 export const updatePartnerSchema = Joi.object({
+  partner_type: Joi.string().valid('realtor', 'builder', 'contractor', 'property_manager', 'other'),
   company_name: Joi.string().max(255).optional(),
   phone: Joi.string().max(50).optional(),
   website: Joi.string().uri().max(255).optional(),

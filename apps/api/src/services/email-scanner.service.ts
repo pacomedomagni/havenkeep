@@ -503,8 +503,8 @@ ${emailData.body.substring(0, 2000)}`,
           home_id, user_id, name, brand, model_number, serial_number,
           category, purchase_date, store, price,
           warranty_months, warranty_end_date, warranty_type,
-          notes
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+          notes, added_via
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
         [
           homeId,
           userId,
@@ -520,6 +520,7 @@ ${emailData.body.substring(0, 2000)}`,
           warrantyEndDate,
           'manufacturer',
           `Imported from email: ${receipt.emailSubject}`,
+          'email',
         ]
       );
 

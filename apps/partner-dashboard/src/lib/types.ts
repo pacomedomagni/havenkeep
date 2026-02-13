@@ -1,4 +1,4 @@
-export type PartnerType = 'realtor' | 'builder' | 'property_manager' | 'other';
+export type PartnerType = 'realtor' | 'builder' | 'contractor' | 'property_manager' | 'other';
 export type ReferralStatus = 'pending' | 'converted' | 'expired';
 export type CommissionStatus = 'pending' | 'paid' | 'cancelled';
 

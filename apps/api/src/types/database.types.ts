@@ -4,6 +4,15 @@
 // ============================================
 
 export type UserPlan = 'free' | 'premium';
+export type AuthProvider = 'email' | 'google' | 'apple';
+export type ItemAddedVia =
+  | 'manual'
+  | 'email'
+  | 'barcode'
+  | 'barcode_scan'
+  | 'receipt_scan'
+  | 'quick_add'
+  | 'bulk_setup';
 export type ItemCategory =
   | 'refrigerator'
   | 'dishwasher'
@@ -52,7 +61,7 @@ export type DocumentType = 'receipt' | 'warranty_card' | 'manual' | 'invoice' | 
 
 // New types for enhanced features
 export type EmailScanStatus = 'pending' | 'scanning' | 'completed' | 'failed';
-export type PartnerType = 'realtor' | 'builder' | 'contractor' | 'other';
+export type PartnerType = 'realtor' | 'builder' | 'contractor' | 'property_manager' | 'other';
 export type PartnerTier = 'basic' | 'premium' | 'platinum';
 export type GiftStatus = 'created' | 'sent' | 'activated' | 'expired';
 export type CommissionStatus = 'pending' | 'approved' | 'paid' | 'cancelled';
@@ -84,11 +93,15 @@ export interface User {
   password_hash: string | null;
   full_name: string;
   avatar_url: string | null;
+  auth_provider: AuthProvider;
   plan: UserPlan;
   plan_expires_at: Date | null;
   stripe_customer_id: string | null;
+  referred_by: string | null;
+  referral_code: string | null;
   is_admin: boolean;
   email_verified: boolean;
+  apple_user_id: string | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -132,6 +145,7 @@ export interface Item {
   warranty_end_date: Date;
   warranty_type: WarrantyType;
   warranty_provider: string | null;
+  added_via: ItemAddedVia;
 
   // Enhanced fields
   estimated_repair_cost: number | null;
@@ -291,6 +305,7 @@ export interface Partner {
   // Settings
   default_message: string | null;
   default_premium_months: number;
+  service_areas: string[];
 
   // Stripe Connect
   stripe_account_id: string | null;
@@ -513,6 +528,19 @@ export interface NotificationHistory {
 
   // Meta
   created_at: Date;
+}
+
+export interface NotificationPreferences {
+  user_id: string;
+  reminders_enabled: boolean;
+  first_reminder_days: number;
+  reminder_time: string;
+  warranty_offers_enabled: boolean;
+  tips_enabled: boolean;
+  push_enabled: boolean;
+  email_enabled: boolean;
+  created_at: Date;
+  updated_at: Date;
 }
 
 // ============================================

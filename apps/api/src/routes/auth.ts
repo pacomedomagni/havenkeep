@@ -12,6 +12,7 @@ import { forgotPasswordSchema, resetPasswordSchema, verifyEmailSchema } from '..
 import { logger } from '../utils/logger';
 import { AuditService } from '../services/audit.service';
 import { blacklistToken } from '../utils/token-blacklist';
+import { generateUniqueReferralCode } from '../utils/referral-code';
 
 const router = Router();
 
@@ -28,10 +29,19 @@ const getIpAddress = (req: any): string => {
   return ip;
 };
 
+async function resolveReferredBy(referralCode?: string): Promise<string | null> {
+  if (!referralCode) return null;
+  const result = await query(
+    `SELECT id FROM users WHERE referral_code = $1`,
+    [referralCode]
+  );
+  return result.rows.length > 0 ? result.rows[0].id : null;
+}
+
 // Register
 router.post('/register', authRateLimiter, validate(registerSchema), async (req, res, next) => {
   try {
-    const { email, password, fullName } = req.body;
+    const { email, password, fullName, referralCode } = req.body;
 
     // Check if user exists
     const existing = await query(
@@ -46,13 +56,16 @@ router.post('/register', authRateLimiter, validate(registerSchema), async (req, 
     // Hash password with bcrypt rounds=12
     const passwordHash = await bcrypt.hash(password, 12);
 
+    const referredBy = await resolveReferredBy(referralCode);
+    const userReferralCode = await generateUniqueReferralCode();
+
     // Create user
     const result = await query(
-      `INSERT INTO users (email, password_hash, full_name)
-       VALUES ($1, $2, $3)
+      `INSERT INTO users (email, password_hash, full_name, referral_code, referred_by)
+       VALUES ($1, $2, $3, $4, $5)
        RETURNING id, email, full_name, avatar_url, auth_provider, plan, plan_expires_at,
                  referred_by, referral_code, is_admin, created_at, updated_at`,
-      [email.toLowerCase(), passwordHash, fullName]
+      [email.toLowerCase(), passwordHash, fullName, userReferralCode, referredBy]
     );
 
     const user = result.rows[0];
@@ -147,6 +160,9 @@ router.post('/login', authRateLimiter, validate(loginSchema), async (req, res, n
     const user = result.rows[0];
 
     // Verify password
+    if (!user.password_hash) {
+      throw new AppError('Invalid credentials', 401);
+    }
     const valid = await bcrypt.compare(password, user.password_hash);
 
     if (!valid) {
@@ -507,7 +523,7 @@ router.post('/google', authRateLimiter, async (req, res, next) => {
       throw new AppError('Google OAuth is not configured', 501);
     }
 
-    const { idToken } = req.body;
+    const { idToken, referralCode } = req.body;
 
     if (!idToken || typeof idToken !== 'string') {
       throw new AppError('Google ID token is required', 400);
@@ -543,13 +559,15 @@ router.post('/google', authRateLimiter, async (req, res, next) => {
     let isNewUser = false;
 
     if (userResult.rows.length === 0) {
+      const referredBy = await resolveReferredBy(referralCode);
+      const userReferralCode = await generateUniqueReferralCode();
       // Create new user (no password for OAuth users)
       const createResult = await query(
-        `INSERT INTO users (email, full_name, avatar_url, auth_provider, email_verified)
-         VALUES ($1, $2, $3, 'google', TRUE)
+        `INSERT INTO users (email, full_name, avatar_url, auth_provider, email_verified, referral_code, referred_by)
+         VALUES ($1, $2, $3, 'google', TRUE, $4, $5)
          RETURNING id, email, full_name, avatar_url, auth_provider, plan, plan_expires_at,
                    referred_by, referral_code, is_admin, created_at, updated_at`,
-        [email, fullName, avatarUrl]
+        [email, fullName, avatarUrl, userReferralCode, referredBy]
       );
       user = createResult.rows[0];
       isNewUser = true;
@@ -628,7 +646,7 @@ router.post('/apple', authRateLimiter, async (req, res, next) => {
       throw new AppError('Apple Sign-In is not configured', 501);
     }
 
-    const { idToken, fullName: appleFullName } = req.body;
+    const { idToken, fullName: appleFullName, referralCode } = req.body;
 
     if (!idToken || typeof idToken !== 'string') {
       throw new AppError('Apple ID token is required', 400);
@@ -710,13 +728,15 @@ router.post('/apple', authRateLimiter, async (req, res, next) => {
 
     if (userResult.rows.length === 0) {
       const fullName = appleFullName || 'User';
+      const referredBy = await resolveReferredBy(referralCode);
+      const userReferralCode = await generateUniqueReferralCode();
 
       const createResult = await query(
-        `INSERT INTO users (email, full_name, auth_provider, email_verified, apple_user_id)
-         VALUES ($1, $2, 'apple', TRUE, $3)
+        `INSERT INTO users (email, full_name, auth_provider, email_verified, apple_user_id, referral_code, referred_by)
+         VALUES ($1, $2, 'apple', TRUE, $3, $4, $5)
          RETURNING id, email, full_name, avatar_url, auth_provider, plan, plan_expires_at,
                    referred_by, referral_code, is_admin, created_at, updated_at`,
-        [email, fullName, appleUserId]
+        [email, fullName, appleUserId, userReferralCode, referredBy]
       );
       user = createResult.rows[0];
       isNewUser = true;

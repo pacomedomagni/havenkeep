@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { query } from '../db';
+import { getClient, query } from '../db';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
 import { validate } from '../middleware/validate';
@@ -113,6 +113,7 @@ router.get('/:id', validate(uuidParamSchema, 'params'), async (req: AuthRequest,
 
 // Create item
 router.post('/', validate(createItemSchema), async (req: AuthRequest, res, next) => {
+  const client = await getClient();
   try {
     const {
       homeId,
@@ -134,9 +135,13 @@ router.post('/', validate(createItemSchema), async (req: AuthRequest, res, next)
       addedVia,
     } = req.body;
 
-    // Check free plan limit (5 items)
+    await client.query('BEGIN');
+
+    // Check free plan limit (5 items) with a user-level lock to prevent races
     if (req.user!.plan === 'free') {
-      const countResult = await query(
+      await client.query(`SELECT id FROM users WHERE id = $1 FOR UPDATE`, [req.user!.id]);
+
+      const countResult = await client.query(
         `SELECT COUNT(*) FROM items WHERE user_id = $1 AND is_archived = FALSE`,
         [req.user!.id]
       );
@@ -147,7 +152,7 @@ router.post('/', validate(createItemSchema), async (req: AuthRequest, res, next)
     }
 
     // Verify home belongs to user
-    const homeResult = await query(
+    const homeResult = await client.query(
       `SELECT id FROM homes WHERE id = $1 AND user_id = $2`,
       [homeId, req.user!.id]
     );
@@ -169,7 +174,7 @@ router.post('/', validate(createItemSchema), async (req: AuthRequest, res, next)
       warrantyEndDate.setDate(0); // Set to last day of previous month
     }
 
-    const result = await query(
+    const result = await client.query(
       `INSERT INTO items (
         user_id, home_id, name, brand, model_number, serial_number,
         category, room, purchase_date, store, price,
@@ -184,6 +189,8 @@ router.post('/', validate(createItemSchema), async (req: AuthRequest, res, next)
         warrantyProvider, notes, productImageUrl, barcode, addedVia || 'manual'
       ]
     );
+
+    await client.query('COMMIT');
 
     const item = result.rows[0];
 
@@ -200,7 +207,10 @@ router.post('/', validate(createItemSchema), async (req: AuthRequest, res, next)
 
     res.status(201).json({ item });
   } catch (error) {
+    await client.query('ROLLBACK');
     next(error);
+  } finally {
+    client.release();
   }
 });
 

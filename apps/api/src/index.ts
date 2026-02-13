@@ -10,6 +10,8 @@ import { errorHandler } from './middleware/errorHandler';
 import { requestLogger } from './middleware/requestLogger';
 import { initializeRateLimiter } from './middleware/rateLimiter';
 import { setCsrfToken } from './middleware/csrf';
+import { NotificationsService } from './services/notifications.service';
+import { pool } from './db';
 
 // Routes
 import authRoutes from './routes/auth';
@@ -91,62 +93,108 @@ app.use(requestLogger);
 // CSRF token generation (for non-API routes)
 app.use(setCsrfToken);
 
-// Health checks (no versioning, no auth required)
-app.use('/', healthRoutes);
+function registerRoutes(appInstance: express.Express) {
+  // Health checks (no versioning, no auth required)
+  appInstance.use('/', healthRoutes);
 
-// API v1 routes
-const apiV1 = express.Router();
+  // API v1 routes
+  const apiV1 = express.Router();
 
-apiV1.use('/auth', authRoutes);
-apiV1.use('/users', usersRoutes);
-apiV1.use('/homes', homesRoutes);
-apiV1.use('/items', itemsRoutes);
-apiV1.use('/documents', documentsRoutes);
-apiV1.use('/barcode', barcodeRoutes);
-apiV1.use('/admin', adminRoutes);
-apiV1.use('/warranty-claims', warrantyClaimsRoutes);
-apiV1.use('/stats', statsRoutes);
-apiV1.use('/email-scanner', emailScannerRoutes);
-apiV1.use('/partners', partnersRoutes);
-apiV1.use('/maintenance', maintenanceRoutes);
-apiV1.use('/notifications', notificationsRoutes);
-apiV1.use('/warranty-purchases', warrantyPurchasesRoutes);
-apiV1.use('/categories', categoriesRoutes);
-apiV1.use('/uploads', uploadsRoutes);
-apiV1.use('/receipts', receiptsRoutes);
-apiV1.use('/audit', auditRoutes);
+  apiV1.use('/auth', authRoutes);
+  apiV1.use('/users', usersRoutes);
+  apiV1.use('/homes', homesRoutes);
+  apiV1.use('/items', itemsRoutes);
+  apiV1.use('/documents', documentsRoutes);
+  apiV1.use('/barcode', barcodeRoutes);
+  apiV1.use('/admin', adminRoutes);
+  apiV1.use('/warranty-claims', warrantyClaimsRoutes);
+  apiV1.use('/stats', statsRoutes);
+  apiV1.use('/email-scanner', emailScannerRoutes);
+  apiV1.use('/partners', partnersRoutes);
+  apiV1.use('/maintenance', maintenanceRoutes);
+  apiV1.use('/notifications', notificationsRoutes);
+  apiV1.use('/warranty-purchases', warrantyPurchasesRoutes);
+  apiV1.use('/categories', categoriesRoutes);
+  apiV1.use('/uploads', uploadsRoutes);
+  apiV1.use('/receipts', receiptsRoutes);
+  apiV1.use('/audit', auditRoutes);
 
-app.use('/api/v1', apiV1);
+  appInstance.use('/api/v1', apiV1);
 
-// Legacy routes (redirect to v1)
-app.use('/api/auth', authRoutes);
-app.use('/api/users', usersRoutes);
-app.use('/api/homes', homesRoutes);
-app.use('/api/items', itemsRoutes);
-app.use('/api/documents', documentsRoutes);
-app.use('/api/barcode', barcodeRoutes);
-app.use('/api/admin', adminRoutes);
+  // Legacy routes (redirect to v1)
+  appInstance.use('/api/auth', authRoutes);
+  appInstance.use('/api/users', usersRoutes);
+  appInstance.use('/api/homes', homesRoutes);
+  appInstance.use('/api/items', itemsRoutes);
+  appInstance.use('/api/documents', documentsRoutes);
+  appInstance.use('/api/barcode', barcodeRoutes);
+  appInstance.use('/api/admin', adminRoutes);
 
-// 404 handler
-app.use((req, res) => {
-  res.status(404).json({
-    error: 'Not found',
-    path: req.path,
-    suggestion: 'Check API documentation for available endpoints'
+  // 404 handler
+  appInstance.use((req, res) => {
+    res.status(404).json({
+      error: 'Not found',
+      path: req.path,
+      suggestion: 'Check API documentation for available endpoints'
+    });
   });
-});
 
-// Error handler (must be last)
-app.use(errorHandler);
+  // Error handler (must be last)
+  appInstance.use(errorHandler);
+}
 
 // Start server (async to initialize rate limiter)
 let server: ReturnType<typeof app.listen>;
 const PORT = config.port;
+const NOTIFICATION_JOB_LOCK = 93422874;
+
+async function runExpirationNotificationsJob() {
+  const client = await pool.connect();
+  try {
+    const lockResult = await client.query(
+      'SELECT pg_try_advisory_lock($1) AS locked',
+      [NOTIFICATION_JOB_LOCK]
+    );
+    if (!lockResult.rows[0]?.locked) {
+      return;
+    }
+
+    try {
+      await NotificationsService.checkAndNotifyExpirations();
+    } finally {
+      await client.query('SELECT pg_advisory_unlock($1)', [NOTIFICATION_JOB_LOCK]);
+    }
+  } catch (error) {
+    logger.error({ error }, 'Expiration notification job failed');
+  } finally {
+    client.release();
+  }
+}
+
+function scheduleExpirationNotifications() {
+  const scheduleNext = () => {
+    const now = new Date();
+    const next = new Date(now);
+    next.setHours(9, 0, 0, 0);
+    if (next <= now) {
+      next.setDate(next.getDate() + 1);
+    }
+    const delay = next.getTime() - now.getTime();
+
+    setTimeout(async () => {
+      await runExpirationNotificationsJob();
+      scheduleNext();
+    }, delay);
+  };
+
+  scheduleNext();
+}
 
 async function start() {
   const rateLimiter = await initializeRateLimiter();
   // Insert rate limiter before routes (after requestLogger)
   app.use(rateLimiter);
+  registerRoutes(app);
 
   server = app.listen(PORT, () => {
     logger.info(`🚀 HavenKeep API running on port ${PORT}`);
@@ -156,6 +204,8 @@ async function start() {
     logger.info(`🔐 Security: Helmet, CORS, Rate Limiting, CSRF Protection`);
     logger.info(`📊 Monitoring: Pino → Promtail → Loki`);
   });
+
+  scheduleExpirationNotifications();
 }
 
 start().catch((err) => {

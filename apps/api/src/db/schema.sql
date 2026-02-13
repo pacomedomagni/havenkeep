@@ -48,11 +48,15 @@ CREATE TABLE users (
   password_hash VARCHAR(255),
   full_name VARCHAR(255) NOT NULL,
   avatar_url TEXT,
+  auth_provider VARCHAR(20) NOT NULL DEFAULT 'email',
   plan user_plan NOT NULL DEFAULT 'free',
   plan_expires_at TIMESTAMPTZ,
   stripe_customer_id VARCHAR(255),
+  referred_by UUID,
+  referral_code VARCHAR(64),
   is_admin BOOLEAN NOT NULL DEFAULT FALSE,
   email_verified BOOLEAN NOT NULL DEFAULT FALSE,
+  apple_user_id VARCHAR(255) UNIQUE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -60,6 +64,8 @@ CREATE TABLE users (
 CREATE INDEX idx_users_email ON users(email);
 CREATE INDEX idx_users_stripe ON users(stripe_customer_id);
 CREATE INDEX idx_users_plan ON users(plan);
+CREATE INDEX idx_users_referral_code ON users(referral_code);
+CREATE INDEX idx_users_apple_user_id ON users(apple_user_id) WHERE apple_user_id IS NOT NULL;
 
 -- Homes table
 CREATE TABLE homes (
@@ -104,6 +110,7 @@ CREATE TABLE items (
   warranty_end_date DATE NOT NULL,
   warranty_type warranty_type NOT NULL DEFAULT 'manufacturer',
   warranty_provider VARCHAR(100),
+  added_via VARCHAR(32) NOT NULL DEFAULT 'manual',
   
   -- Meta
   notes TEXT,
@@ -146,6 +153,19 @@ CREATE TABLE refresh_tokens (
 CREATE INDEX idx_refresh_tokens_user_id ON refresh_tokens(user_id);
 CREATE INDEX idx_refresh_tokens_token ON refresh_tokens(token);
 
+-- Push notification tokens
+CREATE TABLE user_push_tokens (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  fcm_token VARCHAR(512) NOT NULL,
+  platform VARCHAR(20) NOT NULL DEFAULT 'unknown',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (user_id, fcm_token)
+);
+
+CREATE INDEX idx_user_push_tokens_user_id ON user_push_tokens(user_id);
+
 -- Email verification tokens
 CREATE TABLE email_verification_tokens (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -186,6 +206,9 @@ CREATE TRIGGER update_homes_updated_at BEFORE UPDATE ON homes
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TRIGGER update_items_updated_at BEFORE UPDATE ON items
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_user_push_tokens_updated_at BEFORE UPDATE ON user_push_tokens
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- Views for analytics

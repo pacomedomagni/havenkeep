@@ -72,6 +72,24 @@ router.post(
 router.use(authenticate);
 
 /**
+ * @route   POST /api/v1/partners/referral-code
+ * @desc    Generate or fetch partner referral code
+ * @access  Private (Partner only)
+ */
+router.post(
+  '/referral-code',
+  asyncHandler(async (req, res) => {
+    const userId = req.user!.id;
+    const referralCode = await PartnersService.getOrCreateReferralCode(userId);
+
+    res.json({
+      success: true,
+      data: { referral_code: referralCode },
+    });
+  })
+);
+
+/**
  * @route   POST /api/v1/partners/register
  * @desc    Register as a partner (realtor/builder)
  * @access  Private

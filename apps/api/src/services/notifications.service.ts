@@ -437,7 +437,7 @@ export class NotificationsService {
   /**
    * Check for items with expiring warranties and create notifications.
    *
-   * TODO: Wire this to a cron job (e.g., node-cron running daily at 9 AM).
+   * Scheduled daily by the API process (see index.ts).
    * Checks for items expiring within each user's configured reminder window
    * and creates notifications for them. Skips items that already received
    * a notification in the last 24 hours to prevent duplicates.

@@ -5,6 +5,7 @@ import { Partner, PartnerGift, PartnerCommission } from '../types/database.types
 import Stripe from 'stripe';
 import { config } from '../config';
 import { EmailService } from './email.service';
+import { generateUniqueReferralCode } from '../utils/referral-code';
 
 const stripe = new Stripe(config.stripe.secretKey, {
   apiVersion: '2023-10-16',
@@ -12,18 +13,51 @@ const stripe = new Stripe(config.stripe.secretKey, {
 
 export class PartnersService {
   /**
+   * Get or create a referral code for a partner user
+   */
+  static async getOrCreateReferralCode(userId: string): Promise<string> {
+    // Ensure the user is a registered partner
+    const partnerResult = await pool.query(
+      'SELECT id FROM partners WHERE user_id = $1',
+      [userId]
+    );
+
+    if (partnerResult.rows.length === 0) {
+      throw new AppError('Partner not found', 404);
+    }
+
+    const userResult = await pool.query(
+      'SELECT referral_code FROM users WHERE id = $1',
+      [userId]
+    );
+
+    const existing = userResult.rows[0]?.referral_code;
+    if (existing) {
+      return existing;
+    }
+
+    const referralCode = await generateUniqueReferralCode();
+    await pool.query(
+      `UPDATE users SET referral_code = $1 WHERE id = $2`,
+      [referralCode, userId]
+    );
+
+    return referralCode;
+  }
+  /**
    * Register as a partner (realtor/builder)
    */
   static async registerPartner(
     userId: string,
     data: {
-      partner_type: 'realtor' | 'builder' | 'contractor' | 'other';
+      partner_type: 'realtor' | 'builder' | 'contractor' | 'property_manager' | 'other';
       company_name?: string;
       phone?: string;
       website?: string;
       brand_color?: string;
       logo_url?: string;
       default_message?: string;
+      service_areas?: string[];
     }
   ): Promise<Partner> {
     const client = await pool.connect();
@@ -45,8 +79,8 @@ export class PartnersService {
       const result = await client.query(
         `INSERT INTO partners (
           user_id, partner_type, company_name, phone, website,
-          brand_color, logo_url, default_message, subscription_tier
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'basic')
+          brand_color, logo_url, default_message, service_areas, subscription_tier
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'basic')
         RETURNING *`,
         [
           userId,
@@ -58,6 +92,7 @@ export class PartnersService {
           data.logo_url,
           data.default_message ||
             'Welcome to your new home! I\'m excited to share this tool to help you protect your appliances and warranties.',
+          data.service_areas || [],
         ]
       );
 
@@ -131,6 +166,7 @@ export class PartnersService {
   static async updatePartner(
     userId: string,
     data: {
+      partner_type?: 'realtor' | 'builder' | 'contractor' | 'property_manager' | 'other';
       company_name?: string;
       phone?: string;
       website?: string;
@@ -138,6 +174,7 @@ export class PartnersService {
       logo_url?: string;
       default_message?: string;
       default_premium_months?: number;
+      service_areas?: string[];
     }
   ): Promise<Partner> {
     const client = await pool.connect();
@@ -149,6 +186,10 @@ export class PartnersService {
       const values: any[] = [];
       let paramIndex = 1;
 
+      if (data.partner_type !== undefined) {
+        updates.push(`partner_type = $${paramIndex++}`);
+        values.push(data.partner_type);
+      }
       if (data.company_name !== undefined) {
         updates.push(`company_name = $${paramIndex++}`);
         values.push(data.company_name);
@@ -176,6 +217,10 @@ export class PartnersService {
       if (data.default_premium_months !== undefined) {
         updates.push(`default_premium_months = $${paramIndex++}`);
         values.push(data.default_premium_months);
+      }
+      if (data.service_areas !== undefined) {
+        updates.push(`service_areas = $${paramIndex++}`);
+        values.push(data.service_areas);
       }
 
       if (updates.length === 0) {

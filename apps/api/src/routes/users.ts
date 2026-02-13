@@ -37,13 +37,33 @@ router.get('/me', async (req, res, next) => {
 router.put('/me', validate(updateUserSchema), async (req, res, next) => {
   try {
     const { fullName, avatarUrl } = req.body;
+    const updates: string[] = [];
+    const values: any[] = [];
+    let paramIndex = 1;
+
+    if (fullName !== undefined) {
+      updates.push(`full_name = $${paramIndex++}`);
+      values.push(fullName);
+    }
+
+    if (avatarUrl !== undefined) {
+      updates.push(`avatar_url = $${paramIndex++}`);
+      values.push(avatarUrl);
+    }
+
+    if (updates.length === 0) {
+      throw new AppError('No fields to update', 400);
+    }
+
+    values.push(req.user!.id);
+
     const result = await query(
       `UPDATE users SET
-        full_name = COALESCE($1, full_name),
-        avatar_url = $2
-       WHERE id = $3
+        ${updates.join(', ')},
+        updated_at = NOW()
+       WHERE id = $${paramIndex}
        RETURNING id, email, full_name, avatar_url, plan`,
-      [fullName, avatarUrl !== undefined ? avatarUrl : null, req.user!.id]
+      values
     );
 
     if (result.rows.length === 0) {
@@ -180,6 +200,10 @@ router.put('/me/password', validate(changePasswordSchema), async (req, res, next
 
     if (userResult.rows.length === 0) {
       throw new AppError('User not found', 404);
+    }
+
+    if (!userResult.rows[0].password_hash) {
+      throw new AppError('Password is not set for this account', 400);
     }
 
     // Verify current password

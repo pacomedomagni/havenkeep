@@ -73,7 +73,7 @@ router.post(
 );
 
 /**
- * Handle charge.succeeded — mark partner gift as payment_confirmed
+ * Handle charge.succeeded — mark partner gift as sent (if still created)
  */
 async function handleChargeSucceeded(charge: Stripe.Charge): Promise<void> {
   const chargeId = charge.id;
@@ -81,7 +81,7 @@ async function handleChargeSucceeded(charge: Stripe.Charge): Promise<void> {
 
   const result = await pool.query(
     `UPDATE partner_gifts
-     SET status = 'payment_confirmed', updated_at = NOW()
+     SET status = 'sent', updated_at = NOW()
      WHERE stripe_charge_id = $1 AND status = 'created'
      RETURNING id, partner_id, homebuyer_email`,
     [chargeId]
@@ -97,13 +97,7 @@ async function handleChargeSucceeded(charge: Stripe.Charge): Promise<void> {
 
   const gift = result.rows[0];
 
-  // Update the corresponding commission to confirmed
-  await pool.query(
-    `UPDATE partner_commissions
-     SET status = 'confirmed', updated_at = NOW()
-     WHERE reference_id = $1 AND reference_type = 'partner_gift' AND status = 'pending'`,
-    [gift.id]
-  );
+  // No commission status change needed here; stays pending until payout
 
   logger.info(
     { chargeId, giftId: gift.id, partnerId: gift.partner_id, homebuyer: gift.homebuyer_email },
@@ -112,7 +106,7 @@ async function handleChargeSucceeded(charge: Stripe.Charge): Promise<void> {
 }
 
 /**
- * Handle charge.failed — mark partner gift as payment_failed
+ * Handle charge.failed — cancel partner gift
  */
 async function handleChargeFailed(charge: Stripe.Charge): Promise<void> {
   const chargeId = charge.id;
@@ -121,7 +115,7 @@ async function handleChargeFailed(charge: Stripe.Charge): Promise<void> {
 
   const result = await pool.query(
     `UPDATE partner_gifts
-     SET status = 'payment_failed', updated_at = NOW()
+     SET status = 'expired', updated_at = NOW()
      WHERE stripe_charge_id = $1 AND status = 'created'
      RETURNING id, partner_id, homebuyer_email`,
     [chargeId]
@@ -137,10 +131,10 @@ async function handleChargeFailed(charge: Stripe.Charge): Promise<void> {
 
   const gift = result.rows[0];
 
-  // Mark the commission as failed
+  // Mark the commission as cancelled
   await pool.query(
     `UPDATE partner_commissions
-     SET status = 'failed', updated_at = NOW()
+     SET status = 'cancelled', updated_at = NOW()
      WHERE reference_id = $1 AND reference_type = 'partner_gift' AND status = 'pending'`,
     [gift.id]
   );
@@ -158,7 +152,7 @@ async function handleChargeFailed(charge: Stripe.Charge): Promise<void> {
 }
 
 /**
- * Handle charge.refunded — mark partner gift as refunded
+ * Handle charge.refunded — cancel partner gift and commission
  */
 async function handleChargeRefunded(charge: Stripe.Charge): Promise<void> {
   const chargeId = charge.id;
@@ -166,8 +160,8 @@ async function handleChargeRefunded(charge: Stripe.Charge): Promise<void> {
 
   const result = await pool.query(
     `UPDATE partner_gifts
-     SET status = 'refunded', updated_at = NOW()
-     WHERE stripe_charge_id = $1 AND status IN ('created', 'payment_confirmed', 'sent', 'activated')
+     SET status = 'expired', updated_at = NOW()
+     WHERE stripe_charge_id = $1 AND status IN ('created', 'sent', 'activated', 'expired')
      RETURNING id, partner_id, homebuyer_email, is_activated`,
     [chargeId]
   );
@@ -182,10 +176,10 @@ async function handleChargeRefunded(charge: Stripe.Charge): Promise<void> {
 
   const gift = result.rows[0];
 
-  // Mark the commission as refunded
+  // Mark the commission as cancelled
   await pool.query(
     `UPDATE partner_commissions
-     SET status = 'refunded', updated_at = NOW()
+     SET status = 'cancelled', updated_at = NOW()
      WHERE reference_id = $1 AND reference_type = 'partner_gift'`,
     [gift.id]
   );
@@ -194,7 +188,7 @@ async function handleChargeRefunded(charge: Stripe.Charge): Promise<void> {
   if (gift.is_activated) {
     await pool.query(
       `UPDATE partner_gifts
-       SET is_activated = FALSE, status = 'refunded', updated_at = NOW()
+       SET is_activated = FALSE, status = 'expired', updated_at = NOW()
        WHERE id = $1`,
       [gift.id]
     );

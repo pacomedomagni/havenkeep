@@ -58,19 +58,52 @@ router.post('/', validate(createHomeSchema), async (req, res, next) => {
 router.put('/:id', validate(uuidParamSchema, 'params'), validate(updateHomeSchema), async (req, res, next) => {
   try {
     const { name, address, city, state, zip, homeType, moveInDate } = req.body;
+    const updates: string[] = [];
+    const values: any[] = [];
+    let paramIndex = 1;
+
+    if (name !== undefined) {
+      updates.push(`name = $${paramIndex++}`);
+      values.push(name);
+    }
+    if (address !== undefined) {
+      updates.push(`address = $${paramIndex++}`);
+      values.push(address);
+    }
+    if (city !== undefined) {
+      updates.push(`city = $${paramIndex++}`);
+      values.push(city);
+    }
+    if (state !== undefined) {
+      updates.push(`state = $${paramIndex++}`);
+      values.push(state);
+    }
+    if (zip !== undefined) {
+      updates.push(`zip = $${paramIndex++}`);
+      values.push(zip);
+    }
+    if (homeType !== undefined) {
+      updates.push(`home_type = $${paramIndex++}`);
+      values.push(homeType);
+    }
+    if (moveInDate !== undefined) {
+      updates.push(`move_in_date = $${paramIndex++}`);
+      values.push(moveInDate);
+    }
+
+    if (updates.length === 0) {
+      throw new AppError('No fields to update', 400);
+    }
+
+    values.push(req.params.id, req.user!.id);
 
     const result = await query(
       `UPDATE homes SET
-        name = COALESCE($1, name),
-        address = COALESCE($2, address),
-        city = COALESCE($3, city),
-        state = COALESCE($4, state),
-        zip = COALESCE($5, zip),
-        home_type = COALESCE($6, home_type),
-        move_in_date = COALESCE($7, move_in_date)
-       WHERE id = $8 AND user_id = $9
+        ${updates.join(', ')},
+        updated_at = NOW()
+       WHERE id = $${paramIndex++} AND user_id = $${paramIndex++}
        RETURNING *`,
-      [name, address, city, state, zip, homeType, moveInDate, req.params.id, req.user!.id]
+      values
     );
 
     if (result.rows.length === 0) {

@@ -6,6 +6,7 @@ import { uploadRateLimiter } from '../middleware/rateLimiter';
 import { AppError } from '../middleware/errorHandler';
 import { minioClient, BUCKET_NAME, getPublicUrl } from '../config/minio';
 import { logger } from '../utils/logger';
+import { query } from '../db';
 
 const router = Router();
 router.use(authenticate);
@@ -110,6 +111,16 @@ router.post(
       const { itemId } = req.body;
       if (!itemId) {
         throw new AppError('itemId is required', 400);
+      }
+
+      // Verify item belongs to user
+      const itemCheck = await query(
+        `SELECT id FROM items WHERE id = $1 AND user_id = $2`,
+        [itemId, req.user!.id]
+      );
+
+      if (itemCheck.rows.length === 0) {
+        throw new AppError('Item not found', 404);
       }
 
       const timestamp = Date.now();

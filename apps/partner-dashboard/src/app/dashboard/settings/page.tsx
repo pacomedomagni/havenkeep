@@ -27,7 +27,7 @@ export default function SettingsPage() {
         setCompanyName(data.company_name || '');
         setPartnerType(data.partner_type || 'realtor');
         setPhone(data.phone || '');
-        setServiceAreas('');
+        setServiceAreas(Array.isArray(data.service_areas) ? data.service_areas.join(', ') : '');
       }
     } catch (err) {
       console.error('Error loading profile:', err);
@@ -119,6 +119,7 @@ export default function SettingsPage() {
             >
               <option value="realtor">Realtor</option>
               <option value="builder">Builder</option>
+              <option value="contractor">Contractor</option>
               <option value="property_manager">Property Manager</option>
               <option value="other">Other</option>
             </select>

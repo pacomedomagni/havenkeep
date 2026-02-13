@@ -354,6 +354,8 @@ enum NotificationAction {
 enum PartnerType {
   realtor,
   builder,
+  contractor,
+  property_manager,
   other;
 
   factory PartnerType.fromJson(String value) {
@@ -368,6 +370,8 @@ enum PartnerType {
   String get displayLabel => switch (this) {
         PartnerType.realtor => 'Realtor',
         PartnerType.builder => 'Builder',
+        PartnerType.contractor => 'Contractor',
+        PartnerType.property_manager => 'Property Manager',
         PartnerType.other => 'Other',
       };
 }
@@ -455,6 +459,8 @@ enum ItemAddedVia {
   quick_add,
   receipt_scan,
   barcode_scan,
+  barcode,
+  email,
   manual,
   bulk_setup;
 
@@ -471,6 +477,8 @@ enum ItemAddedVia {
         ItemAddedVia.quick_add => 'Quick Add',
         ItemAddedVia.receipt_scan => 'Receipt Scan',
         ItemAddedVia.barcode_scan => 'Barcode Scan',
+        ItemAddedVia.barcode => 'Barcode',
+        ItemAddedVia.email => 'Email Import',
         ItemAddedVia.manual => 'Manual Entry',
         ItemAddedVia.bulk_setup => 'Bulk Setup',
       };

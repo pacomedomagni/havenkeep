@@ -13,6 +13,7 @@ import 'package:shared_models/shared_models.dart';
 import '../database/database.dart';
 import '../providers/documents_provider.dart';
 import '../providers/items_provider.dart';
+import '../providers/notifications_provider.dart';
 import '../utils/conflict_resolver.dart';
 
 /// Maximum number of retry attempts for a single queued action.
@@ -184,10 +185,8 @@ class OfflineSyncService {
         break;
 
       case OfflineAction.update_preferences:
-        // Notification preferences sync
-        debugPrint(
-          '[OfflineSync] Preferences update queued — will attempt on next sync.',
-        );
+        final prefs = NotificationPreferences.fromJson(payload);
+        await _ref.read(notificationsRepositoryProvider).upsertPreferences(prefs);
         break;
     }
   }

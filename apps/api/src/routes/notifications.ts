@@ -26,17 +26,40 @@ router.get(
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
     const { limit, offset, type, unread } = req.query;
+    const unreadFilter =
+      typeof unread === 'boolean'
+        ? unread
+        : unread !== undefined
+        ? unread === 'true'
+        : undefined;
 
     const result = await NotificationsService.getUserNotifications(userId, {
       limit: Number(limit),
       offset: Number(offset),
       type: type as any,
-      unread: unread !== undefined ? unread === 'true' : undefined,
+      unread: unreadFilter,
+    });
+
+    const notifications = result.notifications.map((notification) => {
+      const data = notification.data || {};
+      const fallbackActionData = notification.item_id
+        ? { item_id: notification.item_id }
+        : null;
+      const actionType = (data as any).action_type ?? (notification.item_id ? 'view_item' : null);
+      const actionData = (data as any).action_data ?? fallbackActionData;
+
+      return {
+        ...notification,
+        is_read: notification.opened_at != null,
+        scheduled_at: notification.sent_at || notification.created_at,
+        action_type: actionType,
+        action_data: actionData,
+      };
     });
 
     res.json({
       success: true,
-      data: result.notifications,
+      data: notifications,
       pagination: {
         total: result.total,
         limit: Number(limit),

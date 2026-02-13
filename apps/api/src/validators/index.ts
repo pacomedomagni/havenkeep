@@ -13,9 +13,11 @@ export const registerSchema = Joi.object({
       'string.min': 'Password must be at least 8 characters long',
     }),
   fullName: Joi.string().min(1).max(255).required(),
+  referralCode: Joi.string().max(64).optional(),
 })
   // Accept snake_case from mobile clients
-  .rename('full_name', 'fullName', { ignoreUndefined: true, override: false });
+  .rename('full_name', 'fullName', { ignoreUndefined: true, override: false })
+  .rename('referral_code', 'referralCode', { ignoreUndefined: true, override: false });
 
 export const loginSchema = Joi.object({
   email: Joi.string().email().required(),
@@ -58,7 +60,9 @@ export const createItemSchema = Joi.object({
   notes: Joi.string().max(5000).allow(null, ''),
   productImageUrl: Joi.string().uri().max(500).allow(null, ''),
   barcode: Joi.string().max(100).allow(null, ''),
-  addedVia: Joi.string().valid('manual', 'email', 'barcode', 'receipt_scan', 'quick_add', 'bulk_setup').default('manual'),
+  addedVia: Joi.string()
+    .valid('manual', 'email', 'barcode', 'barcode_scan', 'receipt_scan', 'quick_add', 'bulk_setup')
+    .default('manual'),
 })
   // Accept snake_case from mobile clients
   .rename('home_id', 'homeId', { ignoreUndefined: true, override: false })
@@ -102,7 +106,7 @@ export const updateItemSchema = Joi.object({
   isArchived: Joi.boolean(),
   productImageUrl: Joi.string().uri().max(500).allow(null, ''),
   barcode: Joi.string().max(100).allow(null, ''),
-  addedVia: Joi.string().valid('manual', 'email', 'barcode', 'receipt_scan', 'quick_add', 'bulk_setup'),
+  addedVia: Joi.string().valid('manual', 'email', 'barcode', 'barcode_scan', 'receipt_scan', 'quick_add', 'bulk_setup'),
 }).min(1) // At least one field must be provided
   // Accept snake_case from mobile clients
   .rename('model_number', 'modelNumber', { ignoreUndefined: true, override: false })
