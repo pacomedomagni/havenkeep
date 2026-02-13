@@ -60,7 +60,6 @@ services:
       JWT_SECRET_FILE: /run/secrets/jwt_secret
       REFRESH_TOKEN_SECRET_FILE: /run/secrets/refresh_token_secret
       CORS_ORIGINS: ${CORS_ORIGINS}
-      SENTRY_DSN: ${SENTRY_DSN}
     ports:
       - "${API_PORT:-3000}:3000"
     secrets:

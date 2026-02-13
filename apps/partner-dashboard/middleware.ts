@@ -31,6 +31,15 @@ function redirectToLogin(request: NextRequest): NextResponse {
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
+  // Root route — always redirect (avoids standalone clientModules bug)
+  if (pathname === '/') {
+    const accessToken = request.cookies.get(ACCESS_TOKEN_COOKIE)?.value
+    if (accessToken && !isTokenExpired(accessToken)) {
+      return NextResponse.redirect(new URL('/dashboard', request.url))
+    }
+    return NextResponse.redirect(new URL('/login', request.url))
+  }
+
   // Public routes — no auth required
   const isPublicRoute =
     pathname === '/login' ||

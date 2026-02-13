@@ -310,7 +310,6 @@ cat > PRODUCTION_DEPLOYMENT_CHECKLIST.md << 'CHECKLIST_EOF'
 - [ ] Secrets rotated (not using dev values)
 - [ ] Rate limiting enabled
 - [ ] CORS origins configured correctly
-- [ ] Error monitoring (Sentry) configured
 - [ ] Log aggregation (Loki) configured
 
 ## Security

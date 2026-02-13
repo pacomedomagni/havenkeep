@@ -34,12 +34,14 @@ RUN npm run build
 FROM base AS production
 WORKDIR /app
 
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/.next ./.next
+# Copy standalone output (includes only needed node_modules)
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
-COPY --from=builder /app/package.json ./
-COPY --from=builder /app/next.config.js ./
 
 EXPOSE 3001
 
-CMD ["npx", "next", "start", "--port", "3001"]
+# standalone server.js listens on port 3000 by default; override with PORT env
+ENV PORT=3001
+ENV HOSTNAME="0.0.0.0"
+CMD ["node", "server.js"]

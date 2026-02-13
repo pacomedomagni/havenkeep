@@ -35,7 +35,7 @@ abstract class AppException implements Exception {
   /// Should be clear, actionable, and not expose technical details.
   String get userMessage;
 
-  /// Whether this exception should be reported to crash reporting (Sentry).
+  /// Whether this exception should be reported to crash reporting.
   ///
   /// Returns `false` for expected errors like validation failures.
   /// Returns `true` for unexpected errors like network failures.
