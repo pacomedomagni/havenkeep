@@ -4,6 +4,7 @@ import { authenticate } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
 import { validate } from '../middleware/validate';
 import { createHomeSchema, updateHomeSchema, uuidParamSchema } from '../validators';
+import { AuditService } from '../services/audit.service';
 
 const router = Router();
 router.use(authenticate);
@@ -48,7 +49,14 @@ router.post('/', validate(createHomeSchema), async (req, res, next) => {
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
       [req.user!.id, name, address, city, state, zip, homeType, moveInDate]
     );
-    res.status(201).json({ home: result.rows[0] });
+    const home = result.rows[0];
+
+    await AuditService.logFromRequest(req, 'home.create', {
+      resourceType: 'home',
+      resourceId: home.id,
+      description: `Created home: ${home.name}`,
+    });
+    res.status(201).json({ home });
   } catch (error) {
     next(error);
   }
@@ -110,7 +118,17 @@ router.put('/:id', validate(uuidParamSchema, 'params'), validate(updateHomeSchem
       throw new AppError('Home not found', 404);
     }
 
-    res.json({ home: result.rows[0] });
+    const home = result.rows[0];
+    await AuditService.logFromRequest(req, 'home.update', {
+      resourceType: 'home',
+      resourceId: home.id,
+      description: `Updated home: ${home.name}`,
+      metadata: {
+        updated_fields: Object.keys(req.body || {}),
+      },
+    });
+
+    res.json({ home });
   } catch (error) {
     next(error);
   }
@@ -129,14 +147,27 @@ router.delete('/:id', validate(uuidParamSchema, 'params'), async (req, res, next
       throw new AppError('Cannot delete your only home. You must have at least one home.', 400);
     }
 
-    const result = await query(
-      `DELETE FROM homes WHERE id = $1 AND user_id = $2 RETURNING id`,
+    const homeResult = await query(
+      `SELECT id, name FROM homes WHERE id = $1 AND user_id = $2`,
       [req.params.id, req.user!.id]
     );
 
-    if (result.rows.length === 0) {
+    if (homeResult.rows.length === 0) {
       throw new AppError('Home not found', 404);
     }
+
+    const home = homeResult.rows[0];
+
+    await query(
+      `DELETE FROM homes WHERE id = $1 AND user_id = $2`,
+      [req.params.id, req.user!.id]
+    );
+
+    await AuditService.logFromRequest(req, 'home.delete', {
+      resourceType: 'home',
+      resourceId: home.id,
+      description: `Deleted home: ${home.name}`,
+    });
 
     res.json({ message: 'Home deleted successfully' });
   } catch (error) {

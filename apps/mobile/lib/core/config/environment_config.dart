@@ -29,6 +29,15 @@ class EnvironmentConfig {
   /// RevenueCat API key for in-app purchases.
   final String revenueCatApiKey;
 
+  /// Outlook OAuth client ID (optional, for email scanning).
+  final String outlookClientId;
+
+  /// Outlook OAuth tenant (optional, default: common).
+  final String outlookTenant;
+
+  /// Outlook OAuth redirect URI (optional).
+  final String outlookRedirectUri;
+
   /// Whether this is the production environment.
   bool get isProduction => environment.isProduction;
 
@@ -44,6 +53,9 @@ class EnvironmentConfig {
     required this.enableCrashReporting,
     required this.enableDebugLogging,
     required this.revenueCatApiKey,
+    required this.outlookClientId,
+    required this.outlookTenant,
+    required this.outlookRedirectUri,
   }) {
     // Validate API base URL is present
     if (apiBaseUrl.isEmpty) {
@@ -88,6 +100,19 @@ class EnvironmentConfig {
       fallback: '',
     );
 
+    final outlookClientId = dotenv.get(
+      'OUTLOOK_CLIENT_ID',
+      fallback: '',
+    );
+    final outlookTenant = dotenv.get(
+      'OUTLOOK_TENANT',
+      fallback: 'common',
+    );
+    final outlookRedirectUri = dotenv.get(
+      'OUTLOOK_REDIRECT_URI',
+      fallback: '',
+    );
+
     // Environment-specific defaults
     final enableAnalytics = env.isProduction;
     final enableCrashReporting = !env.isDevelopment;
@@ -101,6 +126,9 @@ class EnvironmentConfig {
       enableCrashReporting: enableCrashReporting,
       enableDebugLogging: enableDebugLogging,
       revenueCatApiKey: revenueCatApiKey,
+      outlookClientId: outlookClientId,
+      outlookTenant: outlookTenant,
+      outlookRedirectUri: outlookRedirectUri,
     );
   }
 
@@ -112,7 +140,10 @@ class EnvironmentConfig {
         'enableAnalytics: $enableAnalytics, '
         'enableCrashReporting: $enableCrashReporting, '
         'enableDebugLogging: $enableDebugLogging, '
-        'revenueCatApiKey: ${revenueCatApiKey.isNotEmpty ? "***" : "(empty)"}'
+        'revenueCatApiKey: ${revenueCatApiKey.isNotEmpty ? "***" : "(empty)"}, '
+        'outlookClientId: ${outlookClientId.isNotEmpty ? "***" : "(empty)"}, '
+        'outlookTenant: $outlookTenant, '
+        'outlookRedirectUri: ${outlookRedirectUri.isNotEmpty ? outlookRedirectUri : "(empty)"}'
         ')';
   }
 }

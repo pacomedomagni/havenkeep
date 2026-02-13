@@ -11,6 +11,7 @@ import {
 } from '../validators/partners.validator';
 import { asyncHandler } from '../utils/async-handler';
 import { activationCodeRateLimiter } from '../middleware/rateLimiter';
+import { AuditService } from '../services/audit.service';
 
 const router = Router();
 
@@ -159,6 +160,16 @@ router.post(
     const userId = req.user!.id;
     const gift = await PartnersService.createGift(userId, req.body);
 
+    await AuditService.logFromRequest(req, 'partner.gift_create', {
+      resourceType: 'partner_gift',
+      resourceId: gift.id,
+      description: `Created gift for ${gift.homebuyer_email}`,
+      metadata: {
+        premium_months: gift.premium_months,
+        amount_charged: gift.amount_charged,
+      },
+    });
+
     res.status(201).json({
       success: true,
       data: gift,
@@ -227,6 +238,12 @@ router.post(
     const userId = req.user!.id;
     await PartnersService.resendGiftEmail(req.params.id, userId);
 
+    await AuditService.logFromRequest(req, 'partner.gift_update', {
+      resourceType: 'partner_gift',
+      resourceId: req.params.id,
+      description: 'Resent gift activation email',
+    });
+
     res.json({
       success: true,
       message: 'Gift email resent successfully',
@@ -293,6 +310,15 @@ router.post(
     const userId = req.user!.id;
     const userEmail = req.user!.email;
     const gift = await PartnersService.activateGift(req.params.id, userId, userEmail);
+
+    await AuditService.logFromRequest(req, 'partner.gift_activate', {
+      resourceType: 'partner_gift',
+      resourceId: gift.id,
+      description: 'Activated gift',
+      metadata: {
+        premium_months: gift.premium_months,
+      },
+    });
 
     res.json({
       success: true,

@@ -26,3 +26,5 @@ export 'src/receipt_scan_result.dart';
 export 'src/barcode_lookup_result.dart';
 export 'src/warranty_claim.dart';
 export 'src/maintenance.dart';
+export 'src/warranty_purchase.dart';
+export 'src/email_scan.dart';

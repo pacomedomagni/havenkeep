@@ -9,6 +9,7 @@ import { validate } from '../middleware/validate';
 import { uploadDocumentSchema, uuidParamSchema } from '../validators';
 import { minioClient, BUCKET_NAME, generateObjectKey, getPublicUrl } from '../config/minio';
 import { logger } from '../utils/logger';
+import { AuditService } from '../services/audit.service';
 
 const router = Router();
 router.use(authenticate);
@@ -233,6 +234,19 @@ router.post(
       }
 
       // Always return consistent format with both singular and plural keys
+      if (uploadedDocuments.length > 0) {
+        await AuditService.logFromRequest(req, 'document.upload', {
+          resourceType: 'document',
+          resourceId: uploadedDocuments[0].id,
+          description: `Uploaded ${uploadedDocuments.length} document${uploadedDocuments.length === 1 ? '' : 's'}`,
+          metadata: {
+            item_id: itemId,
+            count: uploadedDocuments.length,
+            types: uploadedDocuments.map((doc) => doc.type),
+          },
+        });
+      }
+
       res.status(201).json({
         message: uploadedDocuments.length === 1
           ? 'Document uploaded successfully'
@@ -294,6 +308,16 @@ router.delete('/:id', validate(uuidParamSchema, 'params'), async (req: AuthReque
       userId: req.user!.id,
       documentId: req.params.id,
     }, 'Document deleted');
+
+    await AuditService.logFromRequest(req, 'document.delete', {
+      resourceType: 'document',
+      resourceId: document.id,
+      description: `Deleted document: ${document.file_name || document.id}`,
+      metadata: {
+        item_id: document.item_id,
+        mime_type: document.mime_type,
+      },
+    });
 
     res.json({ message: 'Document deleted successfully' });
   } catch (error) {

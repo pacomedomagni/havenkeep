@@ -92,6 +92,19 @@ export class EmailScannerService {
     }
   ): Promise<void> {
     try {
+      if (!config.openai?.apiKey) {
+        await pool.query(
+          `UPDATE email_scans
+           SET status = 'failed',
+               error_message = $2,
+               completed_at = NOW()
+           WHERE id = $1`,
+          [scanId, 'OpenAI API key is not configured']
+        );
+        logger.warn({ scanId }, 'Email scan aborted: missing OpenAI API key');
+        return;
+      }
+
       // Update status to scanning
       await pool.query(
         `UPDATE email_scans SET status = 'scanning' WHERE id = $1`,

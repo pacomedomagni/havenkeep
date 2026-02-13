@@ -167,6 +167,20 @@ class SettingsScreen extends ConsumerWidget {
               }
             },
           ),
+          const SizedBox(height: HavenSpacing.xs),
+          _SettingsTile(
+            icon: Icons.mark_email_read_outlined,
+            title: 'Email Scanner',
+            subtitle: 'Import receipts from Gmail or Outlook',
+            onTap: () => context.push(AppRoutes.emailScanner),
+          ),
+          const SizedBox(height: HavenSpacing.xs),
+          _SettingsTile(
+            icon: Icons.shield_outlined,
+            title: 'Warranty Coverage',
+            subtitle: 'Track extended warranties',
+            onTap: () => context.push(AppRoutes.warrantyPurchases),
+          ),
 
           const SizedBox(height: HavenSpacing.lg),
 

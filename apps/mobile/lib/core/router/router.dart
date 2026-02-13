@@ -37,12 +37,15 @@ import '../../features/settings/home_detail_screen.dart';
 import '../../features/settings/archived_items_screen.dart';
 import '../../features/settings/change_password_screen.dart';
 import '../../features/settings/delete_account_screen.dart';
+import '../../features/email_scanner/email_scanner_screen.dart';
 import '../../features/notifications/notifications_screen.dart';
 import '../../features/warranty_claims/claims_list_screen.dart';
 import '../../features/warranty_claims/create_claim_screen.dart';
 import '../../features/maintenance/maintenance_screen.dart';
 import '../../features/maintenance/log_maintenance_screen.dart';
 import '../../features/maintenance/maintenance_history_screen.dart';
+import '../../features/warranty_purchases/warranty_purchases_screen.dart';
+import '../../features/warranty_purchases/add_warranty_purchase_screen.dart';
 
 /// Route path constants.
 abstract class AppRoutes {
@@ -66,6 +69,7 @@ abstract class AppRoutes {
   static const profile = '/profile';
   static const notifications = '/notifications';
   static const notificationPreferences = '/settings/notifications';
+  static const emailScanner = '/settings/email-scanner';
   static const homeDetail = '/settings/home/:id';
   static const archivedItems = '/settings/archived';
   static const changePassword = '/settings/change-password';
@@ -81,6 +85,8 @@ abstract class AppRoutes {
   static const maintenance = '/maintenance';
   static const logMaintenance = '/maintenance/log';
   static const maintenanceHistory = '/maintenance/history';
+  static const warrantyPurchases = '/warranty-coverage';
+  static const addWarrantyPurchase = '/warranty-coverage/add';
 }
 
 /// Navigator keys for the shell route.
@@ -316,6 +322,13 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const NotificationPreferencesScreen(),
       ),
 
+      // Email Scanner
+      GoRoute(
+        path: AppRoutes.emailScanner,
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) => const EmailScannerScreen(),
+      ),
+
       // Home Detail / Edit
       GoRoute(
         path: AppRoutes.homeDetail,
@@ -406,6 +419,20 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: AppRoutes.warrantyClaims,
         parentNavigatorKey: _rootNavigatorKey,
         builder: (context, state) => const ClaimsListScreen(),
+      ),
+
+      // Warranty Coverage List
+      GoRoute(
+        path: AppRoutes.warrantyPurchases,
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) => const WarrantyPurchasesScreen(),
+      ),
+
+      // Add Warranty Coverage
+      GoRoute(
+        path: AppRoutes.addWarrantyPurchase,
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) => const AddWarrantyPurchaseScreen(),
       ),
 
       // Create Warranty Claim

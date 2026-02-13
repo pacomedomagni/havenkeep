@@ -20,6 +20,13 @@ const PRODUCTION_REQUIRED = [
   'MINIO_SECRET_KEY',
 ];
 
+const OPTIONAL_FEATURES = [
+  { env: 'OPENAI_API_KEY', feature: 'Receipt + email scanning' },
+  { env: 'REVENUECAT_SECRET_API_KEY', feature: 'Premium verification' },
+  { env: 'REVENUECAT_WEBHOOK_SECRET', feature: 'RevenueCat webhooks' },
+  { env: 'STRIPE_WEBHOOK_SECRET', feature: 'Stripe webhooks' },
+];
+
 export function validateEnvironment() {
   const errors: string[] = [];
 
@@ -56,6 +63,14 @@ export function validateEnvironment() {
     logger.error({ errors }, 'Environment validation failed');
     errors.forEach(err => logger.error(err));
     process.exit(1);
+  }
+
+  for (const optional of OPTIONAL_FEATURES) {
+    if (!process.env[optional.env]) {
+      logger.warn(
+        `${optional.env} not set — ${optional.feature} will be disabled or degraded`
+      );
+    }
   }
 
   logger.info('Environment configuration validated');

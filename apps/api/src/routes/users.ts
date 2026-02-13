@@ -9,6 +9,7 @@ import { changePasswordSchema, deleteAccountSchema } from '../validators/users.v
 import { blacklistToken } from '../utils/token-blacklist';
 import { config } from '../config';
 import { logger } from '../utils/logger';
+import { AuditService } from '../services/audit.service';
 
 const router = Router();
 router.use(authenticate);
@@ -26,6 +27,15 @@ router.get('/me', async (req, res, next) => {
     if (result.rows.length === 0) {
       throw new AppError('User not found', 404);
     }
+
+    await AuditService.logFromRequest(req, 'user.update', {
+      resourceType: 'user',
+      resourceId: result.rows[0].id,
+      description: 'Updated user profile',
+      metadata: {
+        updated_fields: Object.keys(req.body || {}),
+      },
+    });
 
     res.json({ user: result.rows[0] });
   } catch (error) {
@@ -154,6 +164,12 @@ router.post('/me/verify-premium', async (req, res, next) => {
     }
 
     // Update user plan in the database
+    const prevPlanResult = await query(
+      `SELECT plan FROM users WHERE id = $1`,
+      [req.user!.id]
+    );
+    const previousPlan = prevPlanResult.rows[0]?.plan;
+
     const newPlan = isPremium ? 'premium' : 'free';
     const result = await query(
       `UPDATE users SET
@@ -167,6 +183,24 @@ router.post('/me/verify-premium', async (req, res, next) => {
 
     if (result.rows.length === 0) {
       throw new AppError('User not found', 404);
+    }
+
+    if (previousPlan && previousPlan !== newPlan) {
+      const action =
+        newPlan === 'premium' ? 'user.plan_upgrade' : 'user.plan_downgrade';
+      await AuditService.logFromRequest(req, action, {
+        resourceType: 'user',
+        resourceId: result.rows[0].id,
+        description:
+          newPlan === 'premium'
+            ? 'Upgraded to premium'
+            : 'Downgraded to free',
+        metadata: {
+          previous_plan: previousPlan,
+          new_plan: newPlan,
+          expires_at: expiresAt,
+        },
+      });
     }
 
     logger.info(
@@ -263,6 +297,12 @@ router.delete('/me', validate(deleteAccountSchema), async (req, res, next) => {
 
     // Delete user (cascades to all related data)
     await query(`DELETE FROM users WHERE id = $1`, [req.user!.id]);
+
+    await AuditService.logFromRequest(req, 'user.delete', {
+      resourceType: 'user',
+      resourceId: req.user!.id,
+      description: 'User deleted account',
+    });
 
     res.json({ message: 'Account deleted successfully' });
   } catch (error) {
