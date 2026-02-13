@@ -253,19 +253,27 @@ router.delete('/:id', validate(uuidParamSchema, 'params'), async (req: AuthReque
 
     const document = docResult.rows[0];
 
-    // Extract object key from URL
+    // Extract object key from URL — pathname is /<bucket>/<key>, strip bucket prefix
     const url = new URL(document.file_url);
-    const objectKey = url.pathname.substring(url.pathname.indexOf('/') + 1);
+    const pathParts = url.pathname.replace(/^\//, '').split('/');
+    pathParts.shift(); // Remove bucket name
+    const objectKey = pathParts.join('/');
 
     // Delete from MinIO
     try {
-      await minioClient.removeObject(BUCKET_NAME, objectKey);
+      if (objectKey) {
+        await minioClient.removeObject(BUCKET_NAME, objectKey);
+      }
 
       // Delete thumbnail if exists
       if (document.thumbnail_url) {
         const thumbUrl = new URL(document.thumbnail_url);
-        const thumbKey = thumbUrl.pathname.substring(thumbUrl.pathname.indexOf('/') + 1);
-        await minioClient.removeObject(BUCKET_NAME, thumbKey);
+        const thumbParts = thumbUrl.pathname.replace(/^\//, '').split('/');
+        thumbParts.shift(); // Remove bucket name
+        const thumbKey = thumbParts.join('/');
+        if (thumbKey) {
+          await minioClient.removeObject(BUCKET_NAME, thumbKey);
+        }
       }
     } catch (minioError) {
       logger.warn({ error: minioError }, 'Failed to delete from MinIO');

@@ -6,6 +6,7 @@ import {
   getNotificationsQuerySchema,
   recordActionSchema,
   notificationParamsSchema,
+  updatePreferencesSchema,
 } from '../validators/notifications.validator';
 import { asyncHandler } from '../utils/async-handler';
 
@@ -150,6 +151,7 @@ router.get(
  */
 router.put(
   '/preferences',
+  validate(updatePreferencesSchema),
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
     const prefs = { ...req.body, user_id: userId };

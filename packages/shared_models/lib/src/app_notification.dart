@@ -68,6 +68,7 @@ class AppNotification {
       'action_data': actionData,
       'scheduled_at': scheduledAt.toIso8601String(),
       'sent_at': sentAt?.toIso8601String(),
+      'created_at': createdAt.toIso8601String(),
     };
   }
 

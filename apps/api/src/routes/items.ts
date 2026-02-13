@@ -64,7 +64,7 @@ router.get('/', validate(paginationSchema, 'query'), async (req: AuthRequest, re
     let countSql = `SELECT COUNT(*) FROM items WHERE user_id = $1`;
     const countParams: any[] = [req.user!.id];
     if (homeId) {
-      countSql += ` AND home_id = $2`;
+      countSql += ` AND home_id = $${countParams.length + 1}`;
       countParams.push(homeId);
     }
     if (archived !== undefined) {
@@ -291,6 +291,9 @@ router.put('/:id', validate(uuidParamSchema, 'params'), validate(updateItemSchem
         paramCount++;
       }
     }
+
+    // Always update the timestamp
+    fields.push('updated_at = NOW()');
 
     values.push(id, req.user!.id);
 

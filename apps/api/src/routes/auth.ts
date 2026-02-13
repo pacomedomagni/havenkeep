@@ -5,7 +5,7 @@ import crypto from 'crypto';
 import { query } from '../db';
 import { config } from '../config';
 import { AppError } from '../middleware/errorHandler';
-import { authRateLimiter, refreshRateLimiter } from '../middleware/rateLimiter';
+import { authRateLimiter, refreshRateLimiter, passwordResetRateLimiter } from '../middleware/rateLimiter';
 import { validate } from '../middleware/validate';
 import { registerSchema, loginSchema, refreshTokenSchema } from '../validators';
 import { forgotPasswordSchema, resetPasswordSchema, verifyEmailSchema } from '../validators/auth.validator';
@@ -293,7 +293,7 @@ router.post('/refresh', refreshRateLimiter, validate(refreshTokenSchema), async 
 });
 
 // Logout
-router.post('/logout', validate(refreshTokenSchema), async (req, res, next) => {
+router.post('/logout', refreshRateLimiter, validate(refreshTokenSchema), async (req, res, next) => {
   try {
     const { refreshToken } = req.body;
 
@@ -354,7 +354,7 @@ router.post('/logout', validate(refreshTokenSchema), async (req, res, next) => {
 });
 
 // Forgot password - request reset
-router.post('/forgot-password', authRateLimiter, validate(forgotPasswordSchema), async (req, res, next) => {
+router.post('/forgot-password', passwordResetRateLimiter, validate(forgotPasswordSchema), async (req, res, next) => {
   try {
     const { email } = req.body;
 
@@ -465,10 +465,11 @@ router.post('/verify-email', validate(verifyEmailSchema), async (req, res, next)
   try {
     const { token } = req.body;
 
-    // Find valid verification token
+    // Atomically consume the verification token and get user_id
     const tokenResult = await query(
-      `SELECT user_id FROM email_verification_tokens
-       WHERE token = $1 AND expires_at > NOW()`,
+      `DELETE FROM email_verification_tokens
+       WHERE token = $1 AND expires_at > NOW()
+       RETURNING user_id`,
       [token]
     );
 
@@ -478,17 +479,11 @@ router.post('/verify-email', validate(verifyEmailSchema), async (req, res, next)
 
     const userId = tokenResult.rows[0].user_id;
 
-    // Mark email as verified
-    await query(
-      `UPDATE users SET email_verified = TRUE WHERE id = $1`,
-      [userId]
-    );
-
-    // Clean up verification tokens
-    await query(
-      `DELETE FROM email_verification_tokens WHERE user_id = $1`,
-      [userId]
-    );
+    // Mark email as verified and clean up any remaining tokens for this user
+    await Promise.all([
+      query(`UPDATE users SET email_verified = TRUE WHERE id = $1`, [userId]),
+      query(`DELETE FROM email_verification_tokens WHERE user_id = $1`, [userId]),
+    ]);
 
     // Audit log: email verified
     await AuditService.logAuth({

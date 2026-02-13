@@ -588,7 +588,9 @@ class _UserAvatar extends StatelessWidget {
       radius: 20,
       backgroundColor: HavenColors.primary,
       backgroundImage: hasAvatar ? NetworkImage(user!.avatarUrl!) : null,
-      onBackgroundImageError: hasAvatar ? (_, __) {} : null,
+      onBackgroundImageError: hasAvatar
+          ? (error, __) => debugPrint('[Dashboard] Avatar load failed: $error')
+          : null,
       child: hasAvatar
           ? null
           : Text(

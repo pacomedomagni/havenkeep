@@ -58,7 +58,7 @@ export const createItemSchema = Joi.object({
   notes: Joi.string().max(5000).allow(null, ''),
   productImageUrl: Joi.string().uri().max(500).allow(null, ''),
   barcode: Joi.string().max(100).allow(null, ''),
-  addedVia: Joi.string().valid('manual', 'email', 'barcode', 'receipt_scan').default('manual'),
+  addedVia: Joi.string().valid('manual', 'email', 'barcode', 'receipt_scan', 'quick_add', 'bulk_setup').default('manual'),
 })
   // Accept snake_case from mobile clients
   .rename('home_id', 'homeId', { ignoreUndefined: true, override: false })
@@ -102,7 +102,7 @@ export const updateItemSchema = Joi.object({
   isArchived: Joi.boolean(),
   productImageUrl: Joi.string().uri().max(500).allow(null, ''),
   barcode: Joi.string().max(100).allow(null, ''),
-  addedVia: Joi.string().valid('manual', 'email', 'barcode', 'receipt_scan'),
+  addedVia: Joi.string().valid('manual', 'email', 'barcode', 'receipt_scan', 'quick_add', 'bulk_setup'),
 }).min(1) // At least one field must be provided
   // Accept snake_case from mobile clients
   .rename('model_number', 'modelNumber', { ignoreUndefined: true, override: false })

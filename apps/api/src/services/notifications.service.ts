@@ -399,7 +399,7 @@ export class NotificationsService {
           prefs.warranty_offers_enabled ?? true,
           prefs.tips_enabled ?? true,
           prefs.push_enabled ?? true,
-          prefs.email_enabled ?? true,
+          prefs.email_enabled ?? false,
         ]
       );
 

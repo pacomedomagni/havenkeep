@@ -118,17 +118,17 @@ class _QuickAddScreenState extends ConsumerState<QuickAddScreen> {
         userId: user.id,
         name: _category.displayLabel,
         brand: _brand.isNotEmpty ? _brand : null,
-        modelNumber: _modelController.text.isNotEmpty
-            ? _modelController.text
+        modelNumber: _modelController.text.trim().isNotEmpty
+            ? _modelController.text.trim()
             : null,
-        serialNumber: _serialController.text.isNotEmpty
-            ? _serialController.text
+        serialNumber: _serialController.text.trim().isNotEmpty
+            ? _serialController.text.trim()
             : null,
         category: _category,
         room: _selectedRoom,
         purchaseDate: _purchaseDate!,
         store:
-            _storeController.text.isNotEmpty ? _storeController.text : null,
+            _storeController.text.trim().isNotEmpty ? _storeController.text.trim() : null,
         price: price,
         warrantyMonths: _warrantyMonths,
         addedVia: ItemAddedVia.quick_add,

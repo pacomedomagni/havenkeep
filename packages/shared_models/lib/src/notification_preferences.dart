@@ -48,8 +48,19 @@ class NotificationPreferences {
   }
 
   /// Parse reminder time into hour and minute.
-  int get reminderHour => int.parse(reminderTime.split(':')[0]);
-  int get reminderMinute => int.parse(reminderTime.split(':')[1]);
+  int get reminderHour {
+    final parts = reminderTime.split(':');
+    if (parts.length != 2) return 9; // fallback
+    final h = int.tryParse(parts[0]) ?? 9;
+    return h.clamp(0, 23);
+  }
+
+  int get reminderMinute {
+    final parts = reminderTime.split(':');
+    if (parts.length != 2) return 0; // fallback
+    final m = int.tryParse(parts[1]) ?? 0;
+    return m.clamp(0, 59);
+  }
 
   NotificationPreferences copyWith({
     String? userId,
