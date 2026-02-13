@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -22,6 +24,7 @@ class SplashScreen extends ConsumerStatefulWidget {
 class _SplashScreenState extends ConsumerState<SplashScreen>
     with SingleTickerProviderStateMixin {
   late final AnimationController _animController;
+  Timer? _fallbackTimer;
   bool _hasNavigated = false;
   bool _animationComplete = false;
 
@@ -35,22 +38,27 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
 
     _animController.addStatusListener((status) {
       if (status == AnimationStatus.completed) {
+        _fallbackTimer?.cancel();
         _animationComplete = true;
         _tryNavigate();
       }
     });
 
     // Fallback: mark animation as complete after 3s even if Lottie fails
-    Future.delayed(const Duration(milliseconds: 3000), () {
+    _fallbackTimer = Timer(const Duration(milliseconds: 3000), () {
       if (!_animationComplete) {
         _animationComplete = true;
         _tryNavigate();
       }
     });
+
+    // Listen for auth state resolution to trigger navigation
+    ref.listenManual(currentUserProvider, (_, __) => _tryNavigate());
   }
 
   @override
   void dispose() {
+    _fallbackTimer?.cancel();
     _animController.dispose();
     super.dispose();
   }
@@ -61,9 +69,15 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
 
     // Wait for currentUserProvider to finish loading
     final userAsync = ref.read(currentUserProvider);
-    if (userAsync.isLoading) return; // will be called again from build()
+    if (userAsync.isLoading) return; // will be called again via listener
 
+    // If auth errored out, treat as signed-out and go to preview
     _hasNavigated = true;
+
+    if (userAsync.hasError) {
+      context.go(AppRoutes.preview);
+      return;
+    }
 
     final isAuthenticated = ref.read(isAuthenticatedProvider);
     if (isAuthenticated) {
@@ -75,9 +89,6 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
 
   @override
   Widget build(BuildContext context) {
-    // Watch auth state so we re-trigger navigation when it resolves
-    ref.listen(currentUserProvider, (_, __) => _tryNavigate());
-
     return Scaffold(
       backgroundColor: HavenColors.background,
       body: Center(
@@ -96,9 +107,13 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
                   _animController.forward();
                 },
                 errorBuilder: (_, __, ___) {
-                  // Fallback to static logo if Lottie file not found
+                  // Fallback to static logo if Lottie file not found.
+                  // Defer navigation to avoid calling setState/navigate during build.
+                  _fallbackTimer?.cancel();
                   _animationComplete = true;
-                  _tryNavigate();
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    _tryNavigate();
+                  });
                   return const HavenKeepLogo(size: 80);
                 },
               ),

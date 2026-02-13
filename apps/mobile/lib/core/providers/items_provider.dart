@@ -28,9 +28,9 @@ class ItemsNotifier extends AsyncNotifier<List<Item>> {
   @override
   Future<List<Item>> build() async {
     // Re-fetch when user changes (sign in/out)
-    ref.watch(currentUserProvider);
+    final userAsync = ref.watch(currentUserProvider);
 
-    final user = ref.read(currentUserProvider).value;
+    final user = userAsync.valueOrNull;
     if (user == null) return [];
 
     return ref.read(itemsRepositoryProvider).getItemsWithStatus();
@@ -122,9 +122,9 @@ class ItemsNotifier extends AsyncNotifier<List<Item>> {
     final createdItems = <Item>[];
 
     for (final item in items) {
+      // createItem returns full item with RETURNING * (includes warranty_end_date)
       final newItem = await repo.createItem(item);
-      final fullItem = await repo.getItemById(newItem.id);
-      createdItems.add(fullItem);
+      createdItems.add(newItem);
     }
 
     final currentItems = state.value ?? [];
@@ -168,9 +168,9 @@ class ItemsNotifier extends AsyncNotifier<List<Item>> {
 
 /// Warranty stats for the dashboard (active, expiring, expired counts).
 final warrantyStatsProvider = FutureProvider<Map<String, int>>((ref) async {
-  ref.watch(currentUserProvider);
+  final userAsync = ref.watch(currentUserProvider);
 
-  final user = ref.read(currentUserProvider).value;
+  final user = userAsync.valueOrNull;
   if (user == null) return {'active': 0, 'expiring': 0, 'expired': 0};
 
   return ref.read(itemsRepositoryProvider).getWarrantyStats();
@@ -178,9 +178,9 @@ final warrantyStatsProvider = FutureProvider<Map<String, int>>((ref) async {
 
 /// Items that need attention (expiring + expired, max 3 for dashboard).
 final needsAttentionProvider = FutureProvider<List<Item>>((ref) async {
-  ref.watch(currentUserProvider);
+  final userAsync = ref.watch(currentUserProvider);
 
-  final user = ref.read(currentUserProvider).value;
+  final user = userAsync.valueOrNull;
   if (user == null) return [];
 
   return ref.read(itemsRepositoryProvider).getNeedsAttention();
@@ -221,9 +221,9 @@ final isAtItemLimitProvider = FutureProvider<bool>((ref) async {
 
 /// Archived items for the current user.
 final archivedItemsProvider = FutureProvider<List<Item>>((ref) async {
-  ref.watch(currentUserProvider);
+  final userAsync = ref.watch(currentUserProvider);
 
-  final user = ref.read(currentUserProvider).value;
+  final user = userAsync.valueOrNull;
   if (user == null) return [];
 
   final allItems =

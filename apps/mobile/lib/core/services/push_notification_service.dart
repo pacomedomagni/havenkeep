@@ -28,6 +28,7 @@ const _kAllowedRoutePrefixes = [
 /// - Handle notification tap navigation
 class PushNotificationService {
   final Ref _ref;
+  final List<StreamSubscription> _subscriptions = [];
 
   PushNotificationService(this._ref);
 
@@ -65,18 +66,24 @@ class PushNotificationService {
       }
 
       // Listen for token refresh
-      messaging.onTokenRefresh.listen((newToken) {
-        if (kDebugMode) {
-          debugPrint('[Push] Token refreshed.');
-        }
-        _registerTokenWithBackend(newToken);
-      });
+      _subscriptions.add(
+        messaging.onTokenRefresh.listen((newToken) {
+          if (kDebugMode) {
+            debugPrint('[Push] Token refreshed.');
+          }
+          _registerTokenWithBackend(newToken);
+        }),
+      );
 
       // Foreground messages — display a local notification
-      FirebaseMessaging.onMessage.listen(_handleForegroundMessage);
+      _subscriptions.add(
+        FirebaseMessaging.onMessage.listen(_handleForegroundMessage),
+      );
 
       // When the user taps a notification while app is in background
-      FirebaseMessaging.onMessageOpenedApp.listen(_handleNotificationTap);
+      _subscriptions.add(
+        FirebaseMessaging.onMessageOpenedApp.listen(_handleNotificationTap),
+      );
 
       // Check if the app was opened from a terminated state via notification
       final initialMessage = await messaging.getInitialMessage();
@@ -88,6 +95,14 @@ class PushNotificationService {
       // Fail silently so the app still works without push.
       debugPrint('[Push] Initialization failed (expected with stub config): $e');
     }
+  }
+
+  /// Cancel all stream subscriptions.
+  void dispose() {
+    for (final sub in _subscriptions) {
+      sub.cancel();
+    }
+    _subscriptions.clear();
   }
 
   /// Register the user's FCM token with the backend.
@@ -164,5 +179,7 @@ class PushNotificationService {
 
 /// Riverpod provider for the push notification service.
 final pushNotificationServiceProvider = Provider<PushNotificationService>((ref) {
-  return PushNotificationService(ref);
+  final service = PushNotificationService(ref);
+  ref.onDispose(() => service.dispose());
+  return service;
 });

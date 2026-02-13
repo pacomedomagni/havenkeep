@@ -170,7 +170,7 @@ export class StatsService {
         `SELECT
            COUNT(*) as total_items,
            COUNT(*) FILTER (WHERE warranty_end_date > CURRENT_DATE) as active_warranties,
-           COUNT(*) FILTER (WHERE warranty_end_date < CURRENT_DATE) as expired_warranties,
+           COUNT(*) FILTER (WHERE warranty_end_date <= CURRENT_DATE) as expired_warranties,
            COUNT(DISTINCT CASE WHEN d.id IS NOT NULL THEN i.id END) as documented_items
          FROM items i
          LEFT JOIN documents d ON d.item_id = i.id

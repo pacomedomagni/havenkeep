@@ -63,6 +63,7 @@ class NotificationsNotifier extends AsyncNotifier<List<AppNotification>> {
   /// Refresh notifications from the server.
   Future<void> refresh() async {
     _hasMore = true;
+    _isLoadingMore = false;
     state = const AsyncValue.loading();
     state = await AsyncValue.guard(() async {
       final page = await ref

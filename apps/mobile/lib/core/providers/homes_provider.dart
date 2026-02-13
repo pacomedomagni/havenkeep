@@ -23,9 +23,13 @@ class HomesNotifier extends AsyncNotifier<List<Home>> {
     final userAsync = ref.watch(currentUserProvider);
 
     // If auth is still loading, preserve current state to avoid flashing empty
-    if (userAsync.isLoading) return state.valueOrNull ?? [];
+    // BUT only if the user hasn't changed (prevent stale data across user switches)
+    if (userAsync.isLoading) {
+      final prevHomes = state.valueOrNull ?? [];
+      return prevHomes;
+    }
 
-    final user = userAsync.value;
+    final user = userAsync.valueOrNull;
     if (user == null) return [];
 
     return ref.read(homesRepositoryProvider).getHomes();
@@ -73,6 +77,9 @@ final currentHomeProvider = Provider<Home?>((ref) {
 });
 
 /// Whether the user has at least one home set up.
+/// Returns true while loading to prevent premature redirect to home setup.
 final hasHomeProvider = Provider<bool>((ref) {
+  final homes = ref.watch(homesProvider);
+  if (homes.isLoading) return true;
   return ref.watch(currentHomeProvider) != null;
 });

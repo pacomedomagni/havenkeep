@@ -61,11 +61,17 @@ export type WarrantyPurchaseStatus = 'active' | 'expired' | 'cancelled' | 'claim
 export type NotificationType =
   | 'warranty_expiring'
   | 'warranty_expired'
+  | 'item_added'
+  | 'warranty_extended'
   | 'maintenance_due'
+  | 'claim_update'
   | 'claim_opportunity'
   | 'health_score_update'
   | 'gift_received'
+  | 'gift_activated'
   | 'partner_commission'
+  | 'promotional'
+  | 'tip'
   | 'system';
 
 // ============================================

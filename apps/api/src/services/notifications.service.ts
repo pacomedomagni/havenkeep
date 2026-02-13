@@ -4,12 +4,19 @@ import { AppError } from '../utils/errors';
 
 type NotificationType =
   | 'warranty_expiring'
+  | 'warranty_expired'
+  | 'item_added'
+  | 'warranty_extended'
   | 'maintenance_due'
   | 'claim_update'
+  | 'claim_opportunity'
+  | 'health_score_update'
   | 'gift_received'
   | 'gift_activated'
-  | 'system'
-  | 'promotional';
+  | 'partner_commission'
+  | 'promotional'
+  | 'tip'
+  | 'system';
 
 interface CreateNotificationData {
   user_id: string;
@@ -452,7 +459,7 @@ export class NotificationsService {
           AND nh.sent_at > NOW() - INTERVAL '1 day'
         WHERE i.is_archived = FALSE
           AND i.warranty_end_date BETWEEN CURRENT_DATE
-            AND CURRENT_DATE + (COALESCE(np.first_reminder_days, 30) || ' days')::INTERVAL
+            AND CURRENT_DATE + make_interval(days => COALESCE(np.first_reminder_days, 30))
           AND nh.id IS NULL
       `);
 
@@ -460,7 +467,9 @@ export class NotificationsService {
       for (const row of result.rows) {
         try {
           const itemLabel = row.brand ? `${row.brand} ${row.item_name}` : row.item_name;
-          const expiryDate = new Date(row.warranty_end_date).toLocaleDateString();
+          // Format date in UTC to avoid timezone off-by-one from DB DATE column
+          const d = new Date(row.warranty_end_date);
+          const expiryDate = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
 
           await NotificationsService.createNotification({
             user_id: row.user_id,

@@ -56,15 +56,10 @@ class _ItemAddedScreenState extends ConsumerState<ItemAddedScreen>
             final displayName =
                 '${item.brand ?? ''} ${item.name}'.trim();
 
-            String? expiryText;
-            if (item.warrantyEndDate != null) {
-              expiryText =
-                  'Warranty expires ${DateFormat('MMM d, yyyy').format(item.warrantyEndDate!)}';
-            } else {
-              final computed = DateTime(item.purchaseDate.year, item.purchaseDate.month + item.warrantyMonths, item.purchaseDate.day);
-              expiryText =
-                  'Warranty expires ${DateFormat('MMM d, yyyy').format(computed)}';
-            }
+            // Use the unified computed end date (proper month arithmetic)
+            final expiryDate = item.warrantyEndDate ?? item.computedEndDate;
+            final expiryText =
+                'Warranty expires ${DateFormat('MMM d, yyyy').format(expiryDate)}';
 
             return Center(
               child: Padding(

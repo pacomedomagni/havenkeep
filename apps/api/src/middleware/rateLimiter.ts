@@ -135,6 +135,13 @@ export const authRateLimiter = rateLimit({
   skipSuccessfulRequests: true, // Don't count successful logins
 });
 
+export const refreshRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10,
+  message: 'Too many token refresh attempts, please try again later.',
+  skipSuccessfulRequests: false, // Count all attempts for brute-force protection
+});
+
 export const uploadRateLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
   max: 10,

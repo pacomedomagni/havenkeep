@@ -54,7 +54,11 @@ Future<void> main() async {
   // Initialize API client
   final apiClient = ApiClient(baseUrl: config.apiBaseUrl);
   setGlobalApiClient(apiClient);
-  await apiClient.restoreSession();
+  try {
+    await apiClient.restoreSession();
+  } catch (e) {
+    LoggingService.warn('Session restore failed, starting fresh', {'error': e.toString()});
+  }
 
   LoggingService.info('API client initialized');
 

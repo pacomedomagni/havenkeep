@@ -61,7 +61,7 @@ class _ManualEntryScreenState extends ConsumerState<ManualEntryScreen> {
     final picked = await showDatePicker(
       context: context,
       initialDate: _purchaseDate ?? now,
-      firstDate: DateTime(2000),
+      firstDate: DateTime(1970),
       lastDate: now,
       builder: (context, child) {
         return Theme(

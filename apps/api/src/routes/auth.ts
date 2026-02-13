@@ -5,7 +5,7 @@ import crypto from 'crypto';
 import { query } from '../db';
 import { config } from '../config';
 import { AppError } from '../middleware/errorHandler';
-import { authRateLimiter } from '../middleware/rateLimiter';
+import { authRateLimiter, refreshRateLimiter } from '../middleware/rateLimiter';
 import { validate } from '../middleware/validate';
 import { registerSchema, loginSchema, refreshTokenSchema } from '../validators';
 import { forgotPasswordSchema, resetPasswordSchema, verifyEmailSchema } from '../validators/auth.validator';
@@ -17,12 +17,15 @@ const router = Router();
 
 // Helper to get IP address
 const getIpAddress = (req: any): string => {
-  return (
+  const ip =
     (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
     (req.headers['x-real-ip'] as string) ||
-    req.socket.remoteAddress ||
-    'unknown'
-  );
+    req.socket.remoteAddress;
+  if (!ip) {
+    logger.warn({ path: req.path }, 'Could not determine client IP address');
+    return 'unknown';
+  }
+  return ip;
 };
 
 // Register
@@ -227,7 +230,7 @@ router.post('/login', authRateLimiter, validate(loginSchema), async (req, res, n
 });
 
 // Refresh token
-router.post('/refresh', validate(refreshTokenSchema), async (req, res, next) => {
+router.post('/refresh', refreshRateLimiter, validate(refreshTokenSchema), async (req, res, next) => {
   try {
     const { refreshToken } = req.body;
 
@@ -259,6 +262,23 @@ router.post('/refresh', validate(refreshTokenSchema), async (req, res, next) => 
 
     const user = userResult.rows[0];
 
+    // Blacklist the old access token so it can't be reused after refresh
+    const authHeader = req.headers.authorization;
+    if (authHeader?.startsWith('Bearer ')) {
+      const oldAccessToken = authHeader.substring(7);
+      try {
+        const decoded = jwt.decode(oldAccessToken) as { exp?: number } | null;
+        if (decoded?.exp) {
+          const remainingSeconds = decoded.exp - Math.floor(Date.now() / 1000);
+          if (remainingSeconds > 0) {
+            await blacklistToken(oldAccessToken, remainingSeconds);
+          }
+        }
+      } catch {
+        // Best-effort: don't block refresh if blacklisting fails
+      }
+    }
+
     // Generate new access token
     const accessToken = jwt.sign(
       { userId: user.id, email: user.email },
@@ -283,8 +303,12 @@ router.post('/logout', validate(refreshTokenSchema), async (req, res, next) => {
     const authHeader = req.headers.authorization;
     if (authHeader?.startsWith('Bearer ')) {
       const accessToken = authHeader.substring(7);
-      // Blacklist for 1 hour (access token max lifetime)
-      await blacklistToken(accessToken, 3600);
+      try {
+        await blacklistToken(accessToken, 3600);
+      } catch (blacklistError) {
+        // Best-effort: don't block logout if Redis/blacklist fails
+        logger.warn({ error: blacklistError }, 'Failed to blacklist access token during logout');
+      }
     }
 
     if (refreshToken) {
@@ -390,10 +414,13 @@ router.post('/reset-password', authRateLimiter, validate(resetPasswordSchema), a
   try {
     const { token, newPassword } = req.body;
 
-    // Find valid reset token
+    // Atomically find and mark the reset token as used in a single query
+    // to prevent race conditions with concurrent reset requests
     const tokenResult = await query(
-      `SELECT user_id FROM password_reset_tokens
-       WHERE token = $1 AND expires_at > NOW() AND used = FALSE`,
+      `UPDATE password_reset_tokens
+       SET used = TRUE
+       WHERE token = $1 AND expires_at > NOW() AND used = FALSE
+       RETURNING user_id`,
       [token]
     );
 
@@ -410,12 +437,6 @@ router.post('/reset-password', authRateLimiter, validate(resetPasswordSchema), a
     await query(
       `UPDATE users SET password_hash = $1 WHERE id = $2`,
       [passwordHash, userId]
-    );
-
-    // Mark token as used
-    await query(
-      `UPDATE password_reset_tokens SET used = TRUE WHERE token = $1`,
-      [token]
     );
 
     // Invalidate all refresh tokens

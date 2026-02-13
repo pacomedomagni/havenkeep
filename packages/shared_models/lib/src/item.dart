@@ -142,6 +142,8 @@ class Item {
 
   /// Compute the warranty end date using proper month arithmetic
   /// matching the server's calculation (avoids 30-day-per-month approximation).
+  DateTime get computedEndDate => _computedEndDate;
+
   DateTime get _computedEndDate {
     if (warrantyEndDate != null) return warrantyEndDate!;
     var year = purchaseDate.year;

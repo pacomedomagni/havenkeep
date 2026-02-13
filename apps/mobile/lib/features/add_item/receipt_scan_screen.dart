@@ -172,7 +172,7 @@ class _ReceiptScanScreenState extends ConsumerState<ReceiptScanScreen> {
     final picked = await showDatePicker(
       context: context,
       initialDate: _purchaseDate,
-      firstDate: DateTime(2000),
+      firstDate: DateTime(1970),
       lastDate: DateTime.now(),
       builder: (context, child) {
         return Theme(

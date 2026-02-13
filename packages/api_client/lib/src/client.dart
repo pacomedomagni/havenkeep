@@ -260,8 +260,9 @@ class ApiClient {
         await refreshAccessToken();
         // Retry with new token
         response = await request();
-      } catch (_) {
-        // Refresh failed, return the 401
+      } catch (e) {
+        // Refresh failed — log and return the original 401
+        debugPrint('[ApiClient] Token refresh failed: $e');
       }
     }
 
