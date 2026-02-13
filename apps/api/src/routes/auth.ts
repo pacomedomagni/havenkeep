@@ -121,6 +121,7 @@ router.post('/register', authRateLimiter, validate(registerSchema), async (req, 
         referred_by: user.referred_by || null,
         referral_code: user.referral_code || null,
         is_admin: user.is_admin || false,
+        is_partner: false,
         created_at: user.created_at,
         updated_at: user.updated_at,
       },
@@ -412,15 +413,14 @@ router.post('/forgot-password', passwordResetRateLimiter, validate(forgotPasswor
 
     logger.info({ userId: user.id, resetUrl }, 'Password reset requested');
 
-    try {
-      await EmailService.sendPasswordResetEmail({
-        to: user.email,
-        user_name: user.full_name || 'there',
-        reset_url: resetUrl,
-      });
-    } catch (emailError) {
+    // Fire-and-forget: don't block the HTTP response on email delivery
+    EmailService.sendPasswordResetEmail({
+      to: user.email,
+      user_name: user.full_name || 'there',
+      reset_url: resetUrl,
+    }).catch((emailError) => {
       logger.error({ error: emailError, userId: user.id }, 'Failed to send password reset email');
-    }
+    });
 
     // Audit log: password reset requested
     await AuditService.logAuth({
@@ -563,7 +563,8 @@ router.post('/google', authRateLimiter, async (req, res, next) => {
     // Find or create user
     let userResult = await query(
       `SELECT id, email, full_name, avatar_url, auth_provider, plan, plan_expires_at,
-              referred_by, referral_code, is_admin, created_at, updated_at
+              referred_by, referral_code, is_admin, created_at, updated_at,
+              (EXISTS(SELECT 1 FROM partners p WHERE p.user_id = users.id AND p.is_active = TRUE)) as is_partner
        FROM users WHERE email = $1`,
       [email]
     );
@@ -641,6 +642,7 @@ router.post('/google', authRateLimiter, async (req, res, next) => {
         referred_by: user.referred_by || null,
         referral_code: user.referral_code || null,
         is_admin: user.is_admin,
+        is_partner: user.is_partner ?? false,
         created_at: user.created_at,
         updated_at: user.updated_at,
       },
@@ -707,7 +709,8 @@ router.post('/apple', authRateLimiter, async (req, res, next) => {
     if (email) {
       userResult = await query(
         `SELECT id, email, full_name, avatar_url, auth_provider, plan, plan_expires_at,
-                referred_by, referral_code, is_admin, created_at, updated_at
+                referred_by, referral_code, is_admin, created_at, updated_at,
+                (EXISTS(SELECT 1 FROM partners p WHERE p.user_id = users.id AND p.is_active = TRUE)) as is_partner
          FROM users WHERE email = $1`,
         [email]
       );
@@ -718,7 +721,8 @@ router.post('/apple', authRateLimiter, async (req, res, next) => {
     if ((!email || !userResult || userResult.rows.length === 0)) {
       const appleIdResult = await query(
         `SELECT id, email, full_name, avatar_url, auth_provider, plan, plan_expires_at,
-                referred_by, referral_code, is_admin, created_at, updated_at
+                referred_by, referral_code, is_admin, created_at, updated_at,
+                (EXISTS(SELECT 1 FROM partners p WHERE p.user_id = users.id AND p.is_active = TRUE)) as is_partner
          FROM users WHERE apple_user_id = $1`,
         [appleUserId]
       );
@@ -816,6 +820,7 @@ router.post('/apple', authRateLimiter, async (req, res, next) => {
         referred_by: user.referred_by || null,
         referral_code: user.referral_code || null,
         is_admin: user.is_admin,
+        is_partner: user.is_partner ?? false,
         created_at: user.created_at,
         updated_at: user.updated_at,
       },

@@ -45,8 +45,11 @@ class ItemsNotifier extends AsyncNotifier<List<Item>> {
   /// Refresh the items list from the server.
   Future<void> refresh() async {
     state = const AsyncValue.loading();
+    final currentHome = ref.read(currentHomeProvider);
     state = await AsyncValue.guard(() async {
-      return ref.read(itemsRepositoryProvider).getItemsWithStatus();
+      return ref.read(itemsRepositoryProvider).getItemsWithStatus(
+        homeId: currentHome?.id,
+      );
     });
   }
 
@@ -65,10 +68,6 @@ class ItemsNotifier extends AsyncNotifier<List<Item>> {
       final newItem = await repo.createItem(item);
 
       state = AsyncValue.data([newItem, ...currentItems]);
-
-      // Invalidate stats
-      ref.invalidate(warrantyStatsProvider);
-      ref.invalidate(needsAttentionProvider);
 
       return (newItem, previousCount);
     } catch (e) {
@@ -97,9 +96,6 @@ class ItemsNotifier extends AsyncNotifier<List<Item>> {
         currentItems.map((i) => i.id == updated.id ? updated : i).toList(),
       );
 
-      ref.invalidate(warrantyStatsProvider);
-      ref.invalidate(needsAttentionProvider);
-
       return updated;
     } catch (e) {
       // Rollback to previous state on failure
@@ -118,8 +114,6 @@ class ItemsNotifier extends AsyncNotifier<List<Item>> {
       currentItems.where((i) => i.id != id).toList(),
     );
 
-    ref.invalidate(warrantyStatsProvider);
-    ref.invalidate(needsAttentionProvider);
   }
 
   /// Batch-add multiple items at once (used by bulk-add flow).
@@ -136,9 +130,6 @@ class ItemsNotifier extends AsyncNotifier<List<Item>> {
     final currentItems = state.value ?? [];
     state = AsyncValue.data([...createdItems, ...currentItems]);
 
-    ref.invalidate(warrantyStatsProvider);
-    ref.invalidate(needsAttentionProvider);
-
     return createdItems;
   }
 
@@ -151,8 +142,6 @@ class ItemsNotifier extends AsyncNotifier<List<Item>> {
       currentItems.where((i) => i.id != id).toList(),
     );
 
-    ref.invalidate(warrantyStatsProvider);
-    ref.invalidate(needsAttentionProvider);
     ref.invalidate(archivedItemsProvider);
   }
 
@@ -166,30 +155,44 @@ class ItemsNotifier extends AsyncNotifier<List<Item>> {
     final currentItems = state.value ?? [];
     state = AsyncValue.data([restored, ...currentItems]);
 
-    ref.invalidate(warrantyStatsProvider);
-    ref.invalidate(needsAttentionProvider);
     ref.invalidate(archivedItemsProvider);
   }
 }
 
 /// Warranty stats for the dashboard (active, expiring, expired counts).
-final warrantyStatsProvider = FutureProvider<Map<String, int>>((ref) async {
-  final userAsync = ref.watch(currentUserProvider);
-
-  final user = userAsync.valueOrNull;
-  if (user == null) return {'active': 0, 'expiring': 0, 'expired': 0};
-
-  return ref.read(itemsRepositoryProvider).getWarrantyStats();
+/// Derived from itemsProvider so it respects the current home filter.
+final warrantyStatsProvider = Provider<AsyncValue<Map<String, int>>>((ref) {
+  final itemsAsync = ref.watch(itemsProvider);
+  return itemsAsync.whenData((items) {
+    int active = 0;
+    int expiring = 0;
+    int expired = 0;
+    for (final item in items) {
+      switch (item.computedWarrantyStatus) {
+        case WarrantyStatus.active:
+          active++;
+        case WarrantyStatus.expiring:
+          expiring++;
+        case WarrantyStatus.expired:
+          expired++;
+      }
+    }
+    return {'active': active, 'expiring': expiring, 'expired': expired};
+  });
 });
 
 /// Items that need attention (expiring + expired, max 3 for dashboard).
-final needsAttentionProvider = FutureProvider<List<Item>>((ref) async {
-  final userAsync = ref.watch(currentUserProvider);
-
-  final user = userAsync.valueOrNull;
-  if (user == null) return [];
-
-  return ref.read(itemsRepositoryProvider).getNeedsAttention();
+/// Derived from itemsProvider so it respects the current home filter.
+final needsAttentionProvider = Provider<AsyncValue<List<Item>>>((ref) {
+  final itemsAsync = ref.watch(itemsProvider);
+  return itemsAsync.whenData((items) {
+    final attention = items.where((item) {
+      final status = item.computedWarrantyStatus;
+      return status == WarrantyStatus.expiring || status == WarrantyStatus.expired;
+    }).toList();
+    attention.sort((a, b) => a.computedDaysRemaining.compareTo(b.computedDaysRemaining));
+    return attention.take(kNeedsAttentionLimit).toList();
+  });
 });
 
 /// Single item detail by ID.
@@ -211,28 +214,34 @@ final brandSuggestionsProvider =
 });
 
 /// Count of non-archived items (for free plan limit check).
-final activeItemCountProvider = FutureProvider<int>((ref) async {
-  ref.watch(itemsProvider); // Re-fetch when items change
-  return ref.read(itemsRepositoryProvider).countActiveItems();
+/// Derived from itemsProvider so it respects the current home filter.
+final activeItemCountProvider = Provider<AsyncValue<int>>((ref) {
+  final itemsAsync = ref.watch(itemsProvider);
+  return itemsAsync.whenData((items) => items.length);
 });
 
 /// Whether the user has hit the free plan item limit.
-final isAtItemLimitProvider = FutureProvider<bool>((ref) async {
+final isAtItemLimitProvider = Provider<AsyncValue<bool>>((ref) {
   final user = ref.watch(currentUserProvider).value;
-  if (user == null || user.plan == UserPlan.premium) return false;
-
-  final count = await ref.watch(activeItemCountProvider.future);
-  return count >= kFreePlanItemLimit;
+  if (user == null || user.plan == UserPlan.premium) {
+    return const AsyncValue.data(false);
+  }
+  final countAsync = ref.watch(activeItemCountProvider);
+  return countAsync.whenData((count) => count >= kFreePlanItemLimit);
 });
 
-/// Archived items for the current user.
+/// Archived items for the current user, filtered by selected home.
 final archivedItemsProvider = FutureProvider<List<Item>>((ref) async {
   final userAsync = ref.watch(currentUserProvider);
 
   final user = userAsync.valueOrNull;
   if (user == null) return [];
 
-  final allItems =
-      await ref.read(itemsRepositoryProvider).getItems(includeArchived: true);
+  final currentHome = ref.watch(currentHomeProvider);
+
+  final allItems = await ref.read(itemsRepositoryProvider).getItems(
+    homeId: currentHome?.id,
+    includeArchived: true,
+  );
   return allItems.where((item) => item.isArchived).toList();
 });

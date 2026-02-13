@@ -386,6 +386,7 @@ export class MaintenanceService {
       let query = `
         SELECT mh.*,
                i.name as item_name,
+               i.brand as item_brand,
                i.category as item_category,
                ms.frequency_label,
                ms.difficulty

@@ -93,19 +93,29 @@ class MaintenanceHistoryScreen extends ConsumerWidget {
                     child: const Icon(Icons.delete, color: Colors.white),
                   ),
                   confirmDismiss: (_) async {
-                    return await showHavenConfirmDialog(
+                    final confirmed = await showHavenConfirmDialog(
                       context,
                       title: 'Delete Log?',
                       body: 'This action cannot be undone.',
                       confirmLabel: 'Delete',
                       isDestructive: true,
                     );
+                    if (confirmed != true) return false;
+                    try {
+                      await ref.read(maintenanceRepositoryProvider).deleteLog(entry.id);
+                      ref.invalidate(maintenanceHistoryProvider);
+                      ref.invalidate(maintenanceDueProvider);
+                      return true;
+                    } catch (e) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Delete failed: $e')),
+                        );
+                      }
+                      return false;
+                    }
                   },
-                  onDismissed: (_) {
-                    ref.read(maintenanceRepositoryProvider).deleteLog(entry.id);
-                    ref.invalidate(maintenanceHistoryProvider);
-                    ref.invalidate(maintenanceDueProvider);
-                  },
+                  onDismissed: (_) {},
                   child: Container(
                     margin: const EdgeInsets.only(bottom: HavenSpacing.sm),
                     padding: const EdgeInsets.all(HavenSpacing.md),

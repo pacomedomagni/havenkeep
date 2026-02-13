@@ -115,6 +115,7 @@ export class WarrantyClaimsService {
       let query = `
         SELECT c.*,
                i.name as item_name,
+               i.brand as item_brand,
                i.category as item_category
         FROM warranty_claims c
         JOIN items i ON i.id = c.item_id

@@ -90,8 +90,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       ),
       body: RefreshIndicator(
         onRefresh: () async {
-          ref.invalidate(warrantyStatsProvider);
-          ref.invalidate(needsAttentionProvider);
           ref.invalidate(itemsProvider);
         },
         color: HavenColors.primary,
@@ -154,7 +152,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 ),
                 error: (error, _) => Center(
                   child: TextButton.icon(
-                    onPressed: () => ref.invalidate(warrantyStatsProvider),
+                    onPressed: () => ref.invalidate(itemsProvider),
                     icon: const Icon(Icons.refresh, size: 16),
                     label: const Text('Retry'),
                   ),
