@@ -24,3 +24,5 @@ export 'src/category_default.dart';
 export 'src/brand_suggestion.dart';
 export 'src/receipt_scan_result.dart';
 export 'src/barcode_lookup_result.dart';
+export 'src/warranty_claim.dart';
+export 'src/maintenance.dart';

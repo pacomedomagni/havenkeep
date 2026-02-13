@@ -11,6 +11,7 @@ import { registerSchema, loginSchema, refreshTokenSchema } from '../validators';
 import { forgotPasswordSchema, resetPasswordSchema, verifyEmailSchema } from '../validators/auth.validator';
 import { logger } from '../utils/logger';
 import { AuditService } from '../services/audit.service';
+import { EmailService } from '../services/email.service';
 import { blacklistToken } from '../utils/token-blacklist';
 import { generateUniqueReferralCode } from '../utils/referral-code';
 
@@ -147,9 +148,10 @@ router.post('/login', authRateLimiter, validate(loginSchema), async (req, res, n
 
     // Get user
     const result = await query(
-      `SELECT id, email, password_hash, full_name, avatar_url, auth_provider, plan,
-              plan_expires_at, referred_by, referral_code, is_admin, created_at, updated_at
-       FROM users WHERE email = $1`,
+      `SELECT u.id, u.email, u.password_hash, u.full_name, u.avatar_url, u.auth_provider, u.plan,
+              u.plan_expires_at, u.referred_by, u.referral_code, u.is_admin, u.created_at, u.updated_at,
+              (EXISTS(SELECT 1 FROM partners p WHERE p.user_id = u.id AND p.is_active = TRUE)) as is_partner
+       FROM users u WHERE u.email = $1`,
       [email.toLowerCase()]
     );
 
@@ -223,6 +225,7 @@ router.post('/login', authRateLimiter, validate(loginSchema), async (req, res, n
         referred_by: user.referred_by || null,
         referral_code: user.referral_code || null,
         is_admin: user.is_admin,
+        is_partner: user.is_partner,
         created_at: user.created_at,
         updated_at: user.updated_at,
       },
@@ -404,10 +407,20 @@ router.post('/forgot-password', passwordResetRateLimiter, validate(forgotPasswor
       [user.id, resetToken, expiresAt]
     );
 
-    // In production, send email with reset link
+    // Send password reset email
     const resetUrl = `${config.app.frontendUrl}/reset-password?token=${resetToken}`;
 
     logger.info({ userId: user.id, resetUrl }, 'Password reset requested');
+
+    try {
+      await EmailService.sendPasswordResetEmail({
+        to: user.email,
+        user_name: user.full_name || 'there',
+        reset_url: resetUrl,
+      });
+    } catch (emailError) {
+      logger.error({ error: emailError, userId: user.id }, 'Failed to send password reset email');
+    }
 
     // Audit log: password reset requested
     await AuditService.logAuth({

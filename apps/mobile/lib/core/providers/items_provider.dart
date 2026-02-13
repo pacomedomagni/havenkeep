@@ -7,6 +7,7 @@ import 'package:api_client/api_client.dart';
 import '../services/items_repository.dart';
 import '../services/category_repository.dart';
 import 'auth_provider.dart';
+import 'homes_provider.dart';
 
 /// Provides the items repository instance.
 final itemsRepositoryProvider = Provider<ItemsRepository>((ref) {
@@ -33,7 +34,12 @@ class ItemsNotifier extends AsyncNotifier<List<Item>> {
     final user = userAsync.valueOrNull;
     if (user == null) return [];
 
-    return ref.read(itemsRepositoryProvider).getItemsWithStatus();
+    // Re-fetch when selected home changes
+    final currentHome = ref.watch(currentHomeProvider);
+
+    return ref.read(itemsRepositoryProvider).getItemsWithStatus(
+      homeId: currentHome?.id,
+    );
   }
 
   /// Refresh the items list from the server.

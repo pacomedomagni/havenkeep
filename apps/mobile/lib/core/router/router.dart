@@ -38,6 +38,11 @@ import '../../features/settings/archived_items_screen.dart';
 import '../../features/settings/change_password_screen.dart';
 import '../../features/settings/delete_account_screen.dart';
 import '../../features/notifications/notifications_screen.dart';
+import '../../features/warranty_claims/claims_list_screen.dart';
+import '../../features/warranty_claims/create_claim_screen.dart';
+import '../../features/maintenance/maintenance_screen.dart';
+import '../../features/maintenance/log_maintenance_screen.dart';
+import '../../features/maintenance/maintenance_history_screen.dart';
 
 /// Route path constants.
 abstract class AppRoutes {
@@ -71,6 +76,11 @@ abstract class AppRoutes {
   static const premium = '/premium';
   static const premiumSuccess = '/premium/success';
   static const referral = '/referral/:code';
+  static const warrantyClaims = '/warranty-claims';
+  static const createClaim = '/warranty-claims/create/:itemId';
+  static const maintenance = '/maintenance';
+  static const logMaintenance = '/maintenance/log';
+  static const maintenanceHistory = '/maintenance/history';
 }
 
 /// Navigator keys for the shell route.
@@ -389,6 +399,44 @@ final routerProvider = Provider<GoRouter>((ref) {
           final code = state.pathParameters['code']!;
           return ReferralHandlerScreen(code: code);
         },
+      ),
+
+      // Warranty Claims List
+      GoRoute(
+        path: AppRoutes.warrantyClaims,
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) => const ClaimsListScreen(),
+      ),
+
+      // Create Warranty Claim
+      GoRoute(
+        path: AppRoutes.createClaim,
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) {
+          final itemId = state.pathParameters['itemId']!;
+          return CreateClaimScreen(itemId: itemId);
+        },
+      ),
+
+      // Maintenance
+      GoRoute(
+        path: AppRoutes.maintenance,
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) => const MaintenanceScreen(),
+      ),
+
+      // Log Maintenance
+      GoRoute(
+        path: AppRoutes.logMaintenance,
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) => const LogMaintenanceScreen(),
+      ),
+
+      // Maintenance History
+      GoRoute(
+        path: AppRoutes.maintenanceHistory,
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) => const MaintenanceHistoryScreen(),
       ),
     ],
   );

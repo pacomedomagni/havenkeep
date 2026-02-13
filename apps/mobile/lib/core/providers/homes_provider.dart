@@ -68,11 +68,23 @@ class HomesNotifier extends AsyncNotifier<List<Home>> {
   }
 }
 
-/// The current/selected home (defaults to first home).
+/// Persists the user's selected home ID across sessions.
+final selectedHomeIdProvider = StateProvider<String?>((ref) => null);
+
+/// The current/selected home. Uses the user's selection, or defaults to first.
 final currentHomeProvider = Provider<Home?>((ref) {
   final homes = ref.watch(homesProvider);
+  final selectedId = ref.watch(selectedHomeIdProvider);
+
   return homes.whenOrNull(
-    data: (homesList) => homesList.isNotEmpty ? homesList.first : null,
+    data: (homesList) {
+      if (homesList.isEmpty) return null;
+      if (selectedId != null) {
+        final match = homesList.where((h) => h.id == selectedId);
+        if (match.isNotEmpty) return match.first;
+      }
+      return homesList.first;
+    },
   );
 });
 

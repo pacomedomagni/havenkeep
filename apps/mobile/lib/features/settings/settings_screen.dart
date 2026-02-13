@@ -9,6 +9,7 @@ import '../../core/providers/auth_provider.dart';
 import '../../core/providers/homes_provider.dart';
 import '../../core/providers/items_provider.dart';
 import '../../core/router/router.dart';
+import '../../core/services/csv_export_service.dart';
 
 /// Profile & Settings screen (Screen 7.1).
 class SettingsScreen extends ConsumerWidget {
@@ -141,6 +142,30 @@ class SettingsScreen extends ConsumerWidget {
                 ) ??
                 'Loading...',
             onTap: () => context.push(AppRoutes.archivedItems),
+          ),
+          const SizedBox(height: HavenSpacing.xs),
+          _SettingsTile(
+            icon: Icons.file_download_outlined,
+            title: 'Export Items (CSV)',
+            subtitle: 'Download all items as a spreadsheet',
+            onTap: () async {
+              final items = ref.read(itemsProvider).valueOrNull ?? [];
+              if (items.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('No items to export')),
+                );
+                return;
+              }
+              try {
+                await ref.read(csvExportServiceProvider).exportItemsToCsv(items);
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Export failed: $e')),
+                  );
+                }
+              }
+            },
           ),
 
           const SizedBox(height: HavenSpacing.lg),

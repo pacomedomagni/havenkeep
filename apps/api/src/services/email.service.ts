@@ -359,4 +359,267 @@ This gift expires in 6 months. Questions? Contact us at support@havenkeep.com
       throw error;
     }
   }
+
+  /**
+   * Send warranty expiration reminder email
+   */
+  static async sendWarrantyExpirationEmail(data: {
+    to: string;
+    user_name: string;
+    item_name: string;
+    brand?: string;
+    expiry_date: string;
+    days_remaining: number;
+    item_id: string;
+  }): Promise<void> {
+    try {
+      const { to, user_name, item_name, brand, expiry_date, days_remaining, item_id } = data;
+
+      const firstName = escapeHtml(user_name.split(' ')[0]);
+      const safeItemName = escapeHtml(brand ? `${brand} ${item_name}` : item_name);
+      const safeExpiryDate = escapeHtml(expiry_date);
+      const itemUrl = `${config.app.frontendUrl}/items/${item_id}`;
+
+      const urgencyColor = days_remaining <= 7 ? '#EF4444' : days_remaining <= 14 ? '#F59E0B' : '#3B82F6';
+      const urgencyLabel = days_remaining <= 7 ? 'Expiring Very Soon' : days_remaining <= 14 ? 'Expiring Soon' : 'Expiring';
+
+      const htmlContent = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Warranty ${urgencyLabel}</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f3f4f6;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f3f4f6; padding: 40px 20px;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+
+          <tr>
+            <td style="background: linear-gradient(135deg, ${urgencyColor} 0%, ${urgencyColor}dd 100%); padding: 40px; text-align: center;">
+              <h1 style="color: #ffffff; margin: 0; font-size: 28px; font-weight: bold;">Warranty ${urgencyLabel}</h1>
+              <p style="color: #ffffff; margin: 10px 0 0; font-size: 16px; opacity: 0.95;">${days_remaining} day${days_remaining !== 1 ? 's' : ''} remaining</p>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="padding: 40px;">
+              <p style="color: #374151; font-size: 16px; line-height: 1.6; margin: 0 0 20px;">Hi ${firstName},</p>
+
+              <p style="color: #374151; font-size: 16px; line-height: 1.6; margin: 0 0 30px;">
+                Your warranty for <strong>${safeItemName}</strong> expires on <strong>${safeExpiryDate}</strong>. Now is a good time to review your coverage and take action if needed.
+              </p>
+
+              <div style="background-color: #f9fafb; border-radius: 8px; padding: 30px; margin: 0 0 30px;">
+                <h2 style="color: #111827; font-size: 20px; margin: 0 0 20px; font-weight: 600;">What You Can Do</h2>
+                <table width="100%" cellpadding="0" cellspacing="0">
+                  <tr>
+                    <td style="padding: 8px 0;">
+                      <span style="color: #374151; font-size: 15px;">Check if the manufacturer offers an extended warranty</span>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 8px 0;">
+                      <span style="color: #374151; font-size: 15px;">File any pending warranty claims before expiration</span>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 8px 0;">
+                      <span style="color: #374151; font-size: 15px;">Document the current condition of your item</span>
+                    </td>
+                  </tr>
+                </table>
+              </div>
+
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin: 0 0 30px;">
+                <tr>
+                  <td align="center">
+                    <a href="${itemUrl}" style="display: inline-block; background-color: ${urgencyColor}; color: #ffffff; text-decoration: none; padding: 16px 40px; border-radius: 8px; font-size: 16px; font-weight: 600; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);">
+                      View Your Item
+                    </a>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="background-color: #f9fafb; padding: 30px 40px; border-top: 1px solid #e5e7eb; text-align: center;">
+              <p style="color: #6b7280; font-size: 13px; line-height: 1.5; margin: 0 0 10px;">
+                HavenKeep — Your Warranties. Protected.
+              </p>
+              <p style="color: #9ca3af; font-size: 12px; margin: 0;">
+                You're receiving this because you have email notifications enabled. Manage your preferences in the app.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+      `;
+
+      const textContent = `
+Warranty ${urgencyLabel} — ${days_remaining} day${days_remaining !== 1 ? 's' : ''} remaining
+
+Hi ${firstName},
+
+Your warranty for ${safeItemName} expires on ${safeExpiryDate}. Now is a good time to review your coverage and take action if needed.
+
+What You Can Do:
+- Check if the manufacturer offers an extended warranty
+- File any pending warranty claims before expiration
+- Document the current condition of your item
+
+View Your Item: ${itemUrl}
+
+---
+HavenKeep — Your Warranties. Protected.
+You're receiving this because you have email notifications enabled.
+      `;
+
+      const msg = {
+        to,
+        from: {
+          email: config.sendgrid.fromEmail,
+          name: 'HavenKeep',
+        },
+        replyTo: config.sendgrid.replyToEmail,
+        subject: `Warranty ${urgencyLabel}: ${safeItemName} expires ${safeExpiryDate}`,
+        text: textContent,
+        html: htmlContent,
+      };
+
+      await sgMail.send(msg);
+
+      logger.info({ to, item_name, expiry_date, days_remaining }, 'Warranty expiration email sent');
+    } catch (error) {
+      logger.error({ error, to: data.to, item_id: data.item_id }, 'Failed to send warranty expiration email');
+      throw error;
+    }
+  }
+
+  /**
+   * Send password reset email
+   */
+  static async sendPasswordResetEmail(data: {
+    to: string;
+    user_name: string;
+    reset_url: string;
+  }): Promise<void> {
+    try {
+      const { to, user_name, reset_url } = data;
+
+      const firstName = escapeHtml(user_name.split(' ')[0]);
+      const safeResetUrl = sanitizeUrl(reset_url);
+
+      if (!safeResetUrl) {
+        throw new Error('Invalid reset URL');
+      }
+
+      const htmlContent = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reset Your Password</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f3f4f6;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f3f4f6; padding: 40px 20px;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+
+          <tr>
+            <td style="background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%); padding: 40px; text-align: center;">
+              <h1 style="color: #ffffff; margin: 0; font-size: 28px; font-weight: bold;">Reset Your Password</h1>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="padding: 40px;">
+              <p style="color: #374151; font-size: 16px; line-height: 1.6; margin: 0 0 20px;">Hi ${firstName},</p>
+
+              <p style="color: #374151; font-size: 16px; line-height: 1.6; margin: 0 0 30px;">
+                We received a request to reset your password. Click the button below to create a new password. This link expires in <strong>1 hour</strong>.
+              </p>
+
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin: 0 0 30px;">
+                <tr>
+                  <td align="center">
+                    <a href="${safeResetUrl}" style="display: inline-block; background-color: #3B82F6; color: #ffffff; text-decoration: none; padding: 16px 40px; border-radius: 8px; font-size: 16px; font-weight: 600; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);">
+                      Reset Password
+                    </a>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="color: #6b7280; font-size: 14px; line-height: 1.6; margin: 0 0 10px;">
+                If you didn't request a password reset, you can safely ignore this email. Your password will remain unchanged.
+              </p>
+
+              <p style="color: #9ca3af; font-size: 13px; line-height: 1.6; margin: 0;">
+                If the button doesn't work, copy and paste this link into your browser:<br>
+                <span style="color: #3B82F6; word-break: break-all;">${safeResetUrl}</span>
+              </p>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="background-color: #f9fafb; padding: 30px 40px; border-top: 1px solid #e5e7eb; text-align: center;">
+              <p style="color: #6b7280; font-size: 13px; margin: 0;">
+                HavenKeep — Your Warranties. Protected.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+      `;
+
+      const textContent = `
+Reset Your Password
+
+Hi ${firstName},
+
+We received a request to reset your password. Use the link below to create a new password. This link expires in 1 hour.
+
+Reset Password: ${safeResetUrl}
+
+If you didn't request a password reset, you can safely ignore this email.
+
+---
+HavenKeep — Your Warranties. Protected.
+      `;
+
+      const msg = {
+        to,
+        from: {
+          email: config.sendgrid.fromEmail,
+          name: 'HavenKeep',
+        },
+        replyTo: config.sendgrid.replyToEmail,
+        subject: 'Reset your HavenKeep password',
+        text: textContent,
+        html: htmlContent,
+      };
+
+      await sgMail.send(msg);
+
+      logger.info({ to }, 'Password reset email sent');
+    } catch (error) {
+      logger.error({ error, to: data.to }, 'Failed to send password reset email');
+      throw error;
+    }
+  }
 }

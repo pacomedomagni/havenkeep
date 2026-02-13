@@ -1,6 +1,7 @@
 import { pool } from '../db';
 import { logger } from '../utils/logger';
 import { AppError } from '../utils/errors';
+import { EmailService } from './email.service';
 
 type NotificationType =
   | 'warranty_expiring'
@@ -450,7 +451,9 @@ export class NotificationsService {
       const result = await client.query(`
         SELECT i.id as item_id, i.name as item_name, i.brand,
                i.warranty_end_date, i.user_id,
-               COALESCE(np.first_reminder_days, 30) as reminder_days
+               u.email, u.full_name,
+               COALESCE(np.first_reminder_days, 30) as reminder_days,
+               COALESCE(np.email_enabled, FALSE) as email_enabled
         FROM items i
         JOIN users u ON u.id = i.user_id
         LEFT JOIN notification_preferences np ON np.user_id = u.id
@@ -478,6 +481,27 @@ export class NotificationsService {
             title: 'Warranty Expiring Soon',
             body: `Your warranty for ${itemLabel} expires on ${expiryDate}.`,
           });
+
+          // Send email if user has email notifications enabled
+          if (row.email_enabled) {
+            try {
+              const daysRemaining = Math.ceil(
+                (new Date(row.warranty_end_date).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
+              );
+              await EmailService.sendWarrantyExpirationEmail({
+                to: row.email,
+                user_name: row.full_name || 'there',
+                item_name: row.item_name,
+                brand: row.brand,
+                expiry_date: expiryDate,
+                days_remaining: Math.max(daysRemaining, 0),
+                item_id: row.item_id,
+              });
+            } catch (emailError) {
+              logger.error({ error: emailError, itemId: row.item_id, userId: row.user_id }, 'Failed to send expiration email (notification still created)');
+            }
+          }
+
           notifiedCount++;
         } catch (itemError) {
           logger.error({ error: itemError, itemId: row.item_id }, 'Failed to send expiration notification');

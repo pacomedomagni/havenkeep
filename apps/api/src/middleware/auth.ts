@@ -34,7 +34,9 @@ export async function authenticate(
 
     // Get user from database
     const result = await query(
-      `SELECT id, email, plan, is_admin FROM users WHERE id = $1`,
+      `SELECT u.id, u.email, u.plan, u.is_admin,
+              (EXISTS(SELECT 1 FROM partners p WHERE p.user_id = u.id AND p.is_active = TRUE)) as is_partner
+       FROM users u WHERE u.id = $1`,
       [decoded.userId]
     );
 
@@ -47,6 +49,7 @@ export async function authenticate(
       email: result.rows[0].email,
       plan: result.rows[0].plan,
       isAdmin: result.rows[0].is_admin,
+      isPartner: result.rows[0].is_partner,
     };
 
     next();

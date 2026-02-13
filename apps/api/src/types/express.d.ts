@@ -5,6 +5,7 @@ declare namespace Express {
       email: string;
       plan: string;
       isAdmin: boolean;
+      isPartner: boolean;
     };
   }
 }

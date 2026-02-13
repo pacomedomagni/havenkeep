@@ -273,24 +273,10 @@ class _ItemDetailBody extends ConsumerWidget {
               height: 48,
               child: OutlinedButton.icon(
                 onPressed: () {
-                  // Scroll down to the Claim Help section
-                  Scrollable.ensureVisible(
-                    _claimHelpKey.currentContext ?? context,
-                    duration: const Duration(milliseconds: 300),
-                    curve: Curves.easeInOut,
-                  );
+                  context.push('/warranty-claims/create/$itemId');
                 },
-                icon: Icon(
-                  status == WarrantyStatus.expired
-                      ? Icons.help_outline
-                      : Icons.support_agent,
-                  size: 20,
-                ),
-                label: Text(
-                  status == WarrantyStatus.expired
-                      ? 'Check Claim Options'
-                      : 'Start a Warranty Claim',
-                ),
+                icon: const Icon(Icons.support_agent, size: 20),
+                label: const Text('Start a Warranty Claim'),
                 style: OutlinedButton.styleFrom(
                   foregroundColor: HavenColors.primary,
                   side: const BorderSide(color: HavenColors.primary),

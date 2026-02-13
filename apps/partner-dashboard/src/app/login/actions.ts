@@ -28,9 +28,9 @@ export async function signIn(formData: FormData) {
 
     const data = await response.json();
 
-    // Reject non-admin users
-    if (!data.user?.isAdmin) {
-      return { error: 'You do not have admin privileges' };
+    // Reject users who are neither admin nor partner
+    if (!data.user?.is_admin && !data.user?.is_partner) {
+      return { error: 'Access restricted to partners and administrators' };
     }
 
     const cookieStore = await cookies();

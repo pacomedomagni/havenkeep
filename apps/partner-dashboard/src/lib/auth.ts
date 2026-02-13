@@ -11,6 +11,7 @@ export interface AuthUser {
   email: string;
   plan: string;
   isAdmin: boolean;
+  isPartner: boolean;
 }
 
 interface TokenPayload {
@@ -70,18 +71,20 @@ export async function getUser(): Promise<AuthUser | null> {
         email: data.user.email,
         plan: data.user.plan,
         isAdmin: data.user.isAdmin,
+        isPartner: data.user.isPartner ?? false,
       };
     }
   } catch {
     // Fall through to JWT-only data
   }
 
-  // Fallback: use JWT data only (isAdmin defaults to false for safety)
+  // Fallback: use JWT data only (isAdmin/isPartner default to false for safety)
   return {
     id: payload.userId,
     email: payload.email,
     plan: 'free',
     isAdmin: false,
+    isPartner: false,
   };
 }
 
@@ -96,6 +99,14 @@ export async function requireAuth(): Promise<AuthUser> {
 export async function requireAdmin(): Promise<AuthUser> {
   const user = await requireAuth();
   if (!user.isAdmin) {
+    redirect('/unauthorized');
+  }
+  return user;
+}
+
+export async function requirePartnerOrAdmin(): Promise<AuthUser> {
+  const user = await requireAuth();
+  if (!user.isAdmin && !user.isPartner) {
     redirect('/unauthorized');
   }
   return user;

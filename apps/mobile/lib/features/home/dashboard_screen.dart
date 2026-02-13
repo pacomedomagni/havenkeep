@@ -8,7 +8,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shared_ui/shared_ui.dart';
 
 import '../../core/providers/auth_provider.dart';
+import '../../core/providers/homes_provider.dart';
 import '../../core/providers/items_provider.dart';
+import '../../core/providers/maintenance_provider.dart';
 import '../../core/providers/notifications_provider.dart';
 import '../../core/router/router.dart';
 import '../../core/widgets/value_dashboard_card.dart';
@@ -74,10 +76,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               height: 28,
             ),
             const SizedBox(width: 8),
-            const Text(
-              'HavenKeep',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
+            const _HomeSwitcher(),
           ],
         ),
         actions: [
@@ -169,6 +168,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
               // Needs attention section
               _buildNeedsAttention(needsAttention),
+
+              // Maintenance card
+              const SizedBox(height: HavenSpacing.lg),
+              const _MaintenanceCard(),
 
               // Tip card
               if (!_tipDismissed) ...[
@@ -517,6 +520,170 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
   void _navigateToItemsWithFilter(String filter) {
     context.go(AppRoutes.items, extra: {'filter': filter});
+  }
+}
+
+/// Maintenance summary card for the dashboard.
+class _MaintenanceCard extends ConsumerWidget {
+  const _MaintenanceCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final dueAsync = ref.watch(maintenanceDueProvider);
+
+    return dueAsync.when(
+      loading: () => const SizedBox.shrink(),
+      error: (_, __) => const SizedBox.shrink(),
+      data: (summary) {
+        if (summary.totalDue == 0 && summary.totalOverdue == 0) {
+          return const SizedBox.shrink();
+        }
+
+        return GestureDetector(
+          onTap: () {
+            HapticFeedback.lightImpact();
+            context.push(AppRoutes.maintenance);
+          },
+          child: Container(
+            padding: const EdgeInsets.all(HavenSpacing.md),
+            decoration: BoxDecoration(
+              color: HavenColors.surface,
+              borderRadius: BorderRadius.circular(HavenRadius.card),
+              border: Border.all(color: HavenColors.border),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: (summary.totalOverdue > 0
+                            ? HavenColors.expired
+                            : HavenColors.expiring)
+                        .withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(HavenRadius.card),
+                  ),
+                  child: Icon(
+                    Icons.build_outlined,
+                    color: summary.totalOverdue > 0
+                        ? HavenColors.expired
+                        : HavenColors.expiring,
+                    size: 22,
+                  ),
+                ),
+                const SizedBox(width: HavenSpacing.md),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Maintenance',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: HavenColors.textPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        summary.totalOverdue > 0
+                            ? '${summary.totalOverdue} overdue, ${summary.totalDue - summary.totalOverdue} upcoming'
+                            : '${summary.totalDue} tasks coming up',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: summary.totalOverdue > 0
+                              ? HavenColors.expired
+                              : HavenColors.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(
+                  Icons.chevron_right,
+                  color: HavenColors.textTertiary,
+                  size: 20,
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Shows "HavenKeep" when user has one home, or a dropdown to switch homes.
+class _HomeSwitcher extends ConsumerWidget {
+  const _HomeSwitcher();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final homesAsync = ref.watch(homesProvider);
+    final currentHome = ref.watch(currentHomeProvider);
+
+    final homesList = homesAsync.valueOrNull ?? [];
+
+    // Single home or loading: just show the home name or "HavenKeep"
+    if (homesList.length <= 1) {
+      return Text(
+        currentHome?.name ?? 'HavenKeep',
+        style: const TextStyle(fontWeight: FontWeight.bold),
+      );
+    }
+
+    // Multiple homes: show dropdown
+    return PopupMenuButton<String>(
+      onSelected: (homeId) {
+        HapticFeedback.lightImpact();
+        ref.read(selectedHomeIdProvider.notifier).state = homeId;
+      },
+      offset: const Offset(0, 40),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
+      color: HavenColors.elevated,
+      itemBuilder: (context) => homesList.map((home) {
+        final isSelected = home.id == currentHome?.id;
+        return PopupMenuItem<String>(
+          value: home.id,
+          child: Row(
+            children: [
+              Icon(
+                Icons.home_outlined,
+                size: 18,
+                color: isSelected ? HavenColors.primary : HavenColors.textSecondary,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  home.name,
+                  style: TextStyle(
+                    color: isSelected ? HavenColors.primary : HavenColors.textPrimary,
+                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                  ),
+                ),
+              ),
+              if (isSelected)
+                const Icon(Icons.check, size: 16, color: HavenColors.primary),
+            ],
+          ),
+        );
+      }).toList(),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Flexible(
+            child: Text(
+              currentHome?.name ?? 'HavenKeep',
+              style: const TextStyle(fontWeight: FontWeight.bold),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: 4),
+          const Icon(Icons.arrow_drop_down, size: 20),
+        ],
+      ),
+    );
   }
 }
 

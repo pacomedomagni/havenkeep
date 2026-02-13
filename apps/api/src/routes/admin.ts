@@ -8,9 +8,8 @@ import { AppError } from '../utils/errors';
 
 const router = Router();
 router.use(authenticate);
-router.use(requireAdmin);
 
-// Current admin user info
+// Current user info (accessible to admins AND partners)
 router.get('/me', (req, res) => {
   res.json({
     user: {
@@ -18,9 +17,13 @@ router.get('/me', (req, res) => {
       email: req.user!.email,
       plan: req.user!.plan,
       isAdmin: req.user!.isAdmin,
+      isPartner: req.user!.isPartner,
     },
   });
 });
+
+// All routes below require admin
+router.use(requireAdmin);
 
 // Admin stats overview (basic)
 router.get('/stats', async (req, res, next) => {
