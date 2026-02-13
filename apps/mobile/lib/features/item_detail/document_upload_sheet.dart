@@ -10,7 +10,7 @@ import 'package:shared_ui/shared_ui.dart';
 import '../../core/providers/documents_provider.dart';
 import '../../core/utils/error_handler.dart';
 
-/// Maximum file size for document uploads (20 MB).
+/// Maximum file size for document uploads (10 MB).
 const _kMaxFileSizeBytes = 20 * 1024 * 1024;
 
 /// Detect MIME type from file name extension.
@@ -112,7 +112,7 @@ class _DocumentUploadSheetState extends ConsumerState<DocumentUploadSheet> {
     final fileSize = file.lengthSync();
     if (fileSize > _kMaxFileSizeBytes) {
       final sizeMb = (fileSize / (1024 * 1024)).toStringAsFixed(1);
-      setState(() => _errorMessage = 'File too large ($sizeMb MB). Maximum is 20 MB.');
+      setState(() => _errorMessage = 'File too large ($sizeMb MB). Maximum is 10 MB.');
       return;
     }
 

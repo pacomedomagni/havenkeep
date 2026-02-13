@@ -217,9 +217,8 @@ class _ArchivedItemCard extends ConsumerWidget {
                         overflow: TextOverflow.ellipsis,
                       ),
                       const SizedBox(height: 2),
-                      // TODO: Use dedicated archivedAt field when available
                       Text(
-                        'Archived ${DateFormat.yMMMd().format(item.updatedAt)}',
+                        'Archived ${DateFormat.yMMMd().format(item.archivedAt ?? item.updatedAt)}',
                         style: const TextStyle(
                           fontSize: 12,
                           color: HavenColors.textTertiary,

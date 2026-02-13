@@ -53,10 +53,12 @@ router.post(
 
       const userId = req.user!.id;
       const ext = file.originalname.split('.').pop()?.toLowerCase() || 'jpg';
-      const objectKey = `avatars/${userId}/avatar.webp`;
+      const baseKey = `avatars/${userId}/avatar`;
 
       // Optimize and convert to WebP
       let fileBuffer: Buffer;
+      let contentType = 'image/webp';
+      let objectKey = `${baseKey}.webp`;
       try {
         fileBuffer = await sharp(file.buffer)
           .resize(400, 400, { fit: 'cover' })
@@ -64,6 +66,8 @@ router.post(
           .toBuffer();
       } catch {
         fileBuffer = file.buffer;
+        contentType = file.mimetype;
+        objectKey = `${baseKey}.${ext}`;
       }
 
       // Upload to MinIO (upsert)
@@ -73,7 +77,7 @@ router.post(
         fileBuffer,
         fileBuffer.length,
         {
-          'Content-Type': 'image/webp',
+          'Content-Type': contentType,
           'x-amz-meta-user-id': userId,
         }
       );
@@ -124,10 +128,12 @@ router.post(
       }
 
       const timestamp = Date.now();
-      const objectKey = `item-images/${itemId}/${timestamp}.webp`;
+      const baseKey = `item-images/${itemId}/${timestamp}`;
 
       // Optimize and convert to WebP
       let fileBuffer: Buffer;
+      let contentType = 'image/webp';
+      let objectKey = `${baseKey}.webp`;
       try {
         fileBuffer = await sharp(file.buffer)
           .resize(1200, 1200, { fit: 'inside', withoutEnlargement: true })
@@ -135,6 +141,9 @@ router.post(
           .toBuffer();
       } catch {
         fileBuffer = file.buffer;
+        contentType = file.mimetype;
+        const ext = file.originalname.split('.').pop()?.toLowerCase() || 'jpg';
+        objectKey = `${baseKey}.${ext}`;
       }
 
       // Upload to MinIO
@@ -144,7 +153,7 @@ router.post(
         fileBuffer,
         fileBuffer.length,
         {
-          'Content-Type': 'image/webp',
+          'Content-Type': contentType,
           'x-amz-meta-item-id': itemId,
           'x-amz-meta-user-id': req.user!.id,
         }

@@ -41,9 +41,9 @@ class FileUploadException extends StorageException {
   String get userMessage {
     switch (reason) {
       case FileUploadFailureReason.fileTooLarge:
-        return 'File is too large. Maximum size is 10MB for images, 20MB for documents.';
+        return 'File is too large. Maximum size is 10MB for images and documents.';
       case FileUploadFailureReason.invalidType:
-        return 'Invalid file type. Only images (JPEG, PNG, WebP) and PDFs are allowed.';
+        return 'Invalid file type. Only images (JPEG, PNG, WebP, HEIC) and PDFs are allowed.';
       case FileUploadFailureReason.maliciousContent:
         return 'File appears to be corrupted or unsafe. Please try a different file.';
       case FileUploadFailureReason.networkError:

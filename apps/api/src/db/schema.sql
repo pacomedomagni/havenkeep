@@ -115,6 +115,7 @@ CREATE TABLE items (
   -- Meta
   notes TEXT,
   is_archived BOOLEAN NOT NULL DEFAULT FALSE,
+  archived_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

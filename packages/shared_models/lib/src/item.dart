@@ -35,6 +35,7 @@ class Item {
   final String? notes;
   final bool isArchived;
   final ItemAddedVia addedVia;
+  final DateTime? archivedAt;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -62,6 +63,7 @@ class Item {
     this.notes,
     this.isArchived = false,
     this.addedVia = ItemAddedVia.manual,
+    this.archivedAt,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -101,6 +103,9 @@ class Item {
       addedVia: json['added_via'] != null
           ? ItemAddedVia.fromJson(json['added_via'] as String)
           : ItemAddedVia.manual,
+      archivedAt: json['archived_at'] != null
+          ? DateTime.parse(json['archived_at'] as String)
+          : null,
       createdAt: DateTime.parse(json['created_at'] as String),
       updatedAt: DateTime.parse(json['updated_at'] as String),
     );
@@ -215,6 +220,7 @@ class Item {
     bool clearNotes = false,
     bool? isArchived,
     ItemAddedVia? addedVia,
+    DateTime? archivedAt,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -248,6 +254,7 @@ class Item {
       notes: clearNotes ? null : (notes ?? this.notes),
       isArchived: isArchived ?? this.isArchived,
       addedVia: addedVia ?? this.addedVia,
+      archivedAt: archivedAt ?? this.archivedAt,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );

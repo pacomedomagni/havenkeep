@@ -157,6 +157,7 @@ export interface Item {
   // Meta
   notes: string | null;
   is_archived: boolean;
+  archived_at: Date | null;
   created_at: Date;
   updated_at: Date;
 }

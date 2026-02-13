@@ -305,6 +305,10 @@ router.put('/:id', validate(uuidParamSchema, 'params'), validate(updateItemSchem
     // Always update the timestamp
     fields.push('updated_at = NOW()');
 
+    if (updates.isArchived !== undefined) {
+      fields.push(`archived_at = ${updates.isArchived ? 'NOW()' : 'NULL'}`);
+    }
+
     values.push(id, req.user!.id);
 
     const result = await query(

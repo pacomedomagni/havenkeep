@@ -56,6 +56,23 @@ class MimeTypeDetector {
         return 'image/webp';
       }
 
+      // Check HEIC/HEIF (ISO Base Media File Format)
+      if (bytes.length >= 12 &&
+          bytes[4] == 0x66 &&
+          bytes[5] == 0x74 &&
+          bytes[6] == 0x79 &&
+          bytes[7] == 0x70) {
+        final brand = String.fromCharCodes(bytes.sublist(8, 12)).toLowerCase();
+        const heicBrands = {'heic', 'heix', 'hevc', 'hevx'};
+        const heifBrands = {'heif', 'mif1', 'msf1'};
+        if (heicBrands.contains(brand)) {
+          return 'image/heic';
+        }
+        if (heifBrands.contains(brand)) {
+          return 'image/heif';
+        }
+      }
+
       // Check PDF
       if (bytes.length >= 4 &&
           bytes[0] == 0x25 &&
