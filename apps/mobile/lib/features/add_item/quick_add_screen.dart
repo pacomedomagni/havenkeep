@@ -61,7 +61,7 @@ class _QuickAddScreenState extends ConsumerState<QuickAddScreen> {
     final picked = await showDatePicker(
       context: context,
       initialDate: _purchaseDate ?? now,
-      firstDate: DateTime(2000),
+      firstDate: DateTime(1970),
       lastDate: now,
       builder: (context, child) {
         return Theme(
@@ -94,12 +94,17 @@ class _QuickAddScreenState extends ConsumerState<QuickAddScreen> {
       final home = ref.read(currentHomeProvider);
       final user = ref.read(currentUserProvider).value;
 
-      if (home == null || user == null) {
+      if (user == null) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Error: No home or user found')),
+            const SnackBar(content: Text('Please sign in to add items')),
           );
         }
+        return;
+      }
+
+      if (home == null) {
+        if (mounted) context.go('/home-setup');
         return;
       }
 

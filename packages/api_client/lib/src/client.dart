@@ -45,6 +45,7 @@ class ApiClient {
 
   String? _accessToken;
   String? _userId;
+  Completer<void>? _refreshCompleter;
 
   final StreamController<ApiAuthState> _authStateController =
       StreamController<ApiAuthState>.broadcast();
@@ -92,9 +93,11 @@ class ApiClient {
         if (_isTokenExpired(_accessToken!)) {
           debugPrint('[ApiClient] Stored access token is expired, refreshing...');
           try {
-            await refreshAccessToken();
+            await refreshAccessToken()
+                .timeout(const Duration(seconds: 10));
             return true;
-          } catch (_) {
+          } catch (e) {
+            debugPrint('[ApiClient] Token refresh failed during restore: $e');
             await clearTokens();
             return false;
           }
@@ -106,9 +109,11 @@ class ApiClient {
       // If we have a refresh token but no access token, try refreshing
       if (refreshToken != null && _userId != null) {
         try {
-          await refreshAccessToken();
+          await refreshAccessToken()
+              .timeout(const Duration(seconds: 10));
           return true;
-        } catch (_) {
+        } catch (e) {
+          debugPrint('[ApiClient] Token refresh failed during restore: $e');
           await clearTokens();
           return false;
         }
@@ -185,27 +190,46 @@ class ApiClient {
   }
 
   /// Refresh the access token using the stored refresh token.
+  /// Uses a mutex to prevent concurrent refresh requests.
   Future<void> refreshAccessToken() async {
-    final refreshToken = await _storage.read(key: _keyRefreshToken);
-    if (refreshToken == null) {
-      throw ApiException(401, 'No refresh token available');
+    // If a refresh is already in progress, wait for it
+    if (_refreshCompleter != null) {
+      return _refreshCompleter!.future;
     }
 
-    final response = await _http.post(
-      Uri.parse('$baseUrl/api/v1/auth/refresh'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'refreshToken': refreshToken}),
-    );
+    _refreshCompleter = Completer<void>();
+    try {
+      final refreshToken = await _storage.read(key: _keyRefreshToken);
+      if (refreshToken == null) {
+        throw ApiException(401, 'No refresh token available');
+      }
 
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
-      _accessToken = data['accessToken'] as String;
-      await _storage.write(key: _keyAccessToken, value: _accessToken!);
-      _authStateController.add(ApiAuthState.tokenRefreshed);
-    } else {
-      // Refresh failed — force sign out
-      await clearTokens();
-      throw ApiException(401, 'Session expired. Please sign in again.');
+      final response = await _http.post(
+        Uri.parse('$baseUrl/api/v1/auth/refresh'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'refreshToken': refreshToken}),
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        _accessToken = data['accessToken'] as String;
+        await _storage.write(key: _keyAccessToken, value: _accessToken!);
+        _authStateController.add(ApiAuthState.tokenRefreshed);
+        _refreshCompleter!.complete();
+      } else {
+        // Refresh failed — force sign out
+        await clearTokens();
+        final error = ApiException(401, 'Session expired. Please sign in again.');
+        _refreshCompleter!.completeError(error);
+        throw error;
+      }
+    } catch (e) {
+      if (!_refreshCompleter!.isCompleted) {
+        _refreshCompleter!.completeError(e);
+      }
+      rethrow;
+    } finally {
+      _refreshCompleter = null;
     }
   }
 

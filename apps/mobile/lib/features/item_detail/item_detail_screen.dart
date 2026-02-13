@@ -278,29 +278,37 @@ class _ItemDetailBody extends ConsumerWidget {
 
           const SizedBox(height: HavenSpacing.md),
 
-          // Start Claim button (prominent action)
-          if (status != WarrantyStatus.expired)
-            Padding(
-              padding: const EdgeInsets.only(bottom: HavenSpacing.md),
-              child: SizedBox(
-                width: double.infinity,
-                height: 48,
-                child: OutlinedButton.icon(
-                  onPressed: () {
-                    final brand = item.brand ?? item.name;
-                    final query = Uri.encodeComponent('$brand warranty claim');
-                    final searchUrl = 'https://www.google.com/search?q=$query';
-                    launchUrl(Uri.parse(searchUrl), mode: LaunchMode.externalApplication);
-                  },
-                  icon: const Icon(Icons.support_agent, size: 20),
-                  label: const Text('Start a Warranty Claim'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: HavenColors.primary,
-                    side: const BorderSide(color: HavenColors.primary),
-                  ),
+          // Claim button — always show, with different label for expired items
+          Padding(
+            padding: const EdgeInsets.only(bottom: HavenSpacing.md),
+            child: SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  final brand = item.brand ?? item.name;
+                  final query = Uri.encodeComponent('$brand warranty claim');
+                  final searchUrl = 'https://www.google.com/search?q=$query';
+                  launchUrl(Uri.parse(searchUrl), mode: LaunchMode.externalApplication);
+                },
+                icon: Icon(
+                  status == WarrantyStatus.expired
+                      ? Icons.help_outline
+                      : Icons.support_agent,
+                  size: 20,
+                ),
+                label: Text(
+                  status == WarrantyStatus.expired
+                      ? 'Check Claim Options'
+                      : 'Start a Warranty Claim',
+                ),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: HavenColors.primary,
+                  side: const BorderSide(color: HavenColors.primary),
                 ),
               ),
             ),
+          ),
 
           // Warranty details card
           Container(

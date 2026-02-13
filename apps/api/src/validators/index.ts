@@ -19,7 +19,7 @@ export const registerSchema = Joi.object({
 
 export const loginSchema = Joi.object({
   email: Joi.string().email().required(),
-  password: Joi.string().required(),
+  password: Joi.string().min(1).required(),
 });
 
 export const refreshTokenSchema = Joi.object({
@@ -49,7 +49,7 @@ export const createItemSchema = Joi.object({
     'garage', 'basement', 'attic',
     'outdoor', 'hvac_utility', 'office', 'other'
   ).allow(null),
-  purchaseDate: Joi.date().max('now').required(),
+  purchaseDate: Joi.date().min('1970-01-01').max('now').required(),
   store: Joi.string().max(100).allow(null, ''),
   price: Joi.number().min(0).max(999999.99).allow(null),
   warrantyMonths: Joi.number().integer().min(0).max(600).default(12),
@@ -92,7 +92,7 @@ export const updateItemSchema = Joi.object({
     'garage', 'basement', 'attic',
     'outdoor', 'hvac_utility', 'office', 'other'
   ).allow(null),
-  purchaseDate: Joi.date().max('now'),
+  purchaseDate: Joi.date().min('1970-01-01').max('now'),
   store: Joi.string().max(100).allow(null, ''),
   price: Joi.number().min(0).max(999999.99).allow(null),
   warrantyMonths: Joi.number().integer().min(0).max(600),

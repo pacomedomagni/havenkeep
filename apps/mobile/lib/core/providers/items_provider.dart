@@ -55,18 +55,16 @@ class ItemsNotifier extends AsyncNotifier<List<Item>> {
     final previousState = AsyncValue.data(List<Item>.from(currentItems));
 
     try {
+      // createItem returns the full item with computed fields (RETURNING *)
       final newItem = await repo.createItem(item);
 
-      // Re-fetch to get computed fields (warranty_end_date, warranty_status)
-      final fullItem = await repo.getItemById(newItem.id);
-
-      state = AsyncValue.data([fullItem, ...currentItems]);
+      state = AsyncValue.data([newItem, ...currentItems]);
 
       // Invalidate stats
       ref.invalidate(warrantyStatsProvider);
       ref.invalidate(needsAttentionProvider);
 
-      return (fullItem, previousCount);
+      return (newItem, previousCount);
     } catch (e) {
       // Rollback to previous state on failure
       debugPrint('[ItemsNotifier] addItem failed, rolling back: $e');

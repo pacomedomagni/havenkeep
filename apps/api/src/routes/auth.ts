@@ -84,8 +84,7 @@ router.post('/register', authRateLimiter, validate(registerSchema), async (req, 
     );
 
     // Store refresh token
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 7);
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
     await query(
       `INSERT INTO refresh_tokens (user_id, token, expires_at)
@@ -175,8 +174,7 @@ router.post('/login', authRateLimiter, validate(loginSchema), async (req, res, n
     );
 
     // Store refresh token
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 7);
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
     await query(
       `INSERT INTO refresh_tokens (user_id, token, expires_at)
@@ -304,6 +302,14 @@ router.post('/logout', validate(refreshTokenSchema), async (req, res, next) => {
         `DELETE FROM refresh_tokens WHERE token = $1`,
         [refreshToken]
       );
+
+      // Invalidate any unused password reset tokens for this user
+      if (userId) {
+        await query(
+          `UPDATE password_reset_tokens SET used = TRUE WHERE user_id = $1 AND used = FALSE`,
+          [userId]
+        );
+      }
     }
 
     // Audit log: logout
@@ -554,8 +560,7 @@ router.post('/google', authRateLimiter, async (req, res, next) => {
       { expiresIn: config.jwt.refreshExpiresIn }
     );
 
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 7);
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
     await query(
       `INSERT INTO refresh_tokens (user_id, token, expires_at)
@@ -647,19 +652,42 @@ router.post('/apple', authRateLimiter, async (req, res, next) => {
     }
 
     const appleUserId = decoded.sub;
-    const email = decoded.email?.toLowerCase();
+    let email = decoded.email?.toLowerCase();
 
-    if (!email) {
-      throw new AppError('Email not provided by Apple', 401);
+    // Find or create user — first try by email, then by apple_user_id
+    let userResult;
+
+    if (email) {
+      userResult = await query(
+        `SELECT id, email, full_name, avatar_url, auth_provider, plan, plan_expires_at,
+                referred_by, referral_code, is_admin, created_at, updated_at
+         FROM users WHERE email = $1`,
+        [email]
+      );
     }
 
-    // Find or create user
-    let userResult = await query(
-      `SELECT id, email, full_name, avatar_url, auth_provider, plan, plan_expires_at,
-              referred_by, referral_code, is_admin, created_at, updated_at
-       FROM users WHERE email = $1`,
-      [email]
-    );
+    // On subsequent sign-ins, Apple may not provide email.
+    // Fall back to lookup by apple_user_id stored from first sign-in.
+    if ((!email || !userResult || userResult.rows.length === 0)) {
+      const appleIdResult = await query(
+        `SELECT id, email, full_name, avatar_url, auth_provider, plan, plan_expires_at,
+                referred_by, referral_code, is_admin, created_at, updated_at
+         FROM users WHERE apple_user_id = $1`,
+        [appleUserId]
+      );
+      if (appleIdResult.rows.length > 0) {
+        userResult = appleIdResult;
+        email = appleIdResult.rows[0].email;
+      }
+    }
+
+    if (!email) {
+      throw new AppError('Email not provided by Apple. Please grant email permission.', 401);
+    }
+
+    if (!userResult) {
+      userResult = { rows: [] };
+    }
 
     let user;
     let isNewUser = false;
@@ -668,11 +696,11 @@ router.post('/apple', authRateLimiter, async (req, res, next) => {
       const fullName = appleFullName || 'User';
 
       const createResult = await query(
-        `INSERT INTO users (email, full_name, auth_provider, email_verified)
-         VALUES ($1, $2, 'apple', TRUE)
+        `INSERT INTO users (email, full_name, auth_provider, email_verified, apple_user_id)
+         VALUES ($1, $2, 'apple', TRUE, $3)
          RETURNING id, email, full_name, avatar_url, auth_provider, plan, plan_expires_at,
                    referred_by, referral_code, is_admin, created_at, updated_at`,
-        [email, fullName]
+        [email, fullName, appleUserId]
       );
       user = createResult.rows[0];
       isNewUser = true;
@@ -684,6 +712,12 @@ router.post('/apple', authRateLimiter, async (req, res, next) => {
       );
     } else {
       user = userResult.rows[0];
+
+      // Ensure apple_user_id is stored for future lookups
+      await query(
+        `UPDATE users SET apple_user_id = $1 WHERE id = $2 AND apple_user_id IS NULL`,
+        [appleUserId, user.id]
+      );
     }
 
     // Generate tokens
@@ -699,8 +733,7 @@ router.post('/apple', authRateLimiter, async (req, res, next) => {
       { expiresIn: config.jwt.refreshExpiresIn }
     );
 
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 7);
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
     await query(
       `INSERT INTO refresh_tokens (user_id, token, expires_at)

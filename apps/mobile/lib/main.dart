@@ -65,7 +65,7 @@ Future<void> main() async {
     );
     debugPrint('[Main] Firebase initialized successfully');
   } catch (e) {
-    debugPrint('[Main] Firebase init failed: $e');
+    LoggingService.warn('Firebase initialization failed', {'error': e.toString()});
   }
 
   runApp(

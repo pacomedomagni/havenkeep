@@ -45,7 +45,14 @@ class EnvironmentConfig {
     required this.enableDebugLogging,
     required this.revenueCatApiKey,
   }) {
-    // Validate API base URL
+    // Validate API base URL is present
+    if (apiBaseUrl.isEmpty) {
+      throw StateError(
+        'API_BASE_URL is required but was not set in .env file',
+      );
+    }
+
+    // Validate API base URL format
     if (!apiBaseUrl.startsWith('http://') &&
         !apiBaseUrl.startsWith('https://')) {
       throw StateError(

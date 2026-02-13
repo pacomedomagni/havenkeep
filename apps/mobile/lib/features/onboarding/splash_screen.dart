@@ -9,8 +9,9 @@ import '../../core/widgets/havenkeep_logo.dart';
 
 /// Splash screen — shown briefly while checking auth state.
 ///
-/// Displays a Lottie animation (with static fallback), then navigates
-/// to Welcome (if not authenticated) or Dashboard (if authenticated).
+/// Waits for BOTH the Lottie animation to finish AND the auth state
+/// to resolve before navigating. This prevents race conditions where
+/// navigation fires before auth is ready.
 class SplashScreen extends ConsumerStatefulWidget {
   const SplashScreen({super.key});
 
@@ -22,6 +23,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
     with SingleTickerProviderStateMixin {
   late final AnimationController _animController;
   bool _hasNavigated = false;
+  bool _animationComplete = false;
 
   @override
   void initState() {
@@ -31,16 +33,19 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
       duration: const Duration(milliseconds: 2000),
     );
 
-    // Navigate after animation completes or fallback timer
     _animController.addStatusListener((status) {
       if (status == AnimationStatus.completed) {
-        _navigate();
+        _animationComplete = true;
+        _tryNavigate();
       }
     });
 
-    // Fallback: navigate after 2.5s even if animation fails
-    Future.delayed(const Duration(milliseconds: 2500), () {
-      _navigate();
+    // Fallback: mark animation as complete after 3s even if Lottie fails
+    Future.delayed(const Duration(milliseconds: 3000), () {
+      if (!_animationComplete) {
+        _animationComplete = true;
+        _tryNavigate();
+      }
     });
   }
 
@@ -50,21 +55,29 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
     super.dispose();
   }
 
-  void _navigate() {
-    if (_hasNavigated || !mounted) return;
+  /// Navigate only when both animation is done AND auth state is resolved.
+  void _tryNavigate() {
+    if (_hasNavigated || !mounted || !_animationComplete) return;
+
+    // Wait for currentUserProvider to finish loading
+    final userAsync = ref.read(currentUserProvider);
+    if (userAsync.isLoading) return; // will be called again from build()
+
     _hasNavigated = true;
 
     final isAuthenticated = ref.read(isAuthenticatedProvider);
     if (isAuthenticated) {
       context.go(AppRoutes.dashboard);
     } else {
-      // Show preview screens for non-authenticated users
       context.go(AppRoutes.preview);
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    // Watch auth state so we re-trigger navigation when it resolves
+    ref.listen(currentUserProvider, (_, __) => _tryNavigate());
+
     return Scaffold(
       backgroundColor: HavenColors.background,
       body: Center(
@@ -84,7 +97,8 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
                 },
                 errorBuilder: (_, __, ___) {
                   // Fallback to static logo if Lottie file not found
-                  _navigate();
+                  _animationComplete = true;
+                  _tryNavigate();
                   return const HavenKeepLogo(size: 80);
                 },
               ),

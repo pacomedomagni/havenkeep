@@ -6,6 +6,7 @@ import 'package:api_client/api_client.dart';
 import 'package:shared_models/shared_models.dart';
 import '../services/auth_repository.dart';
 import '../services/push_notification_service.dart';
+import 'demo_mode_provider.dart';
 
 /// Provides the auth repository instance.
 final authRepositoryProvider = Provider<AuthRepository>((ref) {
@@ -160,6 +161,7 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
   /// Sign out.
   Future<void> signOut() async {
     await ref.read(authRepositoryProvider).signOut();
+    ref.read(demoModeProvider.notifier).exitDemoMode();
     _skipNextRebuild = false;
     state = const AsyncValue.data(null);
   }

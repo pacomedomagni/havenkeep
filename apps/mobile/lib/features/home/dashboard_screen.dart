@@ -135,7 +135,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   final expired = data['expired'] ?? 0;
                   final totalWithWarranty = active + expiring + expired;
                   final warrantyHealth = totalWithWarranty > 0
-                      ? ((active + expiring) / totalWithWarranty * 100).round()
+                      ? (active / totalWithWarranty * 100).round()
                       : 0;
 
                   return ValueDashboardCard(
@@ -391,9 +391,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
     String timeText;
     if (isExpired) {
-      timeText = 'Expired ${(-days).abs()} days ago';
+      final absDays = (-days).abs();
+      timeText = absDays == 1 ? 'Expired 1 day ago' : 'Expired $absDays days ago';
     } else {
-      timeText = '$days days remaining';
+      timeText = days == 1 ? '1 day remaining' : '$days days remaining';
     }
 
     return GestureDetector(

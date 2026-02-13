@@ -107,13 +107,8 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
     final sortMode = ref.read(itemsSortProvider);
     switch (sortMode) {
       case ItemSortMode.warrantyExpiry:
-        sorted.sort((a, b) {
-          final aEnd = a.warrantyEndDate ??
-              DateTime(a.purchaseDate.year, a.purchaseDate.month + a.warrantyMonths, a.purchaseDate.day);
-          final bEnd = b.warrantyEndDate ??
-              DateTime(b.purchaseDate.year, b.purchaseDate.month + b.warrantyMonths, b.purchaseDate.day);
-          return aEnd.compareTo(bEnd);
-        });
+        sorted.sort((a, b) =>
+            a.computedDaysRemaining.compareTo(b.computedDaysRemaining));
       case ItemSortMode.dateAdded:
         sorted.sort((a, b) => b.createdAt.compareTo(a.createdAt));
       case ItemSortMode.name:
@@ -247,8 +242,8 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
           final filtered = _applyFilters(allItems);
           final sorted = _applySorting(filtered);
           final itemCount = itemCountAsync.value ?? 0;
-          // Soft warn at 15+ items, hard block at limit
-          final showLimitBanner = itemCount >= 15;
+          // Soft warn when approaching limit (1 item before cap)
+          final showLimitBanner = itemCount >= kFreePlanItemLimit - 1;
 
           return Column(
             children: [
@@ -534,7 +529,8 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
           _archivingIds.add(item.id);
 
           try {
-            await ref.read(itemsProvider.notifier).archiveItem(item.id);
+            await ref.read(itemsProvider.notifier).archiveItem(item.id)
+                .timeout(const Duration(seconds: 15));
           } finally {
             _archivingIds.remove(item.id);
           }

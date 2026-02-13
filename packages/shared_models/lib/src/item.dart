@@ -140,16 +140,32 @@ class Item {
     return json;
   }
 
+  /// Compute the warranty end date using proper month arithmetic
+  /// matching the server's calculation (avoids 30-day-per-month approximation).
+  DateTime get _computedEndDate {
+    if (warrantyEndDate != null) return warrantyEndDate!;
+    var year = purchaseDate.year;
+    var month = purchaseDate.month + warrantyMonths;
+    var day = purchaseDate.day;
+    // Normalize month overflow
+    year += (month - 1) ~/ 12;
+    month = ((month - 1) % 12) + 1;
+    // Clamp day to last day of target month
+    final lastDay = DateTime(year, month + 1, 0).day;
+    if (day > lastDay) day = lastDay;
+    return DateTime(year, month, day);
+  }
+
   /// Compute warranty status client-side (when not using the view).
   WarrantyStatus get computedWarrantyStatus {
     if (warrantyStatus != null) return warrantyStatus!;
 
-    final endDate = warrantyEndDate ??
-        purchaseDate.add(Duration(days: warrantyMonths * 30));
+    final endDate = _computedEndDate;
     final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
 
-    if (endDate.isBefore(now)) return WarrantyStatus.expired;
-    if (endDate.difference(now).inDays <= 90) return WarrantyStatus.expiring;
+    if (endDate.isBefore(today)) return WarrantyStatus.expired;
+    if (endDate.difference(today).inDays <= 90) return WarrantyStatus.expiring;
     return WarrantyStatus.active;
   }
 
@@ -157,9 +173,10 @@ class Item {
   int get computedDaysRemaining {
     if (daysRemaining != null) return daysRemaining!;
 
-    final endDate = warrantyEndDate ??
-        purchaseDate.add(Duration(days: warrantyMonths * 30));
-    return endDate.difference(DateTime.now()).inDays;
+    final endDate = _computedEndDate;
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    return endDate.difference(today).inDays;
   }
 
   Item copyWith({

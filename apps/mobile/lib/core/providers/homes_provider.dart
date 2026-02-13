@@ -20,9 +20,12 @@ final homesProvider =
 class HomesNotifier extends AsyncNotifier<List<Home>> {
   @override
   Future<List<Home>> build() async {
-    ref.watch(currentUserProvider);
+    final userAsync = ref.watch(currentUserProvider);
 
-    final user = ref.read(currentUserProvider).value;
+    // If auth is still loading, preserve current state to avoid flashing empty
+    if (userAsync.isLoading) return state.valueOrNull ?? [];
+
+    final user = userAsync.value;
     if (user == null) return [];
 
     return ref.read(homesRepositoryProvider).getHomes();

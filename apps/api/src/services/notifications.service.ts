@@ -303,9 +303,11 @@ export class NotificationsService {
       let body = template.body_template;
 
       for (const [key, value] of Object.entries(vars)) {
+        // Sanitize value to prevent template injection
+        const safeValue = String(value).replace(/\{\{/g, '{ {').replace(/\}\}/g, '} }');
         const placeholder = new RegExp(`\\{\\{${key}\\}\\}`, 'g');
-        title = title.replace(placeholder, value);
-        body = body.replace(placeholder, value);
+        title = title.replace(placeholder, safeValue);
+        body = body.replace(placeholder, safeValue);
       }
 
       // Create the notification
@@ -422,6 +424,61 @@ export class NotificationsService {
     } catch (error) {
       logger.error({ error, notificationId, userId }, 'Error deleting notification');
       throw error;
+    }
+  }
+
+  /**
+   * Check for items with expiring warranties and create notifications.
+   *
+   * TODO: Wire this to a cron job (e.g., node-cron running daily at 9 AM).
+   * Checks for items expiring within each user's configured reminder window
+   * and creates notifications for them. Skips items that already received
+   * a notification in the last 24 hours to prevent duplicates.
+   */
+  static async checkAndNotifyExpirations(): Promise<number> {
+    const client = await pool.connect();
+    try {
+      // Find items expiring within each user's first_reminder_days window
+      // that haven't already been notified in the last 24 hours
+      const result = await client.query(`
+        SELECT i.id as item_id, i.name as item_name, i.brand,
+               i.warranty_end_date, i.user_id,
+               COALESCE(np.first_reminder_days, 30) as reminder_days
+        FROM items i
+        JOIN users u ON u.id = i.user_id
+        LEFT JOIN notification_preferences np ON np.user_id = u.id
+        LEFT JOIN notification_history nh ON nh.item_id = i.id
+          AND nh.type = 'warranty_expiring'
+          AND nh.sent_at > NOW() - INTERVAL '1 day'
+        WHERE i.is_archived = FALSE
+          AND i.warranty_end_date BETWEEN CURRENT_DATE
+            AND CURRENT_DATE + (COALESCE(np.first_reminder_days, 30) || ' days')::INTERVAL
+          AND nh.id IS NULL
+      `);
+
+      let notifiedCount = 0;
+      for (const row of result.rows) {
+        try {
+          const itemLabel = row.brand ? `${row.brand} ${row.item_name}` : row.item_name;
+          const expiryDate = new Date(row.warranty_end_date).toLocaleDateString();
+
+          await NotificationsService.createNotification({
+            user_id: row.user_id,
+            item_id: row.item_id,
+            type: 'warranty_expiring',
+            title: 'Warranty Expiring Soon',
+            body: `Your warranty for ${itemLabel} expires on ${expiryDate}.`,
+          });
+          notifiedCount++;
+        } catch (itemError) {
+          logger.error({ error: itemError, itemId: row.item_id }, 'Failed to send expiration notification');
+        }
+      }
+
+      logger.info({ count: notifiedCount }, 'Expiration notifications sent');
+      return notifiedCount;
+    } finally {
+      client.release();
     }
   }
 }

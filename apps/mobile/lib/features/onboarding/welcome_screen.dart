@@ -410,7 +410,8 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
                 if (value == null || value.trim().isEmpty) {
                   return 'Enter your email address';
                 }
-                if (!RegExp(r'^[^@]+@[^@]+\.[^@]+$').hasMatch(value.trim())) {
+                if (!RegExp(r"^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*\.[a-zA-Z]{2,}$")
+                    .hasMatch(value.trim())) {
                   return 'Enter a valid email address';
                 }
                 return null;
@@ -424,7 +425,9 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
               obscureText: _obscurePassword,
               decoration: InputDecoration(
                 labelText: 'Password *',
-                hintText: 'Min 8 characters',
+                hintText: _isSignUp
+                    ? 'Min 8 chars, upper/lower/number/special'
+                    : 'Enter your password',
                 prefixIcon: const Icon(Icons.lock_outline),
                 suffixIcon: IconButton(
                   icon: Icon(
@@ -441,6 +444,20 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
               validator: (value) {
                 if (value == null || value.length < 8) {
                   return 'Password must be at least 8 characters';
+                }
+                if (_isSignUp) {
+                  if (!RegExp(r'(?=.*[a-z])').hasMatch(value)) {
+                    return 'Must include a lowercase letter';
+                  }
+                  if (!RegExp(r'(?=.*[A-Z])').hasMatch(value)) {
+                    return 'Must include an uppercase letter';
+                  }
+                  if (!RegExp(r'(?=.*\d)').hasMatch(value)) {
+                    return 'Must include a number';
+                  }
+                  if (!RegExp(r'(?=.*[@$!%*?&])').hasMatch(value)) {
+                    return r'Must include a special character (@$!%*?&)';
+                  }
                 }
                 return null;
               },

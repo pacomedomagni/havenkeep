@@ -120,7 +120,7 @@ export class StatsService {
   /**
    * Get items needing attention
    */
-  static async getItemsNeedingAttention(userId: string): Promise<any[]> {
+  static async getItemsNeedingAttention(userId: string, limit: number = 20): Promise<any[]> {
     try {
       const result = await pool.query(
         `SELECT
@@ -137,8 +137,8 @@ export class StatsService {
            AND i.is_archived = FALSE
            AND i.warranty_end_date <= CURRENT_DATE + INTERVAL '90 days'
          ORDER BY i.warranty_end_date ASC
-         LIMIT 20`,
-        [userId]
+         LIMIT $2`,
+        [userId, limit]
       );
 
       return result.rows;
@@ -169,7 +169,7 @@ export class StatsService {
       const itemStats = await pool.query(
         `SELECT
            COUNT(*) as total_items,
-           COUNT(*) FILTER (WHERE warranty_end_date >= CURRENT_DATE) as active_warranties,
+           COUNT(*) FILTER (WHERE warranty_end_date > CURRENT_DATE) as active_warranties,
            COUNT(*) FILTER (WHERE warranty_end_date < CURRENT_DATE) as expired_warranties,
            COUNT(DISTINCT CASE WHEN d.id IS NOT NULL THEN i.id END) as documented_items
          FROM items i

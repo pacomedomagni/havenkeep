@@ -224,18 +224,14 @@ router.post(
         }
       }
 
-      // Return single document if one file, array if multiple
-      if (uploadedDocuments.length === 1) {
-        res.status(201).json({
-          message: 'Document uploaded successfully',
-          document: uploadedDocuments[0],
-        });
-      } else {
-        res.status(201).json({
-          message: 'Documents uploaded successfully',
-          documents: uploadedDocuments,
-        });
-      }
+      // Always return consistent format with both singular and plural keys
+      res.status(201).json({
+        message: uploadedDocuments.length === 1
+          ? 'Document uploaded successfully'
+          : 'Documents uploaded successfully',
+        document: uploadedDocuments[0],
+        documents: uploadedDocuments,
+      });
     } catch (error) {
       next(error);
     }
