@@ -30,9 +30,28 @@ class ArchivedItemsScreen extends ConsumerWidget {
           }
           return ListView.builder(
             padding: const EdgeInsets.all(HavenSpacing.md),
-            itemCount: items.length,
+            itemCount: items.length + 1, // +1 for hint banner
             itemBuilder: (context, index) {
-              return _ArchivedItemCard(item: items[index]);
+              if (index == 0) {
+                return const Padding(
+                  padding: EdgeInsets.only(bottom: HavenSpacing.md),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.swipe, size: 16, color: HavenColors.textTertiary),
+                      SizedBox(width: HavenSpacing.xs),
+                      Text(
+                        'Swipe right to restore, left to delete',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: HavenColors.textTertiary,
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }
+              return _ArchivedItemCard(item: items[index - 1]);
             },
           );
         },
@@ -149,9 +168,7 @@ class _ArchivedItemCard extends ConsumerWidget {
               // Restore
               await ref.read(itemsProvider.notifier).unarchiveItem(item.id);
               if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('${item.name} restored')),
-                );
+                showHavenSnackBar(context, message: '${item.name} restored', isSuccess: true);
               }
               return true;
             } else {
@@ -167,9 +184,7 @@ class _ArchivedItemCard extends ConsumerWidget {
               if (confirmed) {
                 await ref.read(itemsProvider.notifier).deleteItem(item.id);
                 if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('${item.name} deleted')),
-                  );
+                  showHavenSnackBar(context, message: '${item.name} deleted');
                 }
                 return true;
               }

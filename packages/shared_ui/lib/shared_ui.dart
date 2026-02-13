@@ -7,6 +7,7 @@ export 'src/confirmation_dialog.dart';
 export 'src/document_type_icon.dart';
 export 'src/haven_accordion.dart';
 export 'src/haven_skeleton.dart';
+export 'src/haven_snackbar.dart';
 export 'src/item_limit_banner.dart';
 export 'src/room_picker.dart';
 export 'src/section_header.dart';

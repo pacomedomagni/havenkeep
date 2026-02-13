@@ -73,8 +73,8 @@ class ItemLimitBanner extends StatelessWidget {
           // Description
           Text(
             _isAtLimit
-                ? 'Archive old items to free up space, or upgrade to Premium for unlimited items.'
-                : '${maxCount - currentCount} items remaining on your free plan.',
+                ? 'You won\'t be able to add new items. Archive old items to free up space, or upgrade to Premium for unlimited items.'
+                : '${maxCount - currentCount} ${maxCount - currentCount == 1 ? 'item' : 'items'} remaining on your free plan. After that, you\'ll need to archive or upgrade to add more.',
             style: const TextStyle(
               fontSize: 12,
               color: HavenColors.textSecondary,

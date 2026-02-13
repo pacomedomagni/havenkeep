@@ -28,15 +28,7 @@ class NotificationsScreen extends ConsumerWidget {
         ),
         actions: [
           if (unreadCount > 0)
-            TextButton(
-              onPressed: () {
-                ref.read(notificationsProvider.notifier).markAllAsRead();
-              },
-              child: const Text(
-                'Mark All Read',
-                style: TextStyle(color: HavenColors.secondary, fontSize: 13),
-              ),
-            ),
+            const _MarkAllReadButton(),
         ],
       ),
       body: notificationsAsync.when(
@@ -310,6 +302,47 @@ class _NotificationCard extends ConsumerWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Mark all read button with loading state.
+class _MarkAllReadButton extends ConsumerStatefulWidget {
+  const _MarkAllReadButton();
+
+  @override
+  ConsumerState<_MarkAllReadButton> createState() => _MarkAllReadButtonState();
+}
+
+class _MarkAllReadButtonState extends ConsumerState<_MarkAllReadButton> {
+  bool _isLoading = false;
+
+  Future<void> _markAllRead() async {
+    setState(() => _isLoading = true);
+    try {
+      await ref.read(notificationsProvider.notifier).markAllAsRead();
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return TextButton(
+      onPressed: _isLoading ? null : _markAllRead,
+      child: _isLoading
+          ? const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: HavenColors.secondary,
+              ),
+            )
+          : const Text(
+              'Mark All Read',
+              style: TextStyle(color: HavenColors.secondary, fontSize: 13),
+            ),
     );
   }
 }

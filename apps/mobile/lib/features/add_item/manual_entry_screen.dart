@@ -95,9 +95,7 @@ class _ManualEntryScreenState extends ConsumerState<ManualEntryScreen> {
 
       if (home == null || user == null) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Error: No home or user found')),
-          );
+          showHavenSnackBar(context, message: 'Error: No home or user found', isError: true);
         }
         return;
       }
@@ -167,9 +165,7 @@ class _ManualEntryScreenState extends ConsumerState<ManualEntryScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(ErrorHandler.getUserMessage(e))),
-        );
+        showHavenSnackBar(context, message: ErrorHandler.getUserMessage(e), isError: true);
       }
     } finally {
       if (mounted) {
@@ -213,6 +209,14 @@ class _ManualEntryScreenState extends ConsumerState<ManualEntryScreen> {
         title: const Text(
           'Add Item',
           style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(4),
+          child: _FormProgressBar(
+            purchaseDate: _purchaseDate,
+            nameIsNotEmpty: _nameController.text.trim().isNotEmpty,
+            warrantyMonths: _warrantyMonths,
+          ),
         ),
       ),
       body: SafeArea(
@@ -488,6 +492,39 @@ class _ManualEntryScreenState extends ConsumerState<ManualEntryScreen> {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// A thin progress bar showing how much of the form is completed.
+class _FormProgressBar extends StatelessWidget {
+  final DateTime? purchaseDate;
+  final bool nameIsNotEmpty;
+  final int warrantyMonths;
+
+  const _FormProgressBar({
+    required this.purchaseDate,
+    required this.nameIsNotEmpty,
+    required this.warrantyMonths,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    // 3 required sections: product info, purchase info, warranty info
+    int completed = 0;
+    if (nameIsNotEmpty) completed++;
+    if (purchaseDate != null) completed++;
+    if (warrantyMonths > 0) completed++; // always true by default, counts as done
+
+    final progress = completed / 3;
+
+    return LinearProgressIndicator(
+      value: progress,
+      backgroundColor: HavenColors.surface,
+      valueColor: AlwaysStoppedAnimation<Color>(
+        progress >= 1.0 ? HavenColors.active : HavenColors.primary,
+      ),
+      minHeight: 4,
     );
   }
 }

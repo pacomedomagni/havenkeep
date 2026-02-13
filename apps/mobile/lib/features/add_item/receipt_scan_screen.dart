@@ -119,7 +119,7 @@ class _ReceiptScanScreenState extends ConsumerState<ReceiptScanScreen> {
       if (mounted) {
         setState(() {
           _isScanning = false;
-          _error = 'Failed to process receipt. You can enter details manually.';
+          _error = 'Could not read this receipt. You can enter details manually below, or retake the photo with better lighting.';
           // Still allow manual entry
           _scanResult = const ReceiptScanResult();
         });
@@ -295,18 +295,54 @@ class _ReceiptScanScreenState extends ConsumerState<ReceiptScanScreen> {
                 color: HavenColors.expiring.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(HavenRadius.card),
               ),
-              child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Icon(Icons.warning_amber, color: HavenColors.expiring, size: 20),
-                  const SizedBox(width: HavenSpacing.sm),
-                  Expanded(
-                    child: Text(
-                      _error!,
-                      style: const TextStyle(
-                        color: HavenColors.expiring,
-                        fontSize: 13,
+                  Row(
+                    children: [
+                      const Icon(Icons.warning_amber, color: HavenColors.expiring, size: 20),
+                      const SizedBox(width: HavenSpacing.sm),
+                      Expanded(
+                        child: Text(
+                          _error!,
+                          style: const TextStyle(
+                            color: HavenColors.expiring,
+                            fontSize: 13,
+                          ),
+                        ),
                       ),
-                    ),
+                    ],
+                  ),
+                  const SizedBox(height: HavenSpacing.sm),
+                  Row(
+                    children: [
+                      TextButton.icon(
+                        onPressed: () {
+                          setState(() {
+                            _imageFile = null;
+                            _scanResult = null;
+                            _error = null;
+                          });
+                          _captureReceipt();
+                        },
+                        icon: const Icon(Icons.camera_alt, size: 16),
+                        label: const Text('Retake'),
+                        style: TextButton.styleFrom(
+                          foregroundColor: HavenColors.expiring,
+                        ),
+                      ),
+                      const SizedBox(width: HavenSpacing.sm),
+                      TextButton.icon(
+                        onPressed: () {
+                          setState(() => _error = null);
+                        },
+                        icon: const Icon(Icons.edit, size: 16),
+                        label: const Text('Enter Manually'),
+                        style: TextButton.styleFrom(
+                          foregroundColor: HavenColors.secondary,
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),

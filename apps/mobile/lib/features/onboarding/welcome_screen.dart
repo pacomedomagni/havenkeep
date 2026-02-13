@@ -37,6 +37,7 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
   bool _showEmailForm = false;
   bool _isLoading = false;
   bool _obscurePassword = true;
+  bool _loginFailed = false;
 
   @override
   void dispose() {
@@ -140,7 +141,10 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
       }
       // Navigation handled by GoRouter auth guard redirect
     } catch (e) {
-      if (mounted) _showError(ErrorHandler.getUserMessage(e));
+      if (mounted) {
+        if (!_isSignUp) setState(() => _loginFailed = true);
+        _showError(ErrorHandler.getUserMessage(e));
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -161,6 +165,7 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
     setState(() {
       _isSignUp = !_isSignUp;
       _showEmailForm = false;
+      _loginFailed = false;
       _formKey.currentState?.reset();
       _nameController.clear();
       _emailController.clear();
@@ -466,20 +471,50 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
             // Forgot password link (sign-in only)
             if (!_isSignUp) ...[
               const SizedBox(height: HavenSpacing.sm),
-              Align(
-                alignment: Alignment.centerRight,
-                child: GestureDetector(
-                  onTap: _openForgotPassword,
-                  child: const Text(
-                    'Forgot password?',
-                    style: TextStyle(
-                      color: HavenColors.secondary,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
+              if (_loginFailed) ...[
+                // Prominent forgot password after failed login
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(HavenSpacing.sm),
+                  decoration: BoxDecoration(
+                    color: HavenColors.primary.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(HavenRadius.button),
+                    border: Border.all(color: HavenColors.primary.withOpacity(0.3)),
+                  ),
+                  child: GestureDetector(
+                    onTap: _openForgotPassword,
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.lock_reset, size: 18, color: HavenColors.primary),
+                        SizedBox(width: HavenSpacing.xs),
+                        Text(
+                          'Forgot your password? Reset it here',
+                          style: TextStyle(
+                            color: HavenColors.primary,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
-              ),
+              ] else
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: GestureDetector(
+                    onTap: _openForgotPassword,
+                    child: const Text(
+                      'Forgot password?',
+                      style: TextStyle(
+                        color: HavenColors.secondary,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ),
             ],
 
             const SizedBox(height: HavenSpacing.lg),

@@ -89,9 +89,7 @@ class _OverflowMenu extends ConsumerWidget {
             if (confirmed && context.mounted) {
               await ref.read(itemsProvider.notifier).archiveItem(itemId);
               if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Item archived')),
-                );
+                showHavenSnackBar(context, message: 'Item archived');
                 context.go(AppRoutes.items);
               }
             }
@@ -108,9 +106,7 @@ class _OverflowMenu extends ConsumerWidget {
             if (confirmed && context.mounted) {
               await ref.read(itemsProvider.notifier).deleteItem(itemId);
               if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Item deleted')),
-                );
+                showHavenSnackBar(context, message: 'Item deleted');
                 context.go(AppRoutes.items);
               }
             }
@@ -151,6 +147,8 @@ class _ItemDetailBody extends ConsumerWidget {
   final Item item;
   final String itemId;
 
+  static final _claimHelpKey = GlobalKey();
+
   const _ItemDetailBody({required this.item, required this.itemId});
 
   @override
@@ -165,17 +163,6 @@ class _ItemDetailBody extends ConsumerWidget {
       WarrantyStatus.expiring => HavenColors.expiring,
       WarrantyStatus.expired => HavenColors.expired,
     };
-
-    // Count how many detail fields are populated for initial expansion logic.
-    final populatedFields = [
-      item.brand,
-      item.modelNumber,
-      item.serialNumber,
-      item.room,
-      item.price,
-      item.store,
-      item.warrantyProvider,
-    ].where((v) => v != null).length + 2; // category + warrantyType always exist
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(HavenSpacing.md),
@@ -278,7 +265,7 @@ class _ItemDetailBody extends ConsumerWidget {
 
           const SizedBox(height: HavenSpacing.md),
 
-          // Claim button — always show, with different label for expired items
+          // Claim button — opens the Claim Help accordion with guidance
           Padding(
             padding: const EdgeInsets.only(bottom: HavenSpacing.md),
             child: SizedBox(
@@ -286,10 +273,12 @@ class _ItemDetailBody extends ConsumerWidget {
               height: 48,
               child: OutlinedButton.icon(
                 onPressed: () {
-                  final brand = item.brand ?? item.name;
-                  final query = Uri.encodeComponent('$brand warranty claim');
-                  final searchUrl = 'https://www.google.com/search?q=$query';
-                  launchUrl(Uri.parse(searchUrl), mode: LaunchMode.externalApplication);
+                  // Scroll down to the Claim Help section
+                  Scrollable.ensureVisible(
+                    _claimHelpKey.currentContext ?? context,
+                    duration: const Duration(milliseconds: 300),
+                    curve: Curves.easeInOut,
+                  );
                 },
                 icon: Icon(
                   status == WarrantyStatus.expired
@@ -357,7 +346,7 @@ class _ItemDetailBody extends ConsumerWidget {
 
           HavenAccordion(
             title: 'Details',
-            initiallyExpanded: populatedFields >= 5,
+            initiallyExpanded: true,
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: HavenSpacing.md),
               child: Column(
@@ -459,6 +448,7 @@ class _ItemDetailBody extends ConsumerWidget {
           // ----------------------------------------------------------------
 
           HavenAccordion(
+            key: _claimHelpKey,
             title: 'Claim Help',
             initiallyExpanded: false,
             child: Padding(
@@ -466,16 +456,38 @@ class _ItemDetailBody extends ConsumerWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  // Step-by-step claim guidance
+                  _ClaimStep(
+                    number: 1,
+                    title: 'Gather your documents',
+                    description: 'You\'ll need your receipt, warranty card, and photos of the issue.',
+                  ),
+                  _ClaimStep(
+                    number: 2,
+                    title: 'Contact ${item.warrantyProvider ?? item.brand ?? 'the manufacturer'}',
+                    description: 'Reach out via their website or phone to start the claim process.',
+                  ),
+                  const _ClaimStep(
+                    number: 3,
+                    title: 'Submit your claim',
+                    description: 'Provide your proof of purchase, product details, and description of the issue.',
+                  ),
+                  const _ClaimStep(
+                    number: 4,
+                    title: 'Track your claim',
+                    description: 'Keep your claim reference number and follow up if you don\'t hear back within 5-7 business days.',
+                  ),
+                  const SizedBox(height: HavenSpacing.md),
                   OutlinedButton.icon(
                     onPressed: () {
                       final brand = item.brand ?? item.name;
-                      final query = Uri.encodeComponent('$brand warranty support');
+                      final query = Uri.encodeComponent('$brand warranty support contact');
                       final searchUrl = 'https://www.google.com/search?q=$query';
                       launchUrl(Uri.parse(searchUrl), mode: LaunchMode.externalApplication);
                     },
                     icon: const Icon(Icons.search, size: 18),
                     label: Text(
-                      'Search ${item.brand ?? item.name} Warranty Support',
+                      'Find ${item.brand ?? item.name} Support Page',
                     ),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: HavenColors.secondary,
@@ -737,6 +749,77 @@ class _DetailRow extends StatelessWidget {
                 fontSize: 14,
                 color: HavenColors.textPrimary,
               ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Claim step widget for guided claim help
+// ---------------------------------------------------------------------------
+
+class _ClaimStep extends StatelessWidget {
+  final int number;
+  final String title;
+  final String description;
+
+  const _ClaimStep({
+    required this.number,
+    required this.title,
+    required this.description,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: HavenSpacing.md),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 24,
+            height: 24,
+            decoration: const BoxDecoration(
+              color: HavenColors.primary,
+              shape: BoxShape.circle,
+            ),
+            child: Center(
+              child: Text(
+                '$number',
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: HavenSpacing.sm),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: HavenColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  description,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: HavenColors.textSecondary,
+                    height: 1.3,
+                  ),
+                ),
+              ],
             ),
           ),
         ],

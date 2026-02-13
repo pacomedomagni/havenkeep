@@ -28,6 +28,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   late TextEditingController _nameController;
   bool _isDirty = false;
   bool _isSaving = false;
+  bool _isUploadingPhoto = false;
   bool _isInitialized = false;
 
   @override
@@ -63,16 +64,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           _isSaving = false;
           _isDirty = false;
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Profile updated')),
-        );
+        showHavenSnackBar(context, message: 'Profile updated', isSuccess: true);
       }
     } catch (e) {
       if (mounted) {
         setState(() => _isSaving = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(ErrorHandler.getUserMessage(e))),
-        );
+        showHavenSnackBar(context, message: ErrorHandler.getUserMessage(e), isError: true);
       }
     }
   }
@@ -114,6 +111,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
     if (confirmed != true || !mounted) return;
 
+    setState(() => _isUploadingPhoto = true);
+
     try {
       final user = ref.read(currentUserProvider).value;
       if (user == null) return;
@@ -125,16 +124,14 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       await ref.read(currentUserProvider.notifier).updateProfile(avatarUrl: url);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Photo updated')),
-        );
+        showHavenSnackBar(context, message: 'Photo updated', isSuccess: true);
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(ErrorHandler.getUserMessage(e))),
-        );
+        showHavenSnackBar(context, message: ErrorHandler.getUserMessage(e), isError: true);
       }
+    } finally {
+      if (mounted) setState(() => _isUploadingPhoto = false);
     }
   }
 
@@ -181,29 +178,56 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 Center(
                   child: Column(
                     children: [
-                      CircleAvatar(
-                        radius: 40,
-                        backgroundColor: HavenColors.primary,
-                        backgroundImage: user.avatarUrl != null
-                            ? NetworkImage(user.avatarUrl!)
-                            : null,
-                        child: user.avatarUrl == null
-                            ? Text(
-                                (user.fullName != null && user.fullName!.isNotEmpty ? user.fullName![0] : '?').toUpperCase(),
-                                style: const TextStyle(
-                                  fontSize: 32,
-                                  color: HavenColors.textPrimary,
-                                  fontWeight: FontWeight.bold,
+                      Stack(
+                        children: [
+                          CircleAvatar(
+                            radius: 40,
+                            backgroundColor: HavenColors.primary,
+                            backgroundImage: user.avatarUrl != null
+                                ? NetworkImage(user.avatarUrl!)
+                                : null,
+                            child: user.avatarUrl == null
+                                ? Text(
+                                    (user.fullName != null && user.fullName!.isNotEmpty ? user.fullName![0] : '?').toUpperCase(),
+                                    style: const TextStyle(
+                                      fontSize: 32,
+                                      color: HavenColors.textPrimary,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  )
+                                : null,
+                          ),
+                          if (_isUploadingPhoto)
+                            Positioned.fill(
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withOpacity(0.5),
+                                  shape: BoxShape.circle,
                                 ),
-                              )
-                            : null,
+                                child: const Center(
+                                  child: SizedBox(
+                                    width: 24,
+                                    height: 24,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
                       const SizedBox(height: HavenSpacing.sm),
                       TextButton(
-                        onPressed: () => _changePhoto(),
-                        child: const Text(
-                          'Change Photo',
-                          style: TextStyle(color: HavenColors.secondary),
+                        onPressed: _isUploadingPhoto ? null : () => _changePhoto(),
+                        child: Text(
+                          _isUploadingPhoto ? 'Uploading...' : 'Change Photo',
+                          style: TextStyle(
+                            color: _isUploadingPhoto
+                                ? HavenColors.textTertiary
+                                : HavenColors.secondary,
+                          ),
                         ),
                       ),
                     ],

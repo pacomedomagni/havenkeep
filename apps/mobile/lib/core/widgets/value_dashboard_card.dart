@@ -212,12 +212,26 @@ class ValueDashboardCard extends StatelessWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(
-              'Warranty Health',
-              style: TextStyle(
-                color: HavenColors.textPrimary.withValues(alpha: 0.9),
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
+            Tooltip(
+              message: '$activeWarranties of $totalItems items have active warranties',
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Warranty Health',
+                    style: TextStyle(
+                      color: HavenColors.textPrimary.withValues(alpha: 0.9),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Icon(
+                    Icons.info_outline,
+                    size: 14,
+                    color: HavenColors.textPrimary.withValues(alpha: 0.6),
+                  ),
+                ],
               ),
             ),
             Text(
@@ -229,6 +243,14 @@ class ValueDashboardCard extends StatelessWidget {
               ),
             ),
           ],
+        ),
+        const SizedBox(height: 4),
+        Text(
+          '$activeWarranties of $totalItems items actively covered',
+          style: TextStyle(
+            color: HavenColors.textPrimary.withValues(alpha: 0.7),
+            fontSize: 11,
+          ),
         ),
         const SizedBox(height: 8),
         ClipRRect(

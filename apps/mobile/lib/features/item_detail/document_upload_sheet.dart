@@ -133,9 +133,7 @@ class _DocumentUploadSheetState extends ConsumerState<DocumentUploadSheet> {
 
       if (mounted) {
         Navigator.of(context).pop();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Document uploaded')),
-        );
+        showHavenSnackBar(context, message: 'Document uploaded', isSuccess: true);
       }
     } catch (e) {
       if (mounted) {
@@ -222,23 +220,49 @@ class _DocumentUploadSheetState extends ConsumerState<DocumentUploadSheet> {
                       borderRadius: const BorderRadius.horizontal(
                         left: Radius.circular(HavenRadius.card),
                       ),
-                      child: Image.asset(
-                        // Use a placeholder since we can't load XFile directly in preview
-                        'assets/placeholder.png',
-                        width: 120,
-                        height: 120,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => Container(
-                          width: 120,
-                          height: 120,
-                          color: HavenColors.surface,
-                          child: const Icon(
-                            Icons.image,
-                            size: 40,
-                            color: HavenColors.textTertiary,
-                          ),
-                        ),
-                      ),
+                      child: _selectedImage!.name.toLowerCase().endsWith('.pdf') ||
+                              _selectedImage!.name.toLowerCase().endsWith('.doc') ||
+                              _selectedImage!.name.toLowerCase().endsWith('.docx')
+                          ? Container(
+                              width: 120,
+                              height: 120,
+                              color: HavenColors.surface,
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const Icon(
+                                    Icons.description,
+                                    size: 40,
+                                    color: HavenColors.textTertiary,
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    _selectedImage!.name.split('.').last.toUpperCase(),
+                                    style: const TextStyle(
+                                      fontSize: 10,
+                                      color: HavenColors.textTertiary,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : Image.file(
+                              File(_selectedImage!.path),
+                              width: 120,
+                              height: 120,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => Container(
+                                width: 120,
+                                height: 120,
+                                color: HavenColors.surface,
+                                child: const Icon(
+                                  Icons.image,
+                                  size: 40,
+                                  color: HavenColors.textTertiary,
+                                ),
+                              ),
+                            ),
                     ),
                     const SizedBox(width: HavenSpacing.md),
                     Expanded(
@@ -339,24 +363,41 @@ class _DocumentUploadSheetState extends ConsumerState<DocumentUploadSheet> {
               ),
               const SizedBox(height: HavenSpacing.lg),
 
-              // Error message
+              // Error message with retry context
               if (_errorMessage != null) ...[
-                Text(
-                  _errorMessage!,
-                  style: const TextStyle(
-                    color: HavenColors.expired,
-                    fontSize: 13,
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(HavenSpacing.sm),
+                  decoration: BoxDecoration(
+                    color: HavenColors.expired.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(HavenRadius.button),
+                    border: Border.all(color: HavenColors.expired.withOpacity(0.3)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.error_outline, size: 18, color: HavenColors.expired),
+                      const SizedBox(width: HavenSpacing.sm),
+                      Expanded(
+                        child: Text(
+                          _errorMessage!,
+                          style: const TextStyle(
+                            color: HavenColors.expired,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
                 const SizedBox(height: HavenSpacing.sm),
               ],
 
-              // Upload button
+              // Upload / Retry button
               SizedBox(
                 height: 52,
-                child: ElevatedButton(
+                child: ElevatedButton.icon(
                   onPressed: _isUploading ? null : _upload,
-                  child: _isUploading
+                  icon: _isUploading
                       ? const SizedBox(
                           width: 20,
                           height: 20,
@@ -365,7 +406,11 @@ class _DocumentUploadSheetState extends ConsumerState<DocumentUploadSheet> {
                             color: Colors.white,
                           ),
                         )
-                      : const Text('Upload'),
+                      : Icon(
+                          _errorMessage != null ? Icons.refresh : Icons.upload,
+                          size: 20,
+                        ),
+                  label: Text(_errorMessage != null ? 'Retry Upload' : 'Upload'),
                 ),
               ),
             ],

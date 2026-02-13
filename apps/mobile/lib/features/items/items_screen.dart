@@ -418,6 +418,9 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
   }
 
   Widget _buildNoResults() {
+    final hasSearch = _searchQuery.isNotEmpty;
+    final hasFilters = ref.read(itemsFilterProvider).isNotEmpty;
+
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -429,7 +432,7 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
           ),
           const SizedBox(height: HavenSpacing.md),
           Text(
-            _searchQuery.isNotEmpty
+            hasSearch
                 ? "No items match '$_searchQuery'"
                 : 'No items match the selected filters',
             style: const TextStyle(
@@ -438,9 +441,19 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
             ),
             textAlign: TextAlign.center,
           ),
+          const SizedBox(height: HavenSpacing.xs),
+          Text(
+            hasSearch
+                ? 'Try a different search term or check your spelling'
+                : 'Try selecting a different status filter above',
+            style: const TextStyle(
+              fontSize: 13,
+              color: HavenColors.textTertiary,
+            ),
+            textAlign: TextAlign.center,
+          ),
           const SizedBox(height: HavenSpacing.lg),
-          // Actionable suggestions
-          if (_searchQuery.isNotEmpty)
+          if (hasSearch)
             TextButton.icon(
               onPressed: () => _searchController.clear(),
               icon: const Icon(Icons.clear, size: 16),
@@ -449,11 +462,11 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
                 foregroundColor: HavenColors.secondary,
               ),
             ),
-          if (ref.read(itemsFilterProvider).isNotEmpty)
+          if (hasFilters)
             TextButton.icon(
               onPressed: _selectAll,
               icon: const Icon(Icons.filter_alt_off, size: 16),
-              label: const Text('Clear filters'),
+              label: const Text('Show all items'),
               style: TextButton.styleFrom(
                 foregroundColor: HavenColors.secondary,
               ),

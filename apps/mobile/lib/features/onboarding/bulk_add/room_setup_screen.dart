@@ -128,7 +128,18 @@ class _RoomSetupScreenState extends ConsumerState<RoomSetupScreen> {
     }
   }
 
-  void _skipRoom() {
+  Future<void> _skipRoom() async {
+    final items = ref.read(bulkAddProvider).currentRoomItems;
+    if (items.isNotEmpty) {
+      final confirmed = await showHavenConfirmDialog(
+        context,
+        title: 'Skip this room?',
+        body: 'You have ${items.length} ${items.length == 1 ? 'item' : 'items'} selected. Skipping will discard them.',
+        confirmLabel: 'Skip',
+        isDestructive: true,
+      );
+      if (!confirmed) return;
+    }
     _nextRoom();
   }
 
@@ -410,9 +421,18 @@ class _RoomSetupScreenState extends ConsumerState<RoomSetupScreen> {
               ),
               // Remove button
               GestureDetector(
-                onTap: () {
-                  ref.read(bulkAddProvider.notifier).removeItem(index);
-                  _brandControllers.remove(index)?.dispose();
+                onTap: () async {
+                  final confirmed = await showHavenConfirmDialog(
+                    context,
+                    title: 'Remove ${item.name}?',
+                    body: 'This item will be removed from the setup.',
+                    confirmLabel: 'Remove',
+                    isDestructive: true,
+                  );
+                  if (confirmed) {
+                    ref.read(bulkAddProvider.notifier).removeItem(index);
+                    _brandControllers.remove(index)?.dispose();
+                  }
                 },
                 child: const Icon(
                   Icons.close,
