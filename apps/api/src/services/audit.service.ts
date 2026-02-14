@@ -461,29 +461,32 @@ export class AuditService {
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-    const result = await pool.query(
+    // Use two separate queries to avoid cartesian join
+    const summaryResult = await pool.query(
       `SELECT
         COUNT(*) as total,
         COUNT(*) FILTER (WHERE severity = 'info') as severity_info,
         COUNT(*) FILTER (WHERE severity = 'warning') as severity_warning,
         COUNT(*) FILTER (WHERE severity = 'error') as severity_error,
         COUNT(*) FILTER (WHERE severity = 'critical') as severity_critical,
-        COUNT(*) FILTER (WHERE success = FALSE) as failed_actions,
-        jsonb_object_agg(action, action_count) as actions_breakdown
-       FROM (
-         SELECT
-           action,
-           COUNT(*) as action_count
-         FROM audit_logs
-         ${whereClause}
-         GROUP BY action
-       ) action_counts,
-       audit_logs
+        COUNT(*) FILTER (WHERE success = FALSE) as failed_actions
+       FROM audit_logs
        ${whereClause}`,
       params
     );
 
-    const row = result.rows[0];
+    const breakdownResult = await pool.query(
+      `SELECT jsonb_object_agg(action, action_count) as actions_breakdown
+       FROM (
+         SELECT action, COUNT(*) as action_count
+         FROM audit_logs
+         ${whereClause}
+         GROUP BY action
+       ) action_counts`,
+      params
+    );
+
+    const row = summaryResult.rows[0];
 
     return {
       total: parseInt(row.total, 10),
@@ -493,7 +496,7 @@ export class AuditService {
         error: parseInt(row.severity_error, 10),
         critical: parseInt(row.severity_critical, 10),
       },
-      by_action: row.actions_breakdown || {},
+      by_action: breakdownResult.rows[0]?.actions_breakdown || {},
       failed_actions: parseInt(row.failed_actions, 10),
     };
   }

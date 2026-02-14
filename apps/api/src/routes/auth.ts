@@ -17,6 +17,19 @@ import { generateUniqueReferralCode } from '../utils/referral-code';
 
 const router = Router();
 
+// Parse JWT expiry string (e.g. '7d', '24h') to milliseconds
+function parseExpiryToMs(expiry: string | number): number {
+  if (typeof expiry === 'number') return expiry * 1000;
+  const match = String(expiry).match(/^(\d+)(s|m|h|d)$/);
+  if (!match) return 7 * 24 * 60 * 60 * 1000; // fallback 7 days
+  const value = parseInt(match[1], 10);
+  const unit = match[2];
+  const multipliers: Record<string, number> = { s: 1000, m: 60000, h: 3600000, d: 86400000 };
+  return value * multipliers[unit];
+}
+
+const REFRESH_TOKEN_EXPIRY_MS = parseExpiryToMs(config.jwt.refreshExpiresIn as string | number);
+
 // Helper to get IP address
 const getIpAddress = (req: any): string => {
   const ip =
@@ -101,7 +114,7 @@ router.post('/register', authRateLimiter, validate(registerSchema), async (req, 
     );
 
     // Store refresh token
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    const expiresAt = new Date(Date.now() + REFRESH_TOKEN_EXPIRY_MS);
 
     await query(
       `INSERT INTO refresh_tokens (user_id, token, expires_at)
@@ -179,7 +192,9 @@ router.post('/login', authRateLimiter, validate(loginSchema), async (req, res, n
         success: false,
         errorMessage: 'Invalid password',
       });
-      throw new AppError('Invalid credentials', 401);
+      const err = new AppError('Invalid credentials', 401);
+      (err as any)._auditLogged = true;
+      throw err;
     }
 
     // Generate tokens
@@ -196,7 +211,7 @@ router.post('/login', authRateLimiter, validate(loginSchema), async (req, res, n
     );
 
     // Store refresh token
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    const expiresAt = new Date(Date.now() + REFRESH_TOKEN_EXPIRY_MS);
 
     await query(
       `INSERT INTO refresh_tokens (user_id, token, expires_at)
@@ -234,8 +249,8 @@ router.post('/login', authRateLimiter, validate(loginSchema), async (req, res, n
       refreshToken,
     });
   } catch (error) {
-    // Audit log: failed login (user not found or other error)
-    if (error instanceof AppError && error.statusCode === 401) {
+    // Audit log: failed login (user not found or other error) — skip if already logged
+    if (error instanceof AppError && error.statusCode === 401 && !(error as any)._auditLogged) {
       await AuditService.logAuth({
         action: 'auth.login',
         email: req.body.email,
@@ -608,7 +623,7 @@ router.post('/google', authRateLimiter, async (req, res, next) => {
       { expiresIn: config.jwt.refreshExpiresIn }
     );
 
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    const expiresAt = new Date(Date.now() + REFRESH_TOKEN_EXPIRY_MS);
 
     await query(
       `INSERT INTO refresh_tokens (user_id, token, expires_at)
@@ -786,7 +801,7 @@ router.post('/apple', authRateLimiter, async (req, res, next) => {
       { expiresIn: config.jwt.refreshExpiresIn }
     );
 
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    const expiresAt = new Date(Date.now() + REFRESH_TOKEN_EXPIRY_MS);
 
     await query(
       `INSERT INTO refresh_tokens (user_id, token, expires_at)

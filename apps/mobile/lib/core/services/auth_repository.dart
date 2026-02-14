@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:api_client/api_client.dart';
 import 'package:shared_models/shared_models.dart' as models;
 
@@ -114,7 +115,12 @@ class AuthRepository {
   /// Sign out the current user.
   Future<void> signOut() async {
     try {
-      await _client.post('/api/v1/auth/logout', body: {});
+      // Read the stored refresh token so the server can blacklist it
+      final storage = const FlutterSecureStorage();
+      final refreshToken = await storage.read(key: 'refresh_token');
+      await _client.post('/api/v1/auth/logout', body: {
+        if (refreshToken != null) 'refreshToken': refreshToken,
+      });
     } catch (e) {
       debugPrint('[Auth] Logout API call failed: $e');
     } finally {
@@ -207,6 +213,8 @@ class AuthRepository {
         'full_name': json['fullName'],
       if (json.containsKey('isAdmin') && !json.containsKey('is_admin'))
         'is_admin': json['isAdmin'],
+      if (json.containsKey('isPartner') && !json.containsKey('is_partner'))
+        'is_partner': json['isPartner'],
     };
   }
 }

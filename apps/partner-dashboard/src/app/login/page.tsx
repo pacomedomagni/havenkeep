@@ -25,9 +25,8 @@ export default function LoginPage() {
         router.refresh()
       }
     } catch {
-      // signIn redirects on success, so we only get here on actual errors
-      router.push('/dashboard')
-      router.refresh()
+      // signIn uses redirect() on success which throws NEXT_REDIRECT
+      // If we get here with no result.error, it means redirect succeeded
     } finally {
       setLoading(false)
     }

@@ -77,9 +77,9 @@ export default function SignUpPage() {
             name="password"
             type="password"
             required
-            minLength={6}
+            minLength={8}
             className="input-field"
-            placeholder="At least 6 characters"
+            placeholder="At least 8 characters"
           />
         </div>
 
@@ -92,7 +92,7 @@ export default function SignUpPage() {
             name="confirmPassword"
             type="password"
             required
-            minLength={6}
+            minLength={8}
             className="input-field"
             placeholder="Confirm your password"
           />

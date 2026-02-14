@@ -175,7 +175,7 @@ export async function serverApiClient<T = any>(
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
     throw new Error(
-      errorData.message || errorData.error || `API request failed with status ${response.status}`
+      errorData.error || errorData.message || `API request failed with status ${response.status}`
     );
   }
 

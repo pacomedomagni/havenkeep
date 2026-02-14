@@ -31,7 +31,10 @@ export async function initializeBucket() {
             Effect: 'Allow',
             Principal: { AWS: ['*'] },
             Action: ['s3:GetObject'],
-            Resource: [`arn:aws:s3:::${BUCKET_NAME}/public/*`],
+            Resource: [
+              `arn:aws:s3:::${BUCKET_NAME}/public/*`,
+              `arn:aws:s3:::${BUCKET_NAME}/documents/*`,
+            ],
           },
         ],
       };

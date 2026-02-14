@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { authenticate } from '../middleware/auth';
 import { AuditService, AuditAction, AuditSeverity } from '../services/audit.service';
 import { AppError } from '../utils/errors';
+import { asyncHandler } from '../utils/async-handler';
 
 const router = Router();
 
@@ -12,7 +13,7 @@ router.use(authenticate);
  * GET /api/v1/audit/logs
  * Query audit logs with filters (admin or own logs)
  */
-router.get('/logs', async (req: Request, res: Response) => {
+router.get('/logs', asyncHandler(async (req: Request, res: Response) => {
   const user = req.user!;
   const {
     action,
@@ -53,13 +54,13 @@ router.get('/logs', async (req: Request, res: Response) => {
       hasMore: result.total > filters.offset + filters.limit,
     },
   });
-});
+}));
 
 /**
  * GET /api/v1/audit/logs/me
  * Get current user's audit logs
  */
-router.get('/logs/me', async (req: Request, res: Response) => {
+router.get('/logs/me', asyncHandler(async (req: Request, res: Response) => {
   const user = req.user!;
   const { limit = '50', offset = '0' } = req.query;
 
@@ -78,28 +79,32 @@ router.get('/logs/me', async (req: Request, res: Response) => {
       hasMore: result.total > parseInt(offset as string, 10) + parseInt(limit as string, 10),
     },
   });
-});
+}));
 
 /**
  * GET /api/v1/audit/logs/resource/:resourceType/:resourceId
  * Get audit logs for a specific resource
  */
-router.get('/logs/resource/:resourceType/:resourceId', async (req: Request, res: Response) => {
+router.get('/logs/resource/:resourceType/:resourceId', asyncHandler(async (req: Request, res: Response) => {
   const user = req.user!;
   const { resourceType, resourceId } = req.params;
   const { limit = '50', offset = '0' } = req.query;
 
-  const result = await AuditService.getResourceLogs(
-    resourceType,
-    resourceId,
-    Math.min(parseInt(limit as string, 10), 100),
-    parseInt(offset as string, 10)
-  );
-
-  // Non-admins can only see logs for resources they own
-  if (!user.isAdmin) {
-    result.logs = result.logs.filter(log => log.user_id === user.id);
-  }
+  // Non-admins can only see their own logs — pass userId filter to the query
+  const result = user.isAdmin
+    ? await AuditService.getResourceLogs(
+        resourceType,
+        resourceId,
+        Math.min(parseInt(limit as string, 10), 100),
+        parseInt(offset as string, 10)
+      )
+    : await AuditService.query({
+        userId: user.id,
+        resourceType,
+        resourceId,
+        limit: Math.min(parseInt(limit as string, 10), 100),
+        offset: parseInt(offset as string, 10),
+      });
 
   res.json({
     logs: result.logs,
@@ -110,13 +115,13 @@ router.get('/logs/resource/:resourceType/:resourceId', async (req: Request, res:
       hasMore: result.total > parseInt(offset as string, 10) + parseInt(limit as string, 10),
     },
   });
-});
+}));
 
 /**
  * GET /api/v1/audit/security
  * Get recent security events (admin only)
  */
-router.get('/security', async (req: Request, res: Response) => {
+router.get('/security', asyncHandler(async (req: Request, res: Response) => {
   const user = req.user!;
 
   if (!user.isAdmin) {
@@ -130,13 +135,13 @@ router.get('/security', async (req: Request, res: Response) => {
   );
 
   res.json({ events });
-});
+}));
 
 /**
  * GET /api/v1/audit/stats
  * Get audit log statistics
  */
-router.get('/stats', async (req: Request, res: Response) => {
+router.get('/stats', asyncHandler(async (req: Request, res: Response) => {
   const user = req.user!;
 
   if (!user.isAdmin) {
@@ -151,13 +156,13 @@ router.get('/stats', async (req: Request, res: Response) => {
   );
 
   res.json({ stats });
-});
+}));
 
 /**
  * GET /api/v1/audit/activity-summary
  * Get user activity summary (admin only)
  */
-router.get('/activity-summary', async (req: Request, res: Response) => {
+router.get('/activity-summary', asyncHandler(async (req: Request, res: Response) => {
   const user = req.user!;
 
   if (!user.isAdmin) {
@@ -169,13 +174,13 @@ router.get('/activity-summary', async (req: Request, res: Response) => {
   const summary = await AuditService.getUserActivitySummary(userId as string | undefined);
 
   res.json({ summary });
-});
+}));
 
 /**
  * POST /api/v1/audit/cleanup
  * Manually trigger audit log cleanup (admin only)
  */
-router.post('/cleanup', async (req: Request, res: Response) => {
+router.post('/cleanup', asyncHandler(async (req: Request, res: Response) => {
   const user = req.user!;
 
   if (!user.isAdmin) {
@@ -193,6 +198,6 @@ router.post('/cleanup', async (req: Request, res: Response) => {
     success: true,
     message: 'Audit log cleanup completed',
   });
-});
+}));
 
 export default router;

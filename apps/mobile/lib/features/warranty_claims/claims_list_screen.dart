@@ -76,7 +76,7 @@ class ClaimsListScreen extends ConsumerWidget {
               // Savings summary card
               savingsAsync.when(
                 data: (savings) {
-                  final totalSaved = (savings['total_saved'] as num?)?.toDouble() ?? 0;
+                  final totalSaved = (savings['total_savings'] as num?)?.toDouble() ?? 0;
                   final totalClaims = (savings['total_claims'] as num?)?.toInt() ?? 0;
 
                   return Container(

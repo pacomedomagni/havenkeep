@@ -2,18 +2,21 @@
 
 import { useState, useEffect } from 'react';
 import ConversionFunnel from '@/components/charts/conversion-funnel';
-import EarningsChart from '@/components/charts/earnings-chart';
-import TopReferrals from '@/components/charts/top-referrals';
 import { apiClient } from '@/lib/api';
 
 interface AnalyticsData {
-  earnings_by_month?: { month: string; earnings: number }[];
-  funnel?: { sent: number; opened: number; activated: number; converted: number };
-  top_referrals?: { code: string; conversions: number; earnings: number }[];
+  total_gifts: number;
+  activated_gifts: number;
+  pending_gifts: number;
+  activation_rate: number;
+  total_commissions: number;
+  pending_commissions: number;
+  paid_commissions: number;
+  recent_activity: any[];
 }
 
 export default function AnalyticsPage() {
-  const [analytics, setAnalytics] = useState<AnalyticsData>({});
+  const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -44,6 +47,13 @@ export default function AnalyticsPage() {
     );
   }
 
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+    }).format(amount);
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -71,30 +81,61 @@ export default function AnalyticsPage() {
           <p className="text-sm text-haven-text-secondary mb-4">
             Track how referrals convert through each stage
           </p>
-          <ConversionFunnel data={analytics.funnel ? [
-            { stage: 'Gifts Sent', count: analytics.funnel.sent, color: '#6C63FF' },
-            { stage: 'Opened', count: analytics.funnel.opened, color: '#BB86FC' },
-            { stage: 'Activated', count: analytics.funnel.activated, color: '#4CAF50' },
-            { stage: 'Converted', count: analytics.funnel.converted, color: '#FFC107' },
+          <ConversionFunnel data={analytics ? [
+            { stage: 'Total Gifts', count: analytics.total_gifts, color: '#6C63FF' },
+            { stage: 'Pending', count: analytics.pending_gifts, color: '#BB86FC' },
+            { stage: 'Activated', count: analytics.activated_gifts, color: '#4CAF50' },
           ] : undefined} />
         </div>
 
-        {/* Monthly Earnings */}
+        {/* Commissions Breakdown */}
         <div className="card">
-          <h2 className="text-lg font-semibold text-white mb-4">Monthly Earnings</h2>
+          <h2 className="text-lg font-semibold text-white mb-4">Commissions Breakdown</h2>
           <p className="text-sm text-haven-text-secondary mb-4">
-            Your commission earnings over the past 12 months
+            Your commission earnings summary
           </p>
-          <EarningsChart data={analytics.earnings_by_month} />
+          <div className="space-y-4">
+            <div className="flex items-center justify-between p-4 border border-haven-border rounded-lg">
+              <span className="text-haven-text-secondary">Total Earned</span>
+              <span className="text-lg font-bold text-white">
+                {formatCurrency(analytics?.total_commissions || 0)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between p-4 border border-haven-border rounded-lg">
+              <span className="text-haven-text-secondary">Paid Out</span>
+              <span className="text-lg font-bold text-haven-active">
+                {formatCurrency(analytics?.paid_commissions || 0)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between p-4 border border-haven-border rounded-lg">
+              <span className="text-haven-text-secondary">Pending</span>
+              <span className="text-lg font-bold text-haven-warning">
+                {formatCurrency(analytics?.pending_commissions || 0)}
+              </span>
+            </div>
+          </div>
         </div>
 
-        {/* Top Referral Codes */}
+        {/* Activation Rate */}
         <div className="card lg:col-span-2">
-          <h2 className="text-lg font-semibold text-white mb-4">Top Performing Referral Codes</h2>
+          <h2 className="text-lg font-semibold text-white mb-4">Performance Summary</h2>
           <p className="text-sm text-haven-text-secondary mb-4">
-            Your most successful referral codes by number of conversions
+            Key metrics for your partner activity
           </p>
-          <TopReferrals data={analytics.top_referrals} />
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="text-center p-4 border border-haven-border rounded-lg">
+              <div className="text-3xl font-bold text-haven-primary">{analytics?.total_gifts || 0}</div>
+              <div className="text-sm text-haven-text-secondary mt-1">Total Gifts Sent</div>
+            </div>
+            <div className="text-center p-4 border border-haven-border rounded-lg">
+              <div className="text-3xl font-bold text-haven-active">{analytics?.activated_gifts || 0}</div>
+              <div className="text-sm text-haven-text-secondary mt-1">Gifts Activated</div>
+            </div>
+            <div className="text-center p-4 border border-haven-border rounded-lg">
+              <div className="text-3xl font-bold text-haven-warning">{analytics?.activation_rate || 0}%</div>
+              <div className="text-sm text-haven-text-secondary mt-1">Activation Rate</div>
+            </div>
+          </div>
         </div>
       </div>
     </div>

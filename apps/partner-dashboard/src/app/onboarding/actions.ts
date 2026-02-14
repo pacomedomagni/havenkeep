@@ -7,7 +7,7 @@ import type { PartnerType } from '@/lib/types';
 export async function createPartnerProfile(formData: FormData) {
   const companyName = formData.get('companyName') as string;
   const partnerType = formData.get('partnerType') as PartnerType;
-  const phone = formData.get('phone') as string;
+  const licenseNumber = formData.get('licenseNumber');
   const serviceAreasRaw = formData.get('serviceAreas') as string;
 
   const serviceAreas = serviceAreasRaw
@@ -19,10 +19,10 @@ export async function createPartnerProfile(formData: FormData) {
     await serverApiClient('/api/v1/partners/register', {
       method: 'POST',
       body: {
-        companyName,
-        partnerType,
-        phone: phone || undefined,
-        serviceAreas,
+        company_name: companyName,
+        partner_type: partnerType,
+        ...(licenseNumber ? { license_number: licenseNumber } : {}),
+        service_areas: serviceAreas,
       },
     });
   } catch (error) {

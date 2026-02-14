@@ -11,6 +11,8 @@ class User {
   final DateTime? planExpiresAt;
   final String? referredBy;
   final String? referralCode;
+  final bool isAdmin;
+  final bool isPartner;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -24,6 +26,8 @@ class User {
     this.planExpiresAt,
     this.referredBy,
     this.referralCode,
+    this.isAdmin = false,
+    this.isPartner = false,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -41,6 +45,8 @@ class User {
           : null,
       referredBy: json['referred_by'] as String?,
       referralCode: json['referral_code'] as String?,
+      isAdmin: json['is_admin'] as bool? ?? false,
+      isPartner: json['is_partner'] as bool? ?? false,
       createdAt: DateTime.parse(json['created_at'] as String),
       updatedAt: DateTime.parse(json['updated_at'] as String),
     );
@@ -57,6 +63,8 @@ class User {
       'plan_expires_at': planExpiresAt?.toIso8601String(),
       'referred_by': referredBy,
       'referral_code': referralCode,
+      'is_admin': isAdmin,
+      'is_partner': isPartner,
     };
   }
 
@@ -74,6 +82,8 @@ class User {
     bool clearReferredBy = false,
     String? referralCode,
     bool clearReferralCode = false,
+    bool? isAdmin,
+    bool? isPartner,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -90,6 +100,8 @@ class User {
       referredBy: clearReferredBy ? null : (referredBy ?? this.referredBy),
       referralCode:
           clearReferralCode ? null : (referralCode ?? this.referralCode),
+      isAdmin: isAdmin ?? this.isAdmin,
+      isPartner: isPartner ?? this.isPartner,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );

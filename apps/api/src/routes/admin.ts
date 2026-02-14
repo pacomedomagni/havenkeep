@@ -159,7 +159,7 @@ router.get('/users', validate(paginationSchema, 'query'), async (req, res, next)
   }
 });
 
-// Suspend user (set plan to free)
+// Suspend user (downgrade to free and invalidate all sessions)
 router.put('/users/:id/suspend', validate(userIdParamSchema, 'params'), async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -172,6 +172,9 @@ router.put('/users/:id/suspend', validate(userIdParamSchema, 'params'), async (r
     if (result.rows.length === 0) {
       throw new AppError('User not found', 404);
     }
+
+    // Invalidate all refresh tokens so the suspended user gets signed out
+    await query(`DELETE FROM refresh_tokens WHERE user_id = $1`, [id]);
 
     res.json({ success: true, message: 'User suspended', user: result.rows[0] });
   } catch (error) {
@@ -186,6 +189,11 @@ router.put('/users/:id/suspend', validate(userIdParamSchema, 'params'), async (r
 router.delete('/users/:id', validate(userIdParamSchema, 'params'), async (req, res, next) => {
   try {
     const { id } = req.params;
+
+    // Prevent admin from deleting their own account
+    if (id === req.user!.id) {
+      throw new AppError('Cannot delete your own account', 400);
+    }
 
     // Delete refresh tokens first (prevents token refresh after deletion)
     await query(`DELETE FROM refresh_tokens WHERE user_id = $1`, [id]);

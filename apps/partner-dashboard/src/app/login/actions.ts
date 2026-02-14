@@ -23,7 +23,7 @@ export async function signIn(formData: FormData) {
 
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
-      return { error: data.message || 'Invalid credentials' };
+      return { error: data.error || data.message || 'Invalid credentials' };
     }
 
     const data = await response.json();

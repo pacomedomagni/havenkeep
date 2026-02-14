@@ -85,7 +85,11 @@ class Item {
       barcode: json['barcode'] as String?,
       purchaseDate: DateTime.parse(json['purchase_date'] as String),
       store: json['store'] as String?,
-      price: json['price'] != null ? (json['price'] as num).toDouble() : null,
+      price: json['price'] != null
+          ? (json['price'] is num
+              ? (json['price'] as num).toDouble()
+              : double.tryParse(json['price'].toString()))
+          : null,
       warrantyMonths: json['warranty_months'] as int? ?? 12,
       warrantyEndDate: json['warranty_end_date'] != null
           ? DateTime.parse(json['warranty_end_date'] as String)

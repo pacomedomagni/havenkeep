@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { authenticate } from '../middleware/auth';
+import { authenticate, requirePremium } from '../middleware/auth';
 import { EmailScannerService } from '../services/email-scanner.service';
 import { asyncHandler } from '../utils/async-handler';
 import Joi from 'joi';
@@ -7,8 +7,9 @@ import { validate } from '../middleware/validate';
 
 const router = Router();
 
-// All routes require authentication
+// All routes require authentication and premium plan
 router.use(authenticate);
+router.use(requirePremium);
 
 const initiateScanSchema = Joi.object({
   provider: Joi.string().valid('gmail', 'outlook').required(),

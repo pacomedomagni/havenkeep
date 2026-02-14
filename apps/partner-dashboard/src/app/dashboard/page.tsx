@@ -179,14 +179,11 @@ export default function DashboardPage() {
               <div key={index} className="flex items-start gap-3 pb-4 border-b border-haven-border last:border-0 last:pb-0">
                 <div className="flex-shrink-0 w-2 h-2 bg-haven-primary rounded-full mt-2"></div>
                 <div className="flex-1">
-                  <div className="text-sm text-white">{activity.homebuyer_name}</div>
+                  <div className="text-sm text-white">{activity.name}</div>
                   <div className="text-xs text-haven-text-tertiary">
-                    {activity.is_activated ? 'Activated gift' : 'Gift created'} •{' '}
+                    {activity.status === 'activated' ? 'Activated gift' : 'Gift created'} •{' '}
                     {new Date(activity.created_at).toLocaleDateString()}
                   </div>
-                </div>
-                <div className="text-sm font-medium text-white">
-                  {formatCurrency(activity.amount_charged)}
                 </div>
               </div>
             ))}

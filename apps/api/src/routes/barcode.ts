@@ -14,21 +14,22 @@ router.post('/lookup', validate(barcodeLookupSchema), async (req: AuthRequest, r
 
     logger.info({ barcode, userId: req.user!.id }, 'Barcode lookup requested');
 
-    // Try Open Food Facts
+    // Try UPC Database API (general product database, not food-only)
     const response = await fetch(
-      `https://world.openfoodfacts.org/api/v2/product/${barcode}.json`
+      `https://api.upcitemdb.com/prod/trial/lookup?upc=${barcode}`
     );
 
     if (response.ok) {
       const data: any = await response.json();
-      if (data.status === 1 && data.product && typeof data.product === 'object') {
+      if (data.items && data.items.length > 0) {
+        const product = data.items[0];
         logger.info({ barcode, found: true }, 'Barcode found');
         return res.json({
           barcode,
-          brand: typeof data.product.brands === 'string' ? data.product.brands : null,
-          productName: typeof data.product.product_name === 'string' ? data.product.product_name : null,
-          category: 'other',
-          imageUrl: typeof data.product.image_url === 'string' ? data.product.image_url : null,
+          brand: typeof product.brand === 'string' ? product.brand : null,
+          productName: typeof product.title === 'string' ? product.title : null,
+          category: typeof product.category === 'string' ? product.category : 'other',
+          imageUrl: Array.isArray(product.images) && product.images.length > 0 ? product.images[0] : null,
         });
       }
     }

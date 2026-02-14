@@ -381,7 +381,7 @@ export class NotificationsService {
     try {
       const result = await pool.query(
         `INSERT INTO notification_preferences (user_id, reminders_enabled, first_reminder_days, reminder_time, warranty_offers_enabled, tips_enabled, push_enabled, email_enabled)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         VALUES ($1, COALESCE($2, TRUE), COALESCE($3, 30), COALESCE($4, '09:00'), COALESCE($5, TRUE), COALESCE($6, TRUE), COALESCE($7, TRUE), COALESCE($8, FALSE))
          ON CONFLICT (user_id)
          DO UPDATE SET
            reminders_enabled = COALESCE($2, notification_preferences.reminders_enabled),
@@ -394,13 +394,13 @@ export class NotificationsService {
          RETURNING *`,
         [
           userId,
-          prefs.reminders_enabled ?? true,
-          prefs.first_reminder_days ?? 30,
-          prefs.reminder_time ?? '09:00',
-          prefs.warranty_offers_enabled ?? true,
-          prefs.tips_enabled ?? true,
-          prefs.push_enabled ?? true,
-          prefs.email_enabled ?? false,
+          prefs.reminders_enabled !== undefined ? prefs.reminders_enabled : null,
+          prefs.first_reminder_days !== undefined ? prefs.first_reminder_days : null,
+          prefs.reminder_time !== undefined ? prefs.reminder_time : null,
+          prefs.warranty_offers_enabled !== undefined ? prefs.warranty_offers_enabled : null,
+          prefs.tips_enabled !== undefined ? prefs.tips_enabled : null,
+          prefs.push_enabled !== undefined ? prefs.push_enabled : null,
+          prefs.email_enabled !== undefined ? prefs.email_enabled : null,
         ]
       );
 

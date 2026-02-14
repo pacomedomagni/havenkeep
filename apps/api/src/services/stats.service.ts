@@ -103,7 +103,7 @@ export class StatsService {
         await pool.query(
           `UPDATE user_analytics
            SET avg_session_duration_seconds =
-               ((avg_session_duration_seconds * (total_sessions - 1)) + $2) / total_sessions,
+               ((avg_session_duration_seconds * (total_sessions - 1)) + $2) / GREATEST(total_sessions, 1),
                updated_at = NOW()
            WHERE user_id = $1`,
           [userId, event.sessionDuration]
@@ -294,7 +294,6 @@ export class StatsService {
         await pool.query(
           `UPDATE user_analytics
            SET has_filed_claim = TRUE,
-               total_claims_filed = total_claims_filed + 1,
                updated_at = NOW()
            WHERE user_id = $1`,
           [userId]

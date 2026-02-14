@@ -17,10 +17,10 @@ export async function updatePartnerProfile(formData: FormData) {
     await serverApiClient('/api/v1/partners/me', {
       method: 'PUT',
       body: {
-        companyName,
-        partnerType,
+        company_name: companyName,
+        partner_type: partnerType,
         phone: phone || undefined,
-        serviceAreas,
+        service_areas: serviceAreas,
       },
     });
 

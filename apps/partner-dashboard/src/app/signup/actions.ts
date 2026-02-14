@@ -20,8 +20,8 @@ export async function signUp(formData: FormData) {
     return { error: 'Passwords do not match' };
   }
 
-  if (password.length < 6) {
-    return { error: 'Password must be at least 6 characters' };
+  if (password.length < 8) {
+    return { error: 'Password must be at least 8 characters with uppercase, lowercase, number, and special character' };
   }
 
   try {
@@ -33,7 +33,7 @@ export async function signUp(formData: FormData) {
 
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
-      return { error: data.message || 'Registration failed' };
+      return { error: data.error || data.message || 'Registration failed' };
     }
 
     const data = await response.json();
