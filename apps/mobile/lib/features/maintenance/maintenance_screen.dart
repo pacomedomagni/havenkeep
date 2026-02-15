@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import 'package:shared_models/shared_models.dart';
 import 'package:shared_ui/shared_ui.dart';
 
+import '../../core/providers/auth_provider.dart';
 import '../../core/providers/maintenance_provider.dart';
 import '../../core/router/router.dart';
 
@@ -124,7 +125,7 @@ class MaintenanceScreen extends ConsumerWidget {
                       onMarkDone: (task) async {
                         final entry = MaintenanceHistory(
                           id: '',
-                          userId: '',
+                          userId: ref.read(currentUserProvider).value?.id ?? '',
                           itemId: item.itemId,
                           scheduleId: task.scheduleId,
                           taskName: task.taskName,

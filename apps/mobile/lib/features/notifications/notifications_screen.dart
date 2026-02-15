@@ -55,7 +55,15 @@ class NotificationsScreen extends ConsumerWidget {
               itemBuilder: (context, index) {
                 // Load-more trigger at the end
                 if (index == notifications.length) {
-                  notifier.loadMore();
+                  try {
+                    notifier.loadMore();
+                  } catch (e) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Failed to load more: $e')),
+                      );
+                    }
+                  }
                   return const Padding(
                     padding: EdgeInsets.all(HavenSpacing.lg),
                     child: Center(
@@ -191,17 +199,15 @@ class _NotificationCard extends ConsumerWidget {
   }
 
   void _handleTap(BuildContext context, WidgetRef ref) {
-    // Mark as read
-    if (!notification.isRead) {
-      ref.read(notificationsProvider.notifier).markAsRead(notification.id);
-    }
-
-    // Navigate based on action type
+    // Navigate based on action type, then mark as read after successful navigation
     if (notification.actionType == NotificationAction.view_item &&
         notification.actionData != null) {
       final itemId = notification.actionData!['item_id'] as String?;
       if (itemId != null) {
         context.push('/items/$itemId');
+        if (!notification.isRead) {
+          ref.read(notificationsProvider.notifier).markAsRead(notification.id);
+        }
         return;
       }
     }
@@ -209,6 +215,9 @@ class _NotificationCard extends ConsumerWidget {
     // For protection actions, navigate to premium screen
     if (notification.actionType == NotificationAction.get_protection) {
       context.push('/premium');
+      if (!notification.isRead) {
+        ref.read(notificationsProvider.notifier).markAsRead(notification.id);
+      }
       return;
     }
 
@@ -217,7 +226,16 @@ class _NotificationCard extends ConsumerWidget {
       final itemId = notification.actionData?['item_id'] as String?;
       if (itemId != null) {
         context.push('/items/$itemId');
+        if (!notification.isRead) {
+          ref.read(notificationsProvider.notifier).markAsRead(notification.id);
+        }
+        return;
       }
+    }
+
+    // For non-navigable notifications, still mark as read on tap
+    if (!notification.isRead) {
+      ref.read(notificationsProvider.notifier).markAsRead(notification.id);
     }
   }
 

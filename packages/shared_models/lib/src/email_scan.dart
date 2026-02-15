@@ -45,9 +45,9 @@ class EmailScan {
       dateRangeEnd: json['date_range_end'] != null
           ? DateTime.parse(json['date_range_end'] as String)
           : null,
-      emailsScanned: (json['emails_scanned'] as num?)?.toInt() ?? 0,
-      receiptsFound: (json['receipts_found'] as num?)?.toInt() ?? 0,
-      itemsImported: (json['items_imported'] as num?)?.toInt() ?? 0,
+      emailsScanned: int.tryParse(json['emails_scanned']?.toString() ?? '') ?? 0,
+      receiptsFound: int.tryParse(json['receipts_found']?.toString() ?? '') ?? 0,
+      itemsImported: int.tryParse(json['items_imported']?.toString() ?? '') ?? 0,
       status: EmailScanStatus.fromJson(json['status'] as String? ?? 'pending'),
       errorMessage: json['error_message'] as String?,
       completedAt: json['completed_at'] != null

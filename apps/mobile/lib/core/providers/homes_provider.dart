@@ -18,6 +18,9 @@ final homesProvider =
 );
 
 class HomesNotifier extends AsyncNotifier<List<Home>> {
+  /// Track the previous user ID to detect account switches.
+  String? _previousUserId;
+
   @override
   Future<List<Home>> build() async {
     final userAsync = ref.watch(currentUserProvider);
@@ -25,13 +28,23 @@ class HomesNotifier extends AsyncNotifier<List<Home>> {
     // If auth is still loading, preserve current state to avoid flashing empty
     // BUT only if the user hasn't changed (prevent stale data across user switches)
     if (userAsync.isLoading) {
+      final currentUserId = userAsync.valueOrNull?.id;
+      if (_previousUserId != null && currentUserId != null && _previousUserId != currentUserId) {
+        // User has changed — return empty list to avoid showing stale homes
+        _previousUserId = currentUserId;
+        return [];
+      }
       final prevHomes = state.valueOrNull ?? [];
       return prevHomes;
     }
 
     final user = userAsync.valueOrNull;
-    if (user == null) return [];
+    if (user == null) {
+      _previousUserId = null;
+      return [];
+    }
 
+    _previousUserId = user.id;
     return ref.read(homesRepositoryProvider).getHomes();
   }
 

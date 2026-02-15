@@ -11,6 +11,9 @@ import '../../core/providers/items_provider.dart';
 import '../../core/router/router.dart';
 import '../../core/services/csv_export_service.dart';
 
+// TODO: Replace with package_info_plus to read version dynamically at runtime.
+const String kAppVersion = '1.0.0';
+
 /// Profile & Settings screen (Screen 7.1).
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -49,7 +52,9 @@ class SettingsScreen extends ConsumerWidget {
                           ? NetworkImage(u!.avatarUrl!)
                           : null,
                       onBackgroundImageError: u?.avatarUrl != null
-                          ? (_, __) {}
+                          ? (error, __) {
+                              debugPrint('Avatar load failed: $error');
+                            }
                           : null,
                       child: u?.avatarUrl == null
                           ? Text(
@@ -317,7 +322,7 @@ class SettingsScreen extends ConsumerWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Version 1.0.0',
+                        'Version $kAppVersion',
                         style: TextStyle(color: HavenColors.textSecondary),
                       ),
                       SizedBox(height: HavenSpacing.sm),

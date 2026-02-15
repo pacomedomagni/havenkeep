@@ -12,8 +12,9 @@ class ApiException implements Exception {
   final int statusCode;
   final String message;
   final String? code;
+  final int? retryAfterSeconds;
 
-  ApiException(this.statusCode, this.message, {this.code});
+  ApiException(this.statusCode, this.message, {this.code, this.retryAfterSeconds});
 
   bool get isUnauthorized => statusCode == 401;
   bool get isForbidden => statusCode == 403;
@@ -42,6 +43,7 @@ class ApiClient {
   final String baseUrl;
   final http.Client _http;
   final FlutterSecureStorage _storage;
+  final void Function(String)? _onLog;
 
   String? _accessToken;
   String? _userId;
@@ -58,7 +60,9 @@ class ApiClient {
     required this.baseUrl,
     http.Client? httpClient,
     FlutterSecureStorage? storage,
+    void Function(String)? onLog,
   })  : _http = httpClient ?? http.Client(),
+        _onLog = onLog,
         _storage = storage ??
             const FlutterSecureStorage(
               aOptions: AndroidOptions(encryptedSharedPreferences: true),
@@ -66,6 +70,14 @@ class ApiClient {
                 accessibility: KeychainAccessibility.first_unlock,
               ),
             );
+
+  /// Log a message via the callback and, in debug mode, via debugPrint.
+  void _log(String message) {
+    if (kDebugMode) {
+      debugPrint(message);
+    }
+    _onLog?.call(message);
+  }
 
   /// Stream of auth state changes (signedIn, signedOut, tokenRefreshed).
   Stream<ApiAuthState> get authStateChanges => _authStateController.stream;
@@ -91,13 +103,13 @@ class ApiClient {
       if (_accessToken != null && refreshToken != null && _userId != null) {
         // Validate JWT expiration before accepting the restored token
         if (_isTokenExpired(_accessToken!)) {
-          debugPrint('[ApiClient] Stored access token is expired, refreshing...');
+          _log('[ApiClient] Stored access token is expired, refreshing...');
           try {
             await refreshAccessToken()
                 .timeout(const Duration(seconds: 10));
             return true;
           } catch (e) {
-            debugPrint('[ApiClient] Token refresh failed during restore: $e');
+            _log('[ApiClient] Token refresh failed during restore: $e');
             await clearTokens();
             return false;
           }
@@ -113,7 +125,7 @@ class ApiClient {
               .timeout(const Duration(seconds: 10));
           return true;
         } catch (e) {
-          debugPrint('[ApiClient] Token refresh failed during restore: $e');
+          _log('[ApiClient] Token refresh failed during restore: $e');
           await clearTokens();
           return false;
         }
@@ -121,12 +133,14 @@ class ApiClient {
 
       return false;
     } catch (e) {
-      debugPrint('[ApiClient] Failed to restore session: $e');
+      _log('[ApiClient] Failed to restore session: $e');
       return false;
     }
   }
 
   /// Decode a JWT and check if the `exp` claim indicates the token is expired.
+  /// Note: This does NOT verify the JWT signature — it only reads the expiry
+  /// claim for local scheduling. The server validates signatures on every request.
   bool _isTokenExpired(String token) {
     try {
       final parts = token.split('.');
@@ -156,7 +170,7 @@ class ApiClient {
         expirationDate.subtract(const Duration(seconds: 30)),
       );
     } catch (e) {
-      debugPrint('[ApiClient] Failed to decode JWT for expiration check: $e');
+      _log('[ApiClient] Failed to decode JWT for expiration check: $e');
       return true;
     }
   }
@@ -212,8 +226,20 @@ class ApiClient {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body) as Map<String, dynamic>;
-        _accessToken = data['accessToken'] as String;
+        final accessToken = data['accessToken'] as String?;
+        if (accessToken == null) {
+          throw ApiException(
+            401,
+            'Token refresh response missing accessToken',
+          );
+        }
+        _accessToken = accessToken;
         await _storage.write(key: _keyAccessToken, value: _accessToken!);
+        // Save the rotated refresh token from the server
+        final newRefreshToken = data['refreshToken'] as String?;
+        if (newRefreshToken != null) {
+          await _storage.write(key: _keyRefreshToken, value: newRefreshToken);
+        }
         _authStateController.add(ApiAuthState.tokenRefreshed);
         _refreshCompleter!.complete();
       } else {
@@ -261,8 +287,9 @@ class ApiClient {
         // Retry with new token
         response = await request();
       } catch (e) {
-        // Refresh failed — log and return the original 401
-        debugPrint('[ApiClient] Token refresh failed: $e');
+        // Refresh failed — clear tokens so the user isn't stuck half-authenticated
+        _log('[ApiClient] Token refresh failed, signing out: $e');
+        await clearTokens();
       }
     }
 
@@ -271,12 +298,41 @@ class ApiClient {
 
   /// Parse a response, throwing [ApiException] on error.
   Map<String, dynamic> _parseResponse(http.Response response) {
-    final body = response.body.isNotEmpty
-        ? jsonDecode(response.body) as Map<String, dynamic>
-        : <String, dynamic>{};
+    Map<String, dynamic> body;
+    try {
+      if (response.body.isEmpty) {
+        body = <String, dynamic>{};
+      } else {
+        final decoded = jsonDecode(response.body);
+        if (decoded is Map<String, dynamic>) {
+          body = decoded;
+        } else {
+          throw ApiException(
+            response.statusCode,
+            'Unexpected response format: expected a JSON object but got ${decoded.runtimeType}',
+          );
+        }
+      }
+    } on FormatException {
+      throw ApiException(
+        response.statusCode,
+        'Invalid JSON in response body',
+      );
+    }
 
     if (response.statusCode >= 200 && response.statusCode < 300) {
       return body;
+    }
+
+    if (response.statusCode == 429) {
+      final retryAfter = response.headers['retry-after'];
+      final retryAfterSeconds = retryAfter != null ? int.tryParse(retryAfter) : null;
+      throw ApiException(
+        429,
+        body['message'] as String? ?? 'Too many requests. Please try again later.',
+        code: 'rate_limited',
+        retryAfterSeconds: retryAfterSeconds,
+      );
     }
 
     throw ApiException(
@@ -412,6 +468,7 @@ final apiClientProvider = Provider<ApiClient>((ref) {
 });
 
 /// Returns the current authenticated user's ID, or null if not logged in.
+@Deprecated('Use ref.read(apiClientProvider).currentUserId instead')
 String? getCurrentUserId() {
   // This is accessed via the global ApiClient instance
   // For backward compatibility, we provide this as a standalone function
@@ -420,6 +477,7 @@ String? getCurrentUserId() {
 
 /// Returns the current authenticated user's ID.
 /// Throws [StateError] if not logged in.
+@Deprecated('Use ref.read(apiClientProvider).currentUserId instead')
 String requireCurrentUserId() {
   final id = getCurrentUserId();
   if (id == null) {
@@ -432,6 +490,7 @@ String requireCurrentUserId() {
 ApiClient? _globalApiClient;
 
 /// Set the global ApiClient reference (called from main.dart).
+@Deprecated('Use apiClientProvider override in ProviderScope instead')
 void setGlobalApiClient(ApiClient client) {
   _globalApiClient = client;
 }

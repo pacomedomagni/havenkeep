@@ -24,6 +24,7 @@ class SplashScreen extends ConsumerStatefulWidget {
 class _SplashScreenState extends ConsumerState<SplashScreen>
     with SingleTickerProviderStateMixin {
   late final AnimationController _animController;
+  late final void Function(AnimationStatus) _statusListener;
   Timer? _fallbackTimer;
   bool _hasNavigated = false;
   bool _animationComplete = false;
@@ -36,13 +37,14 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
       duration: const Duration(milliseconds: 2000),
     );
 
-    _animController.addStatusListener((status) {
+    _statusListener = (status) {
       if (status == AnimationStatus.completed) {
         _fallbackTimer?.cancel();
         _animationComplete = true;
         _tryNavigate();
       }
-    });
+    };
+    _animController.addStatusListener(_statusListener);
 
     // Fallback: mark animation as complete after 3s even if Lottie fails
     _fallbackTimer = Timer(const Duration(milliseconds: 3000), () {
@@ -59,6 +61,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
   @override
   void dispose() {
     _fallbackTimer?.cancel();
+    _animController.removeStatusListener(_statusListener);
     _animController.dispose();
     super.dispose();
   }

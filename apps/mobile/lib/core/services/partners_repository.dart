@@ -15,7 +15,7 @@ class PartnersRepository {
         e.message,
         statusCode: e.statusCode,
       );
-    } catch (e) {
+    } on Exception catch (e) {
       if (e is NetworkException) rethrow;
       throw NetworkException('Failed to activate gift: $e');
     }
@@ -30,7 +30,7 @@ class PartnersRepository {
         e.message,
         statusCode: e.statusCode,
       );
-    } catch (e) {
+    } on Exception catch (e) {
       if (e is NetworkException) rethrow;
       throw NetworkException('Failed to fetch gift details: $e');
     }
@@ -48,7 +48,7 @@ class PartnersRepository {
         e.message,
         statusCode: e.statusCode,
       );
-    } catch (e) {
+    } on Exception catch (e) {
       if (e is NetworkException) rethrow;
       throw NetworkException('Failed to verify activation code: $e');
     }

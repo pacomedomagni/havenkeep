@@ -169,6 +169,12 @@ class ShareClaimSheet extends StatelessWidget {
                   final uri = Uri.parse('mailto:?subject=$subject&body=$body');
                   if (await canLaunchUrl(uri)) {
                     await launchUrl(uri);
+                  } else {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Email app not available')),
+                      );
+                    }
                   }
                   if (context.mounted) Navigator.of(context).pop();
                 },
@@ -196,6 +202,12 @@ class ShareClaimSheet extends StatelessWidget {
                   final uri = Uri.parse('sms:?body=$body');
                   if (await canLaunchUrl(uri)) {
                     await launchUrl(uri);
+                  } else {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('SMS app not available')),
+                      );
+                    }
                   }
                   if (context.mounted) Navigator.of(context).pop();
                 },

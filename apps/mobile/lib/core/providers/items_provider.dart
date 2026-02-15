@@ -119,18 +119,28 @@ class ItemsNotifier extends AsyncNotifier<List<Item>> {
   /// Batch-add multiple items at once (used by bulk-add flow).
   Future<List<Item>> addItems(List<Item> items) async {
     final repo = ref.read(itemsRepositoryProvider);
+    final currentItems = state.value ?? [];
+
+    // Save previous state for rollback in case any item fails
+    final previousState = AsyncValue.data(List<Item>.from(currentItems));
     final createdItems = <Item>[];
 
-    for (final item in items) {
-      // createItem returns full item with RETURNING * (includes warranty_end_date)
-      final newItem = await repo.createItem(item);
-      createdItems.add(newItem);
+    try {
+      for (final item in items) {
+        // createItem returns full item with RETURNING * (includes warranty_end_date)
+        final newItem = await repo.createItem(item);
+        createdItems.add(newItem);
+      }
+
+      state = AsyncValue.data([...createdItems, ...currentItems]);
+
+      return createdItems;
+    } catch (e) {
+      // Rollback to previous state on failure
+      debugPrint('[ItemsNotifier] addItems failed after ${createdItems.length}/${items.length} items, rolling back: $e');
+      state = previousState;
+      rethrow;
     }
-
-    final currentItems = state.value ?? [];
-    state = AsyncValue.data([...createdItems, ...currentItems]);
-
-    return createdItems;
   }
 
   /// Archive an item (soft delete).

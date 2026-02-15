@@ -54,6 +54,7 @@ class Document {
       'file_size': fileSize,
       'mime_type': mimeType,
       'thumbnail_url': thumbnailUrl,
+      'created_at': createdAt.toIso8601String(),
     };
   }
 

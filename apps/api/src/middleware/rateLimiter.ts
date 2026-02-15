@@ -38,26 +38,34 @@ class RedisStore {
     this.prefix = prefix;
   }
 
+  // Lua script that atomically: removes expired entries, adds the current
+  // request, counts the remaining entries, and sets the key TTL.  This avoids
+  // the race condition inherent in separate ZRANGEBYSCORE + ZADD calls.
+  private static readonly LUA_INCREMENT = `
+    local key = KEYS[1]
+    local now = tonumber(ARGV[1])
+    local windowStart = tonumber(ARGV[2])
+    local ttl = tonumber(ARGV[3])
+
+    redis.call('ZREMRANGEBYSCORE', key, 0, windowStart)
+    redis.call('ZADD', key, now, tostring(now) .. ':' .. tostring(math.random(1000000)))
+    local count = redis.call('ZCARD', key)
+    redis.call('EXPIRE', key, ttl)
+    return count
+  `;
+
   async increment(key: string): Promise<{ totalHits: number; resetTime: Date }> {
     const redisKey = this.prefix + key;
     const now = Date.now();
     const windowStart = now - this.windowMs;
+    const ttlSeconds = Math.ceil(this.windowMs / 1000);
 
-    // NOTE: The ZRANGEBYSCORE + ZADD sequence is not atomic. Under extreme concurrency,
-    // a small number of extra requests may slip through. For strict enforcement, consider
-    // using a Redis Lua script to make the check-and-increment atomic.
-
-    // Remove old entries
-    await this.client.zRemRangeByScore(redisKey, 0, windowStart);
-
-    // Add current request
-    await this.client.zAdd(redisKey, { score: now, value: String(now) });
-
-    // Count requests in window
-    const totalHits = await this.client.zCard(redisKey);
-
-    // Set expiry
-    await this.client.expire(redisKey, Math.ceil(this.windowMs / 1000));
+    // Execute the sliding-window rate-limit logic atomically in a single
+    // Lua script to prevent race conditions under concurrent requests.
+    const totalHits = await this.client.eval(RedisStore.LUA_INCREMENT, {
+      keys: [redisKey],
+      arguments: [String(now), String(windowStart), String(ttlSeconds)],
+    }) as number;
 
     const resetTime = new Date(now + this.windowMs);
 
@@ -118,7 +126,11 @@ const initializeRateLimiter = async () => {
 function createMemoryRateLimiter() {
   return rateLimit({
     windowMs: config.rateLimit.windowMs,
-    max: config.rateLimit.max * 10, // More lenient in development
+    // 10x multiplier: in development, hot-reloading and manual testing tools
+    // (e.g. Postman, cURL loops) generate many more requests than real users.
+    // The higher limit avoids false rate-limit blocks during local development
+    // while still exercising the rate-limiting code path.
+    max: config.rateLimit.max * 10,
     message: 'Too many requests from this IP, please try again later.',
     standardHeaders: true,
     legacyHeaders: false,
@@ -164,4 +176,12 @@ export const activationCodeRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 10,
   message: 'Too many activation code attempts, please try again later.',
+});
+
+// BE-12: Rate limiter for premium verification endpoint
+// Limits to 5 requests per 15 minutes to prevent abuse of RevenueCat API calls
+export const verifyPremiumRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5,
+  message: 'Too many premium verification attempts, please try again later.',
 });

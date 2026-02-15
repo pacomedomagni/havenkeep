@@ -38,6 +38,21 @@ class Conflict<T> {
 }
 
 /// Resolves conflicts between local and server versions of entities.
+///
+/// LIMITATION: Conflict detection relies solely on comparing `updatedAt`
+/// timestamps between local and server versions. The server clock is
+/// considered authoritative. This means:
+///
+/// - Local clock drift can cause false positives (detecting a conflict when
+///   none exists) or false negatives (missing a real conflict).
+/// - If two edits happen within the same timestamp granularity (e.g., within
+///   the same second), one may be silently overwritten.
+/// - There is no vector clock or version counter to track causality; only
+///   wall-clock ordering is used.
+///
+/// A more robust approach would use server-issued version numbers or ETags,
+/// but for now timestamp-based detection is acceptable given the low
+/// probability of concurrent offline edits to the same item.
 class ConflictResolver {
   /// Detects if a conflict exists between local and server versions.
   ///

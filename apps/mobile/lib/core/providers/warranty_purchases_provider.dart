@@ -24,9 +24,9 @@ class WarrantyPurchasesNotifier extends AsyncNotifier<List<WarrantyPurchase>> {
 
   Future<void> refresh() async {
     state = const AsyncValue.loading();
-    state = AsyncValue.data(
-      await ref.read(warrantyPurchasesRepositoryProvider).getPurchases(),
-    );
+    state = await AsyncValue.guard(() async {
+      return ref.read(warrantyPurchasesRepositoryProvider).getPurchases();
+    });
   }
 
   Future<WarrantyPurchase> addPurchase(WarrantyPurchase purchase) async {

@@ -6,6 +6,9 @@ import 'theme.dart';
 /// Shows a progress bar and contextual message:
 /// - Approaching limit (4): "You've used {n}/5 free items"
 /// - At limit (5+): "Item limit reached. Archive old items or upgrade."
+///
+/// The default [maxCount] of 5 matches [kFreePlanItemLimit] from
+/// `package:api_client/src/constants.dart`.
 class ItemLimitBanner extends StatelessWidget {
   final int currentCount;
   final int maxCount;

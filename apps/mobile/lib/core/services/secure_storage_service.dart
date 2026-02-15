@@ -30,6 +30,7 @@ class SecureStorageService {
   /// Save refresh token securely.
   ///
   /// Called after successful authentication.
+  @Deprecated('Auth tokens are managed by ApiClient. Use ApiClient.saveTokens/clearTokens instead.')
   static Future<void> saveRefreshToken(String token) async {
     try {
       await _storage.write(key: _keyRefreshToken, value: token);
@@ -43,6 +44,7 @@ class SecureStorageService {
   /// Retrieve refresh token.
   ///
   /// Returns null if not found or error occurs.
+  @Deprecated('Auth tokens are managed by ApiClient. Use ApiClient.saveTokens/clearTokens instead.')
   static Future<String?> getRefreshToken() async {
     try {
       return await _storage.read(key: _keyRefreshToken);
@@ -55,6 +57,7 @@ class SecureStorageService {
   /// Delete refresh token.
   ///
   /// Called on sign out.
+  @Deprecated('Auth tokens are managed by ApiClient. Use ApiClient.saveTokens/clearTokens instead.')
   static Future<void> deleteRefreshToken() async {
     try {
       await _storage.delete(key: _keyRefreshToken);
@@ -65,6 +68,7 @@ class SecureStorageService {
   }
 
   /// Save access token securely.
+  @Deprecated('Auth tokens are managed by ApiClient. Use ApiClient.saveTokens/clearTokens instead.')
   static Future<void> saveAccessToken(String token) async {
     try {
       await _storage.write(key: _keyAccessToken, value: token);
@@ -75,6 +79,7 @@ class SecureStorageService {
   }
 
   /// Retrieve access token.
+  @Deprecated('Auth tokens are managed by ApiClient. Use ApiClient.saveTokens/clearTokens instead.')
   static Future<String?> getAccessToken() async {
     try {
       return await _storage.read(key: _keyAccessToken);
@@ -85,6 +90,7 @@ class SecureStorageService {
   }
 
   /// Delete access token.
+  @Deprecated('Auth tokens are managed by ApiClient. Use ApiClient.saveTokens/clearTokens instead.')
   static Future<void> deleteAccessToken() async {
     try {
       await _storage.delete(key: _keyAccessToken);

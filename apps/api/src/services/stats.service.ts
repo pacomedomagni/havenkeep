@@ -100,6 +100,12 @@ export class StatsService {
           [userId]
         );
       } else if (event.type === 'session_end' && event.sessionDuration) {
+        // Running average calculation: we use (total_sessions - 1) to get the previous
+        // count of sessions (before the current one was incremented by session_start),
+        // then divide by total_sessions. GREATEST(total_sessions, 1) is a defensive
+        // guard against division by zero in case a session_end event arrives without
+        // a preceding session_start (e.g., due to a race condition or missed event).
+        // Under normal flow, total_sessions is always >= 1 after session_start increments it.
         await pool.query(
           `UPDATE user_analytics
            SET avg_session_duration_seconds =

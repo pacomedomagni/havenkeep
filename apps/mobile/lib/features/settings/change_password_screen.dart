@@ -40,6 +40,18 @@ class _ChangePasswordScreenState extends ConsumerState<ChangePasswordScreen> {
       return;
     }
 
+    if (_currentPasswordController.text == _newPasswordController.text) {
+      HapticFeedback.lightImpact();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('New password must be different from your current password'),
+          backgroundColor: HavenColors.expired,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
     setState(() => _isLoading = true);
     try {
       await ref.read(currentUserProvider.notifier).changePassword(

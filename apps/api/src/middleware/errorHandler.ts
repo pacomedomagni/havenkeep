@@ -31,7 +31,7 @@ export function errorHandler(
     });
   }
 
-  // Unexpected errors — don't leak details in production
+  // Unexpected errors — log real details server-side only, never send to client in production
   logger.error({
     error: err.message,
     stack: err.stack,
@@ -39,9 +39,11 @@ export function errorHandler(
     method: req.method,
   }, 'Unexpected error');
 
+  const isDevelopment = process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test';
+
   res.status(500).json({
     error: 'Internal server error',
     statusCode: 500,
-    ...(process.env.NODE_ENV !== 'production' && { message: err.message }),
+    ...(isDevelopment && { message: err.message, stack: err.stack }),
   });
 }

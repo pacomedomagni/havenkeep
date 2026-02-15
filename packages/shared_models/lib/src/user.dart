@@ -39,7 +39,7 @@ class User {
       fullName: json['full_name'] as String,
       avatarUrl: json['avatar_url'] as String?,
       authProvider: AuthProvider.fromJson(json['auth_provider'] as String),
-      plan: UserPlan.fromJson(json['plan'] as String),
+      plan: json['plan'] != null ? UserPlan.fromJson(json['plan'] as String) : UserPlan.free,
       planExpiresAt: json['plan_expires_at'] != null
           ? DateTime.parse(json['plan_expires_at'] as String)
           : null,

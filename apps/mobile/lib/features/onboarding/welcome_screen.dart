@@ -436,7 +436,10 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
             TextFormField(
               controller: _passwordController,
               obscureText: _obscurePassword,
+              maxLength: 128,
+              maxLengthEnforcement: MaxLengthEnforcement.enforced,
               decoration: InputDecoration(
+                counterText: '',
                 labelText: 'Password *',
                 hintText: _isSignUp
                     ? 'Min 8 chars, upper/lower/number/special'

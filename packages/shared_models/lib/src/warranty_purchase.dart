@@ -97,6 +97,10 @@ class WarrantyPurchase {
     );
   }
 
+  /// Creates the JSON body for a POST request.
+  ///
+  /// Note: [expiresAt] is intentionally omitted. The server calculates it
+  /// from [startsAt] + [durationMonths] to ensure consistent date arithmetic.
   Map<String, dynamic> toCreateJson() => {
         'item_id': itemId,
         'provider': provider,

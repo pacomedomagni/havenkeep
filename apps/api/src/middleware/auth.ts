@@ -4,9 +4,28 @@ import { config } from '../config';
 import { AppError } from './errorHandler';
 import { query } from '../db';
 import { isTokenBlacklisted } from '../utils/token-blacklist';
+import { logger } from '../utils/logger';
 
 // Re-export Request as AuthRequest for backward compatibility
 export type AuthRequest = Request;
+
+// In-memory cache for admin verification with 30-second TTL
+const adminCache = new Map<string, { isAdmin: boolean; expiresAt: number }>();
+const ADMIN_CACHE_TTL_MS = 30_000; // 30 seconds
+
+function getCachedAdminStatus(userId: string): boolean | null {
+  const entry = adminCache.get(userId);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) {
+    adminCache.delete(userId);
+    return null;
+  }
+  return entry.isAdmin;
+}
+
+function setCachedAdminStatus(userId: string, isAdmin: boolean): void {
+  adminCache.set(userId, { isAdmin, expiresAt: Date.now() + ADMIN_CACHE_TTL_MS });
+}
 
 export async function authenticate(
   req: Request,
@@ -46,6 +65,15 @@ export async function authenticate(
       throw new AppError('Invalid token', 401);
     }
 
+    // BE-8: Reject requests from suspended users immediately.
+    // When a user is suspended, their plan is set to 'suspended' and their
+    // refresh tokens are deleted, but an existing access token may still be valid
+    // until it expires. This check ensures suspended users cannot use the API
+    // even with a valid access token.
+    if (result.rows[0].plan === 'suspended') {
+      throw new AppError('Account suspended', 403);
+    }
+
     req.user = {
       id: result.rows[0].id,
       email: result.rows[0].email,
@@ -65,11 +93,36 @@ export async function authenticate(
   }
 }
 
-export function requireAdmin(req: Request, res: Response, next: NextFunction) {
+export async function requireAdmin(req: Request, res: Response, next: NextFunction) {
   if (!req.user?.isAdmin) {
     return next(new AppError('Admin access required', 403));
   }
-  next();
+
+  // Verify admin status against the database (with 30s in-memory cache)
+  // to prevent stale JWT claims from granting admin access after revocation.
+  const userId = req.user.id;
+  const cached = getCachedAdminStatus(userId);
+
+  if (cached !== null) {
+    if (!cached) {
+      return next(new AppError('Admin access required', 403));
+    }
+    return next();
+  }
+
+  try {
+    const result = await query('SELECT is_admin FROM users WHERE id = $1', [userId]);
+    const isAdmin = result.rows.length > 0 && result.rows[0].is_admin === true;
+    setCachedAdminStatus(userId, isAdmin);
+
+    if (!isAdmin) {
+      return next(new AppError('Admin access required', 403));
+    }
+    next();
+  } catch (error) {
+    logger.error({ error, userId }, 'Failed to verify admin status from database');
+    return next(new AppError('Internal server error', 500));
+  }
 }
 
 export function requirePremium(req: Request, res: Response, next: NextFunction) {
@@ -77,9 +130,14 @@ export function requirePremium(req: Request, res: Response, next: NextFunction) 
     return next(new AppError('Premium plan required', 403));
   }
 
-  // If plan_expires_at is set, verify it hasn't expired (null means lifetime)
-  if (req.user.planExpiresAt && new Date(req.user.planExpiresAt) < new Date()) {
-    return next(new AppError('Premium plan has expired', 403));
+  // If plan_expires_at is set, verify it hasn't expired (null means lifetime).
+  // Both sides are compared in UTC to avoid timezone drift issues.
+  if (req.user.planExpiresAt) {
+    const expiresAtUtc = new Date(req.user.planExpiresAt).getTime();
+    const nowUtc = Date.now();
+    if (expiresAtUtc < nowUtc) {
+      return next(new AppError('Premium plan has expired', 403));
+    }
   }
 
   next();

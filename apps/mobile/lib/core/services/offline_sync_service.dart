@@ -25,6 +25,16 @@ const _kBaseDelayMs = 300;
 /// Maximum delay cap in milliseconds for exponential backoff.
 const _kMaxDelayMs = 30000;
 
+/// Error indicating a non-retriable failure (e.g., missing local file).
+/// These should be marked as permanently failed without retry.
+class NonRetriableError implements Exception {
+  final String message;
+  NonRetriableError(this.message);
+
+  @override
+  String toString() => 'NonRetriableError: $message';
+}
+
 /// Manages offline sync — listens for connectivity changes and processes
 /// pending queue entries when the device comes online.
 class OfflineSyncService {
@@ -33,6 +43,7 @@ class OfflineSyncService {
 
   StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
   bool _isSyncing = false;
+  bool _pendingSync = false;
 
   OfflineSyncService(this._db, this._ref);
 
@@ -43,8 +54,13 @@ class OfflineSyncService {
   void start() {
     _connectivitySub = Connectivity().onConnectivityChanged.listen((results) {
       final isOnline = results.any((r) => r != ConnectivityResult.none);
-      if (isOnline && !_isSyncing) {
-        syncPendingChanges();
+      if (isOnline) {
+        if (_isSyncing) {
+          // A sync is already running; flag that we need another pass when done.
+          _pendingSync = true;
+        } else {
+          syncPendingChanges();
+        }
       }
     });
   }
@@ -73,9 +89,10 @@ class OfflineSyncService {
   }
 
   /// Whether a status code is a client error that should not be retried.
+  /// Note: 401 is excluded here — it is handled separately to allow one
+  /// retry (the ApiClient auto-refresh may resolve it).
   bool _isNonRetriableClientError(int statusCode) {
     return statusCode == 400 ||
-        statusCode == 401 ||
         statusCode == 403 ||
         statusCode == 404;
   }
@@ -93,6 +110,7 @@ class OfflineSyncService {
   Future<void> syncPendingChanges() async {
     if (_isSyncing) return;
     _isSyncing = true;
+    _pendingSync = false;
 
     try {
       final pending = await _db.getPendingActions();
@@ -106,10 +124,29 @@ class OfflineSyncService {
         try {
           await _processEntry(entry);
           await _db.markActionSynced(entry.id);
+        } on NonRetriableError catch (e) {
+          // Non-retriable errors (e.g., missing local file) — mark as permanently failed
+          debugPrint('[OfflineSync] Non-retriable error for entry ${entry.id}: $e');
+          await _db.markActionFailed(entry.id, _kMaxRetries);
         } on ApiException catch (e) {
           debugPrint('[OfflineSync] Failed to sync entry ${entry.id}: $e');
 
-          // Don't retry on 4xx client errors - mark as failed immediately
+          // 401 Unauthorized: attempt one retry — the ApiClient auto-refresh
+          // may resolve the token issue. Only mark as permanently failed if
+          // the retry also fails.
+          if (e.statusCode == 401) {
+            if (entry.attempts == 0) {
+              debugPrint('[OfflineSync] 401 on entry ${entry.id} — scheduling one retry');
+              await _db.markActionFailed(entry.id, entry.attempts + 1);
+              await _db.retryAction(entry.id);
+            } else {
+              debugPrint('[OfflineSync] 401 retry failed for entry ${entry.id} — marking permanently failed');
+              await _db.markActionFailed(entry.id, _kMaxRetries);
+            }
+            continue;
+          }
+
+          // Don't retry on other 4xx client errors - mark as failed immediately
           if (_isNonRetriableClientError(e.statusCode)) {
             await _db.markActionFailed(entry.id, entry.attempts + 1);
             continue;
@@ -139,6 +176,12 @@ class OfflineSyncService {
       await _db.clearSyncedActions();
     } finally {
       _isSyncing = false;
+
+      // If an online event fired while we were syncing, run again.
+      if (_pendingSync) {
+        _pendingSync = false;
+        syncPendingChanges();
+      }
     }
   }
 
@@ -256,9 +299,9 @@ class OfflineSyncService {
     final file = File(filePath);
     if (!file.existsSync()) {
       debugPrint(
-        '[OfflineSync] File no longer exists at $filePath — marking entry ${entry.id} as failed.',
+        '[OfflineSync] File no longer exists at $filePath — marking entry ${entry.id} as permanently failed.',
       );
-      throw ApiException(400, 'File no longer exists at $filePath');
+      throw NonRetriableError('File no longer exists at $filePath');
     }
 
     final docType = typeStr != null

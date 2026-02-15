@@ -55,7 +55,11 @@ router.get('/count', async (req: AuthRequest, res, next) => {
 router.get('/', validate(paginationSchema, 'query'), async (req: AuthRequest, res, next) => {
   try {
     const { homeId, archived, page, limit } = req.query as any;
-    const offset = (page - 1) * limit;
+
+    // BE-1/2/3: Explicitly convert and clamp pagination params to safe integers
+    const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit as string, 10) || 20));
+    const offset = (pageNum - 1) * limitNum;
 
     let sql = `
       SELECT * FROM items
@@ -75,7 +79,7 @@ router.get('/', validate(paginationSchema, 'query'), async (req: AuthRequest, re
     }
 
     sql += ` ORDER BY warranty_end_date ASC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
-    params.push(limit, offset);
+    params.push(limitNum, offset);
 
     // Get total count
     let countSql = `SELECT COUNT(*) FROM items WHERE user_id = $1`;
@@ -97,13 +101,14 @@ router.get('/', validate(paginationSchema, 'query'), async (req: AuthRequest, re
 
     const total = parseInt(countResult.rows[0].count, 10);
 
+    // BE-10: Division by zero is safe here because limitNum >= 1 (clamped above)
     res.json({
       items: result.rows,
       pagination: {
-        page,
-        limit,
+        page: pageNum,
+        limit: limitNum,
         total,
-        totalPages: Math.ceil(total / limit),
+        totalPages: Math.ceil(total / limitNum),
       },
     });
   } catch (error) {
@@ -273,44 +278,72 @@ router.put('/:id', validate(uuidParamSchema, 'params'), validate(updateItemSchem
 
     // Recalculate warranty_end_date when warrantyMonths or purchaseDate changes
     if (updates.warrantyMonths !== undefined || updates.purchaseDate !== undefined) {
-      // If purchaseDate is provided, use it; otherwise fetch existing from DB
-      let purchaseDateForCalc: Date | null = null;
-      let warrantyMonthsForCalc: number | null = null;
-
-      if (updates.purchaseDate) {
-        purchaseDateForCalc = new Date(updates.purchaseDate);
-      }
-      if (updates.warrantyMonths !== undefined) {
-        warrantyMonthsForCalc = updates.warrantyMonths;
-      }
-
-      // If we only have one value, fetch the other from the existing item
-      if (!purchaseDateForCalc || warrantyMonthsForCalc === null) {
-        const existing = await query(
-          `SELECT purchase_date, warranty_months FROM items WHERE id = $1 AND user_id = $2`,
-          [id, req.user!.id]
-        );
-        if (existing.rows.length > 0) {
-          if (!purchaseDateForCalc) {
-            purchaseDateForCalc = new Date(existing.rows[0].purchase_date);
-          }
-          if (warrantyMonthsForCalc === null) {
-            warrantyMonthsForCalc = existing.rows[0].warranty_months;
+      // BE-28: If purchaseDate is explicitly set to null/empty, also clear warranty_end_date
+      if (updates.purchaseDate === null || updates.purchaseDate === '' || updates.purchaseDate === undefined && updates.warrantyMonths !== undefined) {
+        // Only clear if purchaseDate is explicitly null/empty
+        if (updates.purchaseDate === null || updates.purchaseDate === '') {
+          fields.push(`warranty_end_date = $${paramCount}`);
+          values.push(null);
+          paramCount++;
+        } else {
+          // warrantyMonths changed but purchaseDate was not provided — fetch existing
+          const existing = await query(
+            `SELECT purchase_date, warranty_months FROM items WHERE id = $1 AND user_id = $2`,
+            [id, req.user!.id]
+          );
+          if (existing.rows.length > 0 && existing.rows[0].purchase_date) {
+            const purchaseDateForCalc = new Date(existing.rows[0].purchase_date);
+            const warrantyMonthsForCalc = updates.warrantyMonths;
+            const warrantyEndDate = addMonthsSafe(purchaseDateForCalc, warrantyMonthsForCalc);
+            fields.push(`warranty_end_date = $${paramCount}`);
+            values.push(warrantyEndDate);
+            paramCount++;
           }
         }
-      }
+      } else {
+        // purchaseDate is provided and truthy — recalculate
+        let purchaseDateForCalc: Date | null = null;
+        let warrantyMonthsForCalc: number | null = null;
 
-      if (purchaseDateForCalc && warrantyMonthsForCalc !== null) {
-        const warrantyEndDate = addMonthsSafe(purchaseDateForCalc, warrantyMonthsForCalc);
-        fields.push(`warranty_end_date = $${paramCount}`);
-        values.push(warrantyEndDate);
-        paramCount++;
+        if (updates.purchaseDate) {
+          purchaseDateForCalc = new Date(updates.purchaseDate);
+        }
+        if (updates.warrantyMonths !== undefined) {
+          warrantyMonthsForCalc = updates.warrantyMonths;
+        }
+
+        // If we only have one value, fetch the other from the existing item
+        if (!purchaseDateForCalc || warrantyMonthsForCalc === null) {
+          const existing = await query(
+            `SELECT purchase_date, warranty_months FROM items WHERE id = $1 AND user_id = $2`,
+            [id, req.user!.id]
+          );
+          if (existing.rows.length > 0) {
+            if (!purchaseDateForCalc) {
+              purchaseDateForCalc = new Date(existing.rows[0].purchase_date);
+            }
+            if (warrantyMonthsForCalc === null) {
+              warrantyMonthsForCalc = existing.rows[0].warranty_months;
+            }
+          }
+        }
+
+        if (purchaseDateForCalc && warrantyMonthsForCalc !== null) {
+          const warrantyEndDate = addMonthsSafe(purchaseDateForCalc, warrantyMonthsForCalc);
+          fields.push(`warranty_end_date = $${paramCount}`);
+          values.push(warrantyEndDate);
+          paramCount++;
+        }
       }
     }
 
     // Always update the timestamp
     fields.push('updated_at = NOW()');
 
+    // BE-16: archived_at is kept in sync with is_archived here.
+    // The DB should also have a CHECK constraint enforcing:
+    //   (is_archived = FALSE AND archived_at IS NULL) OR (is_archived = TRUE AND archived_at IS NOT NULL)
+    // which is being added in the migration.
     if (updates.isArchived !== undefined) {
       fields.push(`archived_at = ${updates.isArchived ? 'NOW()' : 'NULL'}`);
     }

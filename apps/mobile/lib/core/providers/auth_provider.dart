@@ -82,22 +82,27 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
   }) async {
     final repo = ref.read(authRepositoryProvider);
 
-    final user = await repo.signUpWithEmail(
-      email: email,
-      password: password,
-      fullName: fullName,
-      referralCode: referralCode,
-    );
+    try {
+      final user = await repo.signUpWithEmail(
+        email: email,
+        password: password,
+        fullName: fullName,
+        referralCode: referralCode,
+      );
 
-    _skipNextRebuild = true;
-    state = AsyncValue.data(user);
+      _skipNextRebuild = true;
+      state = AsyncValue.data(user);
 
-    // Register push token after signup
-    if (user != null) {
-      _registerPushToken(user.id);
+      // Register push token after signup
+      if (user != null) {
+        _registerPushToken(user.id);
+      }
+
+      return user;
+    } catch (e, st) {
+      state = AsyncValue.error(e, st);
+      rethrow;
     }
-
-    return user;
   }
 
   /// Sign in with email and password.
@@ -106,35 +111,47 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
     required String password,
   }) async {
     final repo = ref.read(authRepositoryProvider);
-    final user = await repo.signInWithEmail(
-      email: email,
-      password: password,
-    );
 
-    _skipNextRebuild = true;
-    state = AsyncValue.data(user);
+    try {
+      final user = await repo.signInWithEmail(
+        email: email,
+        password: password,
+      );
 
-    // Register push token after login
-    if (user != null) {
-      _registerPushToken(user.id);
+      _skipNextRebuild = true;
+      state = AsyncValue.data(user);
+
+      // Register push token after login
+      if (user != null) {
+        _registerPushToken(user.id);
+      }
+
+      return user;
+    } catch (e, st) {
+      state = AsyncValue.error(e, st);
+      rethrow;
     }
-
-    return user;
   }
 
   /// Sign in with Google.
   Future<User?> signInWithGoogle({required String idToken}) async {
     final repo = ref.read(authRepositoryProvider);
-    final user = await repo.signInWithGoogle(idToken: idToken);
 
-    _skipNextRebuild = true;
-    state = AsyncValue.data(user);
+    try {
+      final user = await repo.signInWithGoogle(idToken: idToken);
 
-    if (user != null) {
-      _registerPushToken(user.id);
+      _skipNextRebuild = true;
+      state = AsyncValue.data(user);
+
+      if (user != null) {
+        _registerPushToken(user.id);
+      }
+
+      return user;
+    } catch (e, st) {
+      state = AsyncValue.error(e, st);
+      rethrow;
     }
-
-    return user;
   }
 
   /// Sign in with Apple.
@@ -143,19 +160,25 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
     String? fullName,
   }) async {
     final repo = ref.read(authRepositoryProvider);
-    final user = await repo.signInWithApple(
-      idToken: idToken,
-      fullName: fullName,
-    );
 
-    _skipNextRebuild = true;
-    state = AsyncValue.data(user);
+    try {
+      final user = await repo.signInWithApple(
+        idToken: idToken,
+        fullName: fullName,
+      );
 
-    if (user != null) {
-      _registerPushToken(user.id);
+      _skipNextRebuild = true;
+      state = AsyncValue.data(user);
+
+      if (user != null) {
+        _registerPushToken(user.id);
+      }
+
+      return user;
+    } catch (e, st) {
+      state = AsyncValue.error(e, st);
+      rethrow;
     }
-
-    return user;
   }
 
   /// Sign out.
@@ -197,6 +220,21 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
   /// Delete the current user's account permanently.
   Future<void> deleteAccount({required String password}) async {
     await ref.read(authRepositoryProvider).deleteAccount(password: password);
+    _skipNextRebuild = false;
+    state = const AsyncValue.data(null);
+  }
+
+  /// Delete an OAuth user's account (no password required).
+  Future<void> deleteOAuthAccount() async {
+    await ref.read(authRepositoryProvider).deleteOAuthAccount();
+    _skipNextRebuild = false;
+    state = const AsyncValue.data(null);
+  }
+
+  /// Sign out from all devices.
+  Future<void> signOutAll() async {
+    await ref.read(authRepositoryProvider).signOutAll();
+    ref.read(demoModeProvider.notifier).exitDemoMode();
     _skipNextRebuild = false;
     state = const AsyncValue.data(null);
   }

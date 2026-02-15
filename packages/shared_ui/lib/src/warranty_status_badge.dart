@@ -60,6 +60,10 @@ class WarrantyStatusBadge extends StatelessWidget {
 
   /// Converts a positive number of days into a human-readable
   /// "X years Y months left" or "X months left" string.
+  ///
+  /// This is a display-only approximation using 365 days/year and 30 days/month.
+  /// Actual warranty expiration calculations use proper calendar month arithmetic
+  /// in the Item model (warrantyEndDate computed from purchaseDate + warrantyMonths).
   String _formatDaysAsYearsMonths(int days) {
     final years = days ~/ 365;
     final remainingDays = days % 365;

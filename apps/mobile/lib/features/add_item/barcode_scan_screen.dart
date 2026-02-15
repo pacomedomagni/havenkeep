@@ -29,6 +29,7 @@ class _BarcodeScanScreenState extends ConsumerState<BarcodeScanScreen> {
 
   bool _isLookingUp = false;
   bool _isSaving = false;
+  bool _isProcessing = false;
   BarcodeLookupResult? _lookupResult;
   String? _detectedBarcode;
   String? _error;
@@ -41,15 +42,25 @@ class _BarcodeScanScreenState extends ConsumerState<BarcodeScanScreen> {
   }
 
   void _onBarcodeDetected(BarcodeCapture capture) {
-    if (_hasDetected || _isLookingUp) return;
+    // Immediately prevent re-entry before any async work
+    if (_hasDetected || _isProcessing || _isLookingUp) return;
+    _hasDetected = true;
+    _isProcessing = true;
 
     final barcodes = capture.barcodes;
-    if (barcodes.isEmpty) return;
+    if (barcodes.isEmpty) {
+      _hasDetected = false;
+      _isProcessing = false;
+      return;
+    }
 
     final barcode = barcodes.first.rawValue;
-    if (barcode == null || barcode.isEmpty) return;
+    if (barcode == null || barcode.isEmpty) {
+      _hasDetected = false;
+      _isProcessing = false;
+      return;
+    }
 
-    _hasDetected = true;
     setState(() {
       _detectedBarcode = barcode;
       _isLookingUp = true;
@@ -131,6 +142,7 @@ class _BarcodeScanScreenState extends ConsumerState<BarcodeScanScreen> {
   void _resetScan() {
     setState(() {
       _hasDetected = false;
+      _isProcessing = false;
       _detectedBarcode = null;
       _lookupResult = null;
       _isLookingUp = false;

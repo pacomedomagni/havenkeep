@@ -109,11 +109,14 @@ class ItemsRepository {
   }
 
   /// Get warranty stats counts.
+  ///
+  /// Lets errors propagate to the caller instead of masking them with
+  /// fallback zeros — callers should handle errors explicitly.
   Future<Map<String, int>> getWarrantyStats() async {
     final summary = await getDashboardSummary();
 
     if (summary == null) {
-      return {'active': 0, 'expiring': 0, 'expired': 0};
+      throw StateError('Dashboard summary returned null — server may be unavailable');
     }
 
     return {

@@ -85,7 +85,7 @@ class _QuickAddScreenState extends ConsumerState<QuickAddScreen> {
   }
 
   Future<void> _save() async {
-    if (!_formKey.currentState!.validate() || !_isFormValid) return;
+    if (!(_formKey.currentState?.validate() ?? false) || !_isFormValid) return;
 
     HapticFeedback.mediumImpact();
     setState(() => _isSaving = true);

@@ -22,18 +22,24 @@ export const config = {
   jwt: {
     get secret(): string {
       const secret = process.env.JWT_SECRET;
-      if (!secret && process.env.NODE_ENV === 'production') {
-        throw new Error('JWT_SECRET must be set in production');
+      if (process.env.NODE_ENV === 'production' && (!secret || secret.trim() === '')) {
+        throw new Error('JWT_SECRET must be set and non-empty in production');
       }
-      return secret || 'dev-only-secret-do-not-use-in-production';
+      if (process.env.NODE_ENV !== 'production') {
+        return secret || 'dev-only-secret-do-not-use-in-production';
+      }
+      return secret!;
     },
     expiresIn: (process.env.JWT_EXPIRES_IN || '1h') as SignOptions['expiresIn'],
     get refreshSecret(): string {
       const secret = process.env.REFRESH_TOKEN_SECRET;
-      if (!secret && process.env.NODE_ENV === 'production') {
-        throw new Error('REFRESH_TOKEN_SECRET must be set in production');
+      if (process.env.NODE_ENV === 'production' && (!secret || secret.trim() === '')) {
+        throw new Error('REFRESH_TOKEN_SECRET must be set and non-empty in production');
       }
-      return secret || 'dev-only-refresh-secret';
+      if (process.env.NODE_ENV !== 'production') {
+        return secret || 'dev-only-refresh-secret';
+      }
+      return secret!;
     },
     refreshExpiresIn: (process.env.REFRESH_TOKEN_EXPIRES_IN || '7d') as SignOptions['expiresIn'],
   },

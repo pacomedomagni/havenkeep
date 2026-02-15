@@ -32,7 +32,10 @@ export class WarrantyPurchasesService {
       status?: string;
     } = {}
   ): Promise<{ purchases: WarrantyPurchase[]; total: number }> {
-    const { limit = 50, offset = 0, itemId, status } = options;
+    const { itemId, status } = options;
+    // MED-2: Clamp pagination params to safe bounds
+    const limit = Math.min(options.limit || 50, 100);
+    const offset = Math.max(options.offset || 0, 0);
 
     try {
       let query = `
@@ -126,6 +129,13 @@ export class WarrantyPurchasesService {
     const client = await pool.connect();
 
     try {
+      // BE-18/MED-12: Validate duration_months is within acceptable range (1-600 months / 50 years)
+      if (data.duration_months !== undefined) {
+        if (data.duration_months < 1 || data.duration_months > 600) {
+          throw new AppError('duration_months must be between 1 and 600', 400);
+        }
+      }
+
       await client.query('BEGIN');
 
       // Verify item belongs to user

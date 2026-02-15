@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { AuditService, AuditAction } from '../services/audit.service';
+import { logger } from '../utils/logger';
 
 /**
  * Middleware to automatically log API requests
@@ -26,44 +27,44 @@ export function auditLog(action: AuditAction, options?: {
     };
 
     // Wait for response to finish
-    res.on('finish', async () => {
-      try {
-        const metadata: Record<string, any> = {
-          duration_ms: Date.now() - startTime,
-          status_code: res.statusCode,
-        };
+    res.on('finish', () => {
+      const metadata: Record<string, any> = {
+        duration_ms: Date.now() - startTime,
+        status_code: res.statusCode,
+      };
 
-        // Capture request body if enabled (be careful with sensitive data)
-        if (options?.captureRequestBody && req.body) {
-          // Sanitize sensitive fields
-          const sanitizedBody = { ...req.body };
-          delete sanitizedBody.password;
-          delete sanitizedBody.password_hash;
-          delete sanitizedBody.token;
-          delete sanitizedBody.refresh_token;
-          metadata.request_body = sanitizedBody;
-        }
-
-        // Capture response body if enabled
-        if (options?.captureResponseBody && responseBody) {
-          metadata.response_body = responseBody;
-        }
-
-        const resourceId = options?.getResourceId?.(req);
-        const description = options?.getDescription?.(req);
-
-        await AuditService.logFromRequest(req, action, {
-          resourceType: options?.resourceType,
-          resourceId,
-          description,
-          metadata,
-          success: res.statusCode >= 200 && res.statusCode < 400,
-          errorMessage: res.statusCode >= 400 ? responseBody?.error || responseBody?.message : undefined,
-        });
-      } catch (error) {
-        // Don't fail the request if audit logging fails
-        console.error('Audit logging error:', error);
+      // Capture request body if enabled (be careful with sensitive data)
+      if (options?.captureRequestBody && req.body) {
+        // Sanitize sensitive fields
+        const sanitizedBody = { ...req.body };
+        delete sanitizedBody.password;
+        delete sanitizedBody.password_hash;
+        delete sanitizedBody.token;
+        delete sanitizedBody.refresh_token;
+        metadata.request_body = sanitizedBody;
       }
+
+      // Capture response body if enabled
+      if (options?.captureResponseBody && responseBody) {
+        metadata.response_body = responseBody;
+      }
+
+      const resourceId = options?.getResourceId?.(req);
+      const description = options?.getDescription?.(req);
+
+      // Wrap in a caught promise to prevent unhandled rejection from
+      // crashing the process if AuditService.logFromRequest() throws.
+      AuditService.logFromRequest(req, action, {
+        resourceType: options?.resourceType,
+        resourceId,
+        description,
+        metadata,
+        success: res.statusCode >= 200 && res.statusCode < 400,
+        errorMessage: res.statusCode >= 400 ? responseBody?.error || responseBody?.message : undefined,
+      }).catch((error) => {
+        // Don't fail the request if audit logging fails
+        logger.error({ error }, 'Audit logging error');
+      });
     });
 
     next();
@@ -97,7 +98,7 @@ export function auditAuth(action: AuditAction) {
             },
           });
         } catch (error) {
-          console.error('Auth audit logging error:', error);
+          logger.error({ error }, 'Auth audit logging error');
         }
       });
 
@@ -134,7 +135,7 @@ export async function logSecurityEvent(
       },
     });
   } catch (error) {
-    console.error('Security audit logging error:', error);
+    logger.error({ error }, 'Security audit logging error');
   }
 }
 
@@ -156,7 +157,7 @@ export async function logResourceChange(params: {
   try {
     await AuditService.logResourceChange(params);
   } catch (error) {
-    console.error('Resource change audit logging error:', error);
+    logger.error({ error }, 'Resource change audit logging error');
   }
 }
 

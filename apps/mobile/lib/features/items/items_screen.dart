@@ -108,7 +108,7 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
     switch (sortMode) {
       case ItemSortMode.warrantyExpiry:
         sorted.sort((a, b) =>
-            a.computedDaysRemaining.compareTo(b.computedDaysRemaining));
+            (a.computedDaysRemaining ?? 0).compareTo(b.computedDaysRemaining ?? 0));
       case ItemSortMode.dateAdded:
         sorted.sort((a, b) => b.createdAt.compareTo(a.createdAt));
       case ItemSortMode.name:

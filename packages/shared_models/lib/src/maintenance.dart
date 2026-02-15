@@ -29,6 +29,16 @@ class MaintenanceSchedule {
       createdAt: DateTime.parse(json['created_at'] as String),
     );
   }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'category': category,
+        'task_name': taskName,
+        'description': description,
+        'frequency_months': frequencyMonths,
+        'priority': priority,
+        'created_at': createdAt.toIso8601String(),
+      };
 }
 
 /// A single maintenance history entry.
@@ -79,6 +89,19 @@ class MaintenanceHistory {
       itemBrand: json['item_brand'] as String?,
     );
   }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'user_id': userId,
+        'item_id': itemId,
+        'schedule_id': scheduleId,
+        'task_name': taskName,
+        'completed_date': completedDate.toIso8601String(),
+        'notes': notes,
+        'duration_minutes': durationMinutes,
+        'cost': cost,
+        'created_at': createdAt.toIso8601String(),
+      };
 
   Map<String, dynamic> toCreateJson() => {
         'item_id': itemId,

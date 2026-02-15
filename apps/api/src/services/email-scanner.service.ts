@@ -55,14 +55,18 @@ export class EmailScannerService {
 
       await client.query('COMMIT');
 
-      // Start scan with timeout
-      const scanPromise = this.performScan(scan.id, userId, provider, accessToken, options);
+      // Start scan with timeout and abort support
+      const abortController = new AbortController();
+      const scanPromise = this.performScan(scan.id, userId, provider, accessToken, options, abortController.signal);
       const timeoutPromise = new Promise<void>((_, reject) =>
-        setTimeout(() => reject(new Error('Email scan timed out after 5 minutes')), 5 * 60 * 1000)
+        setTimeout(() => {
+          abortController.abort();
+          reject(new Error('Email scan timed out after 5 minutes'));
+        }, 5 * 60 * 1000)
       );
 
       Promise.race([scanPromise, timeoutPromise]).catch(async (error) => {
-        logger.error({ error, scanId: scan.id }, 'Background email scan failed');
+        logger.error({ errorMessage: (error as Error).message, scanId: scan.id }, 'Background email scan failed');
         try {
           await pool.query(
             `UPDATE email_scans SET status = 'failed', error_message = $2, completed_at = NOW() WHERE id = $1 AND status != 'completed'`,
@@ -94,7 +98,8 @@ export class EmailScannerService {
     options: {
       dateRangeStart?: string;
       dateRangeEnd?: string;
-    }
+    },
+    signal?: AbortSignal
   ): Promise<void> {
     try {
       if (!config.openai?.apiKey) {
@@ -119,9 +124,9 @@ export class EmailScannerService {
       let receipts: ExtractedReceipt[] = [];
 
       if (provider === 'gmail') {
-        receipts = await this.scanGmail(accessToken, options);
+        receipts = await this.scanGmail(accessToken, options, signal);
       } else if (provider === 'outlook') {
-        receipts = await this.scanOutlook(accessToken, options);
+        receipts = await this.scanOutlook(accessToken, options, signal);
       }
 
       logger.info({ scanId, receiptsFound: receipts.length }, 'Email scan completed');
@@ -188,7 +193,8 @@ export class EmailScannerService {
    */
   private static async scanGmail(
     accessToken: string,
-    options: { dateRangeStart?: string; dateRangeEnd?: string }
+    options: { dateRangeStart?: string; dateRangeEnd?: string },
+    signal?: AbortSignal
   ): Promise<ExtractedReceipt[]> {
     const oauth2Client = new google.auth.OAuth2();
     oauth2Client.setCredentials({ access_token: accessToken });
@@ -223,6 +229,8 @@ export class EmailScannerService {
     }
 
     for (const baseQuery of queries) {
+      if (signal?.aborted) break;
+
       try {
         const query = baseQuery + dateQuery;
 
@@ -235,6 +243,8 @@ export class EmailScannerService {
         const messages = messagesResponse.data.messages || [];
 
         for (const message of messages.slice(0, 50)) {
+          if (signal?.aborted) break;
+
           // Limit to 50 per query
           try {
             const messageData = await gmail.users.messages.get({
@@ -244,7 +254,7 @@ export class EmailScannerService {
             });
 
             const emailData = this.parseGmailMessage(messageData.data);
-            const extracted = await this.extractReceiptData(emailData);
+            const extracted = await this.extractReceiptData(emailData, signal);
 
             if (extracted) {
               receipts.push(extracted);
@@ -266,7 +276,8 @@ export class EmailScannerService {
    */
   private static async scanOutlook(
     accessToken: string,
-    options: { dateRangeStart?: string; dateRangeEnd?: string }
+    options: { dateRangeStart?: string; dateRangeEnd?: string },
+    signal?: AbortSignal
   ): Promise<ExtractedReceipt[]> {
     const receipts: ExtractedReceipt[] = [];
 
@@ -290,11 +301,14 @@ export class EmailScannerService {
           $top: 100,
           $select: 'subject,from,receivedDateTime,body',
         },
+        signal,
       });
 
       const messages = response.data.value || [];
 
       for (const message of messages.slice(0, 50)) {
+        if (signal?.aborted) break;
+
         try {
           const emailData = {
             subject: message.subject,
@@ -303,7 +317,7 @@ export class EmailScannerService {
             body: message.body?.content || '',
           };
 
-          const extracted = await this.extractReceiptData(emailData);
+          const extracted = await this.extractReceiptData(emailData, signal);
 
           if (extracted) {
             receipts.push(extracted);
@@ -363,7 +377,7 @@ export class EmailScannerService {
     from: string;
     date: string;
     body: string;
-  }): Promise<ExtractedReceipt | null> {
+  }, signal?: AbortSignal): Promise<ExtractedReceipt | null> {
     try {
       // Use OpenAI (or Anthropic) to extract structured data
       const response = await axios.post(
@@ -407,6 +421,7 @@ ${emailData.body.substring(0, 2000)}`,
             'Authorization': `Bearer ${config.openai?.apiKey}`,
             'Content-Type': 'application/json',
           },
+          signal,
         }
       );
 
@@ -427,8 +442,16 @@ ${emailData.body.substring(0, 2000)}`,
         emailSubject: emailData.subject,
         emailDate: emailData.date,
       };
-    } catch (error) {
-      logger.warn({ error, subject: emailData.subject }, 'Failed to extract receipt data with AI');
+    } catch (error: any) {
+      // CRIT-3: Never log the full error object from axios as it may contain
+      // request headers (including the OpenAI API key in the Authorization header).
+      // Only log the status code and message.
+      const safeError = {
+        message: error?.message,
+        statusCode: error?.response?.status,
+        responseMessage: error?.response?.data?.error?.message,
+      };
+      logger.warn({ error: safeError, subject: emailData.subject }, 'Failed to extract receipt data with AI');
       return null;
     }
   }

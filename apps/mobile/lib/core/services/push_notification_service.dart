@@ -167,12 +167,14 @@ class PushNotificationService {
       return;
     }
 
-    // Navigate to the specified route
+    // Navigate to the specified route.
+    // Wrapped in try-catch to prevent crashes if the service or router
+    // has been disposed (e.g., app lifecycle edge cases).
     try {
       final router = _ref.read(routerProvider);
       router.push(route);
     } catch (e) {
-      debugPrint('[Push] Navigation failed: $e');
+      debugPrint('[Push] Navigation failed (router may be disposed): $e');
     }
   }
 }

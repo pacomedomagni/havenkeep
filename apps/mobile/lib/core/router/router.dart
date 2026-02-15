@@ -96,6 +96,7 @@ final _shellNavigatorKey = GlobalKey<NavigatorState>();
 /// GoRouter configuration with auth guards.
 final routerProvider = Provider<GoRouter>((ref) {
   final isAuthenticated = ref.watch(isAuthenticatedProvider);
+  final isDemoMode = ref.watch(demoModeProvider);
   final hasHome = ref.watch(hasHomeProvider);
 
   return GoRouter(
@@ -110,6 +111,12 @@ final routerProvider = Provider<GoRouter>((ref) {
 
       // Allow referral deep links to pass through (handled by the screen)
       if (location.startsWith('/referral/')) return null;
+
+      // In demo mode, only allow demo route
+      if (isDemoMode) {
+        if (location == AppRoutes.demo || location == AppRoutes.welcome) return null;
+        return AppRoutes.demo;
+      }
 
       // Not authenticated → go to welcome
       if (!isAuthenticated) {

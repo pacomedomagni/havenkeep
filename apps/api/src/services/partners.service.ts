@@ -11,6 +11,33 @@ const stripe = new Stripe(config.stripe.secretKey, {
   apiVersion: '2023-10-16',
 });
 
+// MED-8: Tier pricing extracted from createGift(). TODO: move to DB or config service.
+const TIER_PRICING: Record<string, number> = {
+  basic: 99,
+  premium: 149,
+  platinum: 249,
+} as const;
+
+// MED-7: User-friendly messages for common Stripe decline codes
+const STRIPE_DECLINE_MESSAGES: Record<string, string> = {
+  card_declined: 'Your card was declined. Please try a different payment method.',
+  insufficient_funds: 'Your card has insufficient funds. Please try a different payment method.',
+  expired_card: 'Your card has expired. Please update your payment method.',
+  incorrect_cvc: 'The CVC code is incorrect. Please check and try again.',
+  processing_error: 'A processing error occurred. Please try again in a moment.',
+  lost_card: 'This card has been reported lost. Please use a different payment method.',
+  stolen_card: 'This card has been reported stolen. Please use a different payment method.',
+  do_not_honor: 'Your bank declined this charge. Please contact your bank or try a different card.',
+  generic_decline: 'Your card was declined. Please try a different payment method.',
+};
+
+// HIGH-7: In-memory tracking for gift activation brute-force protection.
+// Keyed by gift ID -> { attempts: number, lockedUntil: Date | null }
+const giftActivationAttempts = new Map<string, { attempts: number; lockedUntil: Date | null }>();
+
+const GIFT_MAX_ACTIVATION_ATTEMPTS = 5;
+const GIFT_LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 minutes
+
 export class PartnersService {
   /**
    * Get or create a referral code for a partner user
@@ -100,30 +127,25 @@ export class PartnersService {
 
       await client.query('COMMIT');
 
-      // Send welcome email to new partner
-      try {
-        // Get user email
-        // After the COMMIT, use pool instead of the transaction client
-        const userResult = await pool.query(
-          'SELECT email, full_name FROM users WHERE id = $1',
-          [userId]
-        );
-
-        if (userResult.rows.length > 0) {
-          const user = userResult.rows[0];
-          await EmailService.sendPartnerWelcomeEmail({
-            to: user.email,
-            partner_name: user.full_name || 'Partner',
-            company_name: data.company_name,
-          });
-        }
-      } catch (emailError) {
-        // Log email error but don't fail partner registration
-        logger.error(
-          { error: emailError, partnerId: partner.id },
-          'Failed to send partner welcome email, but registration was successful'
-        );
-      }
+      // MED-11: Fire-and-forget welcome email AFTER transaction commits.
+      // Intentionally not awaited so email failure never blocks registration.
+      pool.query('SELECT email, full_name FROM users WHERE id = $1', [userId])
+        .then((userResult) => {
+          if (userResult.rows.length > 0) {
+            const user = userResult.rows[0];
+            return EmailService.sendPartnerWelcomeEmail({
+              to: user.email,
+              partner_name: user.full_name || 'Partner',
+              company_name: data.company_name,
+            });
+          }
+        })
+        .catch((emailError) => {
+          logger.error(
+            { error: emailError, partnerId: partner.id },
+            'Failed to send partner welcome email, but registration was successful'
+          );
+        });
 
       logger.info({ partnerId: partner.id, userId }, 'Partner registered');
 
@@ -258,6 +280,12 @@ export class PartnersService {
 
   /**
    * Create closing gift for homebuyer
+   *
+   * CRIT-2: Stripe charge is inside the transaction. The gift record is created
+   * with 'pending_payment' status first, then Stripe is charged with an
+   * idempotency key derived from the gift ID. If Stripe fails, the entire
+   * transaction rolls back. If Stripe succeeds, the status is updated to
+   * 'created' within the same transaction.
    */
   static async createGift(
     userId: string,
@@ -272,8 +300,6 @@ export class PartnersService {
     }
   ): Promise<PartnerGift> {
     const client = await pool.connect();
-    let gift: any;
-    let partner: any;
 
     try {
       await client.query('BEGIN');
@@ -288,19 +314,17 @@ export class PartnersService {
         throw new AppError('Partner not found', 404);
       }
 
-      partner = partnerResult.rows[0];
+      const partner = partnerResult.rows[0];
 
-      // Determine pricing based on tier
-      const tierPricing = {
-        basic: 99,
-        premium: 149,
-        platinum: 249,
-      };
+      // MED-8: Use extracted tier pricing constant
+      const amountCharged = TIER_PRICING[partner.subscription_tier];
+      if (amountCharged === undefined) {
+        throw new AppError(`Unknown subscription tier: ${partner.subscription_tier}`, 400);
+      }
 
-      const amountCharged = tierPricing[partner.subscription_tier as keyof typeof tierPricing];
       const premiumMonths = data.premium_months || partner.default_premium_months || 6;
 
-      // Create gift record FIRST with status 'pending_payment'
+      // Create gift record with status 'pending_payment'
       const expiresAt = new Date();
       expiresAt.setMonth(expiresAt.getMonth() + 6); // Gift link expires in 6 months
 
@@ -325,95 +349,120 @@ export class PartnersService {
         ]
       );
 
-      gift = giftResult.rows[0];
+      const gift = giftResult.rows[0];
+
+      // Charge Stripe INSIDE the transaction so we can roll back if it fails
+      const userResult = await client.query(
+        'SELECT stripe_customer_id FROM users WHERE id = $1',
+        [userId]
+      );
+
+      let stripeChargeId: string | null = null;
+
+      if (userResult.rows[0]?.stripe_customer_id) {
+        try {
+          // MED-9: Idempotency key prevents duplicate charges on retries
+          const paymentIntent = await stripe.paymentIntents.create(
+            {
+              amount: amountCharged * 100,
+              currency: 'usd',
+              customer: userResult.rows[0].stripe_customer_id,
+              description: `Closing gift for ${data.homebuyer_name}`,
+              confirm: true,
+              off_session: true,
+              metadata: {
+                partner_id: partner.id,
+                gift_id: gift.id,
+                homebuyer_email: data.homebuyer_email,
+              },
+            },
+            {
+              idempotencyKey: `gift-${gift.id}`,
+            }
+          );
+          stripeChargeId = paymentIntent.id;
+        } catch (stripeError: any) {
+          // MED-7: Extract Stripe decline reason and return user-friendly message
+          const declineCode =
+            stripeError?.code ||
+            stripeError?.raw?.decline_code ||
+            stripeError?.decline_code ||
+            'generic_decline';
+          const stripeMessage = stripeError?.message || 'Unknown Stripe error';
+
+          logger.error(
+            {
+              error: stripeMessage,
+              declineCode,
+              giftId: gift.id,
+              userId,
+            },
+            'Stripe payment failed for gift'
+          );
+
+          // Transaction will roll back, removing the pending_payment gift record
+          const userFriendlyMessage =
+            STRIPE_DECLINE_MESSAGES[declineCode] ||
+            'Payment failed. Please check your payment method and try again.';
+
+          throw new AppError(userFriendlyMessage, 402);
+        }
+      }
+
+      // Stripe succeeded — update gift status to 'created' within the same transaction
+      await client.query(
+        `UPDATE partner_gifts
+         SET status = 'created', stripe_charge_id = $1, updated_at = NOW()
+         WHERE id = $2`,
+        [stripeChargeId, gift.id]
+      );
+
+      // Create commission record within the transaction
+      await client.query(
+        `INSERT INTO partner_commissions (
+          partner_id, type, amount, status, reference_id, reference_type
+        ) VALUES ($1, 'gift', $2, 'pending', $3, 'partner_gift')`,
+        [partner.id, amountCharged, gift.id]
+      );
 
       await client.query('COMMIT');
+
+      // Re-fetch the updated gift after commit
+      const updatedGift = await pool.query('SELECT * FROM partner_gifts WHERE id = $1', [gift.id]);
+      const finalGift = updatedGift.rows[0];
+
+      // Send email to homebuyer with gift activation link (fire-and-forget)
+      EmailService.sendGiftActivationEmail({
+        to: finalGift.homebuyer_email,
+        homebuyer_name: finalGift.homebuyer_name,
+        partner_name: partner.company_name || `Partner ${partner.id.slice(0, 8)}`,
+        partner_company: partner.company_name,
+        premium_months: finalGift.premium_months,
+        activation_url: finalGift.activation_url,
+        activation_code: finalGift.activation_code,
+        custom_message: finalGift.custom_message,
+        brand_color: partner.brand_color,
+        logo_url: partner.logo_url,
+      }).catch((emailError) => {
+        logger.error(
+          { error: emailError, giftId: finalGift.id, homebuyer: data.homebuyer_email },
+          'Failed to send gift activation email, but gift was created successfully'
+        );
+      });
+
+      logger.info(
+        { giftId: finalGift.id, partnerId: partner.id, homebuyer: data.homebuyer_email },
+        'Gift created'
+      );
+
+      return finalGift;
     } catch (error) {
       await client.query('ROLLBACK');
-      logger.error({ error, userId }, 'Error creating gift record');
+      logger.error({ error, userId }, 'Error creating gift');
       throw error;
     } finally {
       client.release();
     }
-
-    // Attempt Stripe charge OUTSIDE the transaction
-    const user = await pool.query('SELECT stripe_customer_id FROM users WHERE id = $1', [
-      userId,
-    ]);
-
-    let stripeChargeId: string | null = null;
-
-    if (user.rows[0]?.stripe_customer_id) {
-      try {
-        const paymentIntent = await stripe.paymentIntents.create({
-          amount: gift.amount_charged * 100,
-          currency: 'usd',
-          customer: user.rows[0].stripe_customer_id,
-          description: `Closing gift for ${data.homebuyer_name}`,
-          confirm: true,
-          off_session: true,
-          metadata: {
-            partner_id: partner.id,
-            homebuyer_email: data.homebuyer_email,
-          },
-        });
-        stripeChargeId = paymentIntent.id;
-      } catch (stripeError) {
-        // Stripe charge failed — update gift status to 'payment_failed'
-        await pool.query(
-          `UPDATE partner_gifts SET status = 'payment_failed', updated_at = NOW() WHERE id = $1`,
-          [gift.id]
-        );
-        logger.error({ error: stripeError, giftId: gift.id, userId }, 'Stripe payment failed for gift');
-        throw new AppError('Payment failed. Please check your payment method.', 402);
-      }
-    }
-
-    // Stripe succeeded — update gift status to 'created' and create commission
-    await pool.query(
-      `UPDATE partner_gifts SET status = 'created', stripe_charge_id = $1, updated_at = NOW() WHERE id = $2`,
-      [stripeChargeId, gift.id]
-    );
-
-    await pool.query(
-      `INSERT INTO partner_commissions (
-        partner_id, type, amount, status, reference_id, reference_type
-      ) VALUES ($1, 'gift', $2, 'pending', $3, 'partner_gift')`,
-      [partner.id, gift.amount_charged, gift.id]
-    );
-
-    // Re-fetch the updated gift
-    const updatedGift = await pool.query('SELECT * FROM partner_gifts WHERE id = $1', [gift.id]);
-    gift = updatedGift.rows[0];
-
-    // Send email to homebuyer with gift activation link
-    try {
-      await EmailService.sendGiftActivationEmail({
-        to: gift.homebuyer_email,
-        homebuyer_name: gift.homebuyer_name,
-        partner_name: partner.company_name || `Partner ${partner.id.slice(0, 8)}`,
-        partner_company: partner.company_name,
-        premium_months: gift.premium_months,
-        activation_url: gift.activation_url,
-        activation_code: gift.activation_code,
-        custom_message: gift.custom_message,
-        brand_color: partner.brand_color,
-        logo_url: partner.logo_url,
-      });
-    } catch (emailError) {
-      // Log email error but don't fail the gift creation
-      logger.error(
-        { error: emailError, giftId: gift.id, homebuyer: data.homebuyer_email },
-        'Failed to send gift activation email, but gift was created successfully'
-      );
-    }
-
-    logger.info(
-      { giftId: gift.id, partnerId: partner.id, homebuyer: data.homebuyer_email },
-      'Gift created'
-    );
-
-    return gift;
   }
 
   /**
@@ -563,16 +612,37 @@ export class PartnersService {
 
   /**
    * Activate gift (when homebuyer signs up)
+   *
+   * BE-20: Uses SELECT ... FOR UPDATE to prevent concurrent activations.
+   * BE-26: Verifies user email matches homebuyer_email on the gift.
+   * HIGH-7: Per-gift rate limiting to prevent brute-force activation attempts.
    */
   static async activateGift(giftId: string, newUserId: string, userEmail: string): Promise<PartnerGift> {
+    // HIGH-7: Check per-gift rate limiting before doing any DB work
+    const attemptRecord = giftActivationAttempts.get(giftId);
+    if (attemptRecord) {
+      if (attemptRecord.lockedUntil && new Date() < attemptRecord.lockedUntil) {
+        const remainingMs = attemptRecord.lockedUntil.getTime() - Date.now();
+        const remainingMin = Math.ceil(remainingMs / 60000);
+        throw new AppError(
+          `This gift is temporarily locked due to too many failed attempts. Try again in ${remainingMin} minute(s).`,
+          429
+        );
+      }
+      // Lock period expired — reset
+      if (attemptRecord.lockedUntil && new Date() >= attemptRecord.lockedUntil) {
+        giftActivationAttempts.delete(giftId);
+      }
+    }
+
     const client = await pool.connect();
 
     try {
       await client.query('BEGIN');
 
-      // Get gift
+      // BE-20: SELECT ... FOR UPDATE to prevent concurrent activations
       const giftResult = await client.query(
-        'SELECT * FROM partner_gifts WHERE id = $1',
+        'SELECT * FROM partner_gifts WHERE id = $1 FOR UPDATE',
         [giftId]
       );
 
@@ -582,13 +652,19 @@ export class PartnersService {
 
       const gift = giftResult.rows[0];
 
-      // Verify the calling user is the intended homebuyer
+      // BE-26: Verify the calling user's email matches the intended homebuyer
       if (gift.homebuyer_email.toLowerCase() !== userEmail.toLowerCase()) {
+        // HIGH-7: Track failed attempt
+        this.recordFailedActivationAttempt(giftId);
         throw new AppError('This gift was not issued to your email address', 403);
       }
 
-      if (gift.is_activated) {
-        throw new AppError('Gift already activated', 400);
+      // BE-20: Only allow activation if gift status is exactly 'created' or 'sent'
+      if (gift.status !== 'created' && gift.status !== 'sent') {
+        if (gift.is_activated || gift.status === 'activated') {
+          throw new AppError('Gift already activated', 400);
+        }
+        throw new AppError(`Gift cannot be activated (current status: ${gift.status})`, 400);
       }
 
       if (gift.expires_at && new Date() > new Date(gift.expires_at)) {
@@ -629,6 +705,9 @@ export class PartnersService {
 
       await client.query('COMMIT');
 
+      // Clear rate-limit tracking on successful activation
+      giftActivationAttempts.delete(giftId);
+
       logger.info({ giftId, newUserId }, 'Gift activated');
 
       return (
@@ -641,6 +720,26 @@ export class PartnersService {
     } finally {
       client.release();
     }
+  }
+
+  /**
+   * HIGH-7: Record a failed activation attempt for a gift.
+   * After GIFT_MAX_ACTIVATION_ATTEMPTS failures, the gift is locked for
+   * GIFT_LOCKOUT_DURATION_MS milliseconds.
+   */
+  private static recordFailedActivationAttempt(giftId: string): void {
+    const record = giftActivationAttempts.get(giftId) || { attempts: 0, lockedUntil: null };
+    record.attempts += 1;
+
+    if (record.attempts >= GIFT_MAX_ACTIVATION_ATTEMPTS) {
+      record.lockedUntil = new Date(Date.now() + GIFT_LOCKOUT_DURATION_MS);
+      logger.warn(
+        { giftId, attempts: record.attempts, lockedUntil: record.lockedUntil },
+        'Gift locked due to too many failed activation attempts'
+      );
+    }
+
+    giftActivationAttempts.set(giftId, record);
   }
 
   /**

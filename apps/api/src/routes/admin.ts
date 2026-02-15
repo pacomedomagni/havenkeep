@@ -135,12 +135,16 @@ router.get('/users/activity', async (req, res, next) => {
 router.get('/users', validate(paginationSchema, 'query'), async (req, res, next) => {
   try {
     const { page, limit } = req.query as any;
-    const offset = (page - 1) * limit;
+
+    // BE-1/2/3: Explicitly convert and clamp pagination params to safe integers
+    const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit as string, 10) || 20));
+    const offset = (pageNum - 1) * limitNum;
 
     const [result, countResult] = await Promise.all([
       query(
         `SELECT * FROM user_stats ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
-        [limit, offset]
+        [limitNum, offset]
       ),
       query(`SELECT COUNT(*) FROM users`),
     ]);
@@ -150,10 +154,10 @@ router.get('/users', validate(paginationSchema, 'query'), async (req, res, next)
     res.json({
       users: result.rows,
       pagination: {
-        page,
-        limit,
+        page: pageNum,
+        limit: limitNum,
         total,
-        totalPages: Math.ceil(total / limit),
+        totalPages: Math.ceil(total / limitNum),
       },
     });
   } catch (error) {

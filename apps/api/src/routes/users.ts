@@ -10,6 +10,7 @@ import { blacklistTokenAuto } from '../utils/token-blacklist';
 import { config } from '../config';
 import { logger } from '../utils/logger';
 import { AuditService } from '../services/audit.service';
+import { verifyPremiumRateLimiter } from '../middleware/rateLimiter';
 
 const router = Router();
 router.use(authenticate);
@@ -97,7 +98,8 @@ router.post('/push-token', validate(pushTokenSchema), async (req, res, next) => 
 });
 
 // Verify premium subscription via RevenueCat
-router.post('/me/verify-premium', async (req, res, next) => {
+// BE-12: Rate limited to prevent abuse of RevenueCat API calls
+router.post('/me/verify-premium', verifyPremiumRateLimiter, async (req, res, next) => {
   try {
     const { revenueCatAppUserId } = req.body;
 

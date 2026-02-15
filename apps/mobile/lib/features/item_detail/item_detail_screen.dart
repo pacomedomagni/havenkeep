@@ -156,7 +156,7 @@ class _ItemDetailBody extends ConsumerWidget {
     final docsAsync = ref.watch(documentsForItemProvider(itemId));
     final theme = Theme.of(context);
     final status = item.computedWarrantyStatus;
-    final days = item.computedDaysRemaining;
+    final days = item.computedDaysRemaining ?? 0;
 
     final statusColor = switch (status) {
       WarrantyStatus.active => HavenColors.active,
@@ -578,14 +578,24 @@ class _ItemDetailBody extends ConsumerWidget {
 // Document row within accordion
 // ---------------------------------------------------------------------------
 
-class _DocumentRow extends ConsumerWidget {
+class _DocumentRow extends ConsumerStatefulWidget {
   final Document doc;
   final String itemId;
 
   const _DocumentRow({required this.doc, required this.itemId});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_DocumentRow> createState() => _DocumentRowState();
+}
+
+class _DocumentRowState extends ConsumerState<_DocumentRow> {
+  bool _isDeletingDocument = false;
+
+  Document get doc => widget.doc;
+  String get itemId => widget.itemId;
+
+  @override
+  Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.only(bottom: HavenSpacing.sm),
       child: GestureDetector(
@@ -633,6 +643,7 @@ class _DocumentRow extends ConsumerWidget {
           );
         },
         onLongPress: () async {
+          if (_isDeletingDocument) return;
           final confirmed = await showHavenConfirmDialog(
             context,
             title: 'Delete document?',
@@ -641,15 +652,22 @@ class _DocumentRow extends ConsumerWidget {
             isDestructive: true,
           );
           if (confirmed && context.mounted) {
-            await deleteDocument(
-              ref,
-              documentId: doc.id,
-              itemId: itemId,
-            );
-            if (context.mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Document deleted')),
+            setState(() => _isDeletingDocument = true);
+            try {
+              await deleteDocument(
+                ref,
+                documentId: doc.id,
+                itemId: itemId,
               );
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Document deleted')),
+                );
+              }
+            } finally {
+              if (mounted) {
+                setState(() => _isDeletingDocument = false);
+              }
             }
           }
         },

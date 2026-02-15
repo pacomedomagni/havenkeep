@@ -369,6 +369,17 @@ class _ManualEntryScreenState extends ConsumerState<ManualEntryScreen> {
                   ),
                   keyboardType: const TextInputType.numberWithOptions(
                       decimal: true),
+                  validator: (value) {
+                    if (value == null || value.isEmpty) return null;
+                    final parsed = double.tryParse(value);
+                    if (parsed == null) {
+                      return 'Enter a valid number';
+                    }
+                    if (parsed < 0) {
+                      return 'Price cannot be negative';
+                    }
+                    return null;
+                  },
                 ),
 
                 // Warranty Info section

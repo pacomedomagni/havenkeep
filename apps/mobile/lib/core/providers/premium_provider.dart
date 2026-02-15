@@ -198,7 +198,17 @@ class PremiumService {
   /// Sends the RevenueCat app user ID to the server, which verifies the
   /// subscription via the RevenueCat REST API and updates the user's plan
   /// in the database. This ensures the server-side record stays in sync.
-  Future<void> _verifyPremiumWithServer() async {
+  ///
+  /// Retries up to 3 times with increasing delays (5s, 30s, 5min) if the
+  /// server call fails.
+  Future<void> _verifyPremiumWithServer({int attempt = 0}) async {
+    const maxRetries = 3;
+    const retryDelays = [
+      Duration(seconds: 5),
+      Duration(seconds: 30),
+      Duration(minutes: 5),
+    ];
+
     try {
       final appUserId = await Purchases.appUserID;
       final client = _ref.read(apiClientProvider);
@@ -211,7 +221,15 @@ class PremiumService {
     } catch (e) {
       // Non-fatal: the webhook will also update the server.
       // Log but don't throw — the user already has their entitlement.
-      debugPrint('[Premium] Server-side verification failed (non-fatal): $e');
+      debugPrint('[Premium] Server-side verification failed (attempt ${attempt + 1}/$maxRetries): $e');
+
+      if (attempt < maxRetries - 1) {
+        final delay = retryDelays[attempt];
+        debugPrint('[Premium] Scheduling retry in ${delay.inSeconds}s');
+        Timer(delay, () => _verifyPremiumWithServer(attempt: attempt + 1));
+      } else {
+        debugPrint('[Premium] Server-side verification failed after $maxRetries attempts (non-fatal)');
+      }
     }
   }
 

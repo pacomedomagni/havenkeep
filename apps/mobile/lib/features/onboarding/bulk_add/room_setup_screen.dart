@@ -102,6 +102,15 @@ class _RoomSetupScreenState extends ConsumerState<RoomSetupScreen> {
     setState(() => _warrantyMonths[index] = months);
   }
 
+  void _disposeAndClearControllers() {
+    for (final c in _brandControllers.values) {
+      c.dispose();
+    }
+    _brandControllers.clear();
+    _purchaseDates.clear();
+    _warrantyMonths.clear();
+  }
+
   void _nextRoom() {
     final state = ref.read(bulkAddProvider);
     if (state.isLastRoom) {
@@ -110,9 +119,7 @@ class _RoomSetupScreenState extends ConsumerState<RoomSetupScreen> {
     } else {
       ref.read(bulkAddProvider.notifier).nextRoom();
       // Clear local form state for new room
-      _brandControllers.clear();
-      _purchaseDates.clear();
-      _warrantyMonths.clear();
+      _disposeAndClearControllers();
     }
   }
 
@@ -122,9 +129,7 @@ class _RoomSetupScreenState extends ConsumerState<RoomSetupScreen> {
       context.go(AppRoutes.homeSetup);
     } else {
       ref.read(bulkAddProvider.notifier).previousRoom();
-      _brandControllers.clear();
-      _purchaseDates.clear();
-      _warrantyMonths.clear();
+      _disposeAndClearControllers();
     }
   }
 

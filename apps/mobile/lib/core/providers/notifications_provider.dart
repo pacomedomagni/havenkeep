@@ -39,7 +39,7 @@ class NotificationsNotifier extends AsyncNotifier<List<AppNotification>> {
     final page = await ref
         .read(notificationsRepositoryProvider)
         .getNotifications(limit: _pageSize, offset: 0);
-    _hasMore = page.length >= _pageSize;
+    _hasMore = page.length == _pageSize;
     return page;
   }
 
@@ -53,7 +53,7 @@ class NotificationsNotifier extends AsyncNotifier<List<AppNotification>> {
       final page = await ref
           .read(notificationsRepositoryProvider)
           .getNotifications(limit: _pageSize, offset: current.length);
-      _hasMore = page.length >= _pageSize;
+      _hasMore = page.length == _pageSize;
       state = AsyncValue.data([...current, ...page]);
     } finally {
       _isLoadingMore = false;
@@ -69,7 +69,7 @@ class NotificationsNotifier extends AsyncNotifier<List<AppNotification>> {
       final page = await ref
           .read(notificationsRepositoryProvider)
           .getNotifications(limit: _pageSize, offset: 0);
-      _hasMore = page.length >= _pageSize;
+      _hasMore = page.length == _pageSize;
       return page;
     });
   }

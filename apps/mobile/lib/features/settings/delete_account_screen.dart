@@ -74,6 +74,37 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
     }
   }
 
+  Future<void> _deleteOAuthAccount() async {
+    final confirmed = await showHavenConfirmDialog(
+      context,
+      title: 'Delete account permanently?',
+      body:
+          'This will permanently delete your account and all your data including items, warranties, documents, and settings. This action cannot be undone.',
+      confirmLabel: 'Delete My Account',
+      isDestructive: true,
+    );
+
+    if (!confirmed || !mounted) return;
+
+    setState(() => _isLoading = true);
+    try {
+      await ref.read(currentUserProvider.notifier).deleteOAuthAccount();
+    } catch (e) {
+      if (mounted) {
+        HapticFeedback.mediumImpact();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(ErrorHandler.getUserMessage(e)),
+            backgroundColor: HavenColors.expired,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = ref.watch(currentUserProvider).value;
@@ -135,22 +166,72 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
               const SizedBox(height: HavenSpacing.xl),
 
               if (isOAuthUser) ...[
-                // SSO users can't delete via password
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(HavenSpacing.md),
-                  decoration: BoxDecoration(
-                    color: HavenColors.surface,
-                    borderRadius: BorderRadius.circular(HavenRadius.card),
-                    border: Border.all(color: HavenColors.border),
+                // OAuth users: delete without password, just confirm
+                const Text(
+                  'Since you signed in with a social account, no password is needed. Just confirm below.',
+                  style: TextStyle(
+                    fontSize: 15,
+                    color: HavenColors.textSecondary,
+                    height: 1.4,
                   ),
-                  child: const Text(
-                    'Your account uses social sign-in. Please contact support@havenkeep.app to request account deletion.',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: HavenColors.textSecondary,
-                      height: 1.4,
+                ),
+                const SizedBox(height: HavenSpacing.lg),
+
+                // Acknowledgement checkbox
+                GestureDetector(
+                  onTap: () => setState(() => _confirmed = !_confirmed),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: Checkbox(
+                          value: _confirmed,
+                          onChanged: (v) =>
+                              setState(() => _confirmed = v ?? false),
+                          activeColor: HavenColors.expired,
+                        ),
+                      ),
+                      const SizedBox(width: HavenSpacing.sm),
+                      const Expanded(
+                        child: Text(
+                          'I understand that this action is permanent and all my data will be deleted.',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: HavenColors.textSecondary,
+                            height: 1.4,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: HavenSpacing.lg),
+
+                // Delete button for OAuth users
+                SizedBox(
+                  width: double.infinity,
+                  height: 52,
+                  child: ElevatedButton(
+                    onPressed:
+                        _isLoading || !_confirmed ? null : _deleteOAuthAccount,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: HavenColors.expired,
+                      disabledBackgroundColor:
+                          HavenColors.expired.withOpacity(0.3),
                     ),
+                    child: _isLoading
+                        ? const SizedBox(
+                            height: 20,
+                            width: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Text('Delete My Account'),
                   ),
                 ),
               ] else ...[

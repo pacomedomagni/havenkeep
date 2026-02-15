@@ -63,9 +63,14 @@ class _WarrantyDurationPickerState extends State<WarrantyDurationPicker> {
   void _onNumberChanged(String value) {
     final parsed = int.tryParse(value);
     if (parsed != null && parsed >= 1 && parsed <= 99) {
-      _number = parsed;
+      setState(() {
+        _number = parsed;
+      });
       widget.onChanged(_totalMonths);
     }
+    // If the input is invalid (null, < 1, or > 99), we keep the previous
+    // valid _number value. The TextFormField validator will show an error
+    // naturally via the validator callback below.
   }
 
   void _onUnitChanged(_DurationUnit? newUnit) {
@@ -100,7 +105,11 @@ class _WarrantyDurationPickerState extends State<WarrantyDurationPicker> {
                     vertical: HavenSpacing.sm + 4,
                   ),
                 ),
-                validator: (_) {
+                validator: (value) {
+                  final parsed = int.tryParse(value ?? '');
+                  if (parsed == null || parsed < 1 || parsed > 99) {
+                    return 'Enter a number from 1 to 99';
+                  }
                   if (widget.validator != null) {
                     return widget.validator!(_totalMonths);
                   }

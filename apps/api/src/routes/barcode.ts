@@ -21,21 +21,37 @@ router.post('/lookup', validate(barcodeLookupSchema), async (req: AuthRequest, r
       `https://api.upcitemdb.com/prod/trial/lookup?upc=${barcode}`
     );
 
-    if (response.ok) {
-      const data: any = await response.json();
-      if (data.items && data.items.length > 0) {
-        const product = data.items[0];
-        logger.info({ barcode, found: true }, 'Barcode found');
-        return res.json({
-          barcode,
-          brand: typeof product.brand === 'string' ? product.brand : null,
-          productName: typeof product.title === 'string' ? product.title : null,
-          category: typeof product.category === 'string' ? product.category : 'other',
-          imageUrl: Array.isArray(product.images) && product.images.length > 0 ? product.images[0] : null,
-        });
+    // BE-25: Distinguish between API error (upstream failure) and not-found
+    if (!response.ok) {
+      const statusCode = response.status;
+      logger.error({ barcode, statusCode }, 'Barcode API returned error');
+
+      if (statusCode === 404) {
+        // API explicitly says not found — return 200 with null product data
+        return res.json({ barcode, brand: null, productName: null });
       }
+
+      // Upstream server error or rate limit — return 502 Bad Gateway
+      return res.status(502).json({
+        error: 'Barcode lookup service unavailable',
+        message: `External API returned status ${statusCode}`,
+      });
     }
 
+    const data: any = await response.json();
+    if (data.items && data.items.length > 0) {
+      const product = data.items[0];
+      logger.info({ barcode, found: true }, 'Barcode found');
+      return res.json({
+        barcode,
+        brand: typeof product.brand === 'string' ? product.brand : null,
+        productName: typeof product.title === 'string' ? product.title : null,
+        category: typeof product.category === 'string' ? product.category : 'other',
+        imageUrl: Array.isArray(product.images) && product.images.length > 0 ? product.images[0] : null,
+      });
+    }
+
+    // API returned 200 but no items — product genuinely not found
     logger.info({ barcode, found: false }, 'Barcode not found');
     res.json({ barcode, brand: null, productName: null });
   } catch (error) {

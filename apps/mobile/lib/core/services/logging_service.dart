@@ -17,6 +17,10 @@ const _kSensitiveKeys = {
   'cookie',
 };
 
+/// Maximum number of Loki log entries to buffer when Loki is unreachable.
+/// Oldest entries are dropped when this limit is exceeded to prevent memory bloat.
+const _kMaxLokiQueueSize = 50;
+
 /// Lightweight logging service inspired by Pino.
 ///
 /// Logs are:
@@ -29,6 +33,7 @@ class LoggingService {
   static File? _logFile;
   static String? _lokiUrl;
   static bool _initialized = false;
+  static final List<Map<String, dynamic>> _lokiQueue = [];
 
   LoggingService._();
 
@@ -181,9 +186,29 @@ class LoggingService {
   }
 
   void _shipToLoki(Map<String, dynamic> logEntry) {
+    // Add to queue, dropping oldest entries if queue is full to prevent
+    // unbounded memory growth when Loki is unreachable.
+    _lokiQueue.add(logEntry);
+    if (_lokiQueue.length > _kMaxLokiQueueSize) {
+      _lokiQueue.removeAt(0);
+    }
+
     // Fire and forget - don't block main thread
     Future.microtask(() async {
+      // Drain as many queued entries as possible in one batch
+      final entries = List<Map<String, dynamic>>.from(_lokiQueue);
+      _lokiQueue.clear();
+
+      if (entries.isEmpty) return;
+
       try {
+        final values = entries
+            .map((entry) => [
+                  '${DateTime.now().millisecondsSinceEpoch * 1000000}', // nanoseconds
+                  jsonEncode(entry),
+                ])
+            .toList();
+
         final payload = {
           'streams': [
             {
@@ -191,12 +216,7 @@ class LoggingService {
                 'app': 'havenkeep',
                 'level': logEntry['level'],
               },
-              'values': [
-                [
-                  '${DateTime.now().millisecondsSinceEpoch * 1000000}', // nanoseconds
-                  jsonEncode(logEntry),
-                ],
-              ],
+              'values': values,
             },
           ],
         };
@@ -207,6 +227,11 @@ class LoggingService {
           body: jsonEncode(payload),
         ).timeout(const Duration(seconds: 2));
       } catch (e) {
+        // Re-enqueue failed entries (up to max queue size)
+        for (final entry in entries) {
+          if (_lokiQueue.length >= _kMaxLokiQueueSize) break;
+          _lokiQueue.add(entry);
+        }
         // Silently fail - don't want logging to crash the app
         debugPrint('[LoggingService] Failed to ship to Loki: $e');
       }

@@ -14,6 +14,11 @@ export class WarrantyClaimsService {
     const client = await pool.connect();
 
     try {
+      // BE-17: Validate amount_saved is non-negative
+      if (data.amount_saved !== undefined && data.amount_saved < 0) {
+        throw new AppError('amount_saved cannot be negative', 400);
+      }
+
       await client.query('BEGIN');
 
       // Verify item belongs to user
@@ -189,6 +194,11 @@ export class WarrantyClaimsService {
     const client = await pool.connect();
 
     try {
+      // BE-17: Validate amount_saved is non-negative
+      if (data.amount_saved !== undefined && data.amount_saved < 0) {
+        throw new AppError('amount_saved cannot be negative', 400);
+      }
+
       await client.query('BEGIN');
 
       // Verify claim belongs to user

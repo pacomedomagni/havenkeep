@@ -28,7 +28,9 @@ class ErrorHandler {
     if (error is ApiException) {
       switch (error.statusCode) {
         case 400:
-          return 'Invalid request. Please check your input.';
+          return error.message.isNotEmpty && error.message != 'Request failed'
+              ? error.message
+              : 'Invalid request. Please check your input.';
         case 401:
           return 'Your session has expired. Please sign in again.';
         case 403:
@@ -38,7 +40,9 @@ class ErrorHandler {
         case 408:
           return 'Request timed out. Please try again.';
         case 409:
-          return 'This change conflicts with recent updates. Please refresh and try again.';
+          return error.message.isNotEmpty && error.message != 'Request failed'
+              ? error.message
+              : 'This change conflicts with recent updates. Please refresh and try again.';
         case 429:
           return 'Too many requests. Please wait a moment and try again.';
         default:

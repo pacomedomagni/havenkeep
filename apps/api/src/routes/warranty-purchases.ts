@@ -27,9 +27,13 @@ router.get(
     const userId = req.user!.id;
     const { limit, offset, item_id, status } = req.query;
 
+    // BE-1/2/3: Explicitly convert and clamp pagination params to safe integers
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit as string, 10) || 50));
+    const offsetNum = Math.max(0, parseInt(offset as string, 10) || 0);
+
     const result = await WarrantyPurchasesService.getUserPurchases(userId, {
-      limit: Number(limit),
-      offset: Number(offset),
+      limit: limitNum,
+      offset: offsetNum,
       itemId: item_id as string,
       status: status as string,
     });
@@ -39,9 +43,9 @@ router.get(
       data: result.purchases,
       pagination: {
         total: result.total,
-        limit: Number(limit),
-        offset: Number(offset),
-        has_more: result.total > Number(offset) + result.purchases.length,
+        limit: limitNum,
+        offset: offsetNum,
+        has_more: result.total > offsetNum + result.purchases.length,
       },
     });
   })

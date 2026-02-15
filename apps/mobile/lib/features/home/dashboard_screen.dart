@@ -386,7 +386,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
   Widget _buildAttentionCard(Item item) {
     final status = item.computedWarrantyStatus;
-    final days = item.computedDaysRemaining;
+    final days = item.computedDaysRemaining ?? 0;
     final isExpired = status == WarrantyStatus.expired;
     final color = isExpired ? HavenColors.expired : HavenColors.expiring;
 

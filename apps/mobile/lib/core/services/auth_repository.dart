@@ -113,16 +113,43 @@ class AuthRepository {
   }
 
   /// Sign out the current user.
+  ///
+  /// If the API call fails, retries once after a short delay before
+  /// clearing tokens locally.
   Future<void> signOut() async {
     try {
-      // Read the stored refresh token so the server can blacklist it
-      final storage = const FlutterSecureStorage();
-      final refreshToken = await storage.read(key: 'refresh_token');
-      await _client.post('/api/v1/auth/logout', body: {
-        if (refreshToken != null) 'refreshToken': refreshToken,
-      });
+      await _signOutApiCall();
     } catch (e) {
-      debugPrint('[Auth] Logout API call failed: $e');
+      debugPrint('[Auth] Logout API call failed, retrying once: $e');
+      try {
+        await Future.delayed(const Duration(seconds: 1));
+        await _signOutApiCall();
+      } catch (retryError) {
+        debugPrint('[Auth] Logout API retry also failed: $retryError');
+      }
+    } finally {
+      await _client.clearTokens();
+    }
+  }
+
+  /// Performs the actual logout API call.
+  Future<void> _signOutApiCall() async {
+    final storage = const FlutterSecureStorage(
+      aOptions: AndroidOptions(encryptedSharedPreferences: true),
+      iOptions: IOSOptions(accessibility: KeychainAccessibility.first_unlock),
+    );
+    final refreshToken = await storage.read(key: 'refresh_token');
+    await _client.post('/api/v1/auth/logout', body: {
+      if (refreshToken != null) 'refreshToken': refreshToken,
+    });
+  }
+
+  /// Sign out from all devices.
+  Future<void> signOutAll() async {
+    try {
+      await _client.post('/api/v1/auth/logout-all');
+    } catch (e) {
+      debugPrint('[Auth] Logout-all API call failed: $e');
     } finally {
       await _client.clearTokens();
     }
@@ -201,6 +228,14 @@ class AuthRepository {
   Future<void> deleteAccount({required String password}) async {
     await _client.delete('/api/v1/users/me', body: {
       'password': password,
+    });
+    await _client.clearTokens();
+  }
+
+  /// Delete an OAuth user's account (no password required).
+  Future<void> deleteOAuthAccount() async {
+    await _client.delete('/api/v1/users/me', body: {
+      'confirmDelete': true,
     });
     await _client.clearTokens();
   }

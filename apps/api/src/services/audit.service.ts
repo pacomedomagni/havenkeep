@@ -350,7 +350,7 @@ export class AuditService {
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-    // Get total count
+    // Get total count — uses only the filter params ($1..$N)
     const countResult = await pool.query<{ count: string }>(
       `SELECT COUNT(*) as count FROM audit_logs ${whereClause}`,
       params
@@ -358,12 +358,16 @@ export class AuditService {
 
     const total = parseInt(countResult.rows[0].count, 10);
 
-    // Get paginated results
+    // Get paginated results — extends the filter params with LIMIT and OFFSET.
+    // paramIndex is currently N+1 (where N = number of filter params), so LIMIT
+    // becomes $N+1 and OFFSET becomes $N+2, matching the spread [...params, limit, offset].
+    const limitIndex = paramIndex++;
+    const offsetIndex = paramIndex++;
     const logsResult = await pool.query<AuditLogEntry>(
       `SELECT * FROM audit_logs
        ${whereClause}
        ORDER BY created_at DESC
-       LIMIT $${paramIndex++} OFFSET $${paramIndex++}`,
+       LIMIT $${limitIndex} OFFSET $${offsetIndex}`,
       [...params, limit, offset]
     );
 

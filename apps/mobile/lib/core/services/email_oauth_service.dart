@@ -94,7 +94,7 @@ class EmailOAuthService {
     );
 
     if (tokenResponse.statusCode < 200 || tokenResponse.statusCode >= 300) {
-      debugPrint('[EmailOAuth] Outlook token exchange failed: ${tokenResponse.body}');
+      debugPrint('[EmailOAuth] Outlook token exchange failed: ${tokenResponse.statusCode}');
       throw StateError('Outlook token exchange failed');
     }
 

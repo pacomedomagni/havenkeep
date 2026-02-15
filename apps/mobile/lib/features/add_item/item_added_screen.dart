@@ -217,7 +217,7 @@ class _ItemAddedScreenState extends ConsumerState<ItemAddedScreen>
                   ),
                   const SizedBox(height: HavenSpacing.sm),
                   const Text(
-                    'Item was saved but details could not be loaded.',
+                    "Item was saved but details couldn't load. View it from your items list.",
                     style: TextStyle(
                       fontSize: 14,
                       color: HavenColors.textSecondary,

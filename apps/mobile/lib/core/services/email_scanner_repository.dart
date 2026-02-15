@@ -28,7 +28,11 @@ class EmailScannerRepository {
       }
 
       final data = await _client.post('/api/v1/email-scanner/scan', body: body);
-      return EmailScan.fromJson(data['data'] as Map<String, dynamic>);
+      final responseData = data['data'];
+      if (responseData == null) {
+        throw StateError('Email scan response missing "data" field');
+      }
+      return EmailScan.fromJson(responseData as Map<String, dynamic>);
     } catch (e) {
       debugPrint('[EmailScannerRepository] initiateScan failed: $e');
       rethrow;
@@ -39,7 +43,11 @@ class EmailScannerRepository {
   Future<List<EmailScan>> getScans() async {
     try {
       final data = await _client.get('/api/v1/email-scanner/scans');
-      final scans = (data['data'] as List)
+      final responseData = data['data'];
+      if (responseData == null) {
+        throw StateError('Email scans response missing "data" field');
+      }
+      final scans = (responseData as List)
           .map((json) => EmailScan.fromJson(json as Map<String, dynamic>))
           .toList();
       return scans;
@@ -53,7 +61,11 @@ class EmailScannerRepository {
   Future<EmailScan> getScanById(String id) async {
     try {
       final data = await _client.get('/api/v1/email-scanner/scans/$id');
-      return EmailScan.fromJson(data['data'] as Map<String, dynamic>);
+      final responseData = data['data'];
+      if (responseData == null) {
+        throw StateError('Email scan response missing "data" field for scan $id');
+      }
+      return EmailScan.fromJson(responseData as Map<String, dynamic>);
     } catch (e) {
       debugPrint('[EmailScannerRepository] getScanById failed: $e');
       rethrow;

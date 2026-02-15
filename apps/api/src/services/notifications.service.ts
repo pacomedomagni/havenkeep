@@ -166,13 +166,14 @@ export class NotificationsService {
         }
 
         // Already read, return existing record
+        // MED-5: Include user_id in the WHERE clause to enforce ownership
         const existing = await pool.query(
           `SELECT nh.*, nt.name as template_name, i.name as item_name
            FROM notification_history nh
            LEFT JOIN notification_templates nt ON nt.id = nh.template_id
            LEFT JOIN items i ON i.id = nh.item_id
-           WHERE nh.id = $1`,
-          [notificationId]
+           WHERE nh.id = $1 AND nh.user_id = $2`,
+          [notificationId, userId]
         );
 
         return existing.rows[0];
@@ -310,7 +311,25 @@ export class NotificationsService {
       let title = template.title_template;
       let body = template.body_template;
 
+      // MED-10: Whitelist of allowed variable names to prevent template injection.
+      // Only these known variable names can be interpolated into templates.
+      const ALLOWED_TEMPLATE_VARS = new Set([
+        'userName', 'userEmail', 'fullName',
+        'itemName', 'itemBrand', 'itemCategory', 'itemModel',
+        'daysRemaining', 'expiryDate', 'warrantyEndDate',
+        'claimNumber', 'claimStatus', 'amountSaved',
+        'giftSenderName', 'giftMessage',
+        'partnerName', 'commissionAmount',
+        'planName', 'tipTitle', 'tipBody',
+        'item_id', 'gift_id',
+      ]);
+
       for (const [key, value] of Object.entries(vars)) {
+        // Only interpolate whitelisted variable names
+        if (!ALLOWED_TEMPLATE_VARS.has(key)) {
+          logger.warn({ key, templateName }, 'Skipping non-whitelisted template variable');
+          continue;
+        }
         // Sanitize value to prevent template injection
         const safeValue = String(value).replace(/\{\{/g, '{ {').replace(/\}\}/g, '} }');
         const placeholder = new RegExp(`\\{\\{${key}\\}\\}`, 'g');
