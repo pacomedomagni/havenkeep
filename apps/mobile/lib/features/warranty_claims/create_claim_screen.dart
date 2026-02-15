@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import 'package:shared_models/shared_models.dart';
 import 'package:shared_ui/shared_ui.dart';
 
+import '../../core/providers/auth_provider.dart';
 import '../../core/providers/items_provider.dart';
 import '../../core/providers/warranty_claims_provider.dart';
 
@@ -74,9 +75,19 @@ class _CreateClaimScreenState extends ConsumerState<CreateClaimScreen> {
     setState(() => _saving = true);
 
     try {
+      final user = ref.read(currentUserProvider).value;
+      if (user == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Error: Not signed in')),
+          );
+        }
+        return;
+      }
+
       final claim = WarrantyClaim(
         id: '',
-        userId: '',
+        userId: user.id,
         itemId: widget.itemId,
         claimDate: _claimDate,
         issueDescription: _issueController.text.trim().isEmpty

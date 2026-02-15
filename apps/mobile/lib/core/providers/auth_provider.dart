@@ -7,6 +7,12 @@ import 'package:shared_models/shared_models.dart';
 import '../services/auth_repository.dart';
 import '../services/push_notification_service.dart';
 import 'demo_mode_provider.dart';
+import 'items_provider.dart';
+import 'notifications_provider.dart';
+import 'premium_provider.dart';
+import 'warranty_purchases_provider.dart';
+import 'homes_provider.dart';
+import 'email_scanner_provider.dart';
 
 /// Provides the auth repository instance.
 final authRepositoryProvider = Provider<AuthRepository>((ref) {
@@ -124,6 +130,13 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
       // Register push token after login
       if (user != null) {
         _registerPushToken(user.id);
+
+        // Log in to RevenueCat with authenticated user
+        try {
+          await ref.read(premiumServiceProvider).logIn(user.id);
+        } catch (e) {
+          debugPrint('[Auth] RevenueCat login failed (non-fatal): $e');
+        }
       }
 
       return user;
@@ -145,6 +158,13 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
 
       if (user != null) {
         _registerPushToken(user.id);
+
+        // Log in to RevenueCat with authenticated user
+        try {
+          await ref.read(premiumServiceProvider).logIn(user.id);
+        } catch (e) {
+          debugPrint('[Auth] RevenueCat login failed (non-fatal): $e');
+        }
       }
 
       return user;
@@ -172,6 +192,13 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
 
       if (user != null) {
         _registerPushToken(user.id);
+
+        // Log in to RevenueCat with authenticated user
+        try {
+          await ref.read(premiumServiceProvider).logIn(user.id);
+        } catch (e) {
+          debugPrint('[Auth] RevenueCat login failed (non-fatal): $e');
+        }
       }
 
       return user;
@@ -185,6 +212,15 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
   Future<void> signOut() async {
     await ref.read(authRepositoryProvider).signOut();
     ref.read(demoModeProvider.notifier).exitDemoMode();
+
+    // Invalidate all data providers to prevent stale data between accounts
+    ref.invalidate(itemsProvider);
+    ref.invalidate(notificationsProvider);
+    ref.invalidate(warrantyPurchasesProvider);
+    ref.invalidate(homesProvider);
+    ref.invalidate(archivedItemsProvider);
+    ref.invalidate(emailScansProvider);
+
     _skipNextRebuild = false;
     state = const AsyncValue.data(null);
   }
@@ -235,6 +271,15 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
   Future<void> signOutAll() async {
     await ref.read(authRepositoryProvider).signOutAll();
     ref.read(demoModeProvider.notifier).exitDemoMode();
+
+    // Invalidate all data providers to prevent stale data between accounts
+    ref.invalidate(itemsProvider);
+    ref.invalidate(notificationsProvider);
+    ref.invalidate(warrantyPurchasesProvider);
+    ref.invalidate(homesProvider);
+    ref.invalidate(archivedItemsProvider);
+    ref.invalidate(emailScansProvider);
+
     _skipNextRebuild = false;
     state = const AsyncValue.data(null);
   }

@@ -19,13 +19,13 @@
 --   DB-28: documents.updated_at column with trigger (same as DB-8)
 -- ============================================
 
-BEGIN;
-
--- ============================================
 -- DB-1: Add 'pending_payment' and 'payment_failed' to gift_status ENUM
--- ============================================
+-- NOTE: ALTER TYPE ... ADD VALUE cannot run inside a transaction block in PostgreSQL.
+-- These statements MUST be executed before BEGIN.
 ALTER TYPE gift_status ADD VALUE IF NOT EXISTS 'pending_payment';
 ALTER TYPE gift_status ADD VALUE IF NOT EXISTS 'payment_failed';
+
+BEGIN;
 
 -- ============================================
 -- DB-23: UNIQUE constraint on users.referral_code (allow NULLs)
@@ -143,6 +143,11 @@ END $$;
 -- ============================================
 ALTER TABLE partner_commissions
   ADD COLUMN IF NOT EXISTS commission_rate DECIMAL(5, 4);
+
+-- Set default for new rows
+ALTER TABLE partner_commissions ALTER COLUMN commission_rate SET DEFAULT 0.15;
+-- Backfill existing rows
+UPDATE partner_commissions SET commission_rate = 0.15 WHERE commission_rate IS NULL;
 
 DO $$
 BEGIN

@@ -281,8 +281,7 @@ export class StatsService {
 
       const field = fieldMap[feature];
       if (!field) {
-        logger.warn({ feature }, 'Unknown feature for tracking');
-        return;
+        throw new Error(`Unknown feature for tracking: ${feature}`);
       }
 
       // Use explicit column references instead of interpolation for safety
@@ -298,8 +297,7 @@ export class StatsService {
 
       const updateSql = updateQueries[field];
       if (!updateSql) {
-        logger.warn({ feature, field }, 'Unknown analytics field');
-        return;
+        throw new Error(`Unknown analytics field: ${field} (feature: ${feature})`);
       }
 
       await pool.query(updateSql, [userId]);

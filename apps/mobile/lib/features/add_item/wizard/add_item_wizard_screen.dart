@@ -205,6 +205,15 @@ class _AddItemWizardScreenState extends ConsumerState<AddItemWizardScreen> {
             final isCompleted = index < _currentStep;
             final isCurrent = index == _currentStep;
 
+            final Color color;
+            if (isCompleted) {
+              color = HavenColors.primary;
+            } else if (isCurrent) {
+              color = HavenColors.primary.withOpacity(0.5);
+            } else {
+              color = HavenColors.border;
+            }
+
             return Expanded(
               child: Row(
                 children: [
@@ -212,9 +221,7 @@ class _AddItemWizardScreenState extends ConsumerState<AddItemWizardScreen> {
                     child: Container(
                       height: 4,
                       decoration: BoxDecoration(
-                        color: isCompleted || isCurrent
-                            ? HavenColors.primary
-                            : Colors.grey[300],
+                        color: color,
                         borderRadius: BorderRadius.circular(2),
                       ),
                     ),

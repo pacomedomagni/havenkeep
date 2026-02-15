@@ -418,11 +418,14 @@ export class PartnersService {
       );
 
       // Create commission record within the transaction
+      // commission_rate is stored as a decimal (0-1), default 0.15 (15%)
+      const commissionRate = 0.15;
+      const commissionAmount = Math.round(amountCharged * commissionRate * 100) / 100;
       await client.query(
         `INSERT INTO partner_commissions (
-          partner_id, type, amount, status, reference_id, reference_type
-        ) VALUES ($1, 'gift', $2, 'pending', $3, 'partner_gift')`,
-        [partner.id, amountCharged, gift.id]
+          partner_id, type, amount, commission_rate, status, reference_id, reference_type
+        ) VALUES ($1, 'gift', $2, $3, 'pending', $4, 'partner_gift')`,
+        [partner.id, commissionAmount, commissionRate, gift.id]
       );
 
       await client.query('COMMIT');

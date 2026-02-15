@@ -67,8 +67,8 @@ class WarrantyPurchase {
       planName: json['plan_name'] as String,
       externalPolicyId: json['external_policy_id'] as String?,
       durationMonths: (json['duration_months'] as num).toInt(),
-      startsAt: DateTime.parse(json['starts_at'] as String),
-      expiresAt: DateTime.parse(json['expires_at'] as String),
+      startsAt: DateTime.tryParse(json['starts_at'] as String? ?? '') ?? DateTime.now(),
+      expiresAt: DateTime.tryParse(json['expires_at'] as String? ?? '') ?? DateTime.now(),
       coverageDetails: json['coverage_details'] as Map<String, dynamic>?,
       price: (json['price'] as num).toDouble(),
       deductible: (json['deductible'] as num?)?.toDouble() ?? 0,
@@ -81,15 +81,15 @@ class WarrantyPurchase {
       commissionRate: json['commission_rate'] != null
           ? (json['commission_rate'] as num).toDouble()
           : null,
-      purchaseDate: DateTime.parse(json['purchase_date'] as String),
+      purchaseDate: DateTime.tryParse(json['purchase_date'] as String? ?? '') ?? DateTime.now(),
       stripePaymentIntentId: json['stripe_payment_intent_id'] as String?,
       status: WarrantyPurchaseStatus.fromJson(json['status'] as String? ?? 'active'),
       cancelledAt: json['cancelled_at'] != null
-          ? DateTime.parse(json['cancelled_at'] as String)
+          ? DateTime.tryParse(json['cancelled_at'] as String)
           : null,
       cancellationReason: json['cancellation_reason'] as String?,
-      createdAt: DateTime.parse(json['created_at'] as String),
-      updatedAt: DateTime.parse(json['updated_at'] as String),
+      createdAt: DateTime.tryParse(json['created_at'] as String? ?? '') ?? DateTime.now(),
+      updatedAt: DateTime.tryParse(json['updated_at'] as String? ?? '') ?? DateTime.now(),
       itemName: json['item_name'] as String?,
       itemCategory: json['item_category'] as String?,
       itemBrand: json['item_brand'] as String?,

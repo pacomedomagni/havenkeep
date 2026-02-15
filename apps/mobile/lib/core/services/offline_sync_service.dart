@@ -11,6 +11,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_models/shared_models.dart';
 
 import '../database/database.dart';
+import '../providers/auth_provider.dart';
 import '../providers/documents_provider.dart';
 import '../providers/items_provider.dart';
 import '../providers/notifications_provider.dart';
@@ -109,6 +110,14 @@ class OfflineSyncService {
   /// Process all pending queue entries in FIFO order.
   Future<void> syncPendingChanges() async {
     if (_isSyncing) return;
+
+    // Skip sync if user is not authenticated
+    final isAuthenticated = _ref.read(isAuthenticatedProvider);
+    if (!isAuthenticated) {
+      debugPrint('[OfflineSync] Skipping sync — user is not authenticated');
+      return;
+    }
+
     _isSyncing = true;
     _pendingSync = false;
 
@@ -146,9 +155,10 @@ class OfflineSyncService {
             continue;
           }
 
-          // Don't retry on other 4xx client errors - mark as failed immediately
+          // Don't retry on other 4xx client errors - mark as permanently failed
           if (_isNonRetriableClientError(e.statusCode)) {
-            await _db.markActionFailed(entry.id, entry.attempts + 1);
+            debugPrint('[OfflineSync] Non-retriable client error ${e.statusCode} for entry ${entry.id} — marking permanently failed');
+            await _db.markActionFailed(entry.id, _kMaxRetries);
             continue;
           }
 

@@ -11,7 +11,7 @@ import '../../core/providers/documents_provider.dart';
 import '../../core/utils/error_handler.dart';
 
 /// Maximum file size for document uploads (10 MB).
-const _kMaxFileSizeBytes = 20 * 1024 * 1024;
+const _kMaxFileSizeBytes = 10 * 1024 * 1024;
 
 /// Detect MIME type from file name extension.
 String _detectMimeType(String fileName) {

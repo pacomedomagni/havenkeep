@@ -25,7 +25,7 @@ class ItemsRepository {
         'limit': '1000',
       };
 
-      if (homeId != null) params['homeId'] = homeId;
+      if (homeId != null) params['home_id'] = homeId;
       if (!includeArchived) params['archived'] = 'false';
 
       final data = await _client.get('/api/v1/items', queryParams: params);
@@ -69,7 +69,7 @@ class ItemsRepository {
         'limit': '1000',
         'archived': 'false',
       };
-      if (homeId != null) params['homeId'] = homeId;
+      if (homeId != null) params['home_id'] = homeId;
 
       final data = await _client.get('/api/v1/items', queryParams: params);
       return (data['items'] as List)

@@ -120,52 +120,70 @@ class ItemsNotifier extends AsyncNotifier<List<Item>> {
   Future<List<Item>> addItems(List<Item> items) async {
     final repo = ref.read(itemsRepositoryProvider);
     final currentItems = state.value ?? [];
-
-    // Save previous state for rollback in case any item fails
-    final previousState = AsyncValue.data(List<Item>.from(currentItems));
     final createdItems = <Item>[];
+    final failedIndices = <int>[];
+
+    for (int i = 0; i < items.length; i++) {
+      try {
+        final newItem = await repo.createItem(items[i]);
+        createdItems.add(newItem);
+      } catch (e) {
+        debugPrint('[ItemsNotifier] Item ${i + 1}/${items.length} creation failed: $e');
+        failedIndices.add(i);
+      }
+    }
+
+    // Update state with whatever succeeded
+    state = AsyncValue.data([...createdItems, ...currentItems]);
+
+    if (failedIndices.isNotEmpty) {
+      throw StateError('Failed to create ${failedIndices.length}/${items.length} items');
+    }
+
+    return createdItems;
+  }
+
+  /// Archive an item (soft delete).
+  Future<void> archiveItem(String id) async {
+    final currentItems = state.value ?? [];
+    final previousState = AsyncValue.data(List<Item>.from(currentItems));
+
+    // Optimistically remove from active list
+    state = AsyncValue.data(
+      currentItems.where((i) => i.id != id).toList(),
+    );
 
     try {
-      for (final item in items) {
-        // createItem returns full item with RETURNING * (includes warranty_end_date)
-        final newItem = await repo.createItem(item);
-        createdItems.add(newItem);
-      }
-
-      state = AsyncValue.data([...createdItems, ...currentItems]);
-
-      return createdItems;
+      await ref.read(itemsRepositoryProvider).archiveItem(id);
+      ref.invalidate(archivedItemsProvider);
     } catch (e) {
       // Rollback to previous state on failure
-      debugPrint('[ItemsNotifier] addItems failed after ${createdItems.length}/${items.length} items, rolling back: $e');
+      debugPrint('[ItemsNotifier] archiveItem failed, rolling back: $e');
       state = previousState;
       rethrow;
     }
   }
 
-  /// Archive an item (soft delete).
-  Future<void> archiveItem(String id) async {
-    await ref.read(itemsRepositoryProvider).archiveItem(id);
-
-    final currentItems = state.value ?? [];
-    state = AsyncValue.data(
-      currentItems.where((i) => i.id != id).toList(),
-    );
-
-    ref.invalidate(archivedItemsProvider);
-  }
-
   /// Unarchive an item (restore from archive).
   Future<void> unarchiveItem(String id) async {
-    await ref.read(itemsRepositoryProvider).unarchiveItem(id);
-
-    // Re-fetch to get the restored item with computed fields
-    final restored = await ref.read(itemsRepositoryProvider).getItemById(id);
-
     final currentItems = state.value ?? [];
-    state = AsyncValue.data([restored, ...currentItems]);
+    final previousState = AsyncValue.data(List<Item>.from(currentItems));
 
-    ref.invalidate(archivedItemsProvider);
+    try {
+      await ref.read(itemsRepositoryProvider).unarchiveItem(id);
+
+      // Re-fetch to get the restored item with computed fields
+      final restored = await ref.read(itemsRepositoryProvider).getItemById(id);
+
+      state = AsyncValue.data([restored, ...currentItems]);
+
+      ref.invalidate(archivedItemsProvider);
+    } catch (e) {
+      // Rollback to previous state on failure
+      debugPrint('[ItemsNotifier] unarchiveItem failed, rolling back: $e');
+      state = previousState;
+      rethrow;
+    }
   }
 }
 

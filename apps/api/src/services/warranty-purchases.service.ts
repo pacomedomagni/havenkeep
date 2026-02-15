@@ -129,10 +129,10 @@ export class WarrantyPurchasesService {
     const client = await pool.connect();
 
     try {
-      // BE-18/MED-12: Validate duration_months is within acceptable range (1-600 months / 50 years)
+      // BE-18/MED-12: Validate duration_months is within acceptable range (1-240 months / 20 years)
       if (data.duration_months !== undefined) {
-        if (data.duration_months < 1 || data.duration_months > 600) {
-          throw new AppError('duration_months must be between 1 and 600', 400);
+        if (data.duration_months < 1 || data.duration_months > 240) {
+          throw new AppError('duration_months must be between 1 and 240', 400);
         }
       }
 

@@ -22,11 +22,15 @@ function sanitizeColor(color: string): string {
   return /^#[0-9A-Fa-f]{6}$/.test(color) ? color : '#3B82F6';
 }
 
-// Validate URL is https
+// Validate URL is https (allow http only for localhost in development)
 function sanitizeUrl(url: string): string {
   try {
     const parsed = new URL(url);
-    if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
+    if (parsed.protocol === 'https:') {
+      return url;
+    }
+    // Allow http only for localhost in development
+    if (parsed.protocol === 'http:' && (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1')) {
       return url;
     }
     return '';

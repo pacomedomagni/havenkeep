@@ -25,9 +25,9 @@ class EmailScansNotifier extends AsyncNotifier<List<EmailScan>> {
 
   Future<void> refresh() async {
     state = const AsyncValue.loading();
-    state = AsyncValue.data(
-      await ref.read(emailScannerRepositoryProvider).getScans(),
-    );
+    state = await AsyncValue.guard(() async {
+      return ref.read(emailScannerRepositoryProvider).getScans();
+    });
   }
 
   Future<EmailScan> startScan({

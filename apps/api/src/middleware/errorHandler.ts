@@ -31,6 +31,35 @@ export function errorHandler(
     });
   }
 
+  // PostgreSQL-specific error code mapping
+  const pgCode = (err as any).code;
+  if (typeof pgCode === 'string') {
+    if (pgCode === '23505') {
+      // Unique constraint violation
+      logger.error({ error: err.message, code: pgCode, path: req.path, method: req.method }, 'Unique constraint violation');
+      return res.status(409).json({
+        error: 'A record with that value already exists',
+        statusCode: 409,
+      });
+    }
+    if (pgCode === '23503') {
+      // Foreign key violation
+      logger.error({ error: err.message, code: pgCode, path: req.path, method: req.method }, 'Foreign key violation');
+      return res.status(409).json({
+        error: 'Referenced record does not exist or would be violated',
+        statusCode: 409,
+      });
+    }
+    if (pgCode === '57P03') {
+      // Database unavailable
+      logger.error({ error: err.message, code: pgCode, path: req.path, method: req.method }, 'Database unavailable');
+      return res.status(503).json({
+        error: 'Service temporarily unavailable',
+        statusCode: 503,
+      });
+    }
+  }
+
   // Unexpected errors — log real details server-side only, never send to client in production
   logger.error({
     error: err.message,

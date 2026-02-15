@@ -483,13 +483,15 @@ export class NotificationsService {
         FROM items i
         JOIN users u ON u.id = i.user_id
         LEFT JOIN notification_preferences np ON np.user_id = u.id
-        LEFT JOIN notification_history nh ON nh.item_id = i.id
-          AND nh.type = 'warranty_expiring'
-          AND nh.sent_at > NOW() - INTERVAL '1 day'
         WHERE i.is_archived = FALSE
           AND i.warranty_end_date BETWEEN CURRENT_DATE
             AND CURRENT_DATE + make_interval(days => COALESCE(np.first_reminder_days, 30))
-          AND nh.id IS NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM notification_history nh
+            WHERE nh.item_id = i.id
+              AND nh.type = 'warranty_expiring'
+              AND nh.sent_at > NOW() - INTERVAL '1 day'
+          )
       `);
 
       let notifiedCount = 0;

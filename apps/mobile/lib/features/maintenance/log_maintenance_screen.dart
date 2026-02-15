@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import 'package:shared_models/shared_models.dart';
 import 'package:shared_ui/shared_ui.dart';
 
+import '../../core/providers/auth_provider.dart';
 import '../../core/providers/items_provider.dart';
 import '../../core/providers/maintenance_provider.dart';
 
@@ -70,9 +71,19 @@ class _LogMaintenanceScreenState extends ConsumerState<LogMaintenanceScreen> {
     setState(() => _saving = true);
 
     try {
+      final user = ref.read(currentUserProvider).value;
+      if (user == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Error: Not signed in')),
+          );
+        }
+        return;
+      }
+
       final entry = MaintenanceHistory(
         id: '',
-        userId: '',
+        userId: user.id,
         itemId: _selectedItemId!,
         scheduleId: _selectedScheduleId,
         taskName: _taskNameController.text.trim(),

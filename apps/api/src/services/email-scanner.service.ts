@@ -6,6 +6,19 @@ import { AppError } from '../utils/errors';
 import { config } from '../config';
 import { EmailScan } from '../types/database.types';
 
+/**
+ * Mask PII (credit cards, SSNs, phone numbers) before sending text to external APIs.
+ */
+function maskPII(text: string): string {
+  return text
+    // Credit card numbers (13-19 digits, possibly with spaces/dashes)
+    .replace(/\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{1,7}\b/g, '[CARD REDACTED]')
+    // SSN
+    .replace(/\b\d{3}-\d{2}-\d{4}\b/g, '[SSN REDACTED]')
+    // Phone numbers
+    .replace(/\b(\+?1?[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b/g, '[PHONE REDACTED]');
+}
+
 interface ExtractedReceipt {
   productName: string;
   brand?: string;
@@ -405,12 +418,12 @@ Return null if this is not a product purchase receipt.`,
             },
             {
               role: 'user',
-              content: `Subject: ${emailData.subject}
+              content: `Subject: ${maskPII(emailData.subject)}
 From: ${emailData.from}
 Date: ${emailData.date}
 
 Body (first 2000 chars):
-${emailData.body.substring(0, 2000)}`,
+${maskPII(emailData.body.substring(0, 2000))}`,
             },
           ],
           response_format: { type: 'json_object' },
@@ -594,6 +607,26 @@ ${emailData.body.substring(0, 2000)}`,
       throw error;
     } finally {
       client.release();
+    }
+  }
+
+  /**
+   * Mark email scans stuck in "scanning" state as "failed" if older than 30 minutes.
+   * Should be called at service initialization or periodically.
+   */
+  static async cleanupStaleScans(): Promise<void> {
+    try {
+      const result = await pool.query(`
+        UPDATE email_scans
+        SET status = 'failed', error_message = 'Scan timed out', completed_at = NOW()
+        WHERE status = 'scanning'
+        AND created_at < NOW() - INTERVAL '30 minutes'
+      `);
+      if (result.rowCount && result.rowCount > 0) {
+        logger.info({ count: result.rowCount }, 'Cleaned up stale email scans');
+      }
+    } catch (error) {
+      logger.error({ error }, 'Error cleaning up stale email scans');
     }
   }
 
