@@ -33,8 +33,10 @@ export async function authenticate(
     };
 
     // Get user from database
+    // TODO: This DB query runs on every authenticated request and should be cached
+    // (e.g., via Redis with a short TTL) to reduce load. Keeping it simple for now.
     const result = await query(
-      `SELECT u.id, u.email, u.plan, u.is_admin,
+      `SELECT u.id, u.email, u.plan, u.is_admin, u.plan_expires_at,
               (EXISTS(SELECT 1 FROM partners p WHERE p.user_id = u.id AND p.is_active = TRUE)) as is_partner
        FROM users u WHERE u.id = $1`,
       [decoded.userId]
@@ -50,6 +52,7 @@ export async function authenticate(
       plan: result.rows[0].plan,
       isAdmin: result.rows[0].is_admin,
       isPartner: result.rows[0].is_partner,
+      planExpiresAt: result.rows[0].plan_expires_at ?? null,
     };
 
     next();
@@ -62,24 +65,22 @@ export async function authenticate(
   }
 }
 
-export function requireAdmin(
-  req: Request,
-  res: Response,
-  next: NextFunction
-) {
+export function requireAdmin(req: Request, res: Response, next: NextFunction) {
   if (!req.user?.isAdmin) {
-    throw new AppError('Admin access required', 403);
+    return next(new AppError('Admin access required', 403));
   }
   next();
 }
 
-export function requirePremium(
-  req: Request,
-  res: Response,
-  next: NextFunction
-) {
+export function requirePremium(req: Request, res: Response, next: NextFunction) {
   if (req.user?.plan !== 'premium') {
-    throw new AppError('Premium plan required', 403);
+    return next(new AppError('Premium plan required', 403));
   }
+
+  // If plan_expires_at is set, verify it hasn't expired (null means lifetime)
+  if (req.user.planExpiresAt && new Date(req.user.planExpiresAt) < new Date()) {
+    return next(new AppError('Premium plan has expired', 403));
+  }
+
   next();
 }

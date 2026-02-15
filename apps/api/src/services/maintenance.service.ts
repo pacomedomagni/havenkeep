@@ -8,6 +8,22 @@ import {
   ItemCategory,
 } from '../types/database.types';
 
+/**
+ * Safely add months to a date, handling day overflow.
+ * e.g., Jan 31 + 1 month = Feb 28 (not Mar 3)
+ */
+function addMonthsSafe(date: Date, months: number): Date {
+  const result = new Date(date);
+  const targetMonth = result.getMonth() + months;
+  result.setMonth(targetMonth);
+  // If the day overflowed (e.g. 31 -> next month), go back to last day of target month
+  const expectedMonth = ((date.getMonth() + months) % 12 + 12) % 12;
+  if (result.getMonth() !== expectedMonth) {
+    result.setDate(0); // Last day of previous month
+  }
+  return result;
+}
+
 export class MaintenanceService {
   /**
    * Get maintenance schedules for a given item category
@@ -97,8 +113,7 @@ export class MaintenanceService {
 
         // Calculate next due date: from last completion, or from item start date
         const baseDate = lastCompleted ? new Date(lastCompleted) : new Date(itemStartDate);
-        const nextDue = new Date(baseDate);
-        nextDue.setMonth(nextDue.getMonth() + schedule.frequency_months);
+        const nextDue = addMonthsSafe(baseDate, schedule.frequency_months);
 
         const diffMs = nextDue.getTime() - now.getTime();
         const daysUntilDue = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
@@ -212,8 +227,7 @@ export class MaintenanceService {
           const tasks = schedules.map((schedule: MaintenanceSchedule) => {
             const lastCompleted = historyMap.get(`${item.id}:${schedule.id}`) || null;
             const baseDate = lastCompleted ? new Date(lastCompleted) : new Date(itemStartDate);
-            const nextDue = new Date(baseDate);
-            nextDue.setMonth(nextDue.getMonth() + schedule.frequency_months);
+            const nextDue = addMonthsSafe(baseDate, schedule.frequency_months);
 
             const diffMs = nextDue.getTime() - now.getTime();
             const daysUntilDue = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
@@ -328,10 +342,11 @@ export class MaintenanceService {
 
       // Update user analytics
       await client.query(
-        `UPDATE user_analytics
-         SET total_maintenance_completed = total_maintenance_completed + 1,
-             updated_at = NOW()
-         WHERE user_id = $1`,
+        `INSERT INTO user_analytics (user_id, total_maintenance_completed)
+         VALUES ($1, 1)
+         ON CONFLICT (user_id)
+         DO UPDATE SET total_maintenance_completed = user_analytics.total_maintenance_completed + 1,
+                       updated_at = NOW()`,
         [userId]
       );
 

@@ -5,6 +5,7 @@ import { validate } from '../middleware/validate';
 import { paginationSchema } from '../validators';
 import { userIdParamSchema, dateRangeQuerySchema } from '../validators/admin.validator';
 import { AppError } from '../utils/errors';
+import { AuditService } from '../services/audit.service';
 
 const router = Router();
 router.use(authenticate);
@@ -122,6 +123,7 @@ router.get('/users/activity', async (req, res, next) => {
       LEFT JOIN items i ON i.user_id = u.id AND i.is_archived = FALSE
       GROUP BY u.id, u.email, u.full_name, u.plan, u.created_at
       ORDER BY u.created_at DESC
+      LIMIT 500
     `);
     res.json({ users: result.rows });
   } catch (error) {
@@ -164,19 +166,68 @@ router.put('/users/:id/suspend', validate(userIdParamSchema, 'params'), async (r
   try {
     const { id } = req.params;
 
-    const result = await query(
-      `UPDATE users SET plan = 'free', updated_at = NOW() WHERE id = $1 RETURNING id, email`,
+    // Check if target user exists and whether they are an admin
+    const targetUser = await query(
+      `SELECT id, email, is_admin FROM users WHERE id = $1`,
       [id]
     );
 
-    if (result.rows.length === 0) {
+    if (targetUser.rows.length === 0) {
       throw new AppError('User not found', 404);
     }
+
+    if (targetUser.rows[0].is_admin) {
+      throw new AppError('Cannot suspend an admin user', 400);
+    }
+
+    await query(
+      `UPDATE users SET plan = 'suspended', updated_at = NOW() WHERE id = $1`,
+      [id]
+    );
 
     // Invalidate all refresh tokens so the suspended user gets signed out
     await query(`DELETE FROM refresh_tokens WHERE user_id = $1`, [id]);
 
-    res.json({ success: true, message: 'User suspended', user: result.rows[0] });
+    await AuditService.logFromRequest(req, 'admin.settings_change', {
+      severity: 'warning',
+      resourceType: 'user',
+      resourceId: id,
+      description: `Admin suspended user: ${targetUser.rows[0].email}`,
+    });
+
+    res.json({ success: true, message: 'User suspended', user: { id, email: targetUser.rows[0].email } });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Unsuspend user (restore to free plan, user can verify premium separately)
+router.put('/users/:id/unsuspend', validate(userIdParamSchema, 'params'), async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const result = await query(
+      `UPDATE users SET plan = 'free', updated_at = NOW() WHERE id = $1 AND plan = 'suspended' RETURNING id, email`,
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      // Check if user exists at all
+      const userExists = await query(`SELECT id, plan FROM users WHERE id = $1`, [id]);
+      if (userExists.rows.length === 0) {
+        throw new AppError('User not found', 404);
+      }
+      throw new AppError(`User is not suspended (current plan: ${userExists.rows[0].plan})`, 400);
+    }
+
+    await AuditService.logFromRequest(req, 'admin.settings_change', {
+      severity: 'info',
+      resourceType: 'user',
+      resourceId: id,
+      description: `Admin unsuspended user: ${result.rows[0].email}`,
+    });
+
+    res.json({ success: true, message: 'User unsuspended', user: result.rows[0] });
   } catch (error) {
     next(error);
   }
@@ -207,6 +258,13 @@ router.delete('/users/:id', validate(userIdParamSchema, 'params'), async (req, r
     if (result.rows.length === 0) {
       throw new AppError('User not found', 404);
     }
+
+    await AuditService.logFromRequest(req, 'admin.user_delete', {
+      severity: 'critical',
+      resourceType: 'user',
+      resourceId: id,
+      description: `Admin deleted user: ${result.rows[0].email}`,
+    });
 
     res.json({ success: true, message: 'User deleted', user: result.rows[0] });
   } catch (error) {

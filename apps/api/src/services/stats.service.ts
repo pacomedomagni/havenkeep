@@ -150,6 +150,12 @@ export class StatsService {
 
   /**
    * Get health score breakdown/components
+   *
+   * NOTE: The overall `score` is computed by the DB function `calculate_health_score`,
+   * while the `components` array is assembled in JS below. These two calculations
+   * can drift out of sync if one is updated without the other. When changing the
+   * scoring logic, make sure both the DB function and the JS component breakdown
+   * are updated together to keep them consistent.
    */
   static async getHealthScoreBreakdown(userId: string): Promise<{
     score: number;
@@ -273,13 +279,24 @@ export class StatsService {
         return;
       }
 
-      await pool.query(
-        `UPDATE user_analytics
-         SET ${field} = ${field} + 1,
-             updated_at = NOW()
-         WHERE user_id = $1`,
-        [userId]
-      );
+      // Use explicit column references instead of interpolation for safety
+      const updateQueries: Record<string, string> = {
+        email_scans_completed: `UPDATE user_analytics SET email_scans_completed = email_scans_completed + 1, updated_at = NOW() WHERE user_id = $1`,
+        items_added_manually: `UPDATE user_analytics SET items_added_manually = items_added_manually + 1, updated_at = NOW() WHERE user_id = $1`,
+        items_added_via_email: `UPDATE user_analytics SET items_added_via_email = items_added_via_email + 1, updated_at = NOW() WHERE user_id = $1`,
+        items_added_via_barcode: `UPDATE user_analytics SET items_added_via_barcode = items_added_via_barcode + 1, updated_at = NOW() WHERE user_id = $1`,
+        documents_uploaded: `UPDATE user_analytics SET documents_uploaded = documents_uploaded + 1, updated_at = NOW() WHERE user_id = $1`,
+        reports_generated: `UPDATE user_analytics SET reports_generated = reports_generated + 1, updated_at = NOW() WHERE user_id = $1`,
+        total_claims_filed: `UPDATE user_analytics SET total_claims_filed = total_claims_filed + 1, updated_at = NOW() WHERE user_id = $1`,
+      };
+
+      const updateSql = updateQueries[field];
+      if (!updateSql) {
+        logger.warn({ feature, field }, 'Unknown analytics field');
+        return;
+      }
+
+      await pool.query(updateSql, [userId]);
 
       // Update engagement flags
       if (feature === 'email_scan') {

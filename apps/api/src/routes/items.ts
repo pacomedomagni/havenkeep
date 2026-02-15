@@ -8,6 +8,22 @@ import { AuditService } from '../services/audit.service';
 
 const router = Router();
 
+/**
+ * Safely add months to a date, handling day overflow.
+ * e.g., Jan 31 + 1 month = Feb 28 (not Mar 3)
+ */
+function addMonthsSafe(date: Date, months: number): Date {
+  const result = new Date(date);
+  const targetMonth = result.getMonth() + months;
+  result.setMonth(targetMonth);
+  // If the day overflowed (e.g. 31 -> next month), go back to last day of target month
+  const expectedMonth = ((date.getMonth() + months) % 12 + 12) % 12;
+  if (result.getMonth() !== expectedMonth) {
+    result.setDate(0); // Last day of previous month
+  }
+  return result;
+}
+
 // All routes require authentication
 router.use(authenticate);
 
@@ -53,8 +69,9 @@ router.get('/', validate(paginationSchema, 'query'), async (req: AuthRequest, re
     }
 
     if (archived !== undefined) {
+      const isArchived = archived === 'true' || archived === true;
       sql += ` AND is_archived = $${params.length + 1}`;
-      params.push(archived === 'true');
+      params.push(isArchived);
     }
 
     sql += ` ORDER BY warranty_end_date ASC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
@@ -68,8 +85,9 @@ router.get('/', validate(paginationSchema, 'query'), async (req: AuthRequest, re
       countParams.push(homeId);
     }
     if (archived !== undefined) {
+      const isArchived = archived === 'true' || archived === true;
       countSql += ` AND is_archived = $${countParams.length + 1}`;
-      countParams.push(archived === 'true');
+      countParams.push(isArchived);
     }
 
     const [result, countResult] = await Promise.all([
@@ -166,13 +184,7 @@ router.post('/', validate(createItemSchema), async (req: AuthRequest, res, next)
     if (isNaN(purchaseDateObj.getTime())) {
       throw new AppError('Invalid purchase date', 400);
     }
-    const warrantyEndDate = new Date(purchaseDateObj);
-    const expectedMonth = (warrantyEndDate.getMonth() + warrantyMonths) % 12;
-    warrantyEndDate.setMonth(warrantyEndDate.getMonth() + warrantyMonths);
-    // Handle day overflow (e.g., Jan 31 + 1 month = Mar 3 instead of Feb 28)
-    if (warrantyEndDate.getMonth() !== expectedMonth) {
-      warrantyEndDate.setDate(0); // Set to last day of previous month
-    }
+    const warrantyEndDate = addMonthsSafe(purchaseDateObj, warrantyMonths);
 
     const result = await client.query(
       `INSERT INTO items (
@@ -289,13 +301,7 @@ router.put('/:id', validate(uuidParamSchema, 'params'), validate(updateItemSchem
       }
 
       if (purchaseDateForCalc && warrantyMonthsForCalc !== null) {
-        const warrantyEndDate = new Date(purchaseDateForCalc);
-        const expectedMonth = (warrantyEndDate.getMonth() + warrantyMonthsForCalc) % 12;
-        warrantyEndDate.setMonth(warrantyEndDate.getMonth() + warrantyMonthsForCalc);
-        // Handle day overflow (e.g., Jan 31 + 1 month = Mar 3 instead of Feb 28)
-        if (warrantyEndDate.getMonth() !== expectedMonth) {
-          warrantyEndDate.setDate(0); // Set to last day of previous month
-        }
+        const warrantyEndDate = addMonthsSafe(purchaseDateForCalc, warrantyMonthsForCalc);
         fields.push(`warranty_end_date = $${paramCount}`);
         values.push(warrantyEndDate);
         paramCount++;

@@ -11,6 +11,36 @@ import { minioClient, BUCKET_NAME, generateObjectKey, getPublicUrl } from '../co
 import { logger } from '../utils/logger';
 import { AuditService } from '../services/audit.service';
 
+// Extract MinIO object key from the full URL.
+// Handles both path-style (host/<bucket>/<key>) and virtual-hosted-style (bucket.host/<key>).
+function extractObjectKey(fileUrl: string, bucketName: string): string {
+  const url = new URL(fileUrl);
+  const pathname = url.pathname.replace(/^\//, '');
+  // Path-style: remove bucket prefix if present
+  if (pathname.startsWith(bucketName + '/')) {
+    return pathname.slice(bucketName.length + 1);
+  }
+  // Virtual-hosted-style: pathname IS the key
+  return pathname;
+}
+
+// Validate file content matches expected type via magic bytes
+function validateMagicBytes(buffer: Buffer, mimetype: string): boolean {
+  if (buffer.length < 4) return false;
+  const header = buffer.slice(0, 4);
+  // JPEG: FF D8 FF
+  if (mimetype === 'image/jpeg') return header[0] === 0xFF && header[1] === 0xD8 && header[2] === 0xFF;
+  // PNG: 89 50 4E 47
+  if (mimetype === 'image/png') return header[0] === 0x89 && header[1] === 0x50 && header[2] === 0x4E && header[3] === 0x47;
+  // WebP: starts with RIFF....WEBP
+  if (mimetype === 'image/webp') return buffer.length >= 12 && buffer.slice(0, 4).toString() === 'RIFF' && buffer.slice(8, 12).toString() === 'WEBP';
+  // PDF: %PDF
+  if (mimetype === 'application/pdf') return header.toString() === '%PDF';
+  // HEIC/HEIF: check for ftyp box
+  if (mimetype === 'image/heic' || mimetype === 'image/heif') return buffer.length >= 8 && buffer.slice(4, 8).toString() === 'ftyp';
+  return true; // Unknown types pass through
+}
+
 const router = Router();
 router.use(authenticate);
 
@@ -108,8 +138,10 @@ router.post(
         throw new AppError('No files uploaded', 400);
       }
 
-      if (!itemId) {
-        throw new AppError('itemId is required', 400);
+      // Validate itemId is a valid UUID
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!itemId || !uuidRegex.test(itemId)) {
+        throw new AppError('Valid itemId (UUID) is required', 400);
       }
 
       // Verify item belongs to user
@@ -126,6 +158,10 @@ router.post(
 
       for (const file of files) {
         try {
+          if (!validateMagicBytes(file.buffer, file.mimetype)) {
+            throw new AppError(`File content does not match declared type: ${file.mimetype}`, 400);
+          }
+
           let uploadFilename = file.originalname;
           let fileBuffer = file.buffer;
           let contentType = file.mimetype;
@@ -275,11 +311,7 @@ router.delete('/:id', validate(uuidParamSchema, 'params'), async (req: AuthReque
 
     const document = docResult.rows[0];
 
-    // Extract object key from URL — pathname is /<bucket>/<key>, strip bucket prefix
-    const url = new URL(document.file_url);
-    const pathParts = url.pathname.replace(/^\//, '').split('/');
-    pathParts.shift(); // Remove bucket name
-    const objectKey = pathParts.join('/');
+    const objectKey = extractObjectKey(document.file_url, BUCKET_NAME);
 
     // Delete from MinIO
     try {
@@ -289,10 +321,7 @@ router.delete('/:id', validate(uuidParamSchema, 'params'), async (req: AuthReque
 
       // Delete thumbnail if exists
       if (document.thumbnail_url) {
-        const thumbUrl = new URL(document.thumbnail_url);
-        const thumbParts = thumbUrl.pathname.replace(/^\//, '').split('/');
-        thumbParts.shift(); // Remove bucket name
-        const thumbKey = thumbParts.join('/');
+        const thumbKey = extractObjectKey(document.thumbnail_url, BUCKET_NAME);
         if (thumbKey) {
           await minioClient.removeObject(BUCKET_NAME, thumbKey);
         }

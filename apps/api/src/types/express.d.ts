@@ -6,6 +6,7 @@ declare namespace Express {
       plan: string;
       isAdmin: boolean;
       isPartner: boolean;
+      planExpiresAt?: string | null;
     };
   }
 }

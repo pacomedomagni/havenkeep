@@ -2,7 +2,8 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
-import { query } from '../db';
+import { query, getClient } from '../db';
+import Joi from 'joi';
 import { config } from '../config';
 import { AppError } from '../middleware/errorHandler';
 import { authRateLimiter, refreshRateLimiter, passwordResetRateLimiter } from '../middleware/rateLimiter';
@@ -12,7 +13,7 @@ import { forgotPasswordSchema, resetPasswordSchema, verifyEmailSchema } from '..
 import { logger } from '../utils/logger';
 import { AuditService } from '../services/audit.service';
 import { EmailService } from '../services/email.service';
-import { blacklistToken } from '../utils/token-blacklist';
+import { blacklistTokenAuto } from '../utils/token-blacklist';
 import { generateUniqueReferralCode } from '../utils/referral-code';
 
 const router = Router();
@@ -29,6 +30,12 @@ function parseExpiryToMs(expiry: string | number): number {
 }
 
 const REFRESH_TOKEN_EXPIRY_MS = parseExpiryToMs(config.jwt.refreshExpiresIn as string | number);
+
+// Hash refresh tokens with SHA-256 before storing in the database.
+// This prevents token theft from a DB dump — the raw token is only sent to the client.
+function hashRefreshToken(token: string): string {
+  return crypto.createHash('sha256').update(token).digest('hex');
+}
 
 // Helper to get IP address
 const getIpAddress = (req: any): string => {
@@ -54,18 +61,9 @@ async function resolveReferredBy(referralCode?: string): Promise<string | null> 
 
 // Register
 router.post('/register', authRateLimiter, validate(registerSchema), async (req, res, next) => {
+  const client = await getClient();
   try {
     const { email, password, fullName, referralCode } = req.body;
-
-    // Check if user exists
-    const existing = await query(
-      'SELECT id FROM users WHERE email = $1',
-      [email.toLowerCase()]
-    );
-
-    if (existing.rows.length > 0) {
-      throw new AppError('Email already registered', 409);
-    }
 
     // Hash password with bcrypt rounds=12
     const passwordHash = await bcrypt.hash(password, 12);
@@ -73,32 +71,29 @@ router.post('/register', authRateLimiter, validate(registerSchema), async (req, 
     const referredBy = await resolveReferredBy(referralCode);
     const userReferralCode = await generateUniqueReferralCode();
 
-    // Create user
-    const result = await query(
+    await client.query('BEGIN');
+
+    // Atomically insert user — ON CONFLICT handles the race condition
+    const result = await client.query(
       `INSERT INTO users (email, password_hash, full_name, referral_code, referred_by)
        VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (email) DO NOTHING
        RETURNING id, email, full_name, avatar_url, auth_provider, plan, plan_expires_at,
                  referred_by, referral_code, is_admin, created_at, updated_at`,
       [email.toLowerCase(), passwordHash, fullName, userReferralCode, referredBy]
     );
 
+    if (result.rows.length === 0) {
+      throw new AppError('Email already registered', 409);
+    }
+
     const user = result.rows[0];
 
     // Create default home
-    await query(
+    await client.query(
       `INSERT INTO homes (user_id, name) VALUES ($1, $2)`,
       [user.id, 'My Home']
     );
-
-    // Audit log: successful registration
-    await AuditService.logAuth({
-      action: 'auth.register',
-      userId: user.id,
-      email: user.email,
-      ipAddress: getIpAddress(req),
-      userAgent: req.get('user-agent'),
-      success: true,
-    });
 
     // Generate tokens
     const accessToken = jwt.sign(
@@ -113,14 +108,26 @@ router.post('/register', authRateLimiter, validate(registerSchema), async (req, 
       { expiresIn: config.jwt.refreshExpiresIn }
     );
 
-    // Store refresh token
+    // Store hashed refresh token
     const expiresAt = new Date(Date.now() + REFRESH_TOKEN_EXPIRY_MS);
 
-    await query(
+    await client.query(
       `INSERT INTO refresh_tokens (user_id, token, expires_at)
        VALUES ($1, $2, $3)`,
-      [user.id, refreshToken, expiresAt]
+      [user.id, hashRefreshToken(refreshToken), expiresAt]
     );
+
+    await client.query('COMMIT');
+
+    // Audit log: successful registration
+    await AuditService.logAuth({
+      action: 'auth.register',
+      userId: user.id,
+      email: user.email,
+      ipAddress: getIpAddress(req),
+      userAgent: req.get('user-agent'),
+      success: true,
+    });
 
     res.status(201).json({
       user: {
@@ -142,16 +149,21 @@ router.post('/register', authRateLimiter, validate(registerSchema), async (req, 
       refreshToken,
     });
   } catch (error) {
-    // Audit log: failed registration
-    await AuditService.logAuth({
-      action: 'auth.register',
-      email: req.body.email,
-      ipAddress: getIpAddress(req),
-      userAgent: req.get('user-agent'),
-      success: false,
-      errorMessage: error instanceof Error ? error.message : 'Registration failed',
-    });
+    await client.query('ROLLBACK');
+    // Audit log: failed registration (skip for duplicate-email conflicts)
+    if ((error as any)?.code !== '23505' && !(error instanceof AppError && error.statusCode === 409)) {
+      await AuditService.logAuth({
+        action: 'auth.register',
+        email: req.body.email,
+        ipAddress: getIpAddress(req),
+        userAgent: req.get('user-agent'),
+        success: false,
+        errorMessage: error instanceof Error ? error.message : 'Registration failed',
+      });
+    }
     next(error);
+  } finally {
+    client.release();
   }
 });
 
@@ -210,13 +222,13 @@ router.post('/login', authRateLimiter, validate(loginSchema), async (req, res, n
       { expiresIn: config.jwt.refreshExpiresIn }
     );
 
-    // Store refresh token
+    // Store hashed refresh token
     const expiresAt = new Date(Date.now() + REFRESH_TOKEN_EXPIRY_MS);
 
     await query(
       `INSERT INTO refresh_tokens (user_id, token, expires_at)
        VALUES ($1, $2, $3)`,
-      [user.id, refreshToken, expiresAt]
+      [user.id, hashRefreshToken(refreshToken), expiresAt]
     );
 
     // Audit log: successful login
@@ -274,16 +286,23 @@ router.post('/refresh', refreshRateLimiter, validate(refreshTokenSchema), async 
       userId: string;
     };
 
-    // Check if token exists and not expired
+    // Check if token exists and not expired (lookup by hash)
+    const tokenHash = hashRefreshToken(refreshToken);
     const tokenResult = await query(
       `SELECT user_id FROM refresh_tokens
        WHERE token = $1 AND expires_at > NOW()`,
-      [refreshToken]
+      [tokenHash]
     );
 
     if (tokenResult.rows.length === 0) {
       throw new AppError('Invalid refresh token', 401);
     }
+
+    // Delete the old refresh token (rotation: one-time use)
+    await query(
+      `DELETE FROM refresh_tokens WHERE token = $1`,
+      [tokenHash]
+    );
 
     // Get user
     const userResult = await query(
@@ -302,13 +321,7 @@ router.post('/refresh', refreshRateLimiter, validate(refreshTokenSchema), async 
     if (authHeader?.startsWith('Bearer ')) {
       const oldAccessToken = authHeader.substring(7);
       try {
-        const decoded = jwt.decode(oldAccessToken) as { exp?: number } | null;
-        if (decoded?.exp) {
-          const remainingSeconds = decoded.exp - Math.floor(Date.now() / 1000);
-          if (remainingSeconds > 0) {
-            await blacklistToken(oldAccessToken, remainingSeconds);
-          }
-        }
+        await blacklistTokenAuto(oldAccessToken);
       } catch {
         // Best-effort: don't block refresh if blacklisting fails
       }
@@ -321,7 +334,23 @@ router.post('/refresh', refreshRateLimiter, validate(refreshTokenSchema), async 
       { expiresIn: config.jwt.expiresIn }
     );
 
-    res.json({ accessToken });
+    // Generate new refresh token (rotation)
+    const newRefreshToken = jwt.sign(
+      { userId: user.id },
+      config.jwt.refreshSecret,
+      { expiresIn: config.jwt.refreshExpiresIn }
+    );
+
+    // Store the new hashed refresh token
+    const expiresAt = new Date(Date.now() + REFRESH_TOKEN_EXPIRY_MS);
+
+    await query(
+      `INSERT INTO refresh_tokens (user_id, token, expires_at)
+       VALUES ($1, $2, $3)`,
+      [user.id, hashRefreshToken(newRefreshToken), expiresAt]
+    );
+
+    res.json({ accessToken, refreshToken: newRefreshToken });
   } catch (error) {
     next(error);
   }
@@ -334,12 +363,12 @@ router.post('/logout', refreshRateLimiter, validate(refreshTokenSchema), async (
 
     let userId: string | undefined;
 
-    // Blacklist the current access token so it can't be reused
+    // Blacklist the current access token using its actual remaining TTL
     const authHeader = req.headers.authorization;
     if (authHeader?.startsWith('Bearer ')) {
       const accessToken = authHeader.substring(7);
       try {
-        await blacklistToken(accessToken, 3600);
+        await blacklistTokenAuto(accessToken);
       } catch (blacklistError) {
         // Best-effort: don't block logout if Redis/blacklist fails
         logger.warn({ error: blacklistError }, 'Failed to blacklist access token during logout');
@@ -347,10 +376,11 @@ router.post('/logout', refreshRateLimiter, validate(refreshTokenSchema), async (
     }
 
     if (refreshToken) {
-      // Get user ID from refresh token before deleting
+      // Get user ID from refresh token before deleting (lookup by hash)
+      const tokenHash = hashRefreshToken(refreshToken);
       const tokenResult = await query(
         `SELECT user_id FROM refresh_tokens WHERE token = $1`,
-        [refreshToken]
+        [tokenHash]
       );
 
       if (tokenResult.rows.length > 0) {
@@ -359,7 +389,7 @@ router.post('/logout', refreshRateLimiter, validate(refreshTokenSchema), async (
 
       await query(
         `DELETE FROM refresh_tokens WHERE token = $1`,
-        [refreshToken]
+        [tokenHash]
       );
 
       // Invalidate any unused password reset tokens for this user
@@ -545,7 +575,12 @@ router.post('/verify-email', validate(verifyEmailSchema), async (req, res, next)
 });
 
 // Google OAuth — accept ID token from mobile, verify, create/find user, return JWT
-router.post('/google', authRateLimiter, async (req, res, next) => {
+const googleOAuthSchema = Joi.object({
+  idToken: Joi.string().required(),
+  referralCode: Joi.string().optional(),
+});
+
+router.post('/google', authRateLimiter, validate(googleOAuthSchema), async (req, res, next) => {
   try {
     if (!config.google?.clientId) {
       throw new AppError('Google OAuth is not configured', 501);
@@ -553,15 +588,11 @@ router.post('/google', authRateLimiter, async (req, res, next) => {
 
     const { idToken, referralCode } = req.body;
 
-    if (!idToken || typeof idToken !== 'string') {
-      throw new AppError('Google ID token is required', 400);
-    }
-
     // Verify the Google ID token
     const { OAuth2Client } = await import('google-auth-library');
-    const client = new OAuth2Client(config.google?.clientId);
+    const oauthClient = new OAuth2Client(config.google?.clientId);
 
-    const ticket = await client.verifyIdToken({
+    const ticket = await oauthClient.verifyIdToken({
       idToken,
       audience: config.google?.clientId,
     });
@@ -590,22 +621,33 @@ router.post('/google', authRateLimiter, async (req, res, next) => {
     if (userResult.rows.length === 0) {
       const referredBy = await resolveReferredBy(referralCode);
       const userReferralCode = await generateUniqueReferralCode();
-      // Create new user (no password for OAuth users)
-      const createResult = await query(
-        `INSERT INTO users (email, full_name, avatar_url, auth_provider, email_verified, referral_code, referred_by)
-         VALUES ($1, $2, $3, 'google', TRUE, $4, $5)
-         RETURNING id, email, full_name, avatar_url, auth_provider, plan, plan_expires_at,
-                   referred_by, referral_code, is_admin, created_at, updated_at`,
-        [email, fullName, avatarUrl, userReferralCode, referredBy]
-      );
-      user = createResult.rows[0];
-      isNewUser = true;
 
-      // Create default home
-      await query(
-        `INSERT INTO homes (user_id, name) VALUES ($1, $2)`,
-        [user.id, 'My Home']
-      );
+      // Create new user + default home inside a transaction
+      const txClient = await getClient();
+      try {
+        await txClient.query('BEGIN');
+        const createResult = await txClient.query(
+          `INSERT INTO users (email, full_name, avatar_url, auth_provider, email_verified, referral_code, referred_by)
+           VALUES ($1, $2, $3, 'google', TRUE, $4, $5)
+           RETURNING id, email, full_name, avatar_url, auth_provider, plan, plan_expires_at,
+                     referred_by, referral_code, is_admin, created_at, updated_at`,
+          [email, fullName, avatarUrl, userReferralCode, referredBy]
+        );
+        user = createResult.rows[0];
+        isNewUser = true;
+
+        // Create default home
+        await txClient.query(
+          `INSERT INTO homes (user_id, name) VALUES ($1, $2)`,
+          [user.id, 'My Home']
+        );
+        await txClient.query('COMMIT');
+      } catch (txError) {
+        await txClient.query('ROLLBACK');
+        throw txError;
+      } finally {
+        txClient.release();
+      }
     } else {
       user = userResult.rows[0];
     }
@@ -628,7 +670,7 @@ router.post('/google', authRateLimiter, async (req, res, next) => {
     await query(
       `INSERT INTO refresh_tokens (user_id, token, expires_at)
        VALUES ($1, $2, $3)`,
-      [user.id, refreshToken, expiresAt]
+      [user.id, hashRefreshToken(refreshToken), expiresAt]
     );
 
     // Audit log: OAuth login
@@ -670,17 +712,19 @@ router.post('/google', authRateLimiter, async (req, res, next) => {
 });
 
 // Apple OAuth — accept ID token from mobile, verify, create/find user, return JWT
-router.post('/apple', authRateLimiter, async (req, res, next) => {
+const appleOAuthSchema = Joi.object({
+  idToken: Joi.string().required(),
+  fullName: Joi.string().optional(),
+  referralCode: Joi.string().optional(),
+});
+
+router.post('/apple', authRateLimiter, validate(appleOAuthSchema), async (req, res, next) => {
   try {
     if (!config.apple?.bundleId) {
       throw new AppError('Apple Sign-In is not configured', 501);
     }
 
     const { idToken, fullName: appleFullName, referralCode } = req.body;
-
-    if (!idToken || typeof idToken !== 'string') {
-      throw new AppError('Apple ID token is required', 400);
-    }
 
     // Verify Apple ID token against Apple's public keys (JWKS)
     const jwksClient = await import('jwks-rsa');
@@ -763,21 +807,32 @@ router.post('/apple', authRateLimiter, async (req, res, next) => {
       const referredBy = await resolveReferredBy(referralCode);
       const userReferralCode = await generateUniqueReferralCode();
 
-      const createResult = await query(
-        `INSERT INTO users (email, full_name, auth_provider, email_verified, apple_user_id, referral_code, referred_by)
-         VALUES ($1, $2, 'apple', TRUE, $3, $4, $5)
-         RETURNING id, email, full_name, avatar_url, auth_provider, plan, plan_expires_at,
-                   referred_by, referral_code, is_admin, created_at, updated_at`,
-        [email, fullName, appleUserId, userReferralCode, referredBy]
-      );
-      user = createResult.rows[0];
-      isNewUser = true;
+      // Create new user + default home inside a transaction
+      const txClient = await getClient();
+      try {
+        await txClient.query('BEGIN');
+        const createResult = await txClient.query(
+          `INSERT INTO users (email, full_name, auth_provider, email_verified, apple_user_id, referral_code, referred_by)
+           VALUES ($1, $2, 'apple', TRUE, $3, $4, $5)
+           RETURNING id, email, full_name, avatar_url, auth_provider, plan, plan_expires_at,
+                     referred_by, referral_code, is_admin, created_at, updated_at`,
+          [email, fullName, appleUserId, userReferralCode, referredBy]
+        );
+        user = createResult.rows[0];
+        isNewUser = true;
 
-      // Create default home
-      await query(
-        `INSERT INTO homes (user_id, name) VALUES ($1, $2)`,
-        [user.id, 'My Home']
-      );
+        // Create default home
+        await txClient.query(
+          `INSERT INTO homes (user_id, name) VALUES ($1, $2)`,
+          [user.id, 'My Home']
+        );
+        await txClient.query('COMMIT');
+      } catch (txError) {
+        await txClient.query('ROLLBACK');
+        throw txError;
+      } finally {
+        txClient.release();
+      }
     } else {
       user = userResult.rows[0];
 
@@ -806,7 +861,7 @@ router.post('/apple', authRateLimiter, async (req, res, next) => {
     await query(
       `INSERT INTO refresh_tokens (user_id, token, expires_at)
        VALUES ($1, $2, $3)`,
-      [user.id, refreshToken, expiresAt]
+      [user.id, hashRefreshToken(refreshToken), expiresAt]
     );
 
     // Audit log: OAuth login

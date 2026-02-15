@@ -9,6 +9,7 @@ import { logger } from './utils/logger';
 import { errorHandler } from './middleware/errorHandler';
 import { requestLogger } from './middleware/requestLogger';
 import { initializeRateLimiter } from './middleware/rateLimiter';
+import { initializeTokenBlacklist, closeTokenBlacklist } from './utils/token-blacklist';
 import { setCsrfToken } from './middleware/csrf';
 import { NotificationsService } from './services/notifications.service';
 import { pool } from './db';
@@ -77,8 +78,8 @@ app.use(
 );
 
 // Body parsing
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
 // Webhooks — mounted AFTER body parsing so RevenueCat gets parsed JSON.
 // Stripe's raw body was already handled above, and express.json won't overwrite it.
@@ -121,7 +122,8 @@ function registerRoutes(appInstance: express.Express) {
 
   appInstance.use('/api/v1', apiV1);
 
-  // Legacy routes (redirect to v1)
+  // DEPRECATED: Legacy unversioned routes. Will be removed in a future release.
+  // Clients should use /api/v1/* endpoints instead.
   appInstance.use('/api/auth', authRoutes);
   appInstance.use('/api/users', usersRoutes);
   appInstance.use('/api/homes', homesRoutes);
@@ -182,7 +184,12 @@ function scheduleExpirationNotifications() {
     const delay = next.getTime() - now.getTime();
 
     setTimeout(async () => {
-      await runExpirationNotificationsJob();
+      try {
+        await runExpirationNotificationsJob();
+      } catch (error) {
+        logger.error({ error }, 'Expiration notification job failed');
+      }
+      // Always schedule next, even if current run failed
       scheduleNext();
     }, delay);
   };
@@ -192,6 +199,7 @@ function scheduleExpirationNotifications() {
 
 async function start() {
   const rateLimiter = await initializeRateLimiter();
+  await initializeTokenBlacklist();
   // Insert rate limiter before routes (after requestLogger)
   app.use(rateLimiter);
   registerRoutes(app);
@@ -216,8 +224,20 @@ start().catch((err) => {
 // Graceful shutdown
 const gracefulShutdown = (signal: string) => {
   logger.info(`${signal} received, shutting down gracefully`);
-  server.close(() => {
+  server.close(async () => {
     logger.info('HTTP server closed');
+    try {
+      await pool.end();
+      logger.info('Database pool closed');
+    } catch (err) {
+      logger.error({ err }, 'Error closing database pool');
+    }
+    try {
+      await closeTokenBlacklist();
+      logger.info('Redis connection closed');
+    } catch (err) {
+      logger.error({ err }, 'Error closing Redis');
+    }
     process.exit(0);
   });
 

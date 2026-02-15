@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { query } from '../db';
+import { query, getClient } from '../db';
 import { authenticate } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
 import { validate } from '../middleware/validate';
@@ -136,42 +136,59 @@ router.put('/:id', validate(uuidParamSchema, 'params'), validate(updateHomeSchem
 
 // Delete home
 router.delete('/:id', validate(uuidParamSchema, 'params'), async (req, res, next) => {
+  const client = await getClient();
   try {
-    // Prevent deleting the last home
-    const countResult = await query(
-      `SELECT COUNT(*) FROM homes WHERE user_id = $1`,
+    await client.query('BEGIN');
+
+    // Lock all of the user's homes to prevent TOCTOU race conditions
+    const lockedHomes = await client.query(
+      `SELECT id, name FROM homes WHERE user_id = $1 FOR UPDATE`,
       [req.user!.id]
     );
 
-    if (parseInt(countResult.rows[0].count) <= 1) {
+    // Prevent deleting the last home
+    if (lockedHomes.rows.length <= 1) {
       throw new AppError('Cannot delete your only home. You must have at least one home.', 400);
     }
 
-    const homeResult = await query(
-      `SELECT id, name FROM homes WHERE id = $1 AND user_id = $2`,
-      [req.params.id, req.user!.id]
-    );
-
-    if (homeResult.rows.length === 0) {
+    // Verify the specific home exists and belongs to the user
+    const home = lockedHomes.rows.find((h: any) => h.id === req.params.id);
+    if (!home) {
       throw new AppError('Home not found', 404);
     }
 
-    const home = homeResult.rows[0];
+    // Reassign any items in this home to the user's first remaining home (#18)
+    const firstRemainingHome = lockedHomes.rows.find((h: any) => h.id !== req.params.id);
+    if (firstRemainingHome) {
+      await client.query(
+        `UPDATE items SET home_id = $1 WHERE home_id = $2 AND user_id = $3`,
+        [firstRemainingHome.id, req.params.id, req.user!.id]
+      );
+    }
 
-    await query(
+    // Delete the home
+    await client.query(
       `DELETE FROM homes WHERE id = $1 AND user_id = $2`,
       [req.params.id, req.user!.id]
     );
+
+    await client.query('COMMIT');
 
     await AuditService.logFromRequest(req, 'home.delete', {
       resourceType: 'home',
       resourceId: home.id,
       description: `Deleted home: ${home.name}`,
+      metadata: {
+        items_reassigned_to: firstRemainingHome?.id ?? null,
+      },
     });
 
     res.json({ message: 'Home deleted successfully' });
   } catch (error) {
+    await client.query('ROLLBACK');
     next(error);
+  } finally {
+    client.release();
   }
 });
 

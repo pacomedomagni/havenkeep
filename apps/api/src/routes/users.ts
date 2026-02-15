@@ -6,7 +6,7 @@ import { AppError } from '../middleware/errorHandler';
 import { validate } from '../middleware/validate';
 import { updateUserSchema, pushTokenSchema } from '../validators';
 import { changePasswordSchema, deleteAccountSchema } from '../validators/users.validator';
-import { blacklistToken } from '../utils/token-blacklist';
+import { blacklistTokenAuto } from '../utils/token-blacklist';
 import { config } from '../config';
 import { logger } from '../utils/logger';
 import { AuditService } from '../services/audit.service';
@@ -27,15 +27,6 @@ router.get('/me', async (req, res, next) => {
     if (result.rows.length === 0) {
       throw new AppError('User not found', 404);
     }
-
-    await AuditService.logFromRequest(req, 'user.update', {
-      resourceType: 'user',
-      resourceId: result.rows[0].id,
-      description: 'Updated user profile',
-      metadata: {
-        updated_fields: Object.keys(req.body || {}),
-      },
-    });
 
     res.json({ user: result.rows[0] });
   } catch (error) {
@@ -253,11 +244,11 @@ router.put('/me/password', validate(changePasswordSchema), async (req, res, next
       [newHash, req.user!.id]
     );
 
-    // Blacklist the current access token so it can't be reused
+    // Blacklist the current access token using its actual remaining TTL
     const authHeader = req.headers.authorization;
     if (authHeader?.startsWith('Bearer ')) {
       const accessToken = authHeader.substring(7);
-      await blacklistToken(accessToken, 3600);
+      await blacklistTokenAuto(accessToken);
     }
 
     // Invalidate all refresh tokens (force re-login on other devices)
@@ -266,6 +257,13 @@ router.put('/me/password', validate(changePasswordSchema), async (req, res, next
       [req.user!.id]
     );
 
+    // Audit log: password changed
+    await AuditService.logFromRequest(req, 'user.update', {
+      resourceType: 'user',
+      resourceId: req.user!.id,
+      description: 'Password changed',
+    });
+
     res.json({ message: 'Password changed successfully' });
   } catch (error) {
     next(error);
@@ -273,13 +271,15 @@ router.put('/me/password', validate(changePasswordSchema), async (req, res, next
 });
 
 // Delete account
-router.delete('/me', validate(deleteAccountSchema), async (req, res, next) => {
+// For email users: requires password confirmation.
+// For OAuth users (no password): requires confirmDelete=true in body.
+router.delete('/me', async (req, res, next) => {
   try {
-    const { password } = req.body;
+    const { password, confirmDelete } = req.body || {};
 
-    // Verify password before deletion
+    // Get user info to determine auth method
     const userResult = await query(
-      `SELECT password_hash FROM users WHERE id = $1`,
+      `SELECT password_hash, auth_provider FROM users WHERE id = $1`,
       [req.user!.id]
     );
 
@@ -287,12 +287,22 @@ router.delete('/me', validate(deleteAccountSchema), async (req, res, next) => {
       throw new AppError('User not found', 404);
     }
 
-    if (!userResult.rows[0].password_hash) {
-      throw new AppError('Cannot verify password for SSO accounts', 400);
-    }
-    const valid = await bcrypt.compare(password, userResult.rows[0].password_hash);
-    if (!valid) {
-      throw new AppError('Invalid password', 401);
+    const user = userResult.rows[0];
+
+    if (user.password_hash) {
+      // Email user: require password confirmation
+      if (!password) {
+        throw new AppError('Password is required to delete your account', 400);
+      }
+      const valid = await bcrypt.compare(password, user.password_hash);
+      if (!valid) {
+        throw new AppError('Invalid password', 401);
+      }
+    } else {
+      // OAuth user: require explicit confirmation flag
+      if (confirmDelete !== true) {
+        throw new AppError('Please confirm account deletion by setting confirmDelete to true', 400);
+      }
     }
 
     // Delete user (cascades to all related data)

@@ -442,6 +442,13 @@ export class NotificationsService {
    * Checks for items expiring within each user's configured reminder window
    * and creates notifications for them. Skips items that already received
    * a notification in the last 24 hours to prevent duplicates.
+   *
+   * Idempotency: The 24-hour dedup window (nh.sent_at > NOW() - INTERVAL '1 day')
+   * ensures that re-running this method within the same day is safe and will not
+   * produce duplicate notifications for the same item.
+   *
+   * Individual notification failures are caught and logged so that one bad row
+   * does not prevent notifications for remaining items.
    */
   static async checkAndNotifyExpirations(): Promise<number> {
     const client = await pool.connect();
@@ -481,6 +488,10 @@ export class NotificationsService {
             title: 'Warranty Expiring Soon',
             body: `Your warranty for ${itemLabel} expires on ${expiryDate}.`,
           });
+
+          // TODO: Implement FCM push notification delivery. Currently only in-app
+          // notification records and email notifications are supported. Push tokens
+          // are registered via POST /users/push-token but never used for delivery.
 
           // Send email if user has email notifications enabled
           if (row.email_enabled) {

@@ -15,6 +15,8 @@ router.post('/lookup', validate(barcodeLookupSchema), async (req: AuthRequest, r
     logger.info({ barcode, userId: req.user!.id }, 'Barcode lookup requested');
 
     // Try UPC Database API (general product database, not food-only)
+    // NOTE: Using the UPC Item DB trial API which has strict rate limits (100 req/day).
+    // For production traffic, upgrade to a paid plan or implement a fallback/caching layer.
     const response = await fetch(
       `https://api.upcitemdb.com/prod/trial/lookup?upc=${barcode}`
     );

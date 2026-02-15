@@ -4,6 +4,9 @@ import { ValidationError } from '../utils/errors';
 
 export function validate(schema: Joi.ObjectSchema, property: 'body' | 'query' | 'params' = 'body') {
   return (req: Request, res: Response, next: NextFunction) => {
+    // NOTE: stripUnknown silently removes unrecognized fields, which can mask client bugs
+    // (e.g., sending 'fullname' instead of 'fullName'). Consider setting allowUnknown: false
+    // in development/staging to surface these issues early.
     const { error, value } = schema.validate(req[property], {
       abortEarly: false,
       stripUnknown: true,

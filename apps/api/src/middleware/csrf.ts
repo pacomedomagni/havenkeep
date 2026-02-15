@@ -44,6 +44,10 @@ export function csrfProtection(req: Request, res: Response, next: NextFunction) 
   next();
 }
 
+// NOTE: This middleware only generates CSRF tokens. Validation is not enforced
+// because the primary clients are mobile apps (which don't use cookies for auth).
+// If a web dashboard is added that uses cookie-based sessions, add CSRF
+// validation middleware for mutating endpoints.
 export function setCsrfToken(req: Request, res: Response, next: NextFunction) {
   if (!req.cookies?.[CSRF_COOKIE]) {
     const token = generateCsrfToken();

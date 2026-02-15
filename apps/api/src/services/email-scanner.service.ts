@@ -55,8 +55,13 @@ export class EmailScannerService {
 
       await client.query('COMMIT');
 
-      // Start scan asynchronously with failure recovery
-      this.performScan(scan.id, userId, provider, accessToken, options).catch(async (error) => {
+      // Start scan with timeout
+      const scanPromise = this.performScan(scan.id, userId, provider, accessToken, options);
+      const timeoutPromise = new Promise<void>((_, reject) =>
+        setTimeout(() => reject(new Error('Email scan timed out after 5 minutes')), 5 * 60 * 1000)
+      );
+
+      Promise.race([scanPromise, timeoutPromise]).catch(async (error) => {
         logger.error({ error, scanId: scan.id }, 'Background email scan failed');
         try {
           await pool.query(
@@ -347,6 +352,11 @@ export class EmailScannerService {
 
   /**
    * Extract receipt data using AI (OpenAI or Anthropic)
+   *
+   * PRIVACY NOTE: Email body content (up to 2000 chars) is sent to OpenAI for
+   * receipt extraction. Ensure users are informed of this in the app's privacy
+   * policy and terms of service. The access token is used only for email access
+   * and is not stored.
    */
   private static async extractReceiptData(emailData: {
     subject: string;
@@ -394,7 +404,7 @@ ${emailData.body.substring(0, 2000)}`,
         },
         {
           headers: {
-            'Authorization': `Bearer ${config.openai?.apiKey || process.env.OPENAI_API_KEY}`,
+            'Authorization': `Bearer ${config.openai?.apiKey}`,
             'Content-Type': 'application/json',
           },
         }
@@ -481,6 +491,22 @@ ${emailData.body.substring(0, 2000)}`,
     receipt: ExtractedReceipt,
     scanId: string
   ): Promise<void> {
+    // Check free plan limit before starting the transaction
+    const userResult = await pool.query(
+      'SELECT plan FROM users WHERE id = $1',
+      [userId]
+    );
+    if (userResult.rows[0]?.plan === 'free') {
+      const countResult = await pool.query(
+        'SELECT COUNT(*) FROM items WHERE user_id = $1 AND is_archived = FALSE',
+        [userId]
+      );
+      if (parseInt(countResult.rows[0].count, 10) >= 5) {
+        logger.info({ userId, scanId }, 'Skipping item import: free plan limit reached');
+        return; // Skip this item silently, don't throw
+      }
+    }
+
     const client = await pool.connect();
 
     try {

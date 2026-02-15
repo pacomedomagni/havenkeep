@@ -12,6 +12,14 @@ import {
 import { asyncHandler } from '../utils/async-handler';
 import { activationCodeRateLimiter } from '../middleware/rateLimiter';
 import { AuditService } from '../services/audit.service';
+import { AppError } from '../middleware/errorHandler';
+
+function requirePartner(req: any, res: any, next: any) {
+  if (!req.user?.isPartner) {
+    return next(new AppError('Partner access required', 403));
+  }
+  next();
+}
 
 const router = Router();
 
@@ -79,6 +87,7 @@ router.use(authenticate);
  */
 router.post(
   '/referral-code',
+  requirePartner,
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
     const referralCode = await PartnersService.getOrCreateReferralCode(userId);
@@ -155,6 +164,7 @@ router.put(
  */
 router.post(
   '/gifts',
+  requirePartner,
   validate(createGiftSchema),
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
@@ -185,6 +195,7 @@ router.post(
  */
 router.get(
   '/gifts',
+  requirePartner,
   validate(getGiftsQuerySchema, 'query'),
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
@@ -216,6 +227,7 @@ router.get(
  */
 router.get(
   '/gifts/:id',
+  requirePartner,
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
     const gift = await PartnersService.getGift(req.params.id, userId);
@@ -234,6 +246,7 @@ router.get(
  */
 router.post(
   '/gifts/:id/resend',
+  requirePartner,
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
     await PartnersService.resendGiftEmail(req.params.id, userId);
@@ -258,6 +271,7 @@ router.post(
  */
 router.get(
   '/analytics',
+  requirePartner,
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
     const analytics = await PartnersService.getPartnerAnalytics(userId);
@@ -276,6 +290,7 @@ router.get(
  */
 router.get(
   '/commissions',
+  requirePartner,
   validate(getCommissionsQuerySchema, 'query'),
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;

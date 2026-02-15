@@ -43,6 +43,10 @@ class RedisStore {
     const now = Date.now();
     const windowStart = now - this.windowMs;
 
+    // NOTE: The ZRANGEBYSCORE + ZADD sequence is not atomic. Under extreme concurrency,
+    // a small number of extra requests may slip through. For strict enforcement, consider
+    // using a Redis Lua script to make the check-and-increment atomic.
+
     // Remove old entries
     await this.client.zRemRangeByScore(redisKey, 0, windowStart);
 
@@ -135,6 +139,9 @@ export const authRateLimiter = rateLimit({
   skipSuccessfulRequests: true, // Don't count successful logins
 });
 
+// Refresh rate limiter: 10 requests per 15 minutes.
+// This is intentionally generous since mobile apps may refresh tokens frequently.
+// Consider reducing if abuse is detected.
 export const refreshRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 10,

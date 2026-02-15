@@ -103,7 +103,8 @@ export class PartnersService {
       // Send welcome email to new partner
       try {
         // Get user email
-        const userResult = await client.query(
+        // After the COMMIT, use pool instead of the transaction client
+        const userResult = await pool.query(
           'SELECT email, full_name FROM users WHERE id = $1',
           [userId]
         );
@@ -271,6 +272,8 @@ export class PartnersService {
     }
   ): Promise<PartnerGift> {
     const client = await pool.connect();
+    let gift: any;
+    let partner: any;
 
     try {
       await client.query('BEGIN');
@@ -285,7 +288,7 @@ export class PartnersService {
         throw new AppError('Partner not found', 404);
       }
 
-      const partner = partnerResult.rows[0];
+      partner = partnerResult.rows[0];
 
       // Determine pricing based on tier
       const tierPricing = {
@@ -297,33 +300,7 @@ export class PartnersService {
       const amountCharged = tierPricing[partner.subscription_tier as keyof typeof tierPricing];
       const premiumMonths = data.premium_months || partner.default_premium_months || 6;
 
-      // Charge partner via Stripe
-      const user = await client.query('SELECT stripe_customer_id FROM users WHERE id = $1', [
-        userId,
-      ]);
-
-      let stripeChargeId = null;
-
-      if (user.rows[0]?.stripe_customer_id) {
-        try {
-          const charge = await stripe.charges.create({
-            amount: amountCharged * 100, // Convert to cents
-            currency: 'usd',
-            customer: user.rows[0].stripe_customer_id,
-            description: `Closing gift for ${data.homebuyer_name}`,
-            metadata: {
-              partner_id: partner.id,
-              homebuyer_email: data.homebuyer_email,
-            },
-          });
-
-          stripeChargeId = charge.id;
-        } catch (stripeError) {
-          throw new AppError('Payment failed. Please check your payment method.', 402);
-        }
-      }
-
-      // Create gift
+      // Create gift record FIRST with status 'pending_payment'
       const expiresAt = new Date();
       expiresAt.setMonth(expiresAt.getMonth() + 6); // Gift link expires in 6 months
 
@@ -332,7 +309,7 @@ export class PartnersService {
           partner_id, homebuyer_email, homebuyer_name, homebuyer_phone,
           home_address, closing_date, premium_months, custom_message,
           amount_charged, stripe_charge_id, expires_at, status
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'created')
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL, $10, 'pending_payment')
         RETURNING *`,
         [
           partner.id,
@@ -344,58 +321,99 @@ export class PartnersService {
           premiumMonths,
           data.custom_message || partner.default_message,
           amountCharged,
-          stripeChargeId,
           expiresAt,
         ]
       );
 
-      const gift = giftResult.rows[0];
-
-      // Create commission record
-      await client.query(
-        `INSERT INTO partner_commissions (
-          partner_id, type, amount, status, reference_id, reference_type
-        ) VALUES ($1, 'gift', $2, 'pending', $3, 'partner_gift')`,
-        [partner.id, amountCharged, gift.id]
-      );
+      gift = giftResult.rows[0];
 
       await client.query('COMMIT');
-
-      // Send email to homebuyer with gift activation link
-      try {
-        await EmailService.sendGiftActivationEmail({
-          to: gift.homebuyer_email,
-          homebuyer_name: gift.homebuyer_name,
-          partner_name: partner.company_name || `Partner ${partner.id.slice(0, 8)}`,
-          partner_company: partner.company_name,
-          premium_months: gift.premium_months,
-          activation_url: gift.activation_url,
-          activation_code: gift.activation_code,
-          custom_message: gift.custom_message,
-          brand_color: partner.brand_color,
-          logo_url: partner.logo_url,
-        });
-      } catch (emailError) {
-        // Log email error but don't fail the gift creation
-        logger.error(
-          { error: emailError, giftId: gift.id, homebuyer: data.homebuyer_email },
-          'Failed to send gift activation email, but gift was created successfully'
-        );
-      }
-
-      logger.info(
-        { giftId: gift.id, partnerId: partner.id, homebuyer: data.homebuyer_email },
-        'Gift created'
-      );
-
-      return gift;
     } catch (error) {
       await client.query('ROLLBACK');
-      logger.error({ error, userId }, 'Error creating gift');
+      logger.error({ error, userId }, 'Error creating gift record');
       throw error;
     } finally {
       client.release();
     }
+
+    // Attempt Stripe charge OUTSIDE the transaction
+    const user = await pool.query('SELECT stripe_customer_id FROM users WHERE id = $1', [
+      userId,
+    ]);
+
+    let stripeChargeId: string | null = null;
+
+    if (user.rows[0]?.stripe_customer_id) {
+      try {
+        const paymentIntent = await stripe.paymentIntents.create({
+          amount: gift.amount_charged * 100,
+          currency: 'usd',
+          customer: user.rows[0].stripe_customer_id,
+          description: `Closing gift for ${data.homebuyer_name}`,
+          confirm: true,
+          off_session: true,
+          metadata: {
+            partner_id: partner.id,
+            homebuyer_email: data.homebuyer_email,
+          },
+        });
+        stripeChargeId = paymentIntent.id;
+      } catch (stripeError) {
+        // Stripe charge failed — update gift status to 'payment_failed'
+        await pool.query(
+          `UPDATE partner_gifts SET status = 'payment_failed', updated_at = NOW() WHERE id = $1`,
+          [gift.id]
+        );
+        logger.error({ error: stripeError, giftId: gift.id, userId }, 'Stripe payment failed for gift');
+        throw new AppError('Payment failed. Please check your payment method.', 402);
+      }
+    }
+
+    // Stripe succeeded — update gift status to 'created' and create commission
+    await pool.query(
+      `UPDATE partner_gifts SET status = 'created', stripe_charge_id = $1, updated_at = NOW() WHERE id = $2`,
+      [stripeChargeId, gift.id]
+    );
+
+    await pool.query(
+      `INSERT INTO partner_commissions (
+        partner_id, type, amount, status, reference_id, reference_type
+      ) VALUES ($1, 'gift', $2, 'pending', $3, 'partner_gift')`,
+      [partner.id, gift.amount_charged, gift.id]
+    );
+
+    // Re-fetch the updated gift
+    const updatedGift = await pool.query('SELECT * FROM partner_gifts WHERE id = $1', [gift.id]);
+    gift = updatedGift.rows[0];
+
+    // Send email to homebuyer with gift activation link
+    try {
+      await EmailService.sendGiftActivationEmail({
+        to: gift.homebuyer_email,
+        homebuyer_name: gift.homebuyer_name,
+        partner_name: partner.company_name || `Partner ${partner.id.slice(0, 8)}`,
+        partner_company: partner.company_name,
+        premium_months: gift.premium_months,
+        activation_url: gift.activation_url,
+        activation_code: gift.activation_code,
+        custom_message: gift.custom_message,
+        brand_color: partner.brand_color,
+        logo_url: partner.logo_url,
+      });
+    } catch (emailError) {
+      // Log email error but don't fail the gift creation
+      logger.error(
+        { error: emailError, giftId: gift.id, homebuyer: data.homebuyer_email },
+        'Failed to send gift activation email, but gift was created successfully'
+      );
+    }
+
+    logger.info(
+      { giftId: gift.id, partnerId: partner.id, homebuyer: data.homebuyer_email },
+      'Gift created'
+    );
+
+    return gift;
   }
 
   /**

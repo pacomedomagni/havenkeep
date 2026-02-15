@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import Stripe from 'stripe';
+import crypto from 'crypto';
 import { config } from '../config';
 import { pool, query } from '../db';
 import { logger } from '../utils/logger';
@@ -193,9 +194,21 @@ async function handleChargeRefunded(charge: Stripe.Charge): Promise<void> {
       [gift.id]
     );
 
+    // Revoke the premium plan from the activated user
+    const activatedGift = await pool.query(
+      'SELECT activated_user_id FROM partner_gifts WHERE id = $1',
+      [gift.id]
+    );
+    if (activatedGift.rows[0]?.activated_user_id) {
+      await pool.query(
+        `UPDATE users SET plan = 'free', plan_expires_at = NULL, updated_at = NOW() WHERE id = $1`,
+        [activatedGift.rows[0].activated_user_id]
+      );
+    }
+
     logger.warn(
       { giftId: gift.id, partnerId: gift.partner_id },
-      'charge.refunded: refunded an already-activated gift — premium may need manual review'
+      'charge.refunded: refunded an already-activated gift — premium revoked from activated user'
     );
   }
 
@@ -266,7 +279,9 @@ function validateRevenueCatWebhookAuth(req: Request, res: Response, next: NextFu
   }
 
   const token = authHeader.substring(7);
-  if (token !== webhookSecret) {
+  const tokenBuffer = Buffer.from(token);
+  const secretBuffer = Buffer.from(webhookSecret);
+  if (tokenBuffer.length !== secretBuffer.length || !crypto.timingSafeEqual(tokenBuffer, secretBuffer)) {
     logger.warn({ ip: req.ip }, 'RevenueCat webhook: invalid authorization token');
     return res.status(401).json({ error: 'Unauthorized' });
   }
