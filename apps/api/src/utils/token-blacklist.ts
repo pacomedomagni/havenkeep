@@ -89,6 +89,9 @@ export async function isTokenBlacklisted(token: string): Promise<boolean> {
   } catch (error) {
     // If Redis is down, fail-open in development, fail-closed in production
     logger.error({ error }, 'Failed to check token blacklist');
+    if (config.env !== 'production') {
+      logger.warn('Token blacklist check failed — fail-open in development (token accepted)');
+    }
     return config.env === 'production';
   }
 }

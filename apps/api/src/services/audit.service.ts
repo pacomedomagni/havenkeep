@@ -5,6 +5,7 @@ export type AuditAction =
   // Authentication
   | 'auth.login'
   | 'auth.logout'
+  | 'auth.logout_all'
   | 'auth.register'
   | 'auth.password_reset_request'
   | 'auth.password_reset_complete'

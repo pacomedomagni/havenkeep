@@ -505,6 +505,119 @@ You're receiving this because you have email notifications enabled.
   }
 
   /**
+   * Send email verification email
+   */
+  static async sendEmailVerificationEmail(data: {
+    to: string;
+    user_name: string;
+    verify_url: string;
+  }): Promise<void> {
+    try {
+      const { to, user_name, verify_url } = data;
+
+      const firstName = escapeHtml(user_name.split(' ')[0]);
+      const safeVerifyUrl = sanitizeUrl(verify_url);
+
+      if (!safeVerifyUrl) {
+        throw new Error('Invalid verification URL');
+      }
+
+      const htmlContent = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Verify Your Email</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f3f4f6;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f3f4f6; padding: 40px 20px;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+
+          <tr>
+            <td style="background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%); padding: 40px; text-align: center;">
+              <h1 style="color: #ffffff; margin: 0; font-size: 28px; font-weight: bold;">Verify Your Email</h1>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="padding: 40px;">
+              <p style="color: #374151; font-size: 16px; line-height: 1.6; margin: 0 0 20px;">Hi ${firstName},</p>
+
+              <p style="color: #374151; font-size: 16px; line-height: 1.6; margin: 0 0 30px;">
+                Welcome to HavenKeep! Please verify your email address by clicking the button below. This link expires in <strong>24 hours</strong>.
+              </p>
+
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin: 0 0 30px;">
+                <tr>
+                  <td align="center">
+                    <a href="${safeVerifyUrl}" style="display: inline-block; background-color: #3B82F6; color: #ffffff; text-decoration: none; padding: 16px 40px; border-radius: 8px; font-size: 16px; font-weight: 600; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);">
+                      Verify Email
+                    </a>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="color: #9ca3af; font-size: 13px; line-height: 1.6; margin: 0;">
+                If the button doesn't work, copy and paste this link into your browser:<br>
+                <span style="color: #3B82F6; word-break: break-all;">${safeVerifyUrl}</span>
+              </p>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="background-color: #f9fafb; padding: 30px 40px; border-top: 1px solid #e5e7eb; text-align: center;">
+              <p style="color: #6b7280; font-size: 13px; margin: 0;">
+                HavenKeep — Your Warranties. Protected.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+      `;
+
+      const textContent = `
+Verify Your Email
+
+Hi ${firstName},
+
+Welcome to HavenKeep! Please verify your email address by clicking the link below. This link expires in 24 hours.
+
+Verify Email: ${safeVerifyUrl}
+
+---
+HavenKeep — Your Warranties. Protected.
+      `;
+
+      const msg = {
+        to,
+        from: {
+          email: config.sendgrid.fromEmail,
+          name: 'HavenKeep',
+        },
+        replyTo: config.sendgrid.replyToEmail,
+        subject: 'Verify your HavenKeep email address',
+        text: textContent,
+        html: htmlContent,
+      };
+
+      await sgMail.send(msg);
+
+      logger.info({ to }, 'Verification email sent');
+    } catch (error) {
+      logger.error({ error, to: data.to }, 'Failed to send verification email');
+      throw error;
+    }
+  }
+
+  /**
    * Send password reset email
    */
   static async sendPasswordResetEmail(data: {

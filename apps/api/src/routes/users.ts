@@ -237,6 +237,12 @@ router.put('/me/password', validate(changePasswordSchema), async (req, res, next
       throw new AppError('Current password is incorrect', 401);
     }
 
+    // Prevent setting the same password
+    const samePassword = await bcrypt.compare(newPassword, userResult.rows[0].password_hash);
+    if (samePassword) {
+      throw new AppError('New password must be different from current password', 400);
+    }
+
     // Hash and update new password
     const newHash = await bcrypt.hash(newPassword, 12);
     await query(
@@ -273,7 +279,7 @@ router.put('/me/password', validate(changePasswordSchema), async (req, res, next
 // Delete account
 // For email users: requires password confirmation.
 // For OAuth users (no password): requires confirmDelete=true in body.
-router.delete('/me', async (req, res, next) => {
+router.delete('/me', validate(deleteAccountSchema), async (req, res, next) => {
   try {
     const { password, confirmDelete } = req.body || {};
 
@@ -307,6 +313,16 @@ router.delete('/me', async (req, res, next) => {
 
     // Delete user (cascades to all related data)
     await query(`DELETE FROM users WHERE id = $1`, [req.user!.id]);
+
+    // Blacklist the current access token
+    const authHeader = req.headers.authorization;
+    if (authHeader?.startsWith('Bearer ')) {
+      try {
+        await blacklistTokenAuto(authHeader.substring(7));
+      } catch {
+        // Best-effort
+      }
+    }
 
     await AuditService.logFromRequest(req, 'user.delete', {
       resourceType: 'user',

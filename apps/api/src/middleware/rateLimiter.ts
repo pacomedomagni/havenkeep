@@ -134,9 +134,8 @@ export { initializeRateLimiter };
 // Specific rate limiters for sensitive endpoints
 export const authRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5,
-  message: 'Too many login attempts, please try again later.',
-  skipSuccessfulRequests: true, // Don't count successful logins
+  max: 10,
+  message: 'Too many attempts, please try again later.',
 });
 
 // Refresh rate limiter: 10 requests per 15 minutes.

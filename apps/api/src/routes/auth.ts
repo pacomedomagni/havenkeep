@@ -7,6 +7,7 @@ import Joi from 'joi';
 import { config } from '../config';
 import { AppError } from '../middleware/errorHandler';
 import { authRateLimiter, refreshRateLimiter, passwordResetRateLimiter } from '../middleware/rateLimiter';
+import { authenticate } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { registerSchema, loginSchema, refreshTokenSchema } from '../validators';
 import { forgotPasswordSchema, resetPasswordSchema, verifyEmailSchema } from '../validators/auth.validator';
@@ -17,6 +18,10 @@ import { blacklistTokenAuto } from '../utils/token-blacklist';
 import { generateUniqueReferralCode } from '../utils/referral-code';
 
 const router = Router();
+
+// Cached OAuth client singletons (lazy-initialized)
+let googleOAuth2Client: any = null;
+let appleJwksClientInstance: any = null;
 
 // Parse JWT expiry string (e.g. '7d', '24h') to milliseconds
 function parseExpiryToMs(expiry: string | number): number {
@@ -65,13 +70,22 @@ router.post('/register', authRateLimiter, validate(registerSchema), async (req, 
   try {
     const { email, password, fullName, referralCode } = req.body;
 
-    // Hash password with bcrypt rounds=12
-    const passwordHash = await bcrypt.hash(password, 12);
-
     const referredBy = await resolveReferredBy(referralCode);
     const userReferralCode = await generateUniqueReferralCode();
 
     await client.query('BEGIN');
+
+    // Check for existing email before expensive bcrypt hash
+    const existingUser = await client.query(
+      `SELECT 1 FROM users WHERE email = $1`,
+      [email.toLowerCase()]
+    );
+    if (existingUser.rows.length > 0) {
+      throw new AppError('Email already registered', 409);
+    }
+
+    // Hash password with bcrypt rounds=12 (only after confirming email is available)
+    const passwordHash = await bcrypt.hash(password, 12);
 
     // Atomically insert user — ON CONFLICT handles the race condition
     const result = await client.query(
@@ -129,6 +143,23 @@ router.post('/register', authRateLimiter, validate(registerSchema), async (req, 
       success: true,
     });
 
+    // Send email verification (fire-and-forget)
+    const verificationToken = crypto.randomBytes(32).toString('hex');
+    const verificationExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+    query(
+      `INSERT INTO email_verification_tokens (user_id, token, expires_at) VALUES ($1, $2, $3)`,
+      [user.id, verificationToken, verificationExpiresAt]
+    ).then(() => {
+      const verifyUrl = `${config.app.frontendUrl}/verify-email?token=${verificationToken}`;
+      return EmailService.sendEmailVerificationEmail({
+        to: user.email,
+        user_name: user.full_name || 'there',
+        verify_url: verifyUrl,
+      });
+    }).catch((err) => {
+      logger.error({ error: err, userId: user.id }, 'Failed to send verification email');
+    });
+
     res.status(201).json({
       user: {
         id: user.id,
@@ -182,6 +213,8 @@ router.post('/login', authRateLimiter, validate(loginSchema), async (req, res, n
     );
 
     if (result.rows.length === 0) {
+      // Constant-time: run bcrypt even when user doesn't exist to prevent timing attacks
+      await bcrypt.compare(password, '$2a$12$000000000000000000000uGAV.eTk/fI05JBbVvI3B.ggHOFglqi');
       throw new AppError('Invalid credentials', 401);
     }
 
@@ -189,6 +222,7 @@ router.post('/login', authRateLimiter, validate(loginSchema), async (req, res, n
 
     // Verify password
     if (!user.password_hash) {
+      await bcrypt.compare(password, '$2a$12$000000000000000000000uGAV.eTk/fI05JBbVvI3B.ggHOFglqi');
       throw new AppError('Invalid credentials', 401);
     }
     const valid = await bcrypt.compare(password, user.password_hash);
@@ -229,6 +263,16 @@ router.post('/login', authRateLimiter, validate(loginSchema), async (req, res, n
       `INSERT INTO refresh_tokens (user_id, token, expires_at)
        VALUES ($1, $2, $3)`,
       [user.id, hashRefreshToken(refreshToken), expiresAt]
+    );
+
+    // Cap active refresh tokens per user (keep most recent 10, remove oldest)
+    await query(
+      `DELETE FROM refresh_tokens
+       WHERE user_id = $1 AND id NOT IN (
+         SELECT id FROM refresh_tokens WHERE user_id = $1
+         ORDER BY created_at DESC LIMIT 10
+       )`,
+      [user.id]
     );
 
     // Audit log: successful login
@@ -286,23 +330,35 @@ router.post('/refresh', refreshRateLimiter, validate(refreshTokenSchema), async 
       userId: string;
     };
 
-    // Check if token exists and not expired (lookup by hash)
+    // Atomically consume the refresh token (prevents race conditions).
+    // DELETE...RETURNING guarantees only one concurrent request succeeds.
     const tokenHash = hashRefreshToken(refreshToken);
     const tokenResult = await query(
-      `SELECT user_id FROM refresh_tokens
-       WHERE token = $1 AND expires_at > NOW()`,
+      `DELETE FROM refresh_tokens
+       WHERE token = $1 AND expires_at > NOW()
+       RETURNING user_id`,
       [tokenHash]
     );
 
     if (tokenResult.rows.length === 0) {
+      // Token not found — could be replay/reuse. Check if user exists
+      // and invalidate all their tokens as a security precaution.
+      const suspectUser = await query(
+        `SELECT id FROM users WHERE id = $1`,
+        [decoded.userId]
+      );
+      if (suspectUser.rows.length > 0) {
+        await query(
+          `DELETE FROM refresh_tokens WHERE user_id = $1`,
+          [decoded.userId]
+        );
+        logger.warn(
+          { userId: decoded.userId },
+          'Refresh token reuse detected — all sessions invalidated'
+        );
+      }
       throw new AppError('Invalid refresh token', 401);
     }
-
-    // Delete the old refresh token (rotation: one-time use)
-    await query(
-      `DELETE FROM refresh_tokens WHERE token = $1`,
-      [tokenHash]
-    );
 
     // Get user
     const userResult = await query(
@@ -356,8 +412,12 @@ router.post('/refresh', refreshRateLimiter, validate(refreshTokenSchema), async 
   }
 });
 
-// Logout
-router.post('/logout', refreshRateLimiter, validate(refreshTokenSchema), async (req, res, next) => {
+// Logout — refreshToken is optional (allows logout with just an access token)
+const logoutSchema = Joi.object({
+  refreshToken: Joi.string().optional(),
+}).rename('refresh_token', 'refreshToken', { ignoreUndefined: true, override: false });
+
+router.post('/logout', refreshRateLimiter, validate(logoutSchema), async (req, res, next) => {
   try {
     const { refreshToken } = req.body;
 
@@ -418,6 +478,46 @@ router.post('/logout', refreshRateLimiter, validate(refreshTokenSchema), async (
   }
 });
 
+// Logout all devices — requires authentication
+router.post('/logout-all', authenticate, async (req, res, next) => {
+  try {
+    // Blacklist the current access token
+    const authHeader = req.headers.authorization;
+    if (authHeader?.startsWith('Bearer ')) {
+      try {
+        await blacklistTokenAuto(authHeader.substring(7));
+      } catch {
+        // Best-effort
+      }
+    }
+
+    // Delete ALL refresh tokens for this user
+    await query(
+      `DELETE FROM refresh_tokens WHERE user_id = $1`,
+      [req.user!.id]
+    );
+
+    // Invalidate any unused password reset tokens
+    await query(
+      `UPDATE password_reset_tokens SET used = TRUE WHERE user_id = $1 AND used = FALSE`,
+      [req.user!.id]
+    );
+
+    // Audit log
+    await AuditService.logAuth({
+      action: 'auth.logout_all',
+      userId: req.user!.id,
+      ipAddress: getIpAddress(req),
+      userAgent: req.get('user-agent'),
+      success: true,
+    });
+
+    res.json({ message: 'All sessions logged out successfully' });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Forgot password - request reset
 router.post('/forgot-password', passwordResetRateLimiter, validate(forgotPasswordSchema), async (req, res, next) => {
   try {
@@ -450,13 +550,13 @@ router.post('/forgot-password', passwordResetRateLimiter, validate(forgotPasswor
     await query(
       `INSERT INTO password_reset_tokens (user_id, token, expires_at)
        VALUES ($1, $2, $3)`,
-      [user.id, resetToken, expiresAt]
+      [user.id, hashRefreshToken(resetToken), expiresAt]
     );
 
     // Send password reset email
     const resetUrl = `${config.app.frontendUrl}/reset-password?token=${resetToken}`;
 
-    logger.info({ userId: user.id, resetUrl }, 'Password reset requested');
+    logger.info({ userId: user.id }, 'Password reset requested');
 
     // Fire-and-forget: don't block the HTTP response on email delivery
     EmailService.sendPasswordResetEmail({
@@ -488,6 +588,9 @@ router.post('/reset-password', authRateLimiter, validate(resetPasswordSchema), a
   try {
     const { token, newPassword } = req.body;
 
+    // Hash the token for lookup (reset tokens are stored as SHA-256 hashes)
+    const tokenHash = hashRefreshToken(token);
+
     // Atomically find and mark the reset token as used in a single query
     // to prevent race conditions with concurrent reset requests
     const tokenResult = await query(
@@ -495,7 +598,7 @@ router.post('/reset-password', authRateLimiter, validate(resetPasswordSchema), a
        SET used = TRUE
        WHERE token = $1 AND expires_at > NOW() AND used = FALSE
        RETURNING user_id`,
-      [token]
+      [tokenHash]
     );
 
     if (tokenResult.rows.length === 0) {
@@ -519,6 +622,16 @@ router.post('/reset-password', authRateLimiter, validate(resetPasswordSchema), a
       [userId]
     );
 
+    // Blacklist the caller's access token if present
+    const authHeader = req.headers.authorization;
+    if (authHeader?.startsWith('Bearer ')) {
+      try {
+        await blacklistTokenAuto(authHeader.substring(7));
+      } catch {
+        // Best-effort
+      }
+    }
+
     // Audit log: password reset completed
     await AuditService.logAuth({
       action: 'auth.password_reset_complete',
@@ -535,7 +648,7 @@ router.post('/reset-password', authRateLimiter, validate(resetPasswordSchema), a
 });
 
 // Verify email
-router.post('/verify-email', validate(verifyEmailSchema), async (req, res, next) => {
+router.post('/verify-email', authRateLimiter, validate(verifyEmailSchema), async (req, res, next) => {
   try {
     const { token } = req.body;
 
@@ -588,9 +701,12 @@ router.post('/google', authRateLimiter, validate(googleOAuthSchema), async (req,
 
     const { idToken, referralCode } = req.body;
 
-    // Verify the Google ID token
-    const { OAuth2Client } = await import('google-auth-library');
-    const oauthClient = new OAuth2Client(config.google?.clientId);
+    // Verify the Google ID token (lazy-init singleton)
+    if (!googleOAuth2Client) {
+      const { OAuth2Client } = await import('google-auth-library');
+      googleOAuth2Client = new OAuth2Client(config.google.clientId);
+    }
+    const oauthClient = googleOAuth2Client;
 
     const ticket = await oauthClient.verifyIdToken({
       idToken,
@@ -600,6 +716,11 @@ router.post('/google', authRateLimiter, validate(googleOAuthSchema), async (req,
     const payload = ticket.getPayload();
     if (!payload || !payload.email) {
       throw new AppError('Invalid Google token', 401);
+    }
+
+    // Reject if Google hasn't verified the email (prevents account takeover)
+    if (!payload.email_verified) {
+      throw new AppError('Google email is not verified', 401);
     }
 
     const email = payload.email.toLowerCase();
@@ -726,13 +847,16 @@ router.post('/apple', authRateLimiter, validate(appleOAuthSchema), async (req, r
 
     const { idToken, fullName: appleFullName, referralCode } = req.body;
 
-    // Verify Apple ID token against Apple's public keys (JWKS)
-    const jwksClient = await import('jwks-rsa');
-    const appleJwksClient = jwksClient.default({
-      jwksUri: 'https://appleid.apple.com/auth/keys',
-      cache: true,
-      cacheMaxAge: 86400000, // 24 hours
-    });
+    // Verify Apple ID token against Apple's public keys (JWKS, lazy-init singleton)
+    if (!appleJwksClientInstance) {
+      const jwksClient = await import('jwks-rsa');
+      appleJwksClientInstance = jwksClient.default({
+        jwksUri: 'https://appleid.apple.com/auth/keys',
+        cache: true,
+        cacheMaxAge: 86400000, // 24 hours
+      });
+    }
+    const appleJwksClient = appleJwksClientInstance;
 
     // Decode header to get the key ID
     const decodedHeader = jwt.decode(idToken, { complete: true });
@@ -748,6 +872,7 @@ router.post('/apple', authRateLimiter, validate(appleOAuthSchema), async (req, r
     const decoded = jwt.verify(idToken, publicKey, {
       algorithms: ['RS256'],
       issuer: 'https://appleid.apple.com',
+      audience: config.apple.bundleId,
     }) as {
       sub: string;
       email?: string;

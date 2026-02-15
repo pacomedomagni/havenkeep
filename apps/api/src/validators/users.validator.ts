@@ -14,5 +14,6 @@ export const changePasswordSchema = Joi.object({
 });
 
 export const deleteAccountSchema = Joi.object({
-  password: Joi.string().required(),
+  password: Joi.string().optional(),
+  confirmDelete: Joi.boolean().optional(),
 });
