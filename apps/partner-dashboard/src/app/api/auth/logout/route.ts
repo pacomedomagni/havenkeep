@@ -2,9 +2,8 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE, clearAuthCookies } from '@/lib/auth';
 
-const API_URL = process.env.API_URL || 'http://localhost:3000';
-
 export async function POST() {
+  const API_URL = process.env.API_URL || 'http://localhost:3000';
   const cookieStore = await cookies();
   const accessToken = cookieStore.get(ACCESS_TOKEN_COOKIE)?.value;
   const refreshToken = cookieStore.get(REFRESH_TOKEN_COOKIE)?.value;

@@ -182,7 +182,7 @@ services:
       dockerfile: Dockerfile
       target: production
       args:
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+        NEXT_PUBLIC_API_URL: ""
     container_name: havenkeep-stg-dashboard
     restart: unless-stopped
     environment:

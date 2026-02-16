@@ -4,9 +4,8 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { setAuthCookies } from '@/lib/auth';
 
-const API_URL = process.env.API_URL || 'http://localhost:3000';
-
 export async function signIn(formData: FormData) {
+  const API_URL = process.env.API_URL || 'http://localhost:3000';
   const email = formData.get('email') as string;
   const password = formData.get('password') as string;
 

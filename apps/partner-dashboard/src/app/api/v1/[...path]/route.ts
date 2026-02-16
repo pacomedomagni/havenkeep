@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-const API_URL = process.env.API_URL || 'http://localhost:3000';
 const ACCESS_TOKEN_COOKIE = 'hk_access_token';
 
 async function proxyRequest(request: NextRequest, pathParts: string[]) {
+  const apiUrl = process.env.API_URL || 'http://localhost:3000';
   const url = new URL(request.url);
-  const targetUrl = `${API_URL}/api/v1/${pathParts.join('/')}${url.search}`;
+  const targetUrl = `${apiUrl}/api/v1/${pathParts.join('/')}${url.search}`;
 
   const headers = new Headers(request.headers);
   headers.delete('host');

@@ -1,8 +1,6 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 
-const API_URL = process.env.API_URL || 'http://localhost:3000';
-
 const ACCESS_TOKEN_COOKIE = 'hk_access_token';
 const REFRESH_TOKEN_COOKIE = 'hk_refresh_token';
 
@@ -55,8 +53,9 @@ export async function getUser(): Promise<AuthUser | null> {
   if (!payload) return null;
 
   // Fetch real user data from API to get accurate plan + isAdmin status
+  const apiUrl = process.env.API_URL || 'http://localhost:3000';
   try {
-    const response = await fetch(`${API_URL}/api/v1/admin/me`, {
+    const response = await fetch(`${apiUrl}/api/v1/admin/me`, {
       headers: {
         Authorization: `Bearer ${tokens.accessToken}`,
         'Content-Type': 'application/json',
@@ -169,7 +168,8 @@ export async function serverApiClient<T = any>(
     fetchOptions.body = JSON.stringify(body);
   }
 
-  const url = `${API_URL}${endpoint}`;
+  const apiUrl = process.env.API_URL || 'http://localhost:3000';
+  const url = `${apiUrl}${endpoint}`;
   const response = await fetch(url, fetchOptions);
 
   if (!response.ok) {

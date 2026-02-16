@@ -5,23 +5,8 @@
 --              and activation_code/activation_url to partner_gifts
 -- ============================================
 
--- 1. SCHEMA MIGRATION TRACKING
-CREATE TABLE IF NOT EXISTS schema_migrations (
-  id SERIAL PRIMARY KEY,
-  name VARCHAR(255) UNIQUE NOT NULL,
-  applied_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-COMMENT ON TABLE schema_migrations IS 'Tracks which database migrations have been applied';
-
--- Record previous migrations
-INSERT INTO schema_migrations (name) VALUES
-  ('001_initial_schema'),
-  ('002_enhanced_features'),
-  ('003_schema_tracking_and_gift_activation')
-ON CONFLICT (name) DO NOTHING;
-
--- 2. ADD ACTIVATION COLUMNS TO PARTNER_GIFTS
+-- 1. ADD ACTIVATION COLUMNS TO PARTNER_GIFTS
+-- (schema_migrations tracking is handled by run-migration.ts)
 ALTER TABLE partner_gifts
   ADD COLUMN IF NOT EXISTS activation_code VARCHAR(20),
   ADD COLUMN IF NOT EXISTS activation_url TEXT;

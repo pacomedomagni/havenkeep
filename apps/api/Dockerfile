@@ -28,6 +28,8 @@ RUN npm run build
 FROM base AS production
 WORKDIR /app
 
+RUN apk add --no-cache curl
+
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/package.json ./

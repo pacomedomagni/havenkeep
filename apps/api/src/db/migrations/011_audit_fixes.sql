@@ -20,12 +20,9 @@
 -- ============================================
 
 -- DB-1: Add 'pending_payment' and 'payment_failed' to gift_status ENUM
--- NOTE: ALTER TYPE ... ADD VALUE cannot run inside a transaction block in PostgreSQL.
--- These statements MUST be executed before BEGIN.
+-- NOTE: ALTER TYPE ... ADD VALUE IF NOT EXISTS works inside transactions on PostgreSQL 12+.
 ALTER TYPE gift_status ADD VALUE IF NOT EXISTS 'pending_payment';
 ALTER TYPE gift_status ADD VALUE IF NOT EXISTS 'payment_failed';
-
-BEGIN;
 
 -- ============================================
 -- DB-23: UNIQUE constraint on users.referral_code (allow NULLs)
@@ -229,11 +226,4 @@ BEGIN
   END IF;
 END $$;
 
--- ============================================
--- Record this migration
--- ============================================
-INSERT INTO schema_migrations (name)
-VALUES ('011_audit_fixes')
-ON CONFLICT (name) DO NOTHING;
-
-COMMIT;
+-- Migration tracking is handled by run-migration.ts

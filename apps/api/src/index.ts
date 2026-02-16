@@ -41,6 +41,10 @@ validateEnvironment();
 
 const app = express();
 
+// Trust the first proxy (nginx) so X-Forwarded-For is used correctly
+// by express-rate-limit and other middleware
+app.set('trust proxy', 1);
+
 // Security middleware
 app.use(helmet({
   contentSecurityPolicy: {
