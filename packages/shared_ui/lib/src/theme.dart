@@ -161,7 +161,7 @@ class HavenTheme {
           ),
         ),
       ),
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         color: HavenColors.surface,
         elevation: 0,
         shape: RoundedRectangleBorder(

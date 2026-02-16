@@ -48,6 +48,6 @@ class DefaultFirebaseOptions {
     messagingSenderId: '000000000000',
     projectId: 'havenkeep-placeholder',
     storageBucket: 'havenkeep-placeholder.appspot.com',
-    iosBundleId: 'com.havenkeep.mobile',
+    iosBundleId: 'com.flokou.havenkeep',
   );
 }
