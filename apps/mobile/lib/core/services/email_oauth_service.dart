@@ -8,7 +8,6 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../config/environment_config.dart';
 import '../../main.dart';
 
 /// Handles OAuth flows to retrieve access tokens for email scanning.

@@ -171,13 +171,13 @@ class _WizardStep1BasicsState extends State<WizardStep1Basics> {
   Widget _buildCategoryGrid() {
     final commonCategories = [
       ItemCategory.refrigerator,
-      ItemCategory.television,
-      ItemCategory.laptop,
-      ItemCategory.washingMachine,
+      ItemCategory.tv,
+      ItemCategory.computer,
+      ItemCategory.washer,
       ItemCategory.microwave,
       ItemCategory.dishwasher,
-      ItemCategory.smartphone,
-      ItemCategory.vacuum,
+      ItemCategory.smart_home,
+      ItemCategory.hvac,
     ];
 
     return Wrap(
@@ -187,7 +187,7 @@ class _WizardStep1BasicsState extends State<WizardStep1Basics> {
         final isSelected = widget.data.category == category;
         return Semantics(
           selected: isSelected,
-          label: category.displayName,
+          label: category.displayLabel,
           child: InkWell(
             onTap: () {
               HapticFeedback.selectionClick();
@@ -205,24 +205,13 @@ class _WizardStep1BasicsState extends State<WizardStep1Basics> {
                   color: isSelected ? HavenColors.primary : HavenColors.border,
                 ),
               ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    category.icon,
-                    size: 20,
-                    color: isSelected ? HavenColors.textPrimary : HavenColors.textPrimary,
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    category.displayName,
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                      color: isSelected ? HavenColors.textPrimary : HavenColors.textPrimary,
-                    ),
-                  ),
-                ],
+              child: Text(
+                category.displayLabel,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                  color: isSelected ? HavenColors.textPrimary : HavenColors.textPrimary,
+                ),
               ),
             ),
           ),

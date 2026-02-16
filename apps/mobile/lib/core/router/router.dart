@@ -20,7 +20,6 @@ import '../../features/home/dashboard_screen.dart';
 import '../../features/items/items_screen.dart';
 import '../../features/item_detail/item_detail_screen.dart';
 import '../../features/item_detail/edit_item_screen.dart';
-import '../../features/item_detail/share_claim_sheet.dart';
 import '../../features/add_item/add_item_screen.dart';
 import '../../features/add_item/quick_add_screen.dart';
 import '../../features/add_item/manual_entry_screen.dart';
@@ -113,7 +112,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       if (location.startsWith('/referral/')) return null;
 
       // In demo mode, only allow demo route
-      if (isDemoMode) {
+      if (isDemoMode.isEnabled) {
         if (location == AppRoutes.demo || location == AppRoutes.welcome) return null;
         return AppRoutes.demo;
       }

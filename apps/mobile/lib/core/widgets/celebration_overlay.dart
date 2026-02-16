@@ -341,7 +341,7 @@ class CelebrationTrigger {
       case CelebrationType.milestone:
         return (
           '🏆 ${itemCount} Items Protected!',
-          'You're building an impressive warranty collection. Keep it up!'
+          "You're building an impressive warranty collection. Keep it up!"
         );
 
       case CelebrationType.itemAdded:
@@ -353,7 +353,7 @@ class CelebrationTrigger {
       case CelebrationType.receiptScanned:
         return (
           'Receipt Scanned!',
-          'We've extracted the details automatically. Review and save.'
+          "We've extracted the details automatically. Review and save."
         );
 
       case CelebrationType.allWarrantiesActive:

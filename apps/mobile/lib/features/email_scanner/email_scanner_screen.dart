@@ -5,7 +5,6 @@ import 'package:shared_models/shared_models.dart';
 import 'package:shared_ui/shared_ui.dart';
 
 import '../../core/providers/email_scanner_provider.dart';
-import '../../core/config/environment_config.dart';
 import '../../main.dart';
 
 /// Screen to initiate email scans and view scan history.
@@ -203,7 +202,7 @@ class _ScanCard extends StatelessWidget {
     final statusColor = switch (status.name) {
       'completed' => HavenColors.active,
       'failed' => HavenColors.expired,
-      'scanning' => HavenColors.warning,
+      'scanning' => HavenColors.expiring,
       _ => HavenColors.textTertiary,
     };
 

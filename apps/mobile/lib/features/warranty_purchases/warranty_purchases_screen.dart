@@ -70,7 +70,7 @@ class _PurchaseCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final statusColor = switch (purchase.status) {
       WarrantyPurchaseStatus.active => HavenColors.active,
-      WarrantyPurchaseStatus.pending => HavenColors.warning,
+      WarrantyPurchaseStatus.pending => HavenColors.expiring,
       WarrantyPurchaseStatus.expired => HavenColors.expired,
       WarrantyPurchaseStatus.cancelled => HavenColors.textTertiary,
     };

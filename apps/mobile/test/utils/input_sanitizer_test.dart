@@ -78,7 +78,7 @@ void main() {
 
       test('removes non-numeric characters', () {
         expect(InputSanitizer.sanitizeInteger('12 months'), 12);
-        expect(InputSanitizer.sanitizeInteger('$123'), 123);
+        expect(InputSanitizer.sanitizeInteger('\$123'), 123);
       });
 
       test('returns null for empty string', () {

@@ -98,7 +98,7 @@ class _AddItemWizardScreenState extends ConsumerState<AddItemWizardScreen> {
         store: _data.store,
         price: _data.price,
         warrantyMonths: _data.warrantyMonths!,
-        warrantyType: _data.warrantyType,
+        warrantyType: _data.warrantyType ?? WarrantyType.manufacturer,
         warrantyProvider: _data.warrantyProvider,
         notes: _data.notes,
         addedVia: ItemAddedVia.manual,
@@ -253,7 +253,7 @@ class WizardData {
   // Step 3: Details (optional)
   double? price;
   String? store;
-  Room? room;
+  ItemRoom? room;
   String? modelNumber;
   String? serialNumber;
   String? notes;

@@ -136,24 +136,6 @@ class ErrorHandler {
       }
 
       throw exception;
-    } on TimeoutException catch (e, stack) {
-      // Request timeout
-      final exception = TimeoutException(
-        originalError: e,
-        stackTrace: stack,
-      );
-
-      LoggingService.error('Request timeout', e, stack, logContext);
-
-      if (context != null && context.mounted && showSnackbar) {
-        _showErrorSnackbar(
-          context,
-          exception.userMessage,
-          canRetry: true,
-        );
-      }
-
-      throw exception;
     } catch (e, stack) {
       // Unknown error
       LoggingService.fatal(

@@ -231,12 +231,12 @@ class ConflictResolver {
     }
     if (before.category != after.category) {
       changes.add(
-        'Category: "${before.category.displayName}" → "${after.category.displayName}"',
+        'Category: "${before.category.displayLabel}" → "${after.category.displayLabel}"',
       );
     }
     if (before.room != after.room) {
       changes.add(
-        'Room: "${before.room?.displayName ?? 'none'}" → "${after.room?.displayName ?? 'none'}"',
+        'Room: "${before.room?.displayLabel ?? 'none'}" → "${after.room?.displayLabel ?? 'none'}"',
       );
     }
     if (before.purchaseDate != after.purchaseDate) {

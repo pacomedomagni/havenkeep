@@ -204,7 +204,9 @@ class _GiftActivationScreenState extends ConsumerState<GiftActivationScreen> {
           // Celebration overlay
           if (_showCelebration)
             const CelebrationOverlay(
-              message: 'Premium Activated!',
+              type: CelebrationType.itemAdded,
+              title: 'Premium Activated!',
+              subtitle: 'Enjoy your premium features.',
             ),
         ],
       ),

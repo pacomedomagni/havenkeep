@@ -64,7 +64,7 @@ class LoggingService {
     }
 
     _initialized = true;
-    _instance!.info('LoggingService initialized', {
+    LoggingService.info('LoggingService initialized', {
       'environment': config.environment.name,
       'lokiEnabled': _lokiUrl != null,
     });

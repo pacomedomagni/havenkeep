@@ -233,12 +233,12 @@ class _WizardStep3DetailsState extends State<WizardStep3Details> {
 
   Widget _buildRoomGrid() {
     final commonRooms = [
-      Room.kitchen,
-      Room.livingRoom,
-      Room.bedroom,
-      Room.office,
-      Room.bathroom,
-      Room.garage,
+      ItemRoom.kitchen,
+      ItemRoom.living_room,
+      ItemRoom.bedroom,
+      ItemRoom.office,
+      ItemRoom.bathroom,
+      ItemRoom.garage,
     ];
 
     return Wrap(
@@ -248,7 +248,7 @@ class _WizardStep3DetailsState extends State<WizardStep3Details> {
         final isSelected = widget.data.room == room;
         return Semantics(
           selected: isSelected,
-          label: room.displayName,
+          label: room.displayLabel,
           child: InkWell(
             onTap: () {
               setState(() {
@@ -266,7 +266,7 @@ class _WizardStep3DetailsState extends State<WizardStep3Details> {
                 ),
               ),
               child: Text(
-                room.displayName,
+                room.displayLabel,
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w500,
