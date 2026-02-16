@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lottie/lottie.dart';
+import 'package:shared_models/shared_models.dart';
 import 'package:shared_ui/shared_ui.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/router/router.dart';
@@ -25,6 +26,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
     with SingleTickerProviderStateMixin {
   late final AnimationController _animController;
   late final void Function(AnimationStatus) _statusListener;
+  late final ProviderSubscription<AsyncValue<User?>> _authSub;
   Timer? _fallbackTimer;
   bool _hasNavigated = false;
   bool _animationComplete = false;
@@ -55,12 +57,13 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
     });
 
     // Listen for auth state resolution to trigger navigation
-    ref.listenManual(currentUserProvider, (_, __) => _tryNavigate());
+    _authSub = ref.listenManual(currentUserProvider, (_, __) => _tryNavigate());
   }
 
   @override
   void dispose() {
     _fallbackTimer?.cancel();
+    _authSub.close();
     _animController.removeStatusListener(_statusListener);
     _animController.dispose();
     super.dispose();

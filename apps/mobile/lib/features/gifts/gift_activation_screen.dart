@@ -63,6 +63,7 @@ class _GiftActivationScreenState extends ConsumerState<GiftActivationScreen> {
         _premiumMonths = gift['premium_months'] as int?;
 
         // Show celebration
+        if (!mounted) return;
         setState(() {
           _showCelebration = true;
           _isActivating = false;

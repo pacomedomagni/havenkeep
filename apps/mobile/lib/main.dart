@@ -15,6 +15,7 @@ import 'core/database/database.dart';
 import 'core/services/logging_service.dart';
 import 'core/services/offline_sync_service.dart';
 import 'core/services/push_notification_service.dart';
+import 'core/providers/premium_provider.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -81,7 +82,7 @@ Future<void> main() async {
           return apiClient;
         }),
       ],
-      child: const HavenKeepApp(),
+      child: const AppBootstrap(child: HavenKeepApp()),
     ),
   );
 }
@@ -110,5 +111,40 @@ class HavenKeepApp extends ConsumerWidget {
       theme: HavenTheme.dark,
       routerConfig: router,
     );
+  }
+}
+
+/// One-time app bootstrap for SDK/service initialization.
+class AppBootstrap extends ConsumerStatefulWidget {
+  final Widget child;
+
+  const AppBootstrap({super.key, required this.child});
+
+  @override
+  ConsumerState<AppBootstrap> createState() => _AppBootstrapState();
+}
+
+class _AppBootstrapState extends ConsumerState<AppBootstrap> {
+  @override
+  void initState() {
+    super.initState();
+    Future(() async {
+      try {
+        await ref.read(premiumServiceProvider).initialize();
+      } catch (e) {
+        LoggingService.warn('Premium service initialization failed', {'error': e.toString()});
+      }
+
+      try {
+        await ref.read(pushNotificationServiceProvider).initialize();
+      } catch (e) {
+        LoggingService.warn('Push notification initialization failed', {'error': e.toString()});
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return widget.child;
   }
 }

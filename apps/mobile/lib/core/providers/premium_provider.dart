@@ -125,9 +125,11 @@ class PremiumService {
       case 'annual':
       case 'yearly':
         package = offering.annual;
+        break;
       case 'monthly':
       default:
         package = offering.monthly;
+        break;
     }
 
     if (package == null) {

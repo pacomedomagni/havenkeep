@@ -109,20 +109,24 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
       case ItemSortMode.warrantyExpiry:
         sorted.sort((a, b) =>
             (a.computedDaysRemaining ?? 0).compareTo(b.computedDaysRemaining ?? 0));
+        break;
       case ItemSortMode.dateAdded:
         sorted.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+        break;
       case ItemSortMode.name:
         sorted.sort((a, b) {
           final aName = '${a.brand ?? ''} ${a.name}'.trim().toLowerCase();
           final bName = '${b.brand ?? ''} ${b.name}'.trim().toLowerCase();
           return aName.compareTo(bName);
         });
+        break;
       case ItemSortMode.price:
         sorted.sort((a, b) {
           final aPrice = a.price ?? 0;
           final bPrice = b.price ?? 0;
           return bPrice.compareTo(aPrice);
         });
+        break;
     }
     return sorted;
   }

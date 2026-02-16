@@ -69,12 +69,14 @@ class _DocumentUploadSheetState extends ConsumerState<DocumentUploadSheet> {
         imageQuality: 85,
       );
       if (image != null) {
+        if (!mounted) return;
         setState(() {
           _selectedImage = image;
           _errorMessage = null;
         });
       }
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _errorMessage = ErrorHandler.getUserMessage(e);
       });
@@ -88,12 +90,14 @@ class _DocumentUploadSheetState extends ConsumerState<DocumentUploadSheet> {
         allowedExtensions: ['pdf', 'doc', 'docx'],
       );
       if (result != null && result.files.single.path != null) {
+        if (!mounted) return;
         setState(() {
           _selectedImage = XFile(result.files.single.path!);
           _errorMessage = null;
         });
       }
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _errorMessage = ErrorHandler.getUserMessage(e);
       });

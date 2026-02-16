@@ -66,6 +66,7 @@ class _ReceiptScanScreenState extends ConsumerState<ReceiptScanScreen> {
         return;
       }
 
+      if (!mounted) return;
       setState(() {
         _imageFile = File(image.path);
         _isScanning = true;
@@ -74,6 +75,7 @@ class _ReceiptScanScreenState extends ConsumerState<ReceiptScanScreen> {
 
       await _processReceipt();
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _error = ErrorHandler.getUserMessage(e);
         _isScanning = false;

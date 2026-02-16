@@ -31,6 +31,7 @@ class CelebrationOverlay extends StatefulWidget {
   }) {
     HapticFeedback.heavyImpact();
 
+    var isOpen = true;
     showDialog(
       context: context,
       barrierDismissible: true,
@@ -41,12 +42,14 @@ class CelebrationOverlay extends StatefulWidget {
         subtitle: subtitle,
         onDismiss: onDismiss,
       ),
-    );
+    ).then((_) {
+      isOpen = false;
+    });
 
     // Auto-dismiss after 3 seconds
     Future.delayed(const Duration(seconds: 3), () {
-      if (context.mounted) {
-        Navigator.of(context).pop();
+      if (context.mounted && isOpen) {
+        Navigator.of(context, rootNavigator: true).pop();
         onDismiss?.call();
       }
     });
