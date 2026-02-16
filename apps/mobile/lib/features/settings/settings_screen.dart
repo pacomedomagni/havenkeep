@@ -167,7 +167,7 @@ class SettingsScreen extends ConsumerWidget {
               } catch (e) {
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Export failed: $e')),
+                    SnackBar(content: Text('Export failed. Please try again.')),
                   );
                 }
               }

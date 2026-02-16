@@ -123,7 +123,8 @@ enum WarrantyPurchaseStatus {
   active,
   expired,
   cancelled,
-  pending;
+  pending,
+  claimed;
 
   factory WarrantyPurchaseStatus.fromJson(String value) {
     return WarrantyPurchaseStatus.values.firstWhere(
@@ -139,5 +140,6 @@ enum WarrantyPurchaseStatus {
         WarrantyPurchaseStatus.expired => 'Expired',
         WarrantyPurchaseStatus.cancelled => 'Cancelled',
         WarrantyPurchaseStatus.pending => 'Pending',
+        WarrantyPurchaseStatus.claimed => 'Claimed',
       };
 }

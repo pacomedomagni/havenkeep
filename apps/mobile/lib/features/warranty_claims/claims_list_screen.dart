@@ -7,6 +7,7 @@ import 'package:shared_models/shared_models.dart';
 import 'package:shared_ui/shared_ui.dart';
 
 import '../../core/providers/warranty_claims_provider.dart';
+import '../../core/utils/error_handler.dart';
 
 /// Screen showing all warranty claims with a savings summary card.
 class ClaimsListScreen extends ConsumerWidget {
@@ -27,7 +28,7 @@ class ClaimsListScreen extends ConsumerWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text('Error: $e', style: const TextStyle(color: HavenColors.textSecondary)),
+              Text(ErrorHandler.getUserMessage(e), style: const TextStyle(color: HavenColors.textSecondary)),
               const SizedBox(height: 8),
               TextButton(
                 onPressed: () => ref.invalidate(claimsProvider),

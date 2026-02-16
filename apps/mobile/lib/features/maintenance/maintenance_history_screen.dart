@@ -5,6 +5,7 @@ import 'package:shared_models/shared_models.dart';
 import 'package:shared_ui/shared_ui.dart';
 
 import '../../core/providers/maintenance_provider.dart';
+import '../../core/utils/error_handler.dart';
 
 /// Paginated maintenance history list with delete.
 class MaintenanceHistoryScreen extends ConsumerWidget {
@@ -24,7 +25,7 @@ class MaintenanceHistoryScreen extends ConsumerWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text('Error: $e',
+              Text(ErrorHandler.getUserMessage(e),
                   style: const TextStyle(color: HavenColors.textSecondary)),
               const SizedBox(height: 8),
               TextButton(
@@ -109,7 +110,7 @@ class MaintenanceHistoryScreen extends ConsumerWidget {
                     } catch (e) {
                       if (context.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Delete failed: $e')),
+                          SnackBar(content: Text(ErrorHandler.getUserMessage(e))),
                         );
                       }
                       return false;

@@ -391,7 +391,13 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: AppRoutes.pdfPreview,
         parentNavigatorKey: _rootNavigatorKey,
         builder: (context, state) {
-          final item = state.extra as Item;
+          final item = state.extra;
+          if (item is! Item) {
+            // Navigated without passing Item (e.g. deep link) — go back
+            return const Scaffold(
+              body: Center(child: Text('Item data unavailable')),
+            );
+          }
           return PdfPreviewScreen(item: item);
         },
       ),

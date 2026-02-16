@@ -5,6 +5,7 @@ import 'package:shared_models/shared_models.dart';
 import 'package:shared_ui/shared_ui.dart';
 
 import '../../core/providers/email_scanner_provider.dart';
+import '../../core/utils/error_handler.dart';
 import '../../main.dart';
 
 /// Screen to initiate email scans and view scan history.
@@ -60,7 +61,7 @@ class EmailScannerScreen extends ConsumerWidget {
             },
             loading: () => const _LoadingState(),
             error: (err, _) => _ErrorState(
-              message: 'Failed to load scans: $err',
+              message: ErrorHandler.getUserMessage(err),
               onRetry: () => ref.read(emailScansProvider.notifier).refresh(),
             ),
           ),
@@ -98,7 +99,7 @@ class EmailScannerScreen extends ConsumerWidget {
       if (context.mounted) {
         Navigator.of(context).pop();
         messenger.showSnackBar(
-          SnackBar(content: Text('Scan failed: $e')),
+          SnackBar(content: Text(ErrorHandler.getUserMessage(e))),
         );
       }
     }

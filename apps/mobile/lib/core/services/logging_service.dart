@@ -58,8 +58,8 @@ class LoggingService {
       }
     }
 
-    // Configure Loki endpoint if available
-    if (config.enableCrashReporting && config.lokiUrl != null) {
+    // Configure Loki endpoint if available and non-empty
+    if (config.enableCrashReporting && config.lokiUrl != null && config.lokiUrl!.isNotEmpty) {
       _lokiUrl = config.lokiUrl;
     }
 

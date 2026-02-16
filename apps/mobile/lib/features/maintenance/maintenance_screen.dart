@@ -9,6 +9,7 @@ import 'package:shared_ui/shared_ui.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/providers/maintenance_provider.dart';
 import '../../core/router/router.dart';
+import '../../core/utils/error_handler.dart';
 
 /// Dashboard showing due/overdue maintenance tasks grouped by item.
 class MaintenanceScreen extends ConsumerWidget {
@@ -44,7 +45,7 @@ class MaintenanceScreen extends ConsumerWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text('Error: $e', style: const TextStyle(color: HavenColors.textSecondary)),
+              Text(ErrorHandler.getUserMessage(e), style: const TextStyle(color: HavenColors.textSecondary)),
               const SizedBox(height: 8),
               TextButton(
                 onPressed: () => ref.invalidate(maintenanceDueProvider),
@@ -149,7 +150,7 @@ class MaintenanceScreen extends ConsumerWidget {
                         } catch (e) {
                           if (context.mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('Failed: $e')),
+                              SnackBar(content: Text(ErrorHandler.getUserMessage(e))),
                             );
                           }
                         }

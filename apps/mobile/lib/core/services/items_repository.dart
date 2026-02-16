@@ -22,7 +22,7 @@ class ItemsRepository {
     try {
       final params = <String, String>{
         'page': '1',
-        'limit': '1000',
+        'limit': '100',
       };
 
       if (homeId != null) params['home_id'] = homeId;
@@ -66,7 +66,7 @@ class ItemsRepository {
     try {
       final params = <String, String>{
         'page': '1',
-        'limit': '1000',
+        'limit': '100',
         'archived': 'false',
       };
       if (homeId != null) params['home_id'] = homeId;

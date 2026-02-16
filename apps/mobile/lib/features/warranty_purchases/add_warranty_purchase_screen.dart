@@ -6,6 +6,7 @@ import 'package:shared_ui/shared_ui.dart';
 
 import '../../core/providers/items_provider.dart';
 import '../../core/providers/warranty_purchases_provider.dart';
+import '../../core/utils/error_handler.dart';
 
 /// Form to add a new warranty purchase.
 class AddWarrantyPurchaseScreen extends ConsumerStatefulWidget {
@@ -259,7 +260,7 @@ class _AddWarrantyPurchaseScreenState
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to save: $e')),
+          SnackBar(content: Text(ErrorHandler.getUserMessage(e))),
         );
       }
     } finally {

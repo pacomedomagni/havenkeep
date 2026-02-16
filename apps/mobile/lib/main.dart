@@ -64,13 +64,17 @@ Future<void> main() async {
   LoggingService.info('API client initialized');
 
   // Initialize Firebase for push notifications and analytics
-  try {
-    await Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform,
-    );
-    debugPrint('[Main] Firebase initialized successfully');
-  } catch (e) {
-    LoggingService.warn('Firebase initialization failed', {'error': e.toString()});
+  // Skip if using placeholder keys (causes native crash in FirebaseInstallations)
+  final firebaseOptions = DefaultFirebaseOptions.currentPlatform;
+  if (firebaseOptions.apiKey.startsWith('YOUR_')) {
+    LoggingService.warn('Firebase skipped — placeholder API key detected', {});
+  } else {
+    try {
+      await Firebase.initializeApp(options: firebaseOptions);
+      debugPrint('[Main] Firebase initialized successfully');
+    } catch (e) {
+      LoggingService.warn('Firebase initialization failed', {'error': e.toString()});
+    }
   }
 
   runApp(
@@ -135,10 +139,15 @@ class _AppBootstrapState extends ConsumerState<AppBootstrap> {
         LoggingService.warn('Premium service initialization failed', {'error': e.toString()});
       }
 
-      try {
-        await ref.read(pushNotificationServiceProvider).initialize();
-      } catch (e) {
-        LoggingService.warn('Push notification initialization failed', {'error': e.toString()});
+      // Only initialize push notifications if Firebase was configured
+      if (Firebase.apps.isNotEmpty) {
+        try {
+          await ref.read(pushNotificationServiceProvider).initialize();
+        } catch (e) {
+          LoggingService.warn('Push notification initialization failed', {'error': e.toString()});
+        }
+      } else {
+        LoggingService.warn('Push notifications skipped — Firebase not initialized', {});
       }
     });
   }

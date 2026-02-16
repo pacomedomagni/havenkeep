@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 import 'environment.dart';
@@ -72,10 +73,11 @@ class EnvironmentConfig {
       );
     }
 
-    // Validate RevenueCat API key in production
+    // Warn about missing RevenueCat API key in production (premium features won't work)
     if (environment.isProduction && revenueCatApiKey.isEmpty) {
-      throw StateError(
-        'REVENUECAT_API_KEY must be set in production',
+      debugPrint(
+        '[EnvironmentConfig] WARNING: REVENUECAT_API_KEY is not set in production. '
+        'Premium features will be unavailable.',
       );
     }
   }

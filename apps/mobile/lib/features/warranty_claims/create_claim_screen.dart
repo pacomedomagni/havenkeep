@@ -9,6 +9,7 @@ import 'package:shared_ui/shared_ui.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/providers/items_provider.dart';
 import '../../core/providers/warranty_claims_provider.dart';
+import '../../core/utils/error_handler.dart';
 
 /// Screen to create a new warranty claim for a specific item.
 class CreateClaimScreen extends ConsumerStatefulWidget {
@@ -127,7 +128,7 @@ class _CreateClaimScreenState extends ConsumerState<CreateClaimScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to create claim: $e')),
+          SnackBar(content: Text(ErrorHandler.getUserMessage(e))),
         );
       }
     } finally {
@@ -145,7 +146,7 @@ class _CreateClaimScreenState extends ConsumerState<CreateClaimScreen> {
       appBar: AppBar(title: const Text('New Warranty Claim')),
       body: itemAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('Error: $e')),
+        error: (e, _) => Center(child: Text(ErrorHandler.getUserMessage(e))),
         data: (item) => Form(
           key: _formKey,
           child: ListView(

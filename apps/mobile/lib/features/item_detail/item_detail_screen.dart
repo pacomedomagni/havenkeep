@@ -87,10 +87,16 @@ class _OverflowMenu extends ConsumerWidget {
               confirmLabel: 'Archive',
             );
             if (confirmed && context.mounted) {
-              await ref.read(itemsProvider.notifier).archiveItem(itemId);
-              if (context.mounted) {
-                showHavenSnackBar(context, message: 'Item archived');
-                context.go(AppRoutes.items);
+              try {
+                await ref.read(itemsProvider.notifier).archiveItem(itemId);
+                if (context.mounted) {
+                  showHavenSnackBar(context, message: 'Item archived');
+                  context.go(AppRoutes.items);
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  showHavenSnackBar(context, message: ErrorHandler.getUserMessage(e));
+                }
               }
             }
             break;
@@ -104,10 +110,16 @@ class _OverflowMenu extends ConsumerWidget {
               isDestructive: true,
             );
             if (confirmed && context.mounted) {
-              await ref.read(itemsProvider.notifier).deleteItem(itemId);
-              if (context.mounted) {
-                showHavenSnackBar(context, message: 'Item deleted');
-                context.go(AppRoutes.items);
+              try {
+                await ref.read(itemsProvider.notifier).deleteItem(itemId);
+                if (context.mounted) {
+                  showHavenSnackBar(context, message: 'Item deleted');
+                  context.go(AppRoutes.items);
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  showHavenSnackBar(context, message: ErrorHandler.getUserMessage(e));
+                }
               }
             }
             break;

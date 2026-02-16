@@ -213,6 +213,13 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
     await ref.read(authRepositoryProvider).signOut();
     ref.read(demoModeProvider.notifier).exitDemoMode();
 
+    // Log out of RevenueCat to prevent stale premium status
+    try {
+      await ref.read(premiumServiceProvider).logOut();
+    } catch (e) {
+      debugPrint('[Auth] RevenueCat logout failed (non-fatal): $e');
+    }
+
     // Invalidate all data providers to prevent stale data between accounts
     ref.invalidate(itemsProvider);
     ref.invalidate(notificationsProvider);
@@ -271,6 +278,13 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
   Future<void> signOutAll() async {
     await ref.read(authRepositoryProvider).signOutAll();
     ref.read(demoModeProvider.notifier).exitDemoMode();
+
+    // Log out of RevenueCat to prevent stale premium status
+    try {
+      await ref.read(premiumServiceProvider).logOut();
+    } catch (e) {
+      debugPrint('[Auth] RevenueCat logout failed (non-fatal): $e');
+    }
 
     // Invalidate all data providers to prevent stale data between accounts
     ref.invalidate(itemsProvider);

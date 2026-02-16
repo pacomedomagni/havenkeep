@@ -9,6 +9,7 @@ import 'package:shared_ui/shared_ui.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/providers/items_provider.dart';
 import '../../core/providers/maintenance_provider.dart';
+import '../../core/utils/error_handler.dart';
 
 /// Form to log a completed maintenance task.
 class LogMaintenanceScreen extends ConsumerStatefulWidget {
@@ -114,7 +115,7 @@ class _LogMaintenanceScreenState extends ConsumerState<LogMaintenanceScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed: $e')),
+          SnackBar(content: Text(ErrorHandler.getUserMessage(e))),
         );
       }
     } finally {

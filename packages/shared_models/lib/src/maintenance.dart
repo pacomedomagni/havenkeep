@@ -137,8 +137,8 @@ class MaintenanceDueTask {
       scheduleId: json['schedule_id'] as String,
       taskName: json['task_name'] as String,
       nextDue: DateTime.parse(json['next_due'] as String),
-      isOverdue: json['is_overdue'] as bool,
-      daysUntilDue: json['days_until_due'] as int,
+      isOverdue: json['is_overdue'] as bool? ?? false,
+      daysUntilDue: json['days_until_due'] as int? ?? 0,
       priority: json['priority'] as int? ?? 0,
     );
   }
@@ -190,8 +190,8 @@ class MaintenanceDueSummary {
 
   factory MaintenanceDueSummary.fromJson(Map<String, dynamic> json) {
     return MaintenanceDueSummary(
-      totalDue: json['total_due'] as int,
-      totalOverdue: json['total_overdue'] as int,
+      totalDue: json['total_due'] as int? ?? 0,
+      totalOverdue: json['total_overdue'] as int? ?? 0,
       items: (json['items'] as List)
           .map((i) => MaintenanceDueItem.fromJson(i as Map<String, dynamic>))
           .toList(),

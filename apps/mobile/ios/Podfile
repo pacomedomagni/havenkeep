@@ -43,4 +43,33 @@ post_install do |installer|
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
     end
   end
+
+  # Fix objective_c.framework: patch MinimumOSVersion and strip simulator platform
+  # https://github.com/dart-lang/native/issues/2989
+  main_target = installer.aggregate_targets.find { |t| t.label == 'Pods-Runner' }
+  if main_target
+    project = main_target.user_project
+    runner_target = project.targets.find { |t| t.name == 'Runner' }
+    if runner_target
+      phase_name = 'Fix objective_c.framework platform'
+      unless runner_target.shell_script_build_phases.any? { |p| p.name == phase_name }
+        phase = runner_target.new_shell_script_build_phase(phase_name)
+        phase.shell_script = <<~SCRIPT
+          FRAMEWORK_PATH="${BUILT_PRODUCTS_DIR}/${FRAMEWORKS_FOLDER_PATH}/objective_c.framework"
+          if [ -d "$FRAMEWORK_PATH" ]; then
+            /usr/libexec/PlistBuddy -c "Set :MinimumOSVersion ${IPHONEOS_DEPLOYMENT_TARGET}" "$FRAMEWORK_PATH/Info.plist" 2>/dev/null || true
+            echo "Patched objective_c.framework MinimumOSVersion to ${IPHONEOS_DEPLOYMENT_TARGET}"
+
+            BINARY="$FRAMEWORK_PATH/objective_c"
+            if [ -f "$BINARY" ]; then
+              vtool -set-build-version ios ${IPHONEOS_DEPLOYMENT_TARGET} ${SDK_VERSION} -replace -output "$BINARY" "$BINARY" 2>/dev/null || true
+              echo "Patched objective_c binary platform to ios ${IPHONEOS_DEPLOYMENT_TARGET}"
+            fi
+          fi
+        SCRIPT
+        project.save
+        puts "[Podfile] Added '#{phase_name}' build phase to Runner target"
+      end
+    end
+  end
 end

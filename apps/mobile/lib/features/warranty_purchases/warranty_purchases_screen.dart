@@ -7,7 +7,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/providers/warranty_purchases_provider.dart';
 import '../../core/router/router.dart';
-import 'package:shared_ui/shared_ui.dart';
+import '../../core/utils/error_handler.dart';
 
 /// List of extended warranty purchases for the current user.
 class WarrantyPurchasesScreen extends ConsumerWidget {
@@ -51,7 +51,7 @@ class WarrantyPurchasesScreen extends ConsumerWidget {
             },
             loading: () => const _LoadingState(),
             error: (err, _) => _ErrorState(
-              message: 'Failed to load purchases: $err',
+              message: ErrorHandler.getUserMessage(err),
               onRetry: () => ref.read(warrantyPurchasesProvider.notifier).refresh(),
             ),
           ),
@@ -73,6 +73,7 @@ class _PurchaseCard extends ConsumerWidget {
       WarrantyPurchaseStatus.pending => HavenColors.expiring,
       WarrantyPurchaseStatus.expired => HavenColors.expired,
       WarrantyPurchaseStatus.cancelled => HavenColors.textTertiary,
+      WarrantyPurchaseStatus.claimed => HavenColors.primary,
     };
 
     return Container(
@@ -183,7 +184,7 @@ class _PurchaseCard extends ConsumerWidget {
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Cancel failed: $e')),
+          SnackBar(content: Text(ErrorHandler.getUserMessage(e))),
         );
       }
     }
