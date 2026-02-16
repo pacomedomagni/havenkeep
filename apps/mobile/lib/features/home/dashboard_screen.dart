@@ -62,7 +62,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         user.value?.fullName?.split(' ').first ?? 'there';
 
     final hasItems =
-        items.value != null && items.value!.isNotEmpty;
+        items.valueOrNull?.isNotEmpty ?? false;
 
     return Scaffold(
       backgroundColor: HavenColors.background,

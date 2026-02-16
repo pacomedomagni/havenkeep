@@ -90,12 +90,18 @@ class _ManualEntryScreenState extends ConsumerState<ManualEntryScreen> {
     setState(() => _isSaving = true);
 
     try {
-      final home = ref.read(currentHomeProvider);
-      final user = ref.read(currentUserProvider).value;
-
-      if (home == null || user == null) {
+      final user = ref.read(currentUserProvider).valueOrNull;
+      if (user == null) {
         if (mounted) {
-          showHavenSnackBar(context, message: 'Error: No home or user found', isError: true);
+          showHavenSnackBar(context, message: 'Please sign in to add items.', isError: true);
+        }
+        return;
+      }
+
+      final home = ref.read(currentHomeProvider);
+      if (home == null) {
+        if (mounted) {
+          showHavenSnackBar(context, message: 'Error: No home found', isError: true);
         }
         return;
       }

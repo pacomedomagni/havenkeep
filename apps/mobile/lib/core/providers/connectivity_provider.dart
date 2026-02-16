@@ -23,5 +23,9 @@ final isOnlineProvider = Provider<bool>((ref) {
 final offlineQueueCountProvider = FutureProvider<int>((ref) async {
   // Re-evaluate when connectivity changes
   ref.watch(connectivityProvider);
-  return ref.read(localDatabaseProvider).pendingCount;
+  try {
+    return await ref.read(localDatabaseProvider).pendingCount;
+  } catch (e) {
+    return 0;
+  }
 });

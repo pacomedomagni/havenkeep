@@ -91,18 +91,17 @@ class _QuickAddScreenState extends ConsumerState<QuickAddScreen> {
     setState(() => _isSaving = true);
 
     try {
-      final home = ref.read(currentHomeProvider);
-      final user = ref.read(currentUserProvider).value;
-
+      final user = ref.read(currentUserProvider).valueOrNull;
       if (user == null) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Please sign in to add items')),
+            const SnackBar(content: Text('Please sign in to add items.')),
           );
         }
         return;
       }
 
+      final home = ref.read(currentHomeProvider);
       if (home == null) {
         if (mounted) context.go('/home-setup');
         return;

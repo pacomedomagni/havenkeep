@@ -20,8 +20,22 @@ final authRepositoryProvider = Provider<AuthRepository>((ref) {
 });
 
 /// Stream of API auth state changes.
-final authStateProvider = StreamProvider<ApiAuthState>((ref) {
-  return ref.watch(authRepositoryProvider).authStateChanges();
+///
+/// Seeds with the current auth state so that providers don't stay stuck
+/// in AsyncLoading when the broadcast-stream event from `restoreSession()`
+/// was emitted before this subscription started.
+final authStateProvider = StreamProvider<ApiAuthState>((ref) async* {
+  final client = ref.watch(apiClientProvider);
+
+  // Emit current state immediately so downstream providers resolve
+  if (client.isAuthenticated) {
+    yield ApiAuthState.signedIn;
+  }
+
+  // Then forward all future state changes
+  await for (final state in client.authStateChanges) {
+    yield state;
+  }
 });
 
 /// Whether the user is currently authenticated.
@@ -210,8 +224,17 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
 
   /// Sign out.
   Future<void> signOut() async {
-    await ref.read(authRepositoryProvider).signOut();
-    ref.read(demoModeProvider.notifier).exitDemoMode();
+    try {
+      await ref.read(authRepositoryProvider).signOut();
+    } catch (e) {
+      debugPrint('[Auth] API signOut failed (non-fatal): $e');
+    }
+
+    try {
+      ref.read(demoModeProvider.notifier).exitDemoMode();
+    } catch (e) {
+      debugPrint('[Auth] exitDemoMode failed (non-fatal): $e');
+    }
 
     // Log out of RevenueCat to prevent stale premium status
     try {
@@ -221,12 +244,7 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
     }
 
     // Invalidate all data providers to prevent stale data between accounts
-    ref.invalidate(itemsProvider);
-    ref.invalidate(notificationsProvider);
-    ref.invalidate(warrantyPurchasesProvider);
-    ref.invalidate(homesProvider);
-    ref.invalidate(archivedItemsProvider);
-    ref.invalidate(emailScansProvider);
+    _safeInvalidateAll();
 
     _skipNextRebuild = false;
     state = const AsyncValue.data(null);
@@ -276,8 +294,17 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
 
   /// Sign out from all devices.
   Future<void> signOutAll() async {
-    await ref.read(authRepositoryProvider).signOutAll();
-    ref.read(demoModeProvider.notifier).exitDemoMode();
+    try {
+      await ref.read(authRepositoryProvider).signOutAll();
+    } catch (e) {
+      debugPrint('[Auth] API signOutAll failed (non-fatal): $e');
+    }
+
+    try {
+      ref.read(demoModeProvider.notifier).exitDemoMode();
+    } catch (e) {
+      debugPrint('[Auth] exitDemoMode failed (non-fatal): $e');
+    }
 
     // Log out of RevenueCat to prevent stale premium status
     try {
@@ -287,14 +314,19 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
     }
 
     // Invalidate all data providers to prevent stale data between accounts
-    ref.invalidate(itemsProvider);
-    ref.invalidate(notificationsProvider);
-    ref.invalidate(warrantyPurchasesProvider);
-    ref.invalidate(homesProvider);
-    ref.invalidate(archivedItemsProvider);
-    ref.invalidate(emailScansProvider);
+    _safeInvalidateAll();
 
     _skipNextRebuild = false;
     state = const AsyncValue.data(null);
+  }
+
+  /// Safely invalidate all data providers (won't crash if any fail).
+  void _safeInvalidateAll() {
+    try { ref.invalidate(itemsProvider); } catch (_) {}
+    try { ref.invalidate(notificationsProvider); } catch (_) {}
+    try { ref.invalidate(warrantyPurchasesProvider); } catch (_) {}
+    try { ref.invalidate(homesProvider); } catch (_) {}
+    try { ref.invalidate(archivedItemsProvider); } catch (_) {}
+    try { ref.invalidate(emailScansProvider); } catch (_) {}
   }
 }

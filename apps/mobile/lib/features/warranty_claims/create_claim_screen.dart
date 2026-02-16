@@ -76,7 +76,7 @@ class _CreateClaimScreenState extends ConsumerState<CreateClaimScreen> {
     setState(() => _saving = true);
 
     try {
-      final user = ref.read(currentUserProvider).value;
+      final user = ref.read(currentUserProvider).valueOrNull;
       if (user == null) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(

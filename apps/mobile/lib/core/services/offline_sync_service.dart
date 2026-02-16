@@ -53,17 +53,22 @@ class OfflineSyncService {
 
   /// Start listening for connectivity changes.
   void start() {
-    _connectivitySub = Connectivity().onConnectivityChanged.listen((results) {
-      final isOnline = results.any((r) => r != ConnectivityResult.none);
-      if (isOnline) {
-        if (_isSyncing) {
-          // A sync is already running; flag that we need another pass when done.
-          _pendingSync = true;
-        } else {
-          syncPendingChanges();
+    _connectivitySub = Connectivity().onConnectivityChanged.listen(
+      (results) {
+        final isOnline = results.any((r) => r != ConnectivityResult.none);
+        if (isOnline) {
+          if (_isSyncing) {
+            // A sync is already running; flag that we need another pass when done.
+            _pendingSync = true;
+          } else {
+            syncPendingChanges();
+          }
         }
-      }
-    });
+      },
+      onError: (e) {
+        debugPrint('[OfflineSync] Connectivity stream error: $e');
+      },
+    );
   }
 
   /// Stop listening.

@@ -67,28 +67,47 @@ class PushNotificationService {
 
       // Listen for token refresh
       _subscriptions.add(
-        messaging.onTokenRefresh.listen((newToken) {
-          if (kDebugMode) {
-            debugPrint('[Push] Token refreshed.');
-          }
-          _registerTokenWithBackend(newToken);
-        }),
+        messaging.onTokenRefresh.listen(
+          (newToken) {
+            if (kDebugMode) {
+              debugPrint('[Push] Token refreshed.');
+            }
+            _registerTokenWithBackend(newToken);
+          },
+          onError: (Object error) {
+            debugPrint('[Push] onTokenRefresh stream error: $error');
+          },
+        ),
       );
 
       // Foreground messages — display a local notification
       _subscriptions.add(
-        FirebaseMessaging.onMessage.listen(_handleForegroundMessage),
+        FirebaseMessaging.onMessage.listen(
+          _handleForegroundMessage,
+          onError: (Object error) {
+            debugPrint('[Push] onMessage stream error: $error');
+          },
+        ),
       );
 
       // When the user taps a notification while app is in background
       _subscriptions.add(
-        FirebaseMessaging.onMessageOpenedApp.listen(_handleNotificationTap),
+        FirebaseMessaging.onMessageOpenedApp.listen(
+          _handleNotificationTap,
+          onError: (Object error) {
+            debugPrint('[Push] onMessageOpenedApp stream error: $error');
+          },
+        ),
       );
 
       // Check if the app was opened from a terminated state via notification
       final initialMessage = await messaging.getInitialMessage();
       if (initialMessage != null) {
-        _handleNotificationTap(initialMessage);
+        try {
+          _handleNotificationTap(initialMessage);
+        } catch (e) {
+          debugPrint('[Push] Failed to handle initial message tap: $e');
+        }
       }
     } catch (e) {
       // Firebase may not be configured yet (placeholder keys).

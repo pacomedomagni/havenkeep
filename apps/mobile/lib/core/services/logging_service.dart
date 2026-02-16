@@ -235,6 +235,8 @@ class LoggingService {
         // Silently fail - don't want logging to crash the app
         debugPrint('[LoggingService] Failed to ship to Loki: $e');
       }
+    }).catchError((e) {
+      debugPrint('[LoggingService] Unhandled error in Loki microtask: $e');
     });
   }
 

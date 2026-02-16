@@ -92,18 +92,37 @@ abstract class AppRoutes {
 final _rootNavigatorKey = GlobalKey<NavigatorState>();
 final _shellNavigatorKey = GlobalKey<NavigatorState>();
 
+/// Listenable that notifies GoRouter when auth/home state changes,
+/// so the redirect logic re-evaluates without recreating the entire router.
+class _RouterRefreshNotifier extends ChangeNotifier {
+  _RouterRefreshNotifier(Ref ref) {
+    ref.listen(isAuthenticatedProvider, (_, __) => notifyListeners());
+    ref.listen(demoModeProvider, (_, __) => notifyListeners());
+    ref.listen(hasHomeProvider, (_, __) => notifyListeners());
+  }
+}
+
 /// GoRouter configuration with auth guards.
+///
+/// The router is created ONCE and uses [refreshListenable] to re-evaluate
+/// redirect logic when auth state changes. This prevents the router from
+/// being recreated (which resets navigation to initialLocation every time).
 final routerProvider = Provider<GoRouter>((ref) {
-  final isAuthenticated = ref.watch(isAuthenticatedProvider);
-  final isDemoMode = ref.watch(demoModeProvider);
-  final hasHome = ref.watch(hasHomeProvider);
+  final refreshNotifier = _RouterRefreshNotifier(ref);
+  ref.onDispose(() => refreshNotifier.dispose());
 
   return GoRouter(
     navigatorKey: _rootNavigatorKey,
     initialLocation: AppRoutes.splash,
     debugLogDiagnostics: true,
+    refreshListenable: refreshNotifier,
     redirect: (context, state) {
       final location = state.matchedLocation;
+
+      // Read current state at redirect time (not at provider creation time)
+      final isAuthenticated = ref.read(isAuthenticatedProvider);
+      final isDemoMode = ref.read(demoModeProvider);
+      final hasHome = ref.read(hasHomeProvider);
 
       // Allow splash to load
       if (location == AppRoutes.splash) return null;

@@ -189,7 +189,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                 : null,
                             child: user.avatarUrl == null
                                 ? Text(
-                                    (user.fullName != null && user.fullName!.isNotEmpty ? user.fullName![0] : '?').toUpperCase(),
+                                    ((user.fullName?.isNotEmpty ?? false) ? user.fullName![0] : '?').toUpperCase(),
                                     style: const TextStyle(
                                       fontSize: 32,
                                       color: HavenColors.textPrimary,

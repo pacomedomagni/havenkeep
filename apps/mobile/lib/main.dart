@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:ui';
+
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -40,13 +43,21 @@ Future<void> main() async {
 
   // Load environment-specific configuration
   final envFileName = '.env.${environment.name}';
-  await dotenv.load(fileName: envFileName);
+  try {
+    await dotenv.load(fileName: envFileName);
+  } catch (e) {
+    debugPrint('[Main] Failed to load $envFileName: $e');
+  }
 
   // Create and validate configuration
   final config = EnvironmentConfig.fromEnvironment(environment);
 
   // Initialize logging service (lightweight, no heavy SDKs)
-  await LoggingService.initialize(config);
+  try {
+    await LoggingService.initialize(config);
+  } catch (e) {
+    debugPrint('[Main] LoggingService init failed: $e');
+  }
   LoggingService.info('App starting', {
     'environment': config.environment.name,
     'apiBaseUrl': config.apiBaseUrl,
@@ -77,17 +88,46 @@ Future<void> main() async {
     }
   }
 
-  runApp(
-    ProviderScope(
-      overrides: [
-        environmentConfigProvider.overrideWithValue(config),
-        apiClientProvider.overrideWith((ref) {
-          ref.onDispose(() => apiClient.dispose());
-          return apiClient;
-        }),
-      ],
-      child: const AppBootstrap(child: HavenKeepApp()),
-    ),
+  // --- Global error handlers ---
+  // Catch Flutter framework errors (widget build errors, layout errors, etc.)
+  FlutterError.onError = (details) {
+    LoggingService.error(
+      'Flutter framework error',
+      details.exception,
+      details.stack,
+      {'library': details.library ?? 'unknown'},
+    );
+    // Still show the red error screen in debug mode
+    if (kDebugMode) {
+      FlutterError.presentError(details);
+    }
+  };
+
+  // Catch platform errors (native crashes, unhandled async errors)
+  PlatformDispatcher.instance.onError = (error, stack) {
+    LoggingService.error('Platform error', error, stack);
+    return true; // Prevent app termination
+  };
+
+  // Run inside a guarded zone to catch any remaining unhandled errors
+  runZonedGuarded(
+    () {
+      runApp(
+        ProviderScope(
+          overrides: [
+            environmentConfigProvider.overrideWithValue(config),
+            apiClientProvider.overrideWith((ref) {
+              ref.onDispose(() => apiClient.dispose());
+              return apiClient;
+            }),
+          ],
+          child: const AppBootstrap(child: HavenKeepApp()),
+        ),
+      );
+    },
+    (error, stack) {
+      LoggingService.error('Unhandled zone error', error, stack);
+    },
   );
 }
 
@@ -132,24 +172,26 @@ class _AppBootstrapState extends ConsumerState<AppBootstrap> {
   @override
   void initState() {
     super.initState();
-    Future(() async {
-      try {
-        await ref.read(premiumServiceProvider).initialize();
-      } catch (e) {
-        LoggingService.warn('Premium service initialization failed', {'error': e.toString()});
-      }
+    _initializeServices();
+  }
 
-      // Only initialize push notifications if Firebase was configured
-      if (Firebase.apps.isNotEmpty) {
-        try {
-          await ref.read(pushNotificationServiceProvider).initialize();
-        } catch (e) {
-          LoggingService.warn('Push notification initialization failed', {'error': e.toString()});
-        }
-      } else {
-        LoggingService.warn('Push notifications skipped — Firebase not initialized', {});
+  Future<void> _initializeServices() async {
+    try {
+      await ref.read(premiumServiceProvider).initialize();
+    } catch (e) {
+      LoggingService.warn('Premium service initialization failed', {'error': e.toString()});
+    }
+
+    // Only initialize push notifications if Firebase was configured
+    if (Firebase.apps.isNotEmpty) {
+      try {
+        await ref.read(pushNotificationServiceProvider).initialize();
+      } catch (e) {
+        LoggingService.warn('Push notification initialization failed', {'error': e.toString()});
       }
-    });
+    } else {
+      LoggingService.warn('Push notifications skipped — Firebase not initialized', {});
+    }
   }
 
   @override

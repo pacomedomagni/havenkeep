@@ -1,10 +1,10 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lottie/lottie.dart';
-import 'package:shared_models/shared_models.dart';
 import 'package:shared_ui/shared_ui.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/router/router.dart';
@@ -12,9 +12,13 @@ import '../../core/widgets/havenkeep_logo.dart';
 
 /// Splash screen — shown briefly while checking auth state.
 ///
-/// Waits for BOTH the Lottie animation to finish AND the auth state
-/// to resolve before navigating. This prevents race conditions where
-/// navigation fires before auth is ready.
+/// Shows the Lottie animation (or static logo fallback) while auth resolves.
+/// Uses a simple two-phase approach:
+/// 1. Wait for animation to finish (or 3s fallback)
+/// 2. Navigate based on synchronous auth check (no async provider dependency)
+///
+/// This avoids the broadcast-stream race condition where authStateProvider
+/// never emits and currentUserProvider stays in AsyncLoading forever.
 class SplashScreen extends ConsumerStatefulWidget {
   const SplashScreen({super.key});
 
@@ -26,7 +30,6 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
     with SingleTickerProviderStateMixin {
   late final AnimationController _animController;
   late final void Function(AnimationStatus) _statusListener;
-  late final ProviderSubscription<AsyncValue<User?>> _authSub;
   Timer? _fallbackTimer;
   bool _hasNavigated = false;
   bool _animationComplete = false;
@@ -41,9 +44,10 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
 
     _statusListener = (status) {
       if (status == AnimationStatus.completed) {
+        debugPrint('[Splash] Animation completed');
         _fallbackTimer?.cancel();
         _animationComplete = true;
-        _tryNavigate();
+        _navigate();
       }
     };
     _animController.addStatusListener(_statusListener);
@@ -51,45 +55,36 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
     // Fallback: mark animation as complete after 3s even if Lottie fails
     _fallbackTimer = Timer(const Duration(milliseconds: 3000), () {
       if (!_animationComplete) {
+        debugPrint('[Splash] Fallback timer fired — animation did not complete');
         _animationComplete = true;
-        _tryNavigate();
+        _navigate();
       }
     });
-
-    // Listen for auth state resolution to trigger navigation
-    _authSub = ref.listenManual(currentUserProvider, (_, __) => _tryNavigate());
   }
 
   @override
   void dispose() {
     _fallbackTimer?.cancel();
-    _authSub.close();
     _animController.removeStatusListener(_statusListener);
     _animController.dispose();
     super.dispose();
   }
 
-  /// Navigate only when both animation is done AND auth state is resolved.
-  void _tryNavigate() {
-    if (_hasNavigated || !mounted || !_animationComplete) return;
-
-    // Wait for currentUserProvider to finish loading
-    final userAsync = ref.read(currentUserProvider);
-    if (userAsync.isLoading) return; // will be called again via listener
-
-    // If auth errored out, treat as signed-out and go to preview
+  /// Navigate based on synchronous auth state.
+  ///
+  /// Uses [isAuthenticatedProvider] which reads the API client's token
+  /// directly — no dependency on the broadcast stream that may never emit.
+  void _navigate() {
+    if (_hasNavigated || !mounted) return;
     _hasNavigated = true;
 
-    if (userAsync.hasError) {
-      context.go(AppRoutes.preview);
-      return;
-    }
-
     final isAuthenticated = ref.read(isAuthenticatedProvider);
+    debugPrint('[Splash] Navigating — isAuthenticated=$isAuthenticated');
+
     if (isAuthenticated) {
       context.go(AppRoutes.dashboard);
     } else {
-      context.go(AppRoutes.preview);
+      context.go(AppRoutes.welcome);
     }
   }
 
@@ -118,7 +113,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
                   _fallbackTimer?.cancel();
                   _animationComplete = true;
                   WidgetsBinding.instance.addPostFrameCallback((_) {
-                    _tryNavigate();
+                    _navigate();
                   });
                   return const HavenKeepLogo(size: 80);
                 },
