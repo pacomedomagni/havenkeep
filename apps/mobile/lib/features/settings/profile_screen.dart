@@ -1,8 +1,10 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:api_client/api_client.dart';
 import 'package:shared_models/shared_models.dart';
 import 'package:shared_ui/shared_ui.dart';
@@ -308,6 +310,98 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     ],
                   ),
                 ),
+                const SizedBox(height: HavenSpacing.lg),
+
+                // Referral code section
+                if (user.referralCode != null) ...[
+                  const SectionHeader(title: 'REFER A FRIEND'),
+                  const SizedBox(height: HavenSpacing.sm),
+                  Container(
+                    padding: const EdgeInsets.all(HavenSpacing.md),
+                    decoration: BoxDecoration(
+                      color: HavenColors.surface,
+                      borderRadius: BorderRadius.circular(HavenRadius.card),
+                      border: Border.all(color: HavenColors.border),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Share your referral code and help friends protect their home.',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: HavenColors.textSecondary,
+                            height: 1.4,
+                          ),
+                        ),
+                        const SizedBox(height: HavenSpacing.md),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: HavenSpacing.md,
+                                  vertical: HavenSpacing.sm,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: HavenColors.elevated,
+                                  borderRadius: BorderRadius.circular(HavenRadius.input),
+                                  border: Border.all(color: HavenColors.border),
+                                ),
+                                child: Text(
+                                  user.referralCode!,
+                                  style: const TextStyle(
+                                    color: HavenColors.primary,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                    letterSpacing: 1.5,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: HavenSpacing.sm),
+                            IconButton(
+                              icon: const Icon(Icons.copy),
+                              color: HavenColors.textSecondary,
+                              tooltip: 'Copy code',
+                              onPressed: () {
+                                Clipboard.setData(
+                                  ClipboardData(text: user.referralCode!),
+                                );
+                                showHavenSnackBar(
+                                  context,
+                                  message: 'Referral code copied!',
+                                  isSuccess: true,
+                                );
+                              },
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: HavenSpacing.md),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: () {
+                              SharePlus.instance.share(
+                                ShareParams(
+                                  text:
+                                      'Use my referral code ${user.referralCode} when signing up for HavenKeep — the home warranty vault that keeps track of all your appliances and warranties! Download the app at https://havenkeep.com',
+                                ),
+                              );
+                            },
+                            icon: const Icon(Icons.share, size: 18),
+                            label: const Text('Share Code'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: HavenColors.primary,
+                              side: const BorderSide(color: HavenColors.primary),
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
                 const SizedBox(height: HavenSpacing.xl),
 
                 // Save button

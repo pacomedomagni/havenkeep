@@ -28,22 +28,22 @@ export default function ReferralsPage() {
   const fetchReferrals = async () => {
     try {
       setError(null);
-      const data = await apiClient('/api/v1/partners/gifts');
+      const data = await apiClient('/api/v1/partners/referrals?limit=50');
       if (data.success) {
-        // Map gifts to referral format for display
-        const mapped: Referral[] = (data.data || []).map((gift: any) => ({
-          id: gift.id,
-          partnerId: gift.partner_id,
-          code: gift.activation_code || gift.id.substring(0, 12).toUpperCase(),
-          referredEmail: gift.homebuyer_email,
-          referredUserId: gift.activated_user_id,
-          status: gift.is_activated
-            ? 'converted'
-            : (gift.expires_at && new Date(gift.expires_at) < new Date())
-            ? 'expired'
+        const mapped: Referral[] = (data.data || []).map((r: any) => ({
+          id: r.id,
+          partnerId: '',
+          code: '',
+          referredEmail: r.email_masked,
+          referredName: r.full_name,
+          referredUserId: r.id,
+          plan: r.plan,
+          itemCount: r.item_count,
+          status: r.plan !== 'free'
+            ? ('converted' as ReferralStatus)
             : ('pending' as ReferralStatus),
-          convertedAt: gift.activated_at,
-          createdAt: gift.created_at,
+          convertedAt: r.plan !== 'free' ? r.signed_up_at : null,
+          createdAt: r.signed_up_at,
         }));
         setReferrals(mapped);
       }

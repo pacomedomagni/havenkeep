@@ -273,3 +273,15 @@ final archivedItemsProvider = FutureProvider<List<Item>>((ref) async {
   );
   return allItems.where((item) => item.isArchived).toList();
 });
+
+/// Items imported via email scanning (addedVia == 'email').
+/// Derived from itemsProvider so it respects the current home filter.
+final emailImportedItemsProvider = Provider<AsyncValue<List<Item>>>((ref) {
+  final itemsAsync = ref.watch(itemsProvider);
+  return itemsAsync.whenData(
+    (items) => items
+        .where((item) => item.addedVia == ItemAddedVia.email)
+        .toList()
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt)),
+  );
+});

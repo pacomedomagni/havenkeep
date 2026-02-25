@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_models/shared_models.dart';
 import 'package:shared_ui/shared_ui.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/providers/auth_provider.dart';
 import '../../core/providers/maintenance_provider.dart';
@@ -305,21 +306,93 @@ class _MaintenanceItemCard extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          task.taskName,
-                          style: const TextStyle(
-                            fontSize: 14,
-                            color: HavenColors.textPrimary,
-                          ),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                task.taskName,
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  color: HavenColors.textPrimary,
+                                ),
+                              ),
+                            ),
+                            if (task.isRequiredForWarranty)
+                              Tooltip(
+                                message: 'Required to maintain warranty',
+                                child: Container(
+                                  margin: const EdgeInsets.only(left: 6),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: HavenColors.primary.withOpacity(0.15),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: const Text(
+                                    'WARRANTY',
+                                    style: TextStyle(
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.bold,
+                                      color: HavenColors.primary,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                          ],
                         ),
-                        Text(
-                          dueText,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: color,
-                            fontWeight: FontWeight.w500,
-                          ),
+                        const SizedBox(height: 2),
+                        Row(
+                          children: [
+                            Text(
+                              dueText,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: color,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            if (task.frequencyLabel != null) ...[
+                              const Text(
+                                ' · ',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: HavenColors.textTertiary,
+                                ),
+                              ),
+                              Text(
+                                task.frequencyLabel!,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: HavenColors.textTertiary,
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
+                        if (task.howToUrl != null || task.videoUrl != null)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Row(
+                              children: [
+                                if (task.howToUrl != null)
+                                  _ResourceLink(
+                                    label: 'How-to',
+                                    icon: Icons.article_outlined,
+                                    url: task.howToUrl!,
+                                  ),
+                                if (task.howToUrl != null && task.videoUrl != null)
+                                  const SizedBox(width: 8),
+                                if (task.videoUrl != null)
+                                  _ResourceLink(
+                                    label: 'Video',
+                                    icon: Icons.play_circle_outline,
+                                    url: task.videoUrl!,
+                                  ),
+                              ],
+                            ),
+                          ),
                       ],
                     ),
                   ),
@@ -337,6 +410,45 @@ class _MaintenanceItemCard extends StatelessWidget {
             );
           }),
           const SizedBox(height: HavenSpacing.xs),
+        ],
+      ),
+    );
+  }
+}
+
+class _ResourceLink extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final String url;
+
+  const _ResourceLink({
+    required this.label,
+    required this.icon,
+    required this.url,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () async {
+        final uri = Uri.tryParse(url);
+        if (uri != null && await canLaunchUrl(uri)) {
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+        }
+      },
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: HavenColors.primary),
+          const SizedBox(width: 3),
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 12,
+              color: HavenColors.primary,
+              decoration: TextDecoration.underline,
+            ),
+          ),
         ],
       ),
     );

@@ -85,4 +85,18 @@ class WarrantyClaimsRepository {
       rethrow;
     }
   }
+
+  /// Get the public savings feed (anonymized community social proof).
+  Future<List<Map<String, dynamic>>> getSavingsFeed({int limit = 10}) async {
+    try {
+      final data = await _client.get(
+        '/api/v1/warranty-claims/feed',
+        queryParams: {'limit': '$limit'},
+      );
+      return List<Map<String, dynamic>>.from(data['data'] as List);
+    } catch (e) {
+      debugPrint('[WarrantyClaimsRepository] getSavingsFeed failed: $e');
+      rethrow;
+    }
+  }
 }

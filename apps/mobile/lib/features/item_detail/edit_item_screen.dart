@@ -38,6 +38,8 @@ class _EditItemScreenState extends ConsumerState<EditItemScreen> {
   late TextEditingController _priceController;
   late TextEditingController _warrantyProviderController;
   late TextEditingController _notesController;
+  late TextEditingController _barcodeController;
+  late TextEditingController _productImageUrlController;
 
   String _brand = '';
   ItemCategory _category = ItemCategory.other;
@@ -58,6 +60,8 @@ class _EditItemScreenState extends ConsumerState<EditItemScreen> {
     _priceController = TextEditingController();
     _warrantyProviderController = TextEditingController();
     _notesController = TextEditingController();
+    _barcodeController = TextEditingController();
+    _productImageUrlController = TextEditingController();
   }
 
   @override
@@ -69,6 +73,8 @@ class _EditItemScreenState extends ConsumerState<EditItemScreen> {
     _priceController.dispose();
     _warrantyProviderController.dispose();
     _notesController.dispose();
+    _barcodeController.dispose();
+    _productImageUrlController.dispose();
     super.dispose();
   }
 
@@ -92,6 +98,8 @@ class _EditItemScreenState extends ConsumerState<EditItemScreen> {
     _warrantyType = item.warrantyType;
     _warrantyProviderController.text = item.warrantyProvider ?? '';
     _notesController.text = item.notes ?? '';
+    _barcodeController.text = item.barcode ?? '';
+    _productImageUrlController.text = item.productImageUrl ?? '';
   }
 
   /// Returns true if any form value differs from the original item.
@@ -112,7 +120,9 @@ class _EditItemScreenState extends ConsumerState<EditItemScreen> {
         _warrantyMonths != orig.warrantyMonths ||
         _warrantyType != orig.warrantyType ||
         _warrantyProviderController.text != (orig.warrantyProvider ?? '') ||
-        _notesController.text != (orig.notes ?? '');
+        _notesController.text != (orig.notes ?? '') ||
+        _barcodeController.text != (orig.barcode ?? '') ||
+        _productImageUrlController.text != (orig.productImageUrl ?? '');
   }
 
   Future<void> _handleCancel() async {
@@ -180,6 +190,17 @@ class _EditItemScreenState extends ConsumerState<EditItemScreen> {
             : null,
         clearNotes:
             _notesController.text.trim().isEmpty && orig.notes != null,
+        barcode: _barcodeController.text.trim().isNotEmpty
+            ? _barcodeController.text.trim()
+            : null,
+        clearBarcode:
+            _barcodeController.text.trim().isEmpty && orig.barcode != null,
+        productImageUrl: _productImageUrlController.text.trim().isNotEmpty
+            ? _productImageUrlController.text.trim()
+            : null,
+        clearProductImageUrl:
+            _productImageUrlController.text.trim().isEmpty &&
+                orig.productImageUrl != null,
         updatedAt: DateTime.now(),
       );
 
@@ -451,6 +472,45 @@ class _EditItemScreenState extends ConsumerState<EditItemScreen> {
                     ),
                     maxLines: 4,
                     onChanged: (_) => setState(() {}),
+                  ),
+                  const SizedBox(height: HavenSpacing.md),
+
+                  // Barcode
+                  TextFormField(
+                    controller: _barcodeController,
+                    decoration: const InputDecoration(
+                      labelText: 'Barcode / UPC',
+                      prefixIcon: Icon(Icons.qr_code, size: 20),
+                    ),
+                    keyboardType: TextInputType.number,
+                    onChanged: (_) => setState(() {}),
+                    validator: (value) {
+                      if (value == null || value.isEmpty) return null;
+                      if (!RegExp(r'^\d{6,14}$').hasMatch(value)) {
+                        return 'Barcode must be 6–14 digits';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: HavenSpacing.md),
+
+                  // Product Image URL
+                  TextFormField(
+                    controller: _productImageUrlController,
+                    decoration: const InputDecoration(
+                      labelText: 'Product Image URL',
+                      prefixIcon: Icon(Icons.image_outlined, size: 20),
+                    ),
+                    keyboardType: TextInputType.url,
+                    onChanged: (_) => setState(() {}),
+                    validator: (value) {
+                      if (value == null || value.isEmpty) return null;
+                      final uri = Uri.tryParse(value);
+                      if (uri == null || !uri.hasScheme) {
+                        return 'Enter a valid URL';
+                      }
+                      return null;
+                    },
                   ),
 
                   // Bottom spacing

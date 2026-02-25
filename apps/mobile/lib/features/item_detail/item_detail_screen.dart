@@ -363,6 +363,11 @@ class _ItemDetailBody extends ConsumerWidget {
                   _DetailRow('Store', item.store),
                   _DetailRow('Warranty', item.warrantyType.displayLabel),
                   _DetailRow('Provider', item.warrantyProvider),
+                  if (item.estimatedRepairCost != null)
+                    _DetailRow(
+                      'Typical Repair Cost',
+                      '\$${item.estimatedRepairCost!.toStringAsFixed(0)}',
+                    ),
                 ],
               ),
             ),

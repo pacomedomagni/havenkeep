@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getClient, query } from '../db';
+import { getClient, query, pool } from '../db';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
 import { validate } from '../middleware/validate';
@@ -28,12 +28,72 @@ function addMonthsSafe(date: Date, months: number): Date {
 router.use(authenticate);
 
 // Whitelist of allowed update fields to prevent SQL injection
+// NOTE: added_via is intentionally excluded — it is a write-once audit field
 const ALLOWED_UPDATE_FIELDS = new Set([
   'name', 'brand', 'model_number', 'serial_number', 'category', 'room',
   'purchase_date', 'store', 'price', 'warranty_months', 'warranty_type',
   'warranty_provider', 'notes', 'is_archived', 'product_image_url', 'barcode',
-  'added_via'
 ]);
+
+// Export all items as CSV
+router.get('/export.csv', async (req: AuthRequest, res, next) => {
+  try {
+    const result = await query(
+      `SELECT name, brand, category, room, model_number, serial_number,
+              purchase_date, store, price, warranty_type, warranty_months,
+              warranty_end_date, notes, is_archived, added_via, created_at
+       FROM items
+       WHERE user_id = $1
+       ORDER BY is_archived ASC, warranty_end_date ASC NULLS LAST`,
+      [req.user!.id]
+    );
+
+    const headers = [
+      'Name', 'Brand', 'Category', 'Room', 'Model Number', 'Serial Number',
+      'Purchase Date', 'Store', 'Price', 'Warranty Type', 'Warranty Months',
+      'Warranty End Date', 'Notes', 'Archived', 'Added Via', 'Created At',
+    ];
+
+    // Simple CSV serialization with RFC 4180 quoting
+    function escapeCsv(val: any): string {
+      if (val == null) return '';
+      const str = String(val);
+      if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+        return `"${str.replace(/"/g, '""')}"`;
+      }
+      return str;
+    }
+
+    const rows = result.rows.map((item) => [
+      escapeCsv(item.name),
+      escapeCsv(item.brand),
+      escapeCsv(item.category),
+      escapeCsv(item.room),
+      escapeCsv(item.model_number),
+      escapeCsv(item.serial_number),
+      escapeCsv(item.purchase_date ? new Date(item.purchase_date).toISOString().split('T')[0] : ''),
+      escapeCsv(item.store),
+      escapeCsv(item.price != null ? Number(item.price).toFixed(2) : ''),
+      escapeCsv(item.warranty_type),
+      escapeCsv(item.warranty_months),
+      escapeCsv(item.warranty_end_date ? new Date(item.warranty_end_date).toISOString().split('T')[0] : ''),
+      escapeCsv(item.notes),
+      escapeCsv(item.is_archived ? 'Yes' : 'No'),
+      escapeCsv(item.added_via),
+      escapeCsv(item.created_at ? new Date(item.created_at).toISOString().split('T')[0] : ''),
+    ].join(','));
+
+    const csv = [headers.join(','), ...rows].join('\r\n');
+    const date = new Date().toISOString().split('T')[0];
+    const filename = `havenkeep_items_${date}.csv`;
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send('\uFEFF' + csv); // BOM for Excel compatibility
+  } catch (error) {
+    next(error);
+  }
+});
 
 // Get active item count (for free plan limit check)
 router.get('/count', async (req: AuthRequest, res, next) => {
@@ -54,7 +114,7 @@ router.get('/count', async (req: AuthRequest, res, next) => {
 // Get all items for user (with pagination)
 router.get('/', validate(paginationSchema, 'query'), async (req: AuthRequest, res, next) => {
   try {
-    const { homeId, archived, page, limit } = req.query as any;
+    const { homeId, archived, addedVia, page, limit } = req.query as any;
 
     // BE-1/2/3: Explicitly convert and clamp pagination params to safe integers
     const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
@@ -78,6 +138,11 @@ router.get('/', validate(paginationSchema, 'query'), async (req: AuthRequest, re
       params.push(isArchived);
     }
 
+    if (addedVia) {
+      sql += ` AND added_via = $${params.length + 1}`;
+      params.push(addedVia);
+    }
+
     sql += ` ORDER BY warranty_end_date ASC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
     params.push(limitNum, offset);
 
@@ -92,6 +157,10 @@ router.get('/', validate(paginationSchema, 'query'), async (req: AuthRequest, re
       const isArchived = archived === 'true' || archived === true;
       countSql += ` AND is_archived = $${countParams.length + 1}`;
       countParams.push(isArchived);
+    }
+    if (addedVia) {
+      countSql += ` AND added_via = $${countParams.length + 1}`;
+      countParams.push(addedVia);
     }
 
     const [result, countResult] = await Promise.all([
@@ -211,6 +280,14 @@ router.post('/', validate(createItemSchema), async (req: AuthRequest, res, next)
 
     const item = result.rows[0];
 
+    // Fire-and-forget: stamp first_item_added_at on any active gift for this user
+    pool.query(
+      `UPDATE partner_gifts
+       SET first_item_added_at = COALESCE(first_item_added_at, NOW())
+       WHERE activated_user_id = $1 AND is_activated = TRUE`,
+      [req.user!.id]
+    ).catch(() => { /* non-critical */ });
+
     // Audit log: item created
     await AuditService.logFromRequest(req, 'item.create', {
       resourceType: 'item',
@@ -260,7 +337,7 @@ router.put('/:id', validate(uuidParamSchema, 'params'), validate(updateItemSchem
       isArchived: 'is_archived',
       productImageUrl: 'product_image_url',
       barcode: 'barcode',
-      addedVia: 'added_via',
+      // addedVia intentionally excluded — write-once audit field
     };
 
     for (const [camelKey, value] of Object.entries(updates)) {

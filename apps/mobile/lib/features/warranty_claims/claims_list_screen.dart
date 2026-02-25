@@ -17,6 +17,7 @@ class ClaimsListScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final claimsAsync = ref.watch(claimsProvider);
     final savingsAsync = ref.watch(claimSavingsProvider);
+    final feedAsync = ref.watch(savingsFeedProvider);
     final dateFormat = DateFormat.yMMMd();
 
     return Scaffold(
@@ -139,6 +140,25 @@ class ClaimsListScreen extends ConsumerWidget {
                     claim: claim,
                     dateFormat: dateFormat,
                   )),
+
+              // Community savings feed
+              feedAsync.when(
+                data: (feed) {
+                  if (feed.isEmpty) return const SizedBox.shrink();
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: HavenSpacing.lg),
+                      const SectionHeader(title: 'COMMUNITY SAVINGS'),
+                      const SizedBox(height: HavenSpacing.sm),
+                      ...feed.map((entry) => _SavingsFeedEntry(entry: entry)),
+                    ],
+                  );
+                },
+                loading: () => const SizedBox.shrink(),
+                error: (_, __) => const SizedBox.shrink(),
+              ),
+              const SizedBox(height: HavenSpacing.md),
             ],
           );
         },
@@ -274,6 +294,85 @@ class _ClaimCard extends ConsumerWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _SavingsFeedEntry extends StatelessWidget {
+  final Map<String, dynamic> entry;
+
+  const _SavingsFeedEntry({required this.entry});
+
+  @override
+  Widget build(BuildContext context) {
+    final amount = (entry['amount_saved'] as num?)?.toDouble() ?? 0;
+    final city = entry['user_city'] as String?;
+    final state = entry['user_state'] as String?;
+    final displayText = entry['display_text'] as String?;
+    final claimType = entry['claim_type'] as String?;
+
+    final location = [city, state].where((s) => s != null && s.isNotEmpty).join(', ');
+    final subtitle = displayText ?? claimType ?? 'Warranty claim';
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: HavenSpacing.sm),
+      padding: const EdgeInsets.all(HavenSpacing.md),
+      decoration: BoxDecoration(
+        color: HavenColors.surface,
+        borderRadius: BorderRadius.circular(HavenRadius.card),
+        border: Border.all(color: HavenColors.border),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: HavenColors.active.withOpacity(0.12),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.savings_outlined,
+              color: HavenColors.active,
+              size: 18,
+            ),
+          ),
+          const SizedBox(width: HavenSpacing.sm),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    color: HavenColors.textPrimary,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                if (location.isNotEmpty)
+                  Text(
+                    location,
+                    style: const TextStyle(
+                      color: HavenColors.textTertiary,
+                      fontSize: 11,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          Text(
+            '\$${amount.toStringAsFixed(0)} saved',
+            style: const TextStyle(
+              color: HavenColors.active,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:api_client/api_client.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_models/shared_models.dart';
 import 'package:shared_ui/shared_ui.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -12,8 +13,11 @@ import '../../core/providers/items_provider.dart';
 import '../../core/router/router.dart';
 import '../../core/services/csv_export_service.dart';
 
-// TODO: Replace with package_info_plus to read version dynamically at runtime.
-const String kAppVersion = '1.0.0';
+/// Reads the app version + build number from the package metadata.
+final appVersionProvider = FutureProvider<String>((ref) async {
+  final info = await PackageInfo.fromPlatform();
+  return '${info.version} (${info.buildNumber})';
+});
 
 /// Profile & Settings screen (Screen 7.1).
 class SettingsScreen extends ConsumerWidget {
@@ -25,6 +29,7 @@ class SettingsScreen extends ConsumerWidget {
     final home = ref.watch(currentHomeProvider);
     final archivedAsync = ref.watch(archivedItemsProvider);
     final itemCountAsync = ref.watch(activeItemCountProvider);
+    final appVersion = ref.watch(appVersionProvider).valueOrNull ?? '—';
 
     return Scaffold(
       backgroundColor: HavenColors.background,
@@ -318,16 +323,16 @@ class SettingsScreen extends ConsumerWidget {
                     'HavenKeep',
                     style: TextStyle(color: HavenColors.textPrimary),
                   ),
-                  content: const Column(
+                  content: Column(
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Version $kAppVersion',
-                        style: TextStyle(color: HavenColors.textSecondary),
+                        'Version $appVersion',
+                        style: const TextStyle(color: HavenColors.textSecondary),
                       ),
-                      SizedBox(height: HavenSpacing.sm),
-                      Text(
+                      const SizedBox(height: HavenSpacing.sm),
+                      const Text(
                         'Your home warranty tracker.\nNever miss a warranty claim again.',
                         style: TextStyle(
                           color: HavenColors.textTertiary,

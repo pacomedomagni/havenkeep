@@ -2,6 +2,7 @@ import { pool } from '../db';
 import { logger } from '../utils/logger';
 import { AppError } from '../utils/errors';
 import { EmailService } from './email.service';
+import { FcmService } from './fcm.service';
 
 type NotificationType =
   | 'warranty_expiring'
@@ -510,9 +511,16 @@ export class NotificationsService {
             body: `Your warranty for ${itemLabel} expires on ${expiryDate}.`,
           });
 
-          // TODO: Implement FCM push notification delivery. Currently only in-app
-          // notification records and email notifications are supported. Push tokens
-          // are registered via POST /users/push-token but never used for delivery.
+          // Send FCM push notification
+          try {
+            await FcmService.sendToUser(row.user_id, {
+              title: 'Warranty Expiring Soon',
+              body: `Your warranty for ${itemLabel} expires on ${expiryDate}.`,
+              data: { type: 'warranty_expiring', item_id: row.item_id },
+            });
+          } catch (fcmError) {
+            logger.error({ error: fcmError, userId: row.user_id }, 'FCM push failed (warranty_expiring)');
+          }
 
           // Send email if user has email notifications enabled
           if (row.email_enabled) {
@@ -541,6 +549,101 @@ export class NotificationsService {
       }
 
       logger.info({ count: notifiedCount }, 'Expiration notifications sent');
+      return notifiedCount;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Check for items with maintenance tasks due and create notifications.
+   *
+   * Scheduled daily alongside the warranty expiration job.
+   * For each active item with matching maintenance schedules, we find tasks
+   * where the last completion date + frequency is on or before today.
+   * Items that have never had a task logged are notified if the item's
+   * purchase_date + frequency is on or before today.
+   *
+   * Idempotency: The 7-day dedup window prevents re-sending the same
+   * maintenance_due notification for the same item+task within a week.
+   */
+  static async checkAndNotifyMaintenanceDue(): Promise<number> {
+    const client = await pool.connect();
+    try {
+      // Find maintenance tasks that are due:
+      // - Join items → maintenance_schedules (by category)
+      // - Left join most-recent maintenance_history entry (per item+schedule)
+      // - Due when: last_completed + frequency_months <= today (or never done and purchase_date + frequency_months <= today)
+      // - Dedup: skip if a maintenance_due notification for this item was sent in the last 7 days
+      const result = await client.query(`
+        SELECT
+          i.id              AS item_id,
+          i.name            AS item_name,
+          i.brand,
+          i.user_id,
+          ms.id             AS schedule_id,
+          ms.task_name,
+          ms.frequency_months,
+          COALESCE(last_done.completed_date, i.purchase_date::DATE) AS reference_date
+        FROM items i
+        JOIN maintenance_schedules ms ON ms.category = i.category
+        LEFT JOIN LATERAL (
+          SELECT completed_date
+          FROM maintenance_history mh
+          WHERE mh.item_id = i.id
+            AND mh.schedule_id = ms.id
+            AND mh.user_id = i.user_id
+          ORDER BY completed_date DESC
+          LIMIT 1
+        ) last_done ON TRUE
+        WHERE i.is_archived = FALSE
+          AND i.purchase_date IS NOT NULL
+          AND (COALESCE(last_done.completed_date, i.purchase_date::DATE) + make_interval(months => ms.frequency_months)) <= CURRENT_DATE
+          AND NOT EXISTS (
+            SELECT 1
+            FROM notification_history nh
+            WHERE nh.item_id = i.id
+              AND nh.type = 'maintenance_due'
+              AND (nh.data->>'schedule_id') = ms.id::text
+              AND nh.sent_at > NOW() - INTERVAL '7 days'
+          )
+        ORDER BY i.user_id, i.id
+      `);
+
+      let notifiedCount = 0;
+      for (const row of result.rows) {
+        try {
+          const itemLabel = row.brand ? `${row.brand} ${row.item_name}` : row.item_name;
+          await NotificationsService.createNotification({
+            user_id: row.user_id,
+            item_id: row.item_id,
+            type: 'maintenance_due',
+            title: 'Maintenance Due',
+            body: `Time to: ${row.task_name} for your ${itemLabel}.`,
+            data: { schedule_id: row.schedule_id, task_name: row.task_name },
+          });
+
+          // Send FCM push notification
+          try {
+            await FcmService.sendToUser(row.user_id, {
+              title: 'Maintenance Due',
+              body: `Time to: ${row.task_name} for your ${itemLabel}.`,
+              data: { type: 'maintenance_due', item_id: row.item_id, schedule_id: row.schedule_id },
+            });
+          } catch (fcmError) {
+            logger.error({ error: fcmError, userId: row.user_id }, 'FCM push failed (maintenance_due)');
+          }
+
+          notifiedCount++;
+        } catch (itemError) {
+          logger.error(
+            { error: itemError, itemId: row.item_id, taskName: row.task_name },
+            'Failed to send maintenance_due notification'
+          );
+        }
+      }
+
+      logger.info({ count: notifiedCount }, 'Maintenance due notifications sent');
       return notifiedCount;
     } finally {
       client.release();

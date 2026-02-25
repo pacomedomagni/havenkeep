@@ -1,3 +1,4 @@
+import 'package:api_client/api_client.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -83,6 +84,11 @@ class _BarcodeScanScreenState extends ConsumerState<BarcodeScanScreen> {
       }
     } catch (e) {
       if (mounted) {
+        // 403 means the user needs a premium plan to use barcode scanning
+        if (e is ApiException && e.statusCode == 403) {
+          context.push(AppRoutes.premium);
+          return;
+        }
         setState(() {
           _isLookingUp = false;
           _error = ErrorHandler.getUserMessage(e);

@@ -106,7 +106,7 @@ export const updateItemSchema = Joi.object({
   isArchived: Joi.boolean(),
   productImageUrl: Joi.string().uri().max(500).allow(null, ''),
   barcode: Joi.string().max(100).allow(null, ''),
-  addedVia: Joi.string().valid('manual', 'email', 'barcode', 'barcode_scan', 'receipt_scan', 'quick_add', 'bulk_setup'),
+  // addedVia intentionally excluded — it is a write-once audit field set at creation
 }).min(1) // At least one field must be provided
   // Accept snake_case from mobile clients
   .rename('model_number', 'modelNumber', { ignoreUndefined: true, override: false })
@@ -116,8 +116,7 @@ export const updateItemSchema = Joi.object({
   .rename('warranty_type', 'warrantyType', { ignoreUndefined: true, override: false })
   .rename('warranty_provider', 'warrantyProvider', { ignoreUndefined: true, override: false })
   .rename('is_archived', 'isArchived', { ignoreUndefined: true, override: false })
-  .rename('product_image_url', 'productImageUrl', { ignoreUndefined: true, override: false })
-  .rename('added_via', 'addedVia', { ignoreUndefined: true, override: false });
+  .rename('product_image_url', 'productImageUrl', { ignoreUndefined: true, override: false });
 
 // Home Validators
 export const createHomeSchema = Joi.object({
@@ -183,8 +182,12 @@ export const paginationSchema = Joi.object({
   limit: Joi.number().integer().min(1).max(100).default(20),
   homeId: Joi.string().uuid(),
   archived: Joi.string().valid('true', 'false'),
+  addedVia: Joi.string().valid(
+    'manual', 'email', 'barcode', 'barcode_scan', 'receipt_scan', 'quick_add', 'bulk_setup'
+  ),
 })
-  .rename('home_id', 'homeId', { ignoreUndefined: true, override: false });
+  .rename('home_id', 'homeId', { ignoreUndefined: true, override: false })
+  .rename('added_via', 'addedVia', { ignoreUndefined: true, override: false });
 
 export const uuidParamSchema = Joi.object({
   id: Joi.string().uuid().required(),

@@ -153,6 +153,7 @@ function registerRoutes(appInstance: express.Express) {
 let server: ReturnType<typeof app.listen>;
 const PORT = config.port;
 const NOTIFICATION_JOB_LOCK = 93422874;
+const MAINTENANCE_JOB_LOCK = 93422875;
 
 async function runExpirationNotificationsJob() {
   const client = await pool.connect();
@@ -177,6 +178,29 @@ async function runExpirationNotificationsJob() {
   }
 }
 
+async function runMaintenanceDueJob() {
+  const client = await pool.connect();
+  try {
+    const lockResult = await client.query(
+      'SELECT pg_try_advisory_lock($1) AS locked',
+      [MAINTENANCE_JOB_LOCK]
+    );
+    if (!lockResult.rows[0]?.locked) {
+      return;
+    }
+
+    try {
+      await NotificationsService.checkAndNotifyMaintenanceDue();
+    } finally {
+      await client.query('SELECT pg_advisory_unlock($1)', [MAINTENANCE_JOB_LOCK]);
+    }
+  } catch (error) {
+    logger.error({ error }, 'Maintenance due notification job failed');
+  } finally {
+    client.release();
+  }
+}
+
 function scheduleExpirationNotifications() {
   const scheduleNext = () => {
     const now = new Date();
@@ -192,6 +216,12 @@ function scheduleExpirationNotifications() {
         await runExpirationNotificationsJob();
       } catch (error) {
         logger.error({ error }, 'Expiration notification job failed');
+      }
+      // Also run maintenance due check at the same time
+      try {
+        await runMaintenanceDueJob();
+      } catch (error) {
+        logger.error({ error }, 'Maintenance due notification job failed');
       }
       // Always schedule next, even if current run failed
       scheduleNext();

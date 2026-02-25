@@ -83,6 +83,73 @@ export class PartnersService {
     return referralCode;
   }
   /**
+   * Get users who signed up using this partner's referral code.
+   * Returns paginated list with signup date, name, email (masked), and item count.
+   */
+  static async getReferrals(
+    userId: string,
+    options: { page: number; limit: number }
+  ): Promise<{
+    referrals: Array<{
+      id: string;
+      full_name: string | null;
+      email_masked: string;
+      plan: string;
+      item_count: number;
+      signed_up_at: string;
+    }>;
+    total: number;
+  }> {
+    // Verify partner exists
+    const partnerResult = await pool.query(
+      'SELECT id FROM partners WHERE user_id = $1',
+      [userId]
+    );
+    if (partnerResult.rows.length === 0) {
+      throw new AppError('Partner not found', 404);
+    }
+
+    const offset = (options.page - 1) * options.limit;
+
+    const [rows, countResult] = await Promise.all([
+      pool.query(
+        `SELECT
+           u.id,
+           u.full_name,
+           -- Mask email: show first 2 chars + domain for privacy
+           CONCAT(
+             LEFT(u.email, 2),
+             '***@',
+             SPLIT_PART(u.email, '@', 2)
+           ) AS email_masked,
+           u.plan,
+           u.created_at AS signed_up_at,
+           COALESCE(item_counts.cnt, 0)::integer AS item_count
+         FROM users u
+         LEFT JOIN (
+           SELECT user_id, COUNT(*) AS cnt
+           FROM items
+           WHERE is_archived = FALSE
+           GROUP BY user_id
+         ) item_counts ON item_counts.user_id = u.id
+         WHERE u.referred_by = $1
+         ORDER BY u.created_at DESC
+         LIMIT $2 OFFSET $3`,
+        [userId, options.limit, offset]
+      ),
+      pool.query(
+        `SELECT COUNT(*) FROM users WHERE referred_by = $1`,
+        [userId]
+      ),
+    ]);
+
+    return {
+      referrals: rows.rows,
+      total: parseInt(countResult.rows[0].count, 10),
+    };
+  }
+
+  /**
    * Register as a partner (realtor/builder)
    */
   static async registerPartner(
@@ -339,12 +406,18 @@ export class PartnersService {
       const expiresAt = new Date();
       expiresAt.setMonth(expiresAt.getMonth() + 6); // Gift link expires in 6 months
 
+      // Generate a unique activation code (e.g. "A3F9-C12E")
+      const rawCode = Math.random().toString(36).substring(2, 10).toUpperCase();
+      const activationCode = `${rawCode.slice(0, 4)}-${rawCode.slice(4, 8)}`;
+      const activationUrl = `${config.app.frontendUrl}/gifts/activate?code=${activationCode}`;
+
       const giftResult = await client.query(
         `INSERT INTO partner_gifts (
           partner_id, homebuyer_email, homebuyer_name, homebuyer_phone,
           home_address, closing_date, premium_months, custom_message,
-          amount_charged, stripe_charge_id, expires_at, status
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL, $10, 'pending_payment')
+          amount_charged, stripe_charge_id, expires_at, status,
+          activation_code, activation_url
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL, $10, 'pending_payment', $11, $12)
         RETURNING *`,
         [
           partner.id,
@@ -357,6 +430,8 @@ export class PartnersService {
           data.custom_message || partner.default_message,
           amountCharged,
           expiresAt,
+          activationCode,
+          activationUrl,
         ]
       );
 
@@ -457,6 +532,7 @@ export class PartnersService {
         custom_message: finalGift.custom_message,
         brand_color: partner.brand_color,
         logo_url: partner.logo_url,
+        gift_id: finalGift.id,
       }).catch((emailError) => {
         logger.error(
           { error: emailError, giftId: finalGift.id, homebuyer: data.homebuyer_email },
@@ -934,6 +1010,7 @@ export class PartnersService {
         custom_message: gift.custom_message ?? undefined,
         brand_color: partner.brand_color ?? undefined,
         logo_url: partner.logo_url ?? undefined,
+        gift_id: gift.id,
       });
 
       // Update gift status to 'sent' if it was 'created'

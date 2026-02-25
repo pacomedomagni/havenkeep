@@ -38,6 +38,8 @@ class _ManualEntryScreenState extends ConsumerState<ManualEntryScreen> {
   WarrantyType _warrantyType = WarrantyType.manufacturer;
   final _warrantyProviderController = TextEditingController();
   final _notesController = TextEditingController();
+  final _barcodeController = TextEditingController();
+  final _productImageUrlController = TextEditingController();
 
   bool _isSaving = false;
 
@@ -50,6 +52,8 @@ class _ManualEntryScreenState extends ConsumerState<ManualEntryScreen> {
     _priceController.dispose();
     _warrantyProviderController.dispose();
     _notesController.dispose();
+    _barcodeController.dispose();
+    _productImageUrlController.dispose();
     super.dispose();
   }
 
@@ -136,6 +140,12 @@ class _ManualEntryScreenState extends ConsumerState<ManualEntryScreen> {
             : null,
         notes: _notesController.text.isNotEmpty
             ? _notesController.text.trim()
+            : null,
+        barcode: _barcodeController.text.isNotEmpty
+            ? _barcodeController.text.trim()
+            : null,
+        productImageUrl: _productImageUrlController.text.isNotEmpty
+            ? _productImageUrlController.text.trim()
             : null,
         addedVia: ItemAddedVia.manual,
         createdAt: DateTime.now(),
@@ -480,6 +490,46 @@ class _ManualEntryScreenState extends ConsumerState<ManualEntryScreen> {
                     alignLabelWithHint: true,
                   ),
                   maxLines: 4,
+                ),
+                const SizedBox(height: HavenSpacing.md),
+
+                // Additional Info section
+                _buildSectionDivider('ADDITIONAL INFO'),
+
+                // Barcode
+                TextFormField(
+                  controller: _barcodeController,
+                  decoration: const InputDecoration(
+                    labelText: 'Barcode / UPC',
+                    prefixIcon: Icon(Icons.qr_code, size: 20),
+                  ),
+                  keyboardType: TextInputType.number,
+                  validator: (value) {
+                    if (value == null || value.isEmpty) return null;
+                    if (!RegExp(r'^\d{6,14}$').hasMatch(value)) {
+                      return 'Barcode must be 6–14 digits';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: HavenSpacing.md),
+
+                // Product Image URL
+                TextFormField(
+                  controller: _productImageUrlController,
+                  decoration: const InputDecoration(
+                    labelText: 'Product Image URL',
+                    prefixIcon: Icon(Icons.image_outlined, size: 20),
+                  ),
+                  keyboardType: TextInputType.url,
+                  validator: (value) {
+                    if (value == null || value.isEmpty) return null;
+                    final uri = Uri.tryParse(value);
+                    if (uri == null || !uri.hasScheme) {
+                      return 'Enter a valid URL';
+                    }
+                    return null;
+                  },
                 ),
                 const SizedBox(height: HavenSpacing.xl),
 

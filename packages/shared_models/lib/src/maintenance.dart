@@ -122,6 +122,10 @@ class MaintenanceDueTask {
   final bool isOverdue;
   final int daysUntilDue;
   final int priority;
+  final bool isRequiredForWarranty;
+  final String? howToUrl;
+  final String? videoUrl;
+  final String? frequencyLabel;
 
   const MaintenanceDueTask({
     required this.scheduleId,
@@ -130,6 +134,10 @@ class MaintenanceDueTask {
     required this.isOverdue,
     required this.daysUntilDue,
     this.priority = 0,
+    this.isRequiredForWarranty = false,
+    this.howToUrl,
+    this.videoUrl,
+    this.frequencyLabel,
   });
 
   factory MaintenanceDueTask.fromJson(Map<String, dynamic> json) {
@@ -140,6 +148,10 @@ class MaintenanceDueTask {
       isOverdue: json['is_overdue'] as bool? ?? false,
       daysUntilDue: (json['days_until_due'] as num?)?.toInt() ?? 0,
       priority: (json['priority'] as num?)?.toInt() ?? 0,
+      isRequiredForWarranty: json['is_required_for_warranty'] as bool? ?? false,
+      howToUrl: json['how_to_url'] as String?,
+      videoUrl: json['video_url'] as String?,
+      frequencyLabel: json['frequency_label'] as String?,
     );
   }
 }

@@ -54,6 +54,7 @@ export class EmailService {
     custom_message?: string;
     brand_color?: string;
     logo_url?: string;
+    gift_id?: string;
   }): Promise<void> {
     try {
       const {
@@ -67,6 +68,7 @@ export class EmailService {
         custom_message,
         brand_color: rawColor = '#3B82F6',
         logo_url: rawLogoUrl,
+        gift_id,
       } = data;
 
       // Sanitize all user-provided inputs
@@ -201,6 +203,7 @@ export class EmailService {
       </td>
     </tr>
   </table>
+  ${gift_id ? `<img src="${config.app.apiUrl}/api/v1/partners/gifts/${gift_id}/track/email-open" width="1" height="1" alt="" style="display:none">` : ''}
 </body>
 </html>
       `;

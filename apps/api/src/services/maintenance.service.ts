@@ -159,6 +159,10 @@ export class MaintenanceService {
         is_overdue: boolean;
         days_until_due: number;
         priority: number;
+        is_required_for_warranty: boolean;
+        how_to_url: string | null;
+        video_url: string | null;
+        frequency_label: string | null;
       }>;
     }>;
   }> {
@@ -239,6 +243,10 @@ export class MaintenanceService {
               is_overdue: daysUntilDue < 0,
               days_until_due: daysUntilDue,
               priority: schedule.priority,
+              is_required_for_warranty: schedule.is_required_for_warranty,
+              how_to_url: schedule.how_to_url,
+              video_url: schedule.video_url,
+              frequency_label: schedule.frequency_label,
             };
           });
 

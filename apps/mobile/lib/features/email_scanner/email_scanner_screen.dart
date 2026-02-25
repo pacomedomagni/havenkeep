@@ -5,6 +5,7 @@ import 'package:shared_models/shared_models.dart';
 import 'package:shared_ui/shared_ui.dart';
 
 import '../../core/providers/email_scanner_provider.dart';
+import '../../core/providers/items_provider.dart';
 import '../../core/utils/error_handler.dart';
 import '../../main.dart';
 
@@ -16,6 +17,7 @@ class EmailScannerScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final scansAsync = ref.watch(emailScansProvider);
     final config = ref.watch(environmentConfigProvider);
+    final importedItemsAsync = ref.watch(emailImportedItemsProvider);
 
     return Scaffold(
       backgroundColor: HavenColors.background,
@@ -45,6 +47,92 @@ class EmailScannerScreen extends ConsumerWidget {
             onOutlook: () => _startScan(context, ref, 'outlook'),
           ),
           const SizedBox(height: HavenSpacing.lg),
+
+          // Receipt Import Summary
+          importedItemsAsync.when(
+            data: (importedItems) {
+              if (importedItems.isEmpty) return const SizedBox.shrink();
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SectionHeader(title: 'RECEIPTS IMPORTED'),
+                  const SizedBox(height: HavenSpacing.sm),
+                  Container(
+                    padding: const EdgeInsets.all(HavenSpacing.md),
+                    decoration: BoxDecoration(
+                      color: HavenColors.surface,
+                      borderRadius: BorderRadius.circular(HavenRadius.card),
+                      border: Border.all(color: HavenColors.border),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(
+                              Icons.inventory_2_outlined,
+                              size: 18,
+                              color: HavenColors.primary,
+                            ),
+                            const SizedBox(width: HavenSpacing.sm),
+                            Text(
+                              '${importedItems.length} item${importedItems.length == 1 ? '' : 's'} imported from email',
+                              style: const TextStyle(
+                                color: HavenColors.textPrimary,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: HavenSpacing.sm),
+                        ...importedItems.take(5).map(
+                          (item) => Padding(
+                            padding: const EdgeInsets.only(bottom: 4),
+                            child: Row(
+                              children: [
+                                const SizedBox(width: 26),
+                                Expanded(
+                                  child: Text(
+                                    item.brand != null
+                                        ? '${item.brand} ${item.name}'
+                                        : item.name,
+                                    style: const TextStyle(
+                                      color: HavenColors.textSecondary,
+                                      fontSize: 13,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        if (importedItems.length > 5) ...[
+                          const SizedBox(height: 4),
+                          Padding(
+                            padding: const EdgeInsets.only(left: 26),
+                            child: Text(
+                              '+ ${importedItems.length - 5} more',
+                              style: const TextStyle(
+                                color: HavenColors.textTertiary,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: HavenSpacing.lg),
+                ],
+              );
+            },
+            loading: () => const SizedBox.shrink(),
+            error: (_, __) => const SizedBox.shrink(),
+          ),
+
           const SectionHeader(title: 'SCAN HISTORY'),
           const SizedBox(height: HavenSpacing.sm),
           scansAsync.when(
@@ -271,8 +359,12 @@ class _ScanCard extends StatelessWidget {
             const SizedBox(height: HavenSpacing.xs),
             Text(
               scan.errorMessage!,
-              style: const TextStyle(
-                color: HavenColors.expired,
+              style: TextStyle(
+                // Amber/warning for completed scans with a limit warning,
+                // red for actual failures
+                color: scan.status == EmailScanStatus.completed
+                    ? HavenColors.expiring
+                    : HavenColors.expired,
                 fontSize: 11,
               ),
             ),

@@ -8,15 +8,42 @@ const router = Router();
 router.use(authenticate);
 router.use(requirePremium);
 
+// In-memory barcode result cache — 24-hour TTL per barcode.
+// Reduces hits against the trial UPC API (100 req/day limit).
+// Cache survives process lifetime only; acceptable for single-instance deployments.
+const barcodeCache = new Map<string, { result: object; cachedAt: number }>();
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+function getCached(barcode: string): object | null {
+  const entry = barcodeCache.get(barcode);
+  if (!entry) return null;
+  if (Date.now() - entry.cachedAt > CACHE_TTL_MS) {
+    barcodeCache.delete(barcode);
+    return null;
+  }
+  return entry.result;
+}
+
+function setCache(barcode: string, result: object): void {
+  barcodeCache.set(barcode, { result, cachedAt: Date.now() });
+}
+
 router.post('/lookup', validate(barcodeLookupSchema), async (req: AuthRequest, res, next) => {
   try {
     const { barcode } = req.body;
 
     logger.info({ barcode, userId: req.user!.id }, 'Barcode lookup requested');
 
+    // Serve from cache if available (avoids hitting rate-limited trial API)
+    const cached = getCached(barcode);
+    if (cached) {
+      logger.info({ barcode }, 'Barcode served from cache');
+      return res.json(cached);
+    }
+
     // Try UPC Database API (general product database, not food-only)
     // NOTE: Using the UPC Item DB trial API which has strict rate limits (100 req/day).
-    // For production traffic, upgrade to a paid plan or implement a fallback/caching layer.
+    // For production traffic, upgrade to a paid plan.
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10000);
     let response: Response;
@@ -41,7 +68,9 @@ router.post('/lookup', validate(barcodeLookupSchema), async (req: AuthRequest, r
 
       if (statusCode === 404) {
         // API explicitly says not found — return 200 with null product data
-        return res.json({ barcode, brand: null, productName: null });
+        const notFoundResult = { barcode, brand: null, productName: null, description: null, imageUrl: null };
+        setCache(barcode, notFoundResult);
+        return res.json(notFoundResult);
       }
 
       // Upstream server error or rate limit — return 502 Bad Gateway
@@ -55,18 +84,23 @@ router.post('/lookup', validate(barcodeLookupSchema), async (req: AuthRequest, r
     if (data.items && data.items.length > 0) {
       const product = data.items[0];
       logger.info({ barcode, found: true }, 'Barcode found');
-      return res.json({
+      const result = {
         barcode,
         brand: typeof product.brand === 'string' ? product.brand : null,
         productName: typeof product.title === 'string' ? product.title : null,
         category: typeof product.category === 'string' ? product.category : 'other',
         imageUrl: Array.isArray(product.images) && product.images.length > 0 ? product.images[0] : null,
-      });
+        description: typeof product.description === 'string' && product.description.length > 0 ? product.description : null,
+      };
+      setCache(barcode, result);
+      return res.json(result);
     }
 
     // API returned 200 but no items — product genuinely not found
     logger.info({ barcode, found: false }, 'Barcode not found');
-    res.json({ barcode, brand: null, productName: null });
+    const emptyResult = { barcode, brand: null, productName: null, description: null, imageUrl: null };
+    setCache(barcode, emptyResult);
+    res.json(emptyResult);
   } catch (error) {
     logger.error({ error, barcode: req.body?.barcode }, 'Barcode lookup failed');
     next(error);

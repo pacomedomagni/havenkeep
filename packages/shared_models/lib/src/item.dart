@@ -31,6 +31,9 @@ class Item {
   final WarrantyStatus? warrantyStatus;
   final int? daysRemaining;
 
+  // Informational (from DB, read-only — populated for some categories)
+  final double? estimatedRepairCost;
+
   // Meta
   final String? notes;
   final bool isArchived;
@@ -60,6 +63,7 @@ class Item {
     this.warrantyProvider,
     this.warrantyStatus,
     this.daysRemaining,
+    this.estimatedRepairCost,
     this.notes,
     this.isArchived = false,
     this.addedVia = ItemAddedVia.manual,
@@ -104,6 +108,11 @@ class Item {
           ? WarrantyStatus.fromJson(json['warranty_status'] as String)
           : null,
       daysRemaining: (json['days_remaining'] as num?)?.toInt(),
+      estimatedRepairCost: json['estimated_repair_cost'] != null
+          ? (json['estimated_repair_cost'] is num
+              ? (json['estimated_repair_cost'] as num).toDouble()
+              : double.tryParse(json['estimated_repair_cost'].toString()))
+          : null,
       notes: json['notes'] as String?,
       isArchived: json['is_archived'] as bool? ?? false,
       addedVia: json['added_via'] != null
@@ -222,6 +231,8 @@ class Item {
     bool clearWarrantyProvider = false,
     WarrantyStatus? warrantyStatus,
     int? daysRemaining,
+    double? estimatedRepairCost,
+    bool clearEstimatedRepairCost = false,
     String? notes,
     bool clearNotes = false,
     bool? isArchived,
@@ -257,6 +268,7 @@ class Item {
           : (warrantyProvider ?? this.warrantyProvider),
       warrantyStatus: warrantyStatus ?? this.warrantyStatus,
       daysRemaining: daysRemaining ?? this.daysRemaining,
+      estimatedRepairCost: clearEstimatedRepairCost ? null : (estimatedRepairCost ?? this.estimatedRepairCost),
       notes: clearNotes ? null : (notes ?? this.notes),
       isArchived: isArchived ?? this.isArchived,
       addedVia: addedVia ?? this.addedVia,

@@ -63,3 +63,12 @@ final claimSavingsProvider = FutureProvider<Map<String, dynamic>>((ref) async {
 
   return ref.read(claimsRepositoryProvider).getSavings();
 });
+
+/// Public savings feed (anonymized community social proof).
+final savingsFeedProvider =
+    FutureProvider<List<Map<String, dynamic>>>((ref) async {
+  final userAsync = ref.watch(currentUserProvider);
+  if (userAsync.valueOrNull == null) return [];
+
+  return ref.read(claimsRepositoryProvider).getSavingsFeed(limit: 10);
+});

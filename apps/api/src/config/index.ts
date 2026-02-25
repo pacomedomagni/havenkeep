@@ -99,6 +99,13 @@ export const config = {
     },
   },
 
+  firebase: {
+    // JSON string of the Firebase service account credentials.
+    // Set FIREBASE_SERVICE_ACCOUNT_JSON in your environment.
+    // If not set, FCM push delivery is silently disabled.
+    serviceAccountJson: process.env.FIREBASE_SERVICE_ACCOUNT_JSON || '',
+  },
+
   app: {
     baseUrl: process.env.APP_BASE_URL || 'http://localhost:3000',
     frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3000',

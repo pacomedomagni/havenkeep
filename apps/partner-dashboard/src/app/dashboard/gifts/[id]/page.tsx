@@ -20,6 +20,10 @@ interface Gift {
   custom_message: string | null;
   activation_code?: string;
   activation_url?: string;
+  // Engagement tracking
+  email_opened_at: string | null;
+  app_download_at: string | null;
+  first_item_added_at: string | null;
 }
 
 export default function GiftDetailPage() {
@@ -299,6 +303,61 @@ export default function GiftDetailPage() {
                   {Math.max(0, Math.floor((Date.now() - new Date(gift.created_at).getTime()) / (1000 * 60 * 60 * 24)))}
                 </span>
               </div>
+            </div>
+          </div>
+
+          {/* Engagement Timeline */}
+          <div className="card">
+            <h3 className="text-lg font-semibold text-white mb-4">Engagement</h3>
+            <div className="space-y-3">
+              {[
+                {
+                  label: 'Gift Sent',
+                  date: gift.created_at,
+                  icon: '📨',
+                  always: true,
+                },
+                {
+                  label: 'Email Opened',
+                  date: gift.email_opened_at,
+                  icon: '👀',
+                  always: false,
+                },
+                {
+                  label: 'App Downloaded',
+                  date: gift.app_download_at,
+                  icon: '📱',
+                  always: false,
+                },
+                {
+                  label: 'First Item Added',
+                  date: gift.first_item_added_at,
+                  icon: '🏠',
+                  always: false,
+                },
+                {
+                  label: 'Gift Activated',
+                  date: gift.activated_at,
+                  icon: '✅',
+                  always: false,
+                },
+              ].map(({ label, date, icon, always }) => (
+                <div key={label} className="flex items-start gap-3">
+                  <span className={`text-base mt-0.5 ${date ? 'opacity-100' : 'opacity-30'}`}>{icon}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className={`text-sm font-medium ${date ? 'text-white' : 'text-haven-text-tertiary'}`}>
+                      {label}
+                    </p>
+                    {date ? (
+                      <p className="text-xs text-haven-text-tertiary">
+                        {new Date(date).toLocaleDateString()} {new Date(date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </p>
+                    ) : !always ? (
+                      <p className="text-xs text-haven-text-tertiary/50">Not yet</p>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
 

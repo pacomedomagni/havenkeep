@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { pool } from '../db';
 import { authenticate } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { PartnersService } from '../services/partners.service';
@@ -95,6 +96,33 @@ router.post(
     res.json({
       success: true,
       data: { referral_code: referralCode },
+    });
+  })
+);
+
+/**
+ * @route   GET /api/v1/partners/referrals
+ * @desc    Get users who signed up using this partner's referral code
+ * @access  Private (Partner only)
+ */
+router.get(
+  '/referrals',
+  requirePartner,
+  asyncHandler(async (req, res) => {
+    const userId = req.user!.id;
+    const page = Math.max(1, parseInt(req.query.page as string, 10) || 1);
+    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit as string, 10) || 20));
+    const { referrals, total } = await PartnersService.getReferrals(userId, { page, limit });
+
+    res.json({
+      success: true,
+      data: referrals,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
     });
   })
 );
@@ -311,6 +339,67 @@ router.get(
         has_more: result.total > Number(offset) + result.commissions.length,
       },
     });
+  })
+);
+
+/**
+ * @route   GET /api/v1/partners/gifts/:id/track/email-open
+ * @desc    Track email open (called via 1x1 tracking pixel in gift email)
+ * @access  Public
+ */
+router.get(
+  '/gifts/:id/track/email-open',
+  asyncHandler(async (req, res) => {
+    await pool.query(
+      `UPDATE partner_gifts
+       SET email_opened_at = COALESCE(email_opened_at, NOW())
+       WHERE id = $1`,
+      [req.params.id]
+    );
+    // Return a 1x1 transparent GIF
+    const pixel = Buffer.from(
+      'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
+      'base64'
+    );
+    res.setHeader('Content-Type', 'image/gif');
+    res.setHeader('Cache-Control', 'no-store');
+    res.end(pixel);
+  })
+);
+
+/**
+ * @route   POST /api/v1/partners/gifts/:id/track/app-download
+ * @desc    Track when homebuyer downloads the app (called on first app launch)
+ * @access  Public
+ */
+router.post(
+  '/gifts/:id/track/app-download',
+  asyncHandler(async (req, res) => {
+    await pool.query(
+      `UPDATE partner_gifts
+       SET app_download_at = COALESCE(app_download_at, NOW())
+       WHERE id = $1`,
+      [req.params.id]
+    );
+    res.json({ success: true });
+  })
+);
+
+/**
+ * @route   POST /api/v1/partners/gifts/:id/track/first-item
+ * @desc    Track when homebuyer adds their first item (called by items service)
+ * @access  Private (authenticated user)
+ */
+router.post(
+  '/gifts/:id/track/first-item',
+  asyncHandler(async (req, res) => {
+    await pool.query(
+      `UPDATE partner_gifts
+       SET first_item_added_at = COALESCE(first_item_added_at, NOW())
+       WHERE id = $1`,
+      [req.params.id]
+    );
+    res.json({ success: true });
   })
 );
 

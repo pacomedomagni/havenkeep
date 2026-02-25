@@ -19,6 +19,33 @@ function maskPII(text: string): string {
     .replace(/\b(\+?1?[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b/g, '[PHONE REDACTED]');
 }
 
+/**
+ * Strip HTML tags from email body content, collapsing whitespace.
+ * Removes <style> and <script> blocks entirely before stripping tags
+ * so their content doesn't end up as garbled text in the AI prompt.
+ */
+function stripHtmlTags(html: string): string {
+  return html
+    // Remove <style>...</style> and <script>...</script> blocks
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, ' ')
+    // Replace <br>, <p>, <div>, <tr> with newlines to preserve structure
+    .replace(/<(br|p|div|tr)[^>]*>/gi, '\n')
+    // Strip remaining tags
+    .replace(/<[^>]+>/g, ' ')
+    // Decode common HTML entities
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ')
+    // Collapse excessive whitespace/newlines
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 interface ExtractedReceipt {
   productName: string;
   brand?: string;
@@ -151,14 +178,25 @@ export class EmailScannerService {
 
       // Import items
       let importedCount = 0;
+      let skippedDueToLimit = 0;
       for (const receipt of relevantReceipts) {
         try {
-          await this.createItemFromReceipt(userId, receipt, scanId);
-          importedCount++;
+          const created = await this.createItemFromReceipt(userId, receipt, scanId);
+          if (created) {
+            importedCount++;
+          } else {
+            skippedDueToLimit++;
+          }
         } catch (error) {
           logger.warn({ error, receipt }, 'Failed to import receipt');
         }
       }
+
+      // If items were silently dropped due to the free plan limit, surface a warning
+      // in the error_message column so the mobile UI can show it on the completed scan card.
+      const limitWarning = skippedDueToLimit > 0
+        ? `${skippedDueToLimit} item${skippedDueToLimit === 1 ? '' : 's'} skipped — free plan limit reached. Upgrade to Premium to import all items.`
+        : null;
 
       // Update scan record
       await pool.query(
@@ -167,9 +205,10 @@ export class EmailScannerService {
              emails_scanned = $2,
              receipts_found = $3,
              items_imported = $4,
+             error_message = $5,
              completed_at = NOW()
          WHERE id = $1`,
-        [scanId, receipts.length, relevantReceipts.length, importedCount]
+        [scanId, receipts.length, relevantReceipts.length, importedCount, limitWarning]
       );
 
       // Update user analytics
@@ -422,8 +461,8 @@ Return null if this is not a product purchase receipt.`,
 From: ${emailData.from}
 Date: ${emailData.date}
 
-Body (first 2000 chars):
-${maskPII(emailData.body.substring(0, 2000))}`,
+Body:
+${maskPII(stripHtmlTags(emailData.body).substring(0, 4000))}`,
             },
           ],
           response_format: { type: 'json_object' },
@@ -520,13 +559,14 @@ ${maskPII(emailData.body.substring(0, 2000))}`,
   }
 
   /**
-   * Create item from extracted receipt
+   * Create item from extracted receipt.
+   * Returns true if item was created, false if skipped due to free plan limit.
    */
   private static async createItemFromReceipt(
     userId: string,
     receipt: ExtractedReceipt,
     scanId: string
-  ): Promise<void> {
+  ): Promise<boolean> {
     // Check free plan limit before starting the transaction
     const userResult = await pool.query(
       'SELECT plan FROM users WHERE id = $1',
@@ -539,7 +579,7 @@ ${maskPII(emailData.body.substring(0, 2000))}`,
       );
       if (parseInt(countResult.rows[0].count, 10) >= 5) {
         logger.info({ userId, scanId }, 'Skipping item import: free plan limit reached');
-        return; // Skip this item silently, don't throw
+        return false; // Signal to caller that this was skipped
       }
     }
 
@@ -602,6 +642,7 @@ ${maskPII(emailData.body.substring(0, 2000))}`,
       await client.query('COMMIT');
 
       logger.info({ userId, scanId, productName: receipt.productName }, 'Item created from receipt');
+      return true;
     } catch (error) {
       await client.query('ROLLBACK');
       throw error;
