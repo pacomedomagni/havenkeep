@@ -159,63 +159,73 @@ async function handleChargeRefunded(charge: Stripe.Charge): Promise<void> {
   const chargeId = charge.id;
   const partnerId = charge.metadata?.partner_id;
 
-  const result = await pool.query(
-    `UPDATE partner_gifts
-     SET status = 'expired', updated_at = NOW()
-     WHERE stripe_charge_id = $1 AND status IN ('created', 'sent', 'activated', 'expired')
-     RETURNING id, partner_id, homebuyer_email, is_activated`,
-    [chargeId]
-  );
+  // Use a transaction since refunds touch multiple tables (gifts, commissions, users)
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
 
-  if (result.rows.length === 0) {
-    logger.warn(
-      { chargeId, partnerId },
-      'charge.refunded: no matching partner_gift found for refund'
-    );
-    return;
-  }
-
-  const gift = result.rows[0];
-
-  // Mark the commission as cancelled
-  await pool.query(
-    `UPDATE partner_commissions
-     SET status = 'cancelled', updated_at = NOW()
-     WHERE reference_id = $1 AND reference_type = 'partner_gift'`,
-    [gift.id]
-  );
-
-  // If the gift was already activated, revoke the premium upgrade
-  if (gift.is_activated) {
-    await pool.query(
+    const result = await client.query(
       `UPDATE partner_gifts
-       SET is_activated = FALSE, status = 'expired', updated_at = NOW()
-       WHERE id = $1`,
+       SET status = 'expired', updated_at = NOW()
+       WHERE stripe_charge_id = $1 AND status IN ('created', 'sent', 'activated', 'expired')
+       RETURNING id, partner_id, homebuyer_email, is_activated, activated_user_id`,
+      [chargeId]
+    );
+
+    if (result.rows.length === 0) {
+      await client.query('ROLLBACK');
+      logger.warn(
+        { chargeId, partnerId },
+        'charge.refunded: no matching partner_gift found for refund'
+      );
+      return;
+    }
+
+    const gift = result.rows[0];
+
+    // Mark the commission as cancelled
+    await client.query(
+      `UPDATE partner_commissions
+       SET status = 'cancelled', updated_at = NOW()
+       WHERE reference_id = $1 AND reference_type = 'partner_gift'`,
       [gift.id]
     );
 
-    // Revoke the premium plan from the activated user
-    const activatedGift = await pool.query(
-      'SELECT activated_user_id FROM partner_gifts WHERE id = $1',
-      [gift.id]
-    );
-    if (activatedGift.rows[0]?.activated_user_id) {
-      await pool.query(
-        `UPDATE users SET plan = 'free', plan_expires_at = NULL, updated_at = NOW() WHERE id = $1`,
-        [activatedGift.rows[0].activated_user_id]
+    // If the gift was already activated, revoke the premium upgrade
+    if (gift.is_activated) {
+      await client.query(
+        `UPDATE partner_gifts
+         SET is_activated = FALSE, status = 'expired', updated_at = NOW()
+         WHERE id = $1`,
+        [gift.id]
+      );
+
+      // Revoke the premium plan from the activated user
+      if (gift.activated_user_id) {
+        await client.query(
+          `UPDATE users SET plan = 'free', plan_expires_at = NULL, updated_at = NOW() WHERE id = $1`,
+          [gift.activated_user_id]
+        );
+      }
+
+      logger.warn(
+        { giftId: gift.id, partnerId: gift.partner_id },
+        'charge.refunded: refunded an already-activated gift — premium revoked from activated user'
       );
     }
 
-    logger.warn(
-      { giftId: gift.id, partnerId: gift.partner_id },
-      'charge.refunded: refunded an already-activated gift — premium revoked from activated user'
-    );
-  }
+    await client.query('COMMIT');
 
-  logger.info(
-    { chargeId, giftId: gift.id, partnerId: gift.partner_id, homebuyer: gift.homebuyer_email },
-    'charge.refunded: partner gift payment refunded'
-  );
+    logger.info(
+      { chargeId, giftId: gift.id, partnerId: gift.partner_id, homebuyer: gift.homebuyer_email },
+      'charge.refunded: partner gift payment refunded'
+    );
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 // ============================================

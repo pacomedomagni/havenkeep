@@ -37,6 +37,17 @@ const giftActivationAttempts = new Map<string, { attempts: number; lockedUntil: 
 
 const GIFT_MAX_ACTIVATION_ATTEMPTS = 5;
 const GIFT_LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 minutes
+const GIFT_ATTEMPTS_MAX_ENTRIES = 10_000;
+
+// Periodically evict expired lockout entries to prevent unbounded memory growth
+setInterval(() => {
+  const now = new Date();
+  for (const [giftId, record] of giftActivationAttempts) {
+    if (record.lockedUntil && now >= record.lockedUntil) {
+      giftActivationAttempts.delete(giftId);
+    }
+  }
+}, 5 * 60 * 1000).unref();
 
 export class PartnersService {
   /**
@@ -731,6 +742,12 @@ export class PartnersService {
    * GIFT_LOCKOUT_DURATION_MS milliseconds.
    */
   private static recordFailedActivationAttempt(giftId: string): void {
+    // Evict oldest entries if map exceeds max size
+    if (giftActivationAttempts.size >= GIFT_ATTEMPTS_MAX_ENTRIES) {
+      const firstKey = giftActivationAttempts.keys().next().value;
+      if (firstKey !== undefined) giftActivationAttempts.delete(firstKey);
+    }
+
     const record = giftActivationAttempts.get(giftId) || { attempts: 0, lockedUntil: null };
     record.attempts += 1;
 

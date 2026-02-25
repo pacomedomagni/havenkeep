@@ -70,29 +70,31 @@ class Item {
 
   factory Item.fromJson(Map<String, dynamic> json) {
     return Item(
-      id: json['id'] as String,
-      homeId: json['home_id'] as String,
-      userId: json['user_id'] as String,
-      name: json['name'] as String,
+      id: json['id'] as String? ?? '',
+      homeId: json['home_id'] as String? ?? '',
+      userId: json['user_id'] as String? ?? '',
+      name: json['name'] as String? ?? '',
       brand: json['brand'] as String?,
       modelNumber: json['model_number'] as String?,
       serialNumber: json['serial_number'] as String?,
-      category: ItemCategory.fromJson(json['category'] as String),
+      category: json['category'] != null
+          ? ItemCategory.fromJson(json['category'] as String)
+          : ItemCategory.other,
       room: json['room'] != null
           ? ItemRoom.fromJson(json['room'] as String)
           : null,
       productImageUrl: json['product_image_url'] as String?,
       barcode: json['barcode'] as String?,
-      purchaseDate: DateTime.parse(json['purchase_date'] as String),
+      purchaseDate: DateTime.tryParse(json['purchase_date'] as String? ?? '') ?? DateTime.now(),
       store: json['store'] as String?,
       price: json['price'] != null
           ? (json['price'] is num
               ? (json['price'] as num).toDouble()
               : double.tryParse(json['price'].toString()))
           : null,
-      warrantyMonths: json['warranty_months'] as int? ?? 12,
+      warrantyMonths: (json['warranty_months'] as num?)?.toInt() ?? 12,
       warrantyEndDate: json['warranty_end_date'] != null
-          ? DateTime.parse(json['warranty_end_date'] as String)
+          ? DateTime.tryParse(json['warranty_end_date'] as String)
           : null,
       warrantyType: json['warranty_type'] != null
           ? WarrantyType.fromJson(json['warranty_type'] as String)
@@ -101,17 +103,17 @@ class Item {
       warrantyStatus: json['warranty_status'] != null
           ? WarrantyStatus.fromJson(json['warranty_status'] as String)
           : null,
-      daysRemaining: json['days_remaining'] as int?,
+      daysRemaining: (json['days_remaining'] as num?)?.toInt(),
       notes: json['notes'] as String?,
       isArchived: json['is_archived'] as bool? ?? false,
       addedVia: json['added_via'] != null
           ? ItemAddedVia.fromJson(json['added_via'] as String)
           : ItemAddedVia.manual,
       archivedAt: json['archived_at'] != null
-          ? DateTime.parse(json['archived_at'] as String)
+          ? DateTime.tryParse(json['archived_at'] as String)
           : null,
-      createdAt: DateTime.parse(json['created_at'] as String),
-      updatedAt: DateTime.parse(json['updated_at'] as String),
+      createdAt: DateTime.tryParse(json['created_at'] as String? ?? '') ?? DateTime.now(),
+      updatedAt: DateTime.tryParse(json['updated_at'] as String? ?? '') ?? DateTime.now(),
     );
   }
 

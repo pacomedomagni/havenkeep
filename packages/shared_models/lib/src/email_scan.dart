@@ -34,16 +34,16 @@ class EmailScan {
 
   factory EmailScan.fromJson(Map<String, dynamic> json) {
     return EmailScan(
-      id: json['id'] as String,
-      userId: json['user_id'] as String,
-      provider: json['provider'] as String,
+      id: json['id'] as String? ?? '',
+      userId: json['user_id'] as String? ?? '',
+      provider: json['provider'] as String? ?? '',
       providerEmail: json['provider_email'] as String?,
-      scanDate: DateTime.parse(json['scan_date'] as String),
+      scanDate: DateTime.tryParse(json['scan_date'] as String? ?? '') ?? DateTime.now(),
       dateRangeStart: json['date_range_start'] != null
-          ? DateTime.parse(json['date_range_start'] as String)
+          ? DateTime.tryParse(json['date_range_start'] as String)
           : null,
       dateRangeEnd: json['date_range_end'] != null
-          ? DateTime.parse(json['date_range_end'] as String)
+          ? DateTime.tryParse(json['date_range_end'] as String)
           : null,
       emailsScanned: int.tryParse(json['emails_scanned']?.toString() ?? '') ?? 0,
       receiptsFound: int.tryParse(json['receipts_found']?.toString() ?? '') ?? 0,
@@ -51,9 +51,9 @@ class EmailScan {
       status: EmailScanStatus.fromJson(json['status'] as String? ?? 'pending'),
       errorMessage: json['error_message'] as String?,
       completedAt: json['completed_at'] != null
-          ? DateTime.parse(json['completed_at'] as String)
+          ? DateTime.tryParse(json['completed_at'] as String)
           : null,
-      createdAt: DateTime.parse(json['created_at'] as String),
+      createdAt: DateTime.tryParse(json['created_at'] as String? ?? '') ?? DateTime.now(),
     );
   }
 }

@@ -13,9 +13,18 @@ export default function SignUpPage() {
     setLoading(true);
     setError(null);
 
-    const result = await signUp(formData);
-    if (result?.error) {
-      setError(result.error);
+    try {
+      const result = await signUp(formData);
+      if (result?.error) {
+        setError(result.error);
+        setLoading(false);
+      }
+    } catch (err: any) {
+      // signUp uses redirect() on success which throws NEXT_REDIRECT
+      if (err?.digest?.startsWith('NEXT_REDIRECT')) {
+        return;
+      }
+      setError(err?.message || 'An unexpected error occurred. Please try again.');
       setLoading(false);
     }
   }

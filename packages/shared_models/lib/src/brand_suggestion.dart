@@ -16,10 +16,12 @@ class BrandSuggestion {
 
   factory BrandSuggestion.fromJson(Map<String, dynamic> json) {
     return BrandSuggestion(
-      id: json['id'] as String,
-      category: ItemCategory.fromJson(json['category'] as String),
-      brand: json['brand'] as String,
-      sortOrder: json['sort_order'] as int? ?? 0,
+      id: json['id'] as String? ?? '',
+      category: json['category'] != null
+          ? ItemCategory.fromJson(json['category'] as String)
+          : ItemCategory.other,
+      brand: json['brand'] as String? ?? '',
+      sortOrder: (json['sort_order'] as num?)?.toInt() ?? 0,
     );
   }
 

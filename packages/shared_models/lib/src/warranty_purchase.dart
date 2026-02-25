@@ -60,17 +60,19 @@ class WarrantyPurchase {
 
   factory WarrantyPurchase.fromJson(Map<String, dynamic> json) {
     return WarrantyPurchase(
-      id: json['id'] as String,
-      itemId: json['item_id'] as String,
-      userId: json['user_id'] as String,
-      provider: json['provider'] as String,
-      planName: json['plan_name'] as String,
+      id: json['id'] as String? ?? '',
+      itemId: json['item_id'] as String? ?? '',
+      userId: json['user_id'] as String? ?? '',
+      provider: json['provider'] as String? ?? '',
+      planName: json['plan_name'] as String? ?? '',
       externalPolicyId: json['external_policy_id'] as String?,
-      durationMonths: (json['duration_months'] as num).toInt(),
+      durationMonths: (json['duration_months'] as num?)?.toInt() ?? 0,
       startsAt: DateTime.tryParse(json['starts_at'] as String? ?? '') ?? DateTime.now(),
       expiresAt: DateTime.tryParse(json['expires_at'] as String? ?? '') ?? DateTime.now(),
-      coverageDetails: json['coverage_details'] as Map<String, dynamic>?,
-      price: (json['price'] as num).toDouble(),
+      coverageDetails: json['coverage_details'] is Map
+          ? json['coverage_details'] as Map<String, dynamic>?
+          : null,
+      price: (json['price'] as num?)?.toDouble() ?? 0,
       deductible: (json['deductible'] as num?)?.toDouble() ?? 0,
       claimLimit: json['claim_limit'] != null
           ? (json['claim_limit'] as num).toDouble()

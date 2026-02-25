@@ -209,7 +209,7 @@ class _AddWarrantyPurchaseScreenState
   }
 
   Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (_formKey.currentState?.validate() != true) return;
     if (_selectedItemId == null) return;
 
     setState(() => _submitting = true);

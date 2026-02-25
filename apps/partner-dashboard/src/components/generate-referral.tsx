@@ -27,19 +27,15 @@ export default function GenerateReferral({ isOpen, onClose }: GenerateReferralPr
         setCode(data.data.referral_code);
       } else {
         // Fallback: generate locally if endpoint not available yet
-        const newCode = `HK-${Math.random().toString(36).substring(2, 6).toUpperCase()}-${Math.random()
-          .toString(36)
-          .substring(2, 6)
-          .toUpperCase()}`;
-        setCode(newCode);
+        const bytes = crypto.getRandomValues(new Uint8Array(6));
+        const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('').toUpperCase();
+        setCode(`HK-${hex.substring(0, 4)}-${hex.substring(4, 8)}`);
       }
     } catch {
       // Fallback: generate locally if endpoint not available yet
-      const newCode = `HK-${Math.random().toString(36).substring(2, 6).toUpperCase()}-${Math.random()
-        .toString(36)
-        .substring(2, 6)
-        .toUpperCase()}`;
-      setCode(newCode);
+      const bytes = crypto.getRandomValues(new Uint8Array(6));
+      const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('').toUpperCase();
+      setCode(`HK-${hex.substring(0, 4)}-${hex.substring(4, 8)}`);
     } finally {
       setLoading(false);
     }
@@ -51,7 +47,17 @@ export default function GenerateReferral({ isOpen, onClose }: GenerateReferralPr
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      // Fallback
+      // Fallback: select text from a temporary textarea
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     }
   }
 

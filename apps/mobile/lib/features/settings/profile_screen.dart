@@ -51,7 +51,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   }
 
   Future<void> _save() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (_formKey.currentState?.validate() != true) return;
 
     setState(() => _isSaving = true);
 
@@ -115,7 +115,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     setState(() => _isUploadingPhoto = true);
 
     try {
-      final user = ref.read(currentUserProvider).value;
+      final user = ref.read(currentUserProvider).valueOrNull;
       if (user == null) return;
 
       final url = await ref.read(imageUploadServiceProvider).uploadProfilePhoto(

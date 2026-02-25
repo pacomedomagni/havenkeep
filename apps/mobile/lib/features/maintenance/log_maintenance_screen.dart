@@ -61,7 +61,7 @@ class _LogMaintenanceScreenState extends ConsumerState<LogMaintenanceScreen> {
   }
 
   Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (_formKey.currentState?.validate() != true) return;
     if (_selectedItemId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please select an item')),

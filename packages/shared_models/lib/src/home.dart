@@ -30,9 +30,9 @@ class Home {
 
   factory Home.fromJson(Map<String, dynamic> json) {
     return Home(
-      id: json['id'] as String,
-      userId: json['user_id'] as String,
-      name: json['name'] as String,
+      id: json['id'] as String? ?? '',
+      userId: json['user_id'] as String? ?? '',
+      name: json['name'] as String? ?? '',
       address: json['address'] as String?,
       city: json['city'] as String?,
       state: json['state'] as String?,
@@ -41,10 +41,10 @@ class Home {
           ? HomeType.fromJson(json['home_type'] as String)
           : HomeType.house,
       moveInDate: json['move_in_date'] != null
-          ? DateTime.parse(json['move_in_date'] as String)
+          ? DateTime.tryParse(json['move_in_date'] as String)
           : null,
-      createdAt: DateTime.parse(json['created_at'] as String),
-      updatedAt: DateTime.parse(json['updated_at'] as String),
+      createdAt: DateTime.tryParse(json['created_at'] as String? ?? '') ?? DateTime.now(),
+      updatedAt: DateTime.tryParse(json['updated_at'] as String? ?? '') ?? DateTime.now(),
     );
   }
 

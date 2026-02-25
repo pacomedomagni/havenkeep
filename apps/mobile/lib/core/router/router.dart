@@ -257,7 +257,8 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: AppRoutes.itemDetail,
         parentNavigatorKey: _rootNavigatorKey,
         builder: (context, state) {
-          final id = state.pathParameters['id']!;
+          final id = state.pathParameters['id'] ?? '';
+          if (id.isEmpty) return const Scaffold(body: Center(child: Text('Item not found')));
           return ItemDetailScreen(itemId: id);
         },
       ),
@@ -267,7 +268,8 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: AppRoutes.editItem,
         parentNavigatorKey: _rootNavigatorKey,
         builder: (context, state) {
-          final id = state.pathParameters['id']!;
+          final id = state.pathParameters['id'] ?? '';
+          if (id.isEmpty) return const Scaffold(body: Center(child: Text('Item not found')));
           return EditItemScreen(itemId: id);
         },
       ),
@@ -287,7 +289,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: AppRoutes.quickAdd,
         parentNavigatorKey: _rootNavigatorKey,
         pageBuilder: (context, state) {
-          final categoryName = state.pathParameters['category']!;
+          final categoryName = state.pathParameters['category'] ?? 'other';
           final category = ItemCategory.values.firstWhere(
             (c) => c.name == categoryName,
             orElse: () => ItemCategory.other,
@@ -314,7 +316,8 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: AppRoutes.addItemSuccess,
         parentNavigatorKey: _rootNavigatorKey,
         builder: (context, state) {
-          final id = state.pathParameters['id']!;
+          final id = state.pathParameters['id'] ?? '';
+          if (id.isEmpty) return const Scaffold(body: Center(child: Text('Item not found')));
           return ItemAddedScreen(itemId: id);
         },
       ),
@@ -359,7 +362,8 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: AppRoutes.homeDetail,
         parentNavigatorKey: _rootNavigatorKey,
         builder: (context, state) {
-          final id = state.pathParameters['id']!;
+          final id = state.pathParameters['id'] ?? '';
+          if (id.isEmpty) return const Scaffold(body: Center(child: Text('Home not found')));
           return HomeDetailScreen(homeId: id);
         },
       ),
@@ -440,7 +444,8 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: AppRoutes.referral,
         parentNavigatorKey: _rootNavigatorKey,
         builder: (context, state) {
-          final code = state.pathParameters['code']!;
+          final code = state.pathParameters['code'] ?? '';
+          if (code.isEmpty) return const Scaffold(body: Center(child: Text('Invalid referral link')));
           return ReferralHandlerScreen(code: code);
         },
       ),
@@ -471,7 +476,8 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: AppRoutes.createClaim,
         parentNavigatorKey: _rootNavigatorKey,
         builder: (context, state) {
-          final itemId = state.pathParameters['itemId']!;
+          final itemId = state.pathParameters['itemId'] ?? '';
+          if (itemId.isEmpty) return const Scaffold(body: Center(child: Text('Item not found')));
           return CreateClaimScreen(itemId: itemId);
         },
       ),

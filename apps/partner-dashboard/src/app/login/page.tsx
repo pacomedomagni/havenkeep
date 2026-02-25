@@ -24,9 +24,13 @@ export default function LoginPage() {
         router.push('/dashboard')
         router.refresh()
       }
-    } catch {
+    } catch (err: any) {
       // signIn uses redirect() on success which throws NEXT_REDIRECT
-      // If we get here with no result.error, it means redirect succeeded
+      // Only show error for non-redirect exceptions
+      if (err?.digest?.startsWith('NEXT_REDIRECT')) {
+        return
+      }
+      setError(err?.message || 'An unexpected error occurred. Please try again.')
     } finally {
       setLoading(false)
     }

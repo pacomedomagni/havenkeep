@@ -40,7 +40,7 @@ class _WizardStep1BasicsState extends State<WizardStep1Basics> {
   }
 
   void _handleNext() {
-    if (_formKey.currentState!.validate()) {
+    if (_formKey.currentState?.validate() == true) {
       widget.data.name = _nameController.text.trim();
       widget.data.brand = _brandController.text.trim().isNotEmpty
           ? _brandController.text.trim()

@@ -85,7 +85,7 @@ class _ManualEntryScreenState extends ConsumerState<ManualEntryScreen> {
   }
 
   Future<void> _save() async {
-    if (!_formKey.currentState!.validate() || !_isFormValid) return;
+    if (_formKey.currentState?.validate() != true || !_isFormValid) return;
 
     setState(() => _isSaving = true);
 

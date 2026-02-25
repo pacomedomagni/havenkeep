@@ -19,17 +19,36 @@ async function proxyRequest(request: NextRequest, pathParts: string[]) {
   const body =
     method === 'GET' || method === 'HEAD' ? undefined : await request.arrayBuffer();
 
-  const response = await fetch(targetUrl, {
-    method,
-    headers,
-    body,
-  });
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
 
-  const responseHeaders = new Headers(response.headers);
-  return new NextResponse(await response.arrayBuffer(), {
-    status: response.status,
-    headers: responseHeaders,
-  });
+    const response = await fetch(targetUrl, {
+      method,
+      headers,
+      body,
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    const responseHeaders = new Headers(response.headers);
+    return new NextResponse(await response.arrayBuffer(), {
+      status: response.status,
+      headers: responseHeaders,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      return NextResponse.json(
+        { error: 'Request timed out', message: 'The backend server took too long to respond.' },
+        { status: 504 }
+      );
+    }
+    return NextResponse.json(
+      { error: 'Service unavailable', message: 'Unable to connect to the backend server.' },
+      { status: 502 }
+    );
+  }
 }
 
 export async function GET(

@@ -68,8 +68,20 @@ export default function GiftDetailPage() {
     }
   };
 
-  const copyToClipboard = (text: string, type: 'code' | 'url') => {
-    navigator.clipboard.writeText(text);
+  const copyToClipboard = async (text: string, type: 'code' | 'url') => {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // Fallback for older browsers
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+    }
     if (type === 'code') {
       setCopiedCode(true);
       setTimeout(() => setCopiedCode(false), 2000);
@@ -183,7 +195,7 @@ export default function GiftDetailPage() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-haven-text-tertiary mb-1">Amount Charged</label>
-                <p className="text-white text-2xl font-bold">${gift.amount_charged.toFixed(2)}</p>
+                <p className="text-white text-2xl font-bold">${(gift.amount_charged ?? 0).toFixed(2)}</p>
               </div>
               {gift.custom_message && (
                 <div className="md:col-span-2">
@@ -278,7 +290,7 @@ export default function GiftDetailPage() {
               <div className="flex justify-between">
                 <span className="text-sm text-haven-text-tertiary">Amount Charged</span>
                 <span className="text-sm font-medium text-white">
-                  ${gift.amount_charged.toFixed(2)}
+                  ${(gift.amount_charged ?? 0).toFixed(2)}
                 </span>
               </div>
               <div className="flex justify-between">

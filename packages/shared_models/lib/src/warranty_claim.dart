@@ -42,14 +42,14 @@ class WarrantyClaim {
 
   factory WarrantyClaim.fromJson(Map<String, dynamic> json) {
     return WarrantyClaim(
-      id: json['id'] as String,
-      userId: json['user_id'] as String,
-      itemId: json['item_id'] as String,
+      id: json['id'] as String? ?? '',
+      userId: json['user_id'] as String? ?? '',
+      itemId: json['item_id'] as String? ?? '',
       claimDate: DateTime.tryParse(json['claim_date'] as String? ?? '') ?? DateTime.now(),
       issueDescription: json['issue_description'] as String?,
       repairDescription: json['repair_description'] as String?,
-      repairCost: (json['repair_cost'] as num).toDouble(),
-      amountSaved: (json['amount_saved'] as num).toDouble(),
+      repairCost: (json['repair_cost'] as num?)?.toDouble() ?? 0,
+      amountSaved: (json['amount_saved'] as num?)?.toDouble() ?? 0,
       outOfPocket: json['out_of_pocket'] != null
           ? (json['out_of_pocket'] as num).toDouble()
           : null,

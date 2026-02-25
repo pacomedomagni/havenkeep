@@ -18,11 +18,13 @@ class Referral {
 
   factory Referral.fromJson(Map<String, dynamic> json) {
     return Referral(
-      id: json['id'] as String,
-      partnerId: json['partner_id'] as String,
-      userId: json['user_id'] as String,
-      source: ReferralSource.fromJson(json['source'] as String),
-      createdAt: DateTime.parse(json['created_at'] as String),
+      id: json['id'] as String? ?? '',
+      partnerId: json['partner_id'] as String? ?? '',
+      userId: json['user_id'] as String? ?? '',
+      source: json['source'] != null
+          ? ReferralSource.fromJson(json['source'] as String)
+          : ReferralSource.realtor,
+      createdAt: DateTime.tryParse(json['created_at'] as String? ?? '') ?? DateTime.now(),
     );
   }
 

@@ -71,7 +71,7 @@ class _CreateClaimScreenState extends ConsumerState<CreateClaimScreen> {
   }
 
   Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (_formKey.currentState?.validate() != true) return;
 
     setState(() => _saving = true);
 

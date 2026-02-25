@@ -34,21 +34,23 @@ class User {
 
   factory User.fromJson(Map<String, dynamic> json) {
     return User(
-      id: json['id'] as String,
-      email: json['email'] as String,
-      fullName: json['full_name'] as String,
+      id: json['id'] as String? ?? '',
+      email: json['email'] as String? ?? '',
+      fullName: json['full_name'] as String? ?? '',
       avatarUrl: json['avatar_url'] as String?,
-      authProvider: AuthProvider.fromJson(json['auth_provider'] as String),
+      authProvider: json['auth_provider'] != null
+          ? AuthProvider.fromJson(json['auth_provider'] as String)
+          : AuthProvider.email,
       plan: json['plan'] != null ? UserPlan.fromJson(json['plan'] as String) : UserPlan.free,
       planExpiresAt: json['plan_expires_at'] != null
-          ? DateTime.parse(json['plan_expires_at'] as String)
+          ? DateTime.tryParse(json['plan_expires_at'] as String)
           : null,
       referredBy: json['referred_by'] as String?,
       referralCode: json['referral_code'] as String?,
       isAdmin: json['is_admin'] as bool? ?? false,
       isPartner: json['is_partner'] as bool? ?? false,
-      createdAt: DateTime.parse(json['created_at'] as String),
-      updatedAt: DateTime.parse(json['updated_at'] as String),
+      createdAt: DateTime.tryParse(json['created_at'] as String? ?? '') ?? DateTime.now(),
+      updatedAt: DateTime.tryParse(json['updated_at'] as String? ?? '') ?? DateTime.now(),
     );
   }
 

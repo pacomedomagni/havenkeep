@@ -25,7 +25,12 @@ export default function Sidebar() {
   const pathname = usePathname()
 
   const handleSignOut = async () => {
-    await logout()
+    try {
+      await logout()
+    } catch {
+      // Force redirect to login even if logout API fails
+      window.location.href = '/login'
+    }
   }
 
   return (

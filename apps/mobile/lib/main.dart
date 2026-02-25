@@ -21,97 +21,99 @@ import 'core/services/push_notification_service.dart';
 import 'core/providers/premium_provider.dart';
 
 Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-
-  // Lock to portrait orientation
-  await SystemChrome.setPreferredOrientations([
-    DeviceOrientation.portraitUp,
-    DeviceOrientation.portraitDown,
-  ]);
-
-  // Set system UI overlay style to match dark theme
-  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
-    statusBarColor: Colors.transparent,
-    statusBarIconBrightness: Brightness.light,
-    systemNavigationBarColor: HavenColors.background,
-    systemNavigationBarIconBrightness: Brightness.light,
-  ));
-
-  // Determine environment from build flavor (defaults to development)
-  const flavorString = String.fromEnvironment('FLAVOR', defaultValue: 'development');
-  final environment = Environment.fromString(flavorString);
-
-  // Load environment-specific configuration
-  final envFileName = '.env.${environment.name}';
-  try {
-    await dotenv.load(fileName: envFileName);
-  } catch (e) {
-    debugPrint('[Main] Failed to load $envFileName: $e');
-  }
-
-  // Create and validate configuration
-  final config = EnvironmentConfig.fromEnvironment(environment);
-
-  // Initialize logging service (lightweight, no heavy SDKs)
-  try {
-    await LoggingService.initialize(config);
-  } catch (e) {
-    debugPrint('[Main] LoggingService init failed: $e');
-  }
-  LoggingService.info('App starting', {
-    'environment': config.environment.name,
-    'apiBaseUrl': config.apiBaseUrl,
-  });
-
-  // Initialize API client
-  final apiClient = ApiClient(baseUrl: config.apiBaseUrl);
-  setGlobalApiClient(apiClient);
-  try {
-    await apiClient.restoreSession();
-  } catch (e) {
-    LoggingService.warn('Session restore failed, starting fresh', {'error': e.toString()});
-  }
-
-  LoggingService.info('API client initialized');
-
-  // Initialize Firebase for push notifications and analytics
-  // Skip if using placeholder keys (causes native crash in FirebaseInstallations)
-  final firebaseOptions = DefaultFirebaseOptions.currentPlatform;
-  if (firebaseOptions.apiKey.startsWith('YOUR_')) {
-    LoggingService.warn('Firebase skipped — placeholder API key detected', {});
-  } else {
-    try {
-      await Firebase.initializeApp(options: firebaseOptions);
-      debugPrint('[Main] Firebase initialized successfully');
-    } catch (e) {
-      LoggingService.warn('Firebase initialization failed', {'error': e.toString()});
-    }
-  }
-
-  // --- Global error handlers ---
-  // Catch Flutter framework errors (widget build errors, layout errors, etc.)
-  FlutterError.onError = (details) {
-    LoggingService.error(
-      'Flutter framework error',
-      details.exception,
-      details.stack,
-      {'library': details.library ?? 'unknown'},
-    );
-    // Still show the red error screen in debug mode
-    if (kDebugMode) {
-      FlutterError.presentError(details);
-    }
-  };
-
-  // Catch platform errors (native crashes, unhandled async errors)
-  PlatformDispatcher.instance.onError = (error, stack) {
-    LoggingService.error('Platform error', error, stack);
-    return true; // Prevent app termination
-  };
-
-  // Run inside a guarded zone to catch any remaining unhandled errors
+  // Run inside a guarded zone to catch any remaining unhandled errors.
+  // WidgetsFlutterBinding.ensureInitialized() must be called inside the same
+  // zone as runApp() to avoid the "Zone mismatch" assertion.
   runZonedGuarded(
-    () {
+    () async {
+      WidgetsFlutterBinding.ensureInitialized();
+
+      // Lock to portrait orientation
+      await SystemChrome.setPreferredOrientations([
+        DeviceOrientation.portraitUp,
+        DeviceOrientation.portraitDown,
+      ]);
+
+      // Set system UI overlay style to match dark theme
+      SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.light,
+        systemNavigationBarColor: HavenColors.background,
+        systemNavigationBarIconBrightness: Brightness.light,
+      ));
+
+      // Determine environment from build flavor (defaults to development)
+      const flavorString = String.fromEnvironment('FLAVOR', defaultValue: 'development');
+      final environment = Environment.fromString(flavorString);
+
+      // Load environment-specific configuration
+      final envFileName = '.env.${environment.name}';
+      try {
+        await dotenv.load(fileName: envFileName);
+      } catch (e) {
+        debugPrint('[Main] Failed to load $envFileName: $e');
+      }
+
+      // Create and validate configuration
+      final config = EnvironmentConfig.fromEnvironment(environment);
+
+      // Initialize logging service (lightweight, no heavy SDKs)
+      try {
+        await LoggingService.initialize(config);
+      } catch (e) {
+        debugPrint('[Main] LoggingService init failed: $e');
+      }
+      LoggingService.info('App starting', {
+        'environment': config.environment.name,
+        'apiBaseUrl': config.apiBaseUrl,
+      });
+
+      // Initialize API client
+      final apiClient = ApiClient(baseUrl: config.apiBaseUrl);
+      setGlobalApiClient(apiClient);
+      try {
+        await apiClient.restoreSession();
+      } catch (e) {
+        LoggingService.warn('Session restore failed, starting fresh', {'error': e.toString()});
+      }
+
+      LoggingService.info('API client initialized');
+
+      // Initialize Firebase for push notifications and analytics
+      // Skip if using placeholder keys (causes native crash in FirebaseInstallations)
+      final firebaseOptions = DefaultFirebaseOptions.currentPlatform;
+      if (firebaseOptions.apiKey.startsWith('YOUR_')) {
+        LoggingService.warn('Firebase skipped — placeholder API key detected', {});
+      } else {
+        try {
+          await Firebase.initializeApp(options: firebaseOptions);
+          debugPrint('[Main] Firebase initialized successfully');
+        } catch (e) {
+          LoggingService.warn('Firebase initialization failed', {'error': e.toString()});
+        }
+      }
+
+      // --- Global error handlers ---
+      // Catch Flutter framework errors (widget build errors, layout errors, etc.)
+      FlutterError.onError = (details) {
+        LoggingService.error(
+          'Flutter framework error',
+          details.exception,
+          details.stack,
+          {'library': details.library ?? 'unknown'},
+        );
+        // Still show the red error screen in debug mode
+        if (kDebugMode) {
+          FlutterError.presentError(details);
+        }
+      };
+
+      // Catch platform errors (native crashes, unhandled async errors)
+      PlatformDispatcher.instance.onError = (error, stack) {
+        LoggingService.error('Platform error', error, stack);
+        return true; // Prevent app termination
+      };
+
       runApp(
         ProviderScope(
           overrides: [

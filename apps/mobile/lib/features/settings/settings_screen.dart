@@ -49,7 +49,7 @@ class SettingsScreen extends ConsumerWidget {
                     CircleAvatar(
                       radius: 24,
                       backgroundColor: HavenColors.primary,
-                      backgroundImage: u?.avatarUrl != null
+                      backgroundImage: u?.avatarUrl != null && u!.avatarUrl!.isNotEmpty
                           ? NetworkImage(u!.avatarUrl!)
                           : null,
                       onBackgroundImageError: u?.avatarUrl != null
@@ -57,7 +57,7 @@ class SettingsScreen extends ConsumerWidget {
                               debugPrint('Avatar load failed: $error');
                             }
                           : null,
-                      child: u?.avatarUrl == null
+                      child: u?.avatarUrl == null || u!.avatarUrl!.isEmpty
                           ? Text(
                               _getInitials(u?.fullName),
                               style: const TextStyle(

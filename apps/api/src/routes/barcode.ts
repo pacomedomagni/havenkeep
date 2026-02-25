@@ -17,9 +17,22 @@ router.post('/lookup', validate(barcodeLookupSchema), async (req: AuthRequest, r
     // Try UPC Database API (general product database, not food-only)
     // NOTE: Using the UPC Item DB trial API which has strict rate limits (100 req/day).
     // For production traffic, upgrade to a paid plan or implement a fallback/caching layer.
-    const response = await fetch(
-      `https://api.upcitemdb.com/prod/trial/lookup?upc=${barcode}`
-    );
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    let response: Response;
+    try {
+      response = await fetch(
+        `https://api.upcitemdb.com/prod/trial/lookup?upc=${barcode}`,
+        { signal: controller.signal }
+      );
+    } catch (err: any) {
+      clearTimeout(timeout);
+      if (err.name === 'AbortError') {
+        return res.status(504).json({ error: 'Barcode lookup timed out' });
+      }
+      throw err;
+    }
+    clearTimeout(timeout);
 
     // BE-25: Distinguish between API error (upstream failure) and not-found
     if (!response.ok) {

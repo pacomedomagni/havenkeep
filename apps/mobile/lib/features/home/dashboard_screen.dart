@@ -747,12 +747,13 @@ class _UserAvatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasAvatar = user?.avatarUrl != null && user!.avatarUrl!.isNotEmpty;
+    final avatarUrl = user?.avatarUrl;
+    final hasAvatar = avatarUrl != null && avatarUrl.isNotEmpty;
 
     return CircleAvatar(
       radius: 20,
       backgroundColor: HavenColors.primary,
-      backgroundImage: hasAvatar ? NetworkImage(user!.avatarUrl!) : null,
+      backgroundImage: hasAvatar ? NetworkImage(avatarUrl) : null,
       onBackgroundImageError: hasAvatar
           ? (error, __) => debugPrint('[Dashboard] Avatar load failed: $error')
           : null,

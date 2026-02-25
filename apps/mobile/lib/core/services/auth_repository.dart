@@ -46,14 +46,8 @@ class AuthRepository {
 
     final data = await _client.post('/api/v1/auth/register', body: body);
 
-    await _client.saveTokens(
-      accessToken: data['accessToken'] as String,
-      refreshToken: data['refreshToken'] as String,
-      userId: data['user']['id'] as String,
-    );
-
-    final userJson = data['user'] as Map<String, dynamic>;
-    return models.User.fromJson(_normalizeUserJson(userJson));
+    final user = _extractUserAndTokens(data);
+    return user;
   }
 
   /// Sign in with email and password.
@@ -66,14 +60,8 @@ class AuthRepository {
       'password': password,
     });
 
-    await _client.saveTokens(
-      accessToken: data['accessToken'] as String,
-      refreshToken: data['refreshToken'] as String,
-      userId: data['user']['id'] as String,
-    );
-
-    final userJson = data['user'] as Map<String, dynamic>;
-    return models.User.fromJson(_normalizeUserJson(userJson));
+    final user = _extractUserAndTokens(data);
+    return user;
   }
 
   /// Sign in with Google. Accepts the Google ID token from the platform SDK.
@@ -82,14 +70,8 @@ class AuthRepository {
       'idToken': idToken,
     });
 
-    await _client.saveTokens(
-      accessToken: data['accessToken'] as String,
-      refreshToken: data['refreshToken'] as String,
-      userId: data['user']['id'] as String,
-    );
-
-    final userJson = data['user'] as Map<String, dynamic>;
-    return models.User.fromJson(_normalizeUserJson(userJson));
+    final user = _extractUserAndTokens(data);
+    return user;
   }
 
   /// Sign in with Apple. Accepts the Apple ID token from the platform SDK.
@@ -102,14 +84,8 @@ class AuthRepository {
 
     final data = await _client.post('/api/v1/auth/apple', body: body);
 
-    await _client.saveTokens(
-      accessToken: data['accessToken'] as String,
-      refreshToken: data['refreshToken'] as String,
-      userId: data['user']['id'] as String,
-    );
-
-    final userJson = data['user'] as Map<String, dynamic>;
-    return models.User.fromJson(_normalizeUserJson(userJson));
+    final user = _extractUserAndTokens(data);
+    return user;
   }
 
   /// Sign out the current user.
@@ -165,7 +141,8 @@ class AuthRepository {
 
     try {
       final data = await _client.get('/api/v1/users/me');
-      final userJson = data['user'] as Map<String, dynamic>;
+      final userJson = data['user'];
+      if (userJson is! Map<String, dynamic>) return null;
       return models.User.fromJson(userJson);
     } on ApiException catch (e) {
       if (e.isUnauthorized) return null;
@@ -183,7 +160,10 @@ class AuthRepository {
     if (avatarUrl != null) updates['avatarUrl'] = avatarUrl;
 
     final data = await _client.put('/api/v1/users/me', body: updates);
-    final userJson = data['user'] as Map<String, dynamic>;
+    final userJson = data['user'];
+    if (userJson is! Map<String, dynamic>) {
+      throw ApiException(500, 'Invalid response format');
+    }
     return models.User.fromJson(userJson);
   }
 
@@ -238,6 +218,30 @@ class AuthRepository {
       'confirmDelete': true,
     });
     await _client.clearTokens();
+  }
+
+  /// Safely extract tokens and user from auth response data.
+  Future<models.User?> _extractUserAndTokens(Map<String, dynamic> data) async {
+    final accessToken = data['accessToken'];
+    final refreshToken = data['refreshToken'];
+    final userRaw = data['user'];
+
+    if (accessToken is! String || refreshToken is! String || userRaw is! Map<String, dynamic>) {
+      throw ApiException(500, 'Invalid auth response format');
+    }
+
+    final userId = userRaw['id'];
+    if (userId is! String) {
+      throw ApiException(500, 'Invalid auth response format');
+    }
+
+    await _client.saveTokens(
+      accessToken: accessToken,
+      refreshToken: refreshToken,
+      userId: userId,
+    );
+
+    return models.User.fromJson(_normalizeUserJson(userRaw));
   }
 
   /// Normalize API user response to match the User model's fromJson expectations.

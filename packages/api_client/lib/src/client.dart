@@ -279,7 +279,14 @@ class ApiClient {
   Future<http.Response> _withAutoRefresh(
     Future<http.Response> Function() request,
   ) async {
-    var response = await request();
+    http.Response response;
+    try {
+      response = await request();
+    } on TimeoutException {
+      throw ApiException(0, 'Request timed out. Please check your connection.');
+    } on SocketException catch (e) {
+      throw ApiException(0, 'Network error: ${e.message}');
+    }
 
     if (response.statusCode == 401 && _accessToken != null) {
       try {
@@ -344,6 +351,9 @@ class ApiClient {
     );
   }
 
+  static const _defaultTimeout = Duration(seconds: 30);
+  static const _uploadTimeout = Duration(seconds: 120);
+
   /// GET request.
   Future<Map<String, dynamic>> get(
     String path, {
@@ -351,7 +361,7 @@ class ApiClient {
   }) async {
     final uri = Uri.parse('$baseUrl$path').replace(queryParameters: queryParams);
     final response = await _withAutoRefresh(
-      () => _http.get(uri, headers: _headers()),
+      () => _http.get(uri, headers: _headers()).timeout(_defaultTimeout),
     );
     return _parseResponse(response);
   }
@@ -366,7 +376,7 @@ class ApiClient {
         Uri.parse('$baseUrl$path'),
         headers: _headers(),
         body: body != null ? jsonEncode(body) : null,
-      ),
+      ).timeout(_defaultTimeout),
     );
     return _parseResponse(response);
   }
@@ -381,7 +391,7 @@ class ApiClient {
         Uri.parse('$baseUrl$path'),
         headers: _headers(),
         body: body != null ? jsonEncode(body) : null,
-      ),
+      ).timeout(_defaultTimeout),
     );
     return _parseResponse(response);
   }
@@ -396,7 +406,7 @@ class ApiClient {
         Uri.parse('$baseUrl$path'),
         headers: _headers(),
         body: body != null ? jsonEncode(body) : null,
-      ),
+      ).timeout(_defaultTimeout),
     );
     return _parseResponse(response);
   }
@@ -411,7 +421,7 @@ class ApiClient {
         Uri.parse('$baseUrl$path'),
         headers: _headers(),
         body: body != null ? jsonEncode(body) : null,
-      ),
+      ).timeout(_defaultTimeout),
     );
     return _parseResponse(response);
   }
@@ -443,7 +453,7 @@ class ApiClient {
         await http.MultipartFile.fromPath(fieldName, file.path),
       );
 
-      final streamedResponse = await request.send();
+      final streamedResponse = await request.send().timeout(_uploadTimeout);
       return http.Response.fromStream(streamedResponse);
     }
 

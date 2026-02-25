@@ -24,16 +24,22 @@ class OfflineQueueEntry {
 
   factory OfflineQueueEntry.fromJson(Map<String, dynamic> json) {
     return OfflineQueueEntry(
-      id: json['id'] as String,
-      userId: json['user_id'] as String,
-      action: OfflineAction.fromJson(json['action'] as String),
-      payload: Map<String, dynamic>.from(json['payload'] as Map),
-      status: OfflineStatus.fromJson(json['status'] as String),
-      createdAt: DateTime.parse(json['created_at'] as String),
+      id: json['id'] as String? ?? '',
+      userId: json['user_id'] as String? ?? '',
+      action: json['action'] != null
+          ? OfflineAction.fromJson(json['action'] as String)
+          : OfflineAction.create_item,
+      payload: json['payload'] is Map
+          ? Map<String, dynamic>.from(json['payload'] as Map)
+          : <String, dynamic>{},
+      status: json['status'] != null
+          ? OfflineStatus.fromJson(json['status'] as String)
+          : OfflineStatus.pending,
+      createdAt: DateTime.tryParse(json['created_at'] as String? ?? '') ?? DateTime.now(),
       syncedAt: json['synced_at'] != null
-          ? DateTime.parse(json['synced_at'] as String)
+          ? DateTime.tryParse(json['synced_at'] as String)
           : null,
-      retryCount: json['retry_count'] as int? ?? 0,
+      retryCount: (json['retry_count'] as num?)?.toInt() ?? 0,
     );
   }
 
@@ -44,6 +50,7 @@ class OfflineQueueEntry {
       'action': action.toJson(),
       'payload': payload,
       'status': status.toJson(),
+      'created_at': createdAt.toIso8601String(),
       'synced_at': syncedAt?.toIso8601String(),
       'retry_count': retryCount,
     };

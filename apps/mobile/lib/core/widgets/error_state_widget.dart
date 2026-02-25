@@ -310,7 +310,7 @@ class AsyncStateBuilder<T> extends StatelessWidget {
       );
     }
 
-    if (!asyncValue.hasData) {
+    if (!asyncValue.hasData || asyncValue.data == null) {
       return ErrorStateWidget(
         message: 'No data available',
         onRetry: onRetry,

@@ -20,13 +20,13 @@ class MaintenanceSchedule {
 
   factory MaintenanceSchedule.fromJson(Map<String, dynamic> json) {
     return MaintenanceSchedule(
-      id: json['id'] as String,
-      category: json['category'] as String,
-      taskName: json['task_name'] as String,
+      id: json['id'] as String? ?? '',
+      category: json['category'] as String? ?? '',
+      taskName: json['task_name'] as String? ?? '',
       description: json['description'] as String?,
-      frequencyMonths: json['frequency_months'] as int,
-      priority: json['priority'] as int? ?? 0,
-      createdAt: DateTime.parse(json['created_at'] as String),
+      frequencyMonths: (json['frequency_months'] as num?)?.toInt() ?? 0,
+      priority: (json['priority'] as num?)?.toInt() ?? 0,
+      createdAt: DateTime.tryParse(json['created_at'] as String? ?? '') ?? DateTime.now(),
     );
   }
 
@@ -75,16 +75,16 @@ class MaintenanceHistory {
 
   factory MaintenanceHistory.fromJson(Map<String, dynamic> json) {
     return MaintenanceHistory(
-      id: json['id'] as String,
-      userId: json['user_id'] as String,
-      itemId: json['item_id'] as String,
+      id: json['id'] as String? ?? '',
+      userId: json['user_id'] as String? ?? '',
+      itemId: json['item_id'] as String? ?? '',
       scheduleId: json['schedule_id'] as String?,
-      taskName: json['task_name'] as String,
-      completedDate: DateTime.parse(json['completed_date'] as String),
+      taskName: json['task_name'] as String? ?? '',
+      completedDate: DateTime.tryParse(json['completed_date'] as String? ?? '') ?? DateTime.now(),
       notes: json['notes'] as String?,
-      durationMinutes: json['duration_minutes'] as int?,
+      durationMinutes: (json['duration_minutes'] as num?)?.toInt(),
       cost: json['cost'] != null ? (json['cost'] as num).toDouble() : null,
-      createdAt: DateTime.parse(json['created_at'] as String),
+      createdAt: DateTime.tryParse(json['created_at'] as String? ?? '') ?? DateTime.now(),
       itemName: json['item_name'] as String?,
       itemBrand: json['item_brand'] as String?,
     );
@@ -134,12 +134,12 @@ class MaintenanceDueTask {
 
   factory MaintenanceDueTask.fromJson(Map<String, dynamic> json) {
     return MaintenanceDueTask(
-      scheduleId: json['schedule_id'] as String,
-      taskName: json['task_name'] as String,
-      nextDue: DateTime.parse(json['next_due'] as String),
+      scheduleId: json['schedule_id'] as String? ?? '',
+      taskName: json['task_name'] as String? ?? '',
+      nextDue: DateTime.tryParse(json['next_due'] as String? ?? '') ?? DateTime.now(),
       isOverdue: json['is_overdue'] as bool? ?? false,
-      daysUntilDue: json['days_until_due'] as int? ?? 0,
-      priority: json['priority'] as int? ?? 0,
+      daysUntilDue: (json['days_until_due'] as num?)?.toInt() ?? 0,
+      priority: (json['priority'] as num?)?.toInt() ?? 0,
     );
   }
 }
@@ -164,14 +164,16 @@ class MaintenanceDueItem {
 
   factory MaintenanceDueItem.fromJson(Map<String, dynamic> json) {
     return MaintenanceDueItem(
-      itemId: json['item_id'] as String,
-      itemName: json['item_name'] as String,
-      category: json['category'] as String,
-      dueCount: json['due_count'] as int,
-      overdueCount: json['overdue_count'] as int,
-      tasks: (json['tasks'] as List)
-          .map((t) => MaintenanceDueTask.fromJson(t as Map<String, dynamic>))
-          .toList(),
+      itemId: json['item_id'] as String? ?? '',
+      itemName: json['item_name'] as String? ?? '',
+      category: json['category'] as String? ?? '',
+      dueCount: (json['due_count'] as num?)?.toInt() ?? 0,
+      overdueCount: (json['overdue_count'] as num?)?.toInt() ?? 0,
+      tasks: json['tasks'] is List
+          ? (json['tasks'] as List)
+              .map((t) => MaintenanceDueTask.fromJson(t as Map<String, dynamic>))
+              .toList()
+          : [],
     );
   }
 }
@@ -190,11 +192,13 @@ class MaintenanceDueSummary {
 
   factory MaintenanceDueSummary.fromJson(Map<String, dynamic> json) {
     return MaintenanceDueSummary(
-      totalDue: json['total_due'] as int? ?? 0,
-      totalOverdue: json['total_overdue'] as int? ?? 0,
-      items: (json['items'] as List)
-          .map((i) => MaintenanceDueItem.fromJson(i as Map<String, dynamic>))
-          .toList(),
+      totalDue: (json['total_due'] as num?)?.toInt() ?? 0,
+      totalOverdue: (json['total_overdue'] as num?)?.toInt() ?? 0,
+      items: json['items'] is List
+          ? (json['items'] as List)
+              .map((i) => MaintenanceDueItem.fromJson(i as Map<String, dynamic>))
+              .toList()
+          : [],
     );
   }
 }

@@ -30,17 +30,19 @@ class ReferralPartner {
 
   factory ReferralPartner.fromJson(Map<String, dynamic> json) {
     return ReferralPartner(
-      id: json['id'] as String,
-      email: json['email'] as String,
-      fullName: json['full_name'] as String,
+      id: json['id'] as String? ?? '',
+      email: json['email'] as String? ?? '',
+      fullName: json['full_name'] as String? ?? '',
       companyName: json['company_name'] as String?,
       phone: json['phone'] as String?,
       avatarUrl: json['avatar_url'] as String?,
-      partnerType: PartnerType.fromJson(json['partner_type'] as String),
-      referralCode: json['referral_code'] as String,
+      partnerType: json['partner_type'] != null
+          ? PartnerType.fromJson(json['partner_type'] as String)
+          : PartnerType.realtor,
+      referralCode: json['referral_code'] as String? ?? '',
       stripeAccountId: json['stripe_account_id'] as String?,
       isActive: json['is_active'] as bool? ?? true,
-      createdAt: DateTime.parse(json['created_at'] as String),
+      createdAt: DateTime.tryParse(json['created_at'] as String? ?? '') ?? DateTime.now(),
     );
   }
 

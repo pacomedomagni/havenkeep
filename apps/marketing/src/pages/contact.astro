@@ -90,6 +90,13 @@ import Footer from '../components/Footer.astro';
                 Send Message
               </button>
 
+              <div id="contact-error" class="hidden text-center py-4">
+                <div class="inline-flex items-center gap-2 text-red-400 font-semibold">
+                  <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd" /></svg>
+                  <span id="contact-error-text">Failed to send message. Opening email client instead...</span>
+                </div>
+              </div>
+
               <div id="contact-success" class="hidden text-center py-4">
                 <div class="inline-flex items-center gap-2 text-accent font-semibold">
                   <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" /></svg>
@@ -187,30 +194,71 @@ import Footer from '../components/Footer.astro';
 
 <script>
   const form = document.getElementById('contact-form') as HTMLFormElement;
-  const submitBtn = document.getElementById('contact-submit');
+  const submitBtn = document.getElementById('contact-submit') as HTMLButtonElement;
   const successMsg = document.getElementById('contact-success');
+  const errorMsg = document.getElementById('contact-error');
 
-  form?.addEventListener('submit', (e) => {
+  form?.addEventListener('submit', async (e) => {
     e.preventDefault();
 
-    const name = (document.getElementById('name') as HTMLInputElement).value;
-    const email = (document.getElementById('email') as HTMLInputElement).value;
+    const name = (document.getElementById('name') as HTMLInputElement).value.trim();
+    const email = (document.getElementById('email') as HTMLInputElement).value.trim();
     const subject = (document.getElementById('subject') as HTMLSelectElement).value;
-    const message = (document.getElementById('message') as HTMLTextAreaElement).value;
+    const message = (document.getElementById('message') as HTMLTextAreaElement).value.trim();
 
-    const body = `Name: ${name}\nEmail: ${email}\n\n${message}`;
-    const mailto = `mailto:hello@havenkeep.com?subject=${encodeURIComponent(subject + ' - ' + name)}&body=${encodeURIComponent(body)}`;
+    // Hide any previous messages
+    errorMsg?.classList.add('hidden');
+    successMsg?.classList.add('hidden');
 
-    window.location.href = mailto;
+    // Disable form while submitting
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Sending...';
+    }
 
-    // Show success state
-    if (submitBtn) submitBtn.classList.add('hidden');
-    successMsg?.classList.remove('hidden');
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000);
 
-    setTimeout(() => {
+      const apiUrl = import.meta.env.PUBLIC_API_URL || 'https://api.havenkeep.kouakoudomagni.com';
+      const response = await fetch(`${apiUrl}/api/v1/contact`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, email, subject, message }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+
+      if (!response.ok) throw new Error('Failed to send message');
+
+      // Show success state
+      if (submitBtn) submitBtn.classList.add('hidden');
+      successMsg?.classList.remove('hidden');
       form.reset();
-      if (submitBtn) submitBtn.classList.remove('hidden');
-      successMsg?.classList.add('hidden');
-    }, 5000);
+
+      setTimeout(() => {
+        if (submitBtn) {
+          submitBtn.classList.remove('hidden');
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Send Message';
+        }
+        successMsg?.classList.add('hidden');
+      }, 5000);
+    } catch {
+      // Show error message, then fallback to mailto
+      errorMsg?.classList.remove('hidden');
+
+      const body = `Name: ${name}\nEmail: ${email}\n\n${message}`;
+      const mailto = `mailto:hello@havenkeep.com?subject=${encodeURIComponent(subject + ' - ' + name)}&body=${encodeURIComponent(body)}`;
+
+      setTimeout(() => {
+        window.location.href = mailto;
+      }, 1500);
+
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Send Message';
+      }
+    }
   });
 </script>

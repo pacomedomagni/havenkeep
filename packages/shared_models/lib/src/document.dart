@@ -28,18 +28,18 @@ class Document {
 
   factory Document.fromJson(Map<String, dynamic> json) {
     return Document(
-      id: json['id'] as String,
-      itemId: json['item_id'] as String,
-      userId: json['user_id'] as String,
+      id: json['id'] as String? ?? '',
+      itemId: json['item_id'] as String? ?? '',
+      userId: json['user_id'] as String? ?? '',
       type: json['type'] != null
           ? DocumentType.fromJson(json['type'] as String)
           : DocumentType.other,
-      fileUrl: json['file_url'] as String,
-      fileName: json['file_name'] as String,
-      fileSize: json['file_size'] as int? ?? 0,
+      fileUrl: json['file_url'] as String? ?? '',
+      fileName: json['file_name'] as String? ?? '',
+      fileSize: (json['file_size'] as num?)?.toInt() ?? 0,
       mimeType: json['mime_type'] as String? ?? 'application/octet-stream',
       thumbnailUrl: json['thumbnail_url'] as String?,
-      createdAt: DateTime.parse(json['created_at'] as String),
+      createdAt: DateTime.tryParse(json['created_at'] as String? ?? '') ?? DateTime.now(),
     );
   }
 

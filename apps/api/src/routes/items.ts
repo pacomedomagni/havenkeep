@@ -279,7 +279,7 @@ router.put('/:id', validate(uuidParamSchema, 'params'), validate(updateItemSchem
     // Recalculate warranty_end_date when warrantyMonths or purchaseDate changes
     if (updates.warrantyMonths !== undefined || updates.purchaseDate !== undefined) {
       // BE-28: If purchaseDate is explicitly set to null/empty, also clear warranty_end_date
-      if (updates.purchaseDate === null || updates.purchaseDate === '' || updates.purchaseDate === undefined && updates.warrantyMonths !== undefined) {
+      if (updates.purchaseDate === null || updates.purchaseDate === '' || (updates.purchaseDate === undefined && updates.warrantyMonths !== undefined)) {
         // Only clear if purchaseDate is explicitly null/empty
         if (updates.purchaseDate === null || updates.purchaseDate === '') {
           fields.push(`warranty_end_date = $${paramCount}`);
@@ -345,7 +345,11 @@ router.put('/:id', validate(uuidParamSchema, 'params'), validate(updateItemSchem
     //   (is_archived = FALSE AND archived_at IS NULL) OR (is_archived = TRUE AND archived_at IS NOT NULL)
     // which is being added in the migration.
     if (updates.isArchived !== undefined) {
-      fields.push(`archived_at = ${updates.isArchived ? 'NOW()' : 'NULL'}`);
+      if (updates.isArchived) {
+        fields.push('archived_at = NOW()');
+      } else {
+        fields.push('archived_at = NULL');
+      }
     }
 
     values.push(id, req.user!.id);

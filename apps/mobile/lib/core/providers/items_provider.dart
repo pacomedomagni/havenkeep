@@ -250,7 +250,7 @@ final activeItemCountProvider = Provider<AsyncValue<int>>((ref) {
 
 /// Whether the user has hit the free plan item limit.
 final isAtItemLimitProvider = Provider<AsyncValue<bool>>((ref) {
-  final user = ref.watch(currentUserProvider).value;
+  final user = ref.watch(currentUserProvider).valueOrNull;
   if (user == null || user.plan == UserPlan.premium) {
     return const AsyncValue.data(false);
   }

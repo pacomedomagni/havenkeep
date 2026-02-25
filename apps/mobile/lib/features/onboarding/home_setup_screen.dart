@@ -33,7 +33,7 @@ class _HomeSetupScreenState extends ConsumerState<HomeSetupScreen> {
   }
 
   Future<void> _startSetup() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (_formKey.currentState?.validate() != true) return;
 
     setState(() => _isLoading = true);
     try {

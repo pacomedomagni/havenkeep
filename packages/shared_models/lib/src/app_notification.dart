@@ -34,24 +34,26 @@ class AppNotification {
 
   factory AppNotification.fromJson(Map<String, dynamic> json) {
     return AppNotification(
-      id: json['id'] as String,
-      userId: json['user_id'] as String,
+      id: json['id'] as String? ?? '',
+      userId: json['user_id'] as String? ?? '',
       itemId: json['item_id'] as String?,
-      type: NotificationType.fromJson(json['type'] as String),
-      title: json['title'] as String,
-      body: json['body'] as String,
+      type: json['type'] != null
+          ? NotificationType.fromJson(json['type'] as String)
+          : NotificationType.warranty_expiring,
+      title: json['title'] as String? ?? '',
+      body: json['body'] as String? ?? '',
       isRead: json['is_read'] as bool? ?? false,
       actionType: json['action_type'] != null
           ? NotificationAction.fromJson(json['action_type'] as String)
           : null,
-      actionData: json['action_data'] != null
+      actionData: json['action_data'] != null && json['action_data'] is Map
           ? Map<String, dynamic>.from(json['action_data'] as Map)
           : null,
-      scheduledAt: DateTime.parse(json['scheduled_at'] as String),
+      scheduledAt: DateTime.tryParse(json['scheduled_at'] as String? ?? '') ?? DateTime.now(),
       sentAt: json['sent_at'] != null
-          ? DateTime.parse(json['sent_at'] as String)
+          ? DateTime.tryParse(json['sent_at'] as String)
           : null,
-      createdAt: DateTime.parse(json['created_at'] as String),
+      createdAt: DateTime.tryParse(json['created_at'] as String? ?? '') ?? DateTime.now(),
     );
   }
 

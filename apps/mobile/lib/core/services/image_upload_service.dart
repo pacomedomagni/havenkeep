@@ -28,14 +28,16 @@ class ImageUploadService {
     LoggingService.debug('Validating profile photo upload', {
       'userId': userId,
       'filePath': imageFile.path,
-      'fileSize': await imageFile.length(),
     });
 
-    await FileValidator.validateImage(imageFile);
+    try {
+      await FileValidator.validateImage(imageFile);
+    } catch (e) {
+      throw Exception('Invalid image file: $e');
+    }
 
     LoggingService.info('Profile photo validated, uploading', {
       'userId': userId,
-      'fileSize': FileValidator.formatFileSize(await imageFile.length()),
     });
 
     final client = _ref.read(apiClientProvider);
@@ -69,14 +71,16 @@ class ImageUploadService {
     LoggingService.debug('Validating item image upload', {
       'itemId': itemId,
       'filePath': imageFile.path,
-      'fileSize': await imageFile.length(),
     });
 
-    await FileValidator.validateImage(imageFile);
+    try {
+      await FileValidator.validateImage(imageFile);
+    } catch (e) {
+      throw Exception('Invalid image file: $e');
+    }
 
     LoggingService.info('Item image validated, uploading', {
       'itemId': itemId,
-      'fileSize': FileValidator.formatFileSize(await imageFile.length()),
     });
 
     final client = _ref.read(apiClientProvider);

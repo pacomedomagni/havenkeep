@@ -114,8 +114,8 @@ const initializeRateLimiter = async () => {
         },
       });
     } catch (error) {
-      logger.error('Failed to initialize Redis rate limiter in production', error);
-      throw new Error('Redis is required for rate limiting in production');
+      logger.error('Failed to initialize Redis rate limiter, falling back to memory store', error);
+      return createMemoryRateLimiter();
     }
   } else {
     // Use memory store for development

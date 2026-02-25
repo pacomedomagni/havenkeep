@@ -30,18 +30,22 @@ class AffiliateConversion {
 
   factory AffiliateConversion.fromJson(Map<String, dynamic> json) {
     return AffiliateConversion(
-      id: json['id'] as String,
-      userId: json['user_id'] as String,
+      id: json['id'] as String? ?? '',
+      userId: json['user_id'] as String? ?? '',
       itemId: json['item_id'] as String?,
       partnerId: json['partner_id'] as String?,
-      type: ConversionType.fromJson(json['type'] as String),
-      provider: json['provider'] as String,
+      type: json['type'] != null
+          ? ConversionType.fromJson(json['type'] as String)
+          : ConversionType.extended_warranty,
+      provider: json['provider'] as String? ?? '',
       revenue: (json['revenue'] as num?)?.toDouble() ?? 0.0,
       commission: (json['commission'] as num?)?.toDouble() ?? 0.0,
       partnerCommission:
           (json['partner_commission'] as num?)?.toDouble() ?? 0.0,
-      status: ConversionStatus.fromJson(json['status'] as String),
-      createdAt: DateTime.parse(json['created_at'] as String),
+      status: json['status'] != null
+          ? ConversionStatus.fromJson(json['status'] as String)
+          : ConversionStatus.pending,
+      createdAt: DateTime.tryParse(json['created_at'] as String? ?? '') ?? DateTime.now(),
     );
   }
 
