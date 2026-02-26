@@ -18,7 +18,7 @@ function decodeJwtPayload(
 
 function isTokenExpired(token: string): boolean {
   const payload = decodeJwtPayload(token)
-  if (!payload) return true
+  if (!payload || !payload.exp) return true
   // Consider expired 30 seconds early to avoid edge cases
   return payload.exp * 1000 < Date.now() + 30000
 }
@@ -98,6 +98,17 @@ export async function middleware(request: NextRequest) {
             path: '/',
             maxAge: 60 * 60,
           })
+
+          // Store the rotated refresh token (API uses token rotation)
+          if (data.refreshToken) {
+            response.cookies.set(REFRESH_TOKEN_COOKIE, data.refreshToken, {
+              httpOnly: true,
+              secure: isProduction,
+              sameSite: 'lax',
+              path: '/',
+              maxAge: 60 * 60 * 24 * 7,
+            })
+          }
         } else {
           if (isPublicRoute) return NextResponse.next()
           return redirectToLogin(request)

@@ -113,16 +113,14 @@ export default async function PartnerDetailPage({ params }: { params: Promise<{ 
             <h3 className="text-lg font-semibold text-white mb-4">Status</h3>
             <div className="flex items-center gap-3">
               <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold ${
-                partner.status === 'active'
+                partner.is_active
                   ? 'bg-green-500/20 text-green-400'
-                  : partner.status === 'pending'
-                  ? 'bg-yellow-500/20 text-yellow-400'
-                  : 'bg-haven-elevated text-haven-text-secondary'
+                  : 'bg-yellow-500/20 text-yellow-400'
               }`}>
-                {partner.status}
+                {partner.is_active ? 'active' : 'pending'}
               </span>
             </div>
-            {partner.status === 'pending' && (
+            {!partner.is_active && (
               <div className="mt-4">
                 <PartnerActions partnerId={partner.id} />
               </div>
@@ -132,12 +130,12 @@ export default async function PartnerDetailPage({ params }: { params: Promise<{ 
           <div className="card">
             <h3 className="text-lg font-semibold text-white mb-4">Stripe Integration</h3>
             <div className="flex items-center gap-3">
-              {partner.stripe_account_id ? (
+              {partner.stripe_connect_id ? (
                 <>
                   <span className="inline-flex h-3 w-3 rounded-full bg-green-400" />
                   <span className="text-white">Connected</span>
                   <span className="text-haven-text-tertiary text-sm font-mono ml-2">
-                    {partner.stripe_account_id}
+                    {partner.stripe_connect_id}
                   </span>
                 </>
               ) : (
@@ -154,19 +152,19 @@ export default async function PartnerDetailPage({ params }: { params: Promise<{ 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <StatsCard
             title="Total Gifts"
-            value={Number(partner.total_gifts || 0).toLocaleString()}
+            value={Number(partner.gift_count || 0).toLocaleString()}
             icon={<GiftIcon className="h-6 w-6 text-haven-primary" />}
           />
 
           <StatsCard
             title="Total Referrals"
-            value={Number(partner.total_referrals || 0).toLocaleString()}
+            value={Number(partner.referral_count || 0).toLocaleString()}
             icon={<UserGroupIcon className="h-6 w-6 text-haven-primary" />}
           />
 
           <StatsCard
             title="Total Commissions"
-            value={`$${Number(partner.total_commissions || 0).toLocaleString()}`}
+            value={`$${Number(partner.total_paid_amount || 0).toLocaleString()}`}
             icon={<CurrencyDollarIcon className="h-6 w-6 text-haven-primary" />}
           />
         </div>

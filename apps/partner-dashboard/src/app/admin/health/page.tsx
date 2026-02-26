@@ -100,24 +100,25 @@ export default async function HealthPage() {
     )
   }
 
+  const svcData = health.services ?? {}
   const services = [
     {
       name: 'Database',
       key: 'database',
       icon: <CircleStackIcon className="h-8 w-8" />,
-      data: health.services?.database,
+      data: svcData.database,
     },
     {
       name: 'Redis',
       key: 'redis',
       icon: <CpuChipIcon className="h-8 w-8" />,
-      data: health.services?.redis,
+      data: svcData.redis,
     },
     {
       name: 'MinIO (File Storage)',
       key: 'minio',
       icon: <ServerIcon className="h-8 w-8" />,
-      data: health.services?.minio,
+      data: svcData.minio,
     },
   ]
 

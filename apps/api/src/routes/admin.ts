@@ -344,7 +344,7 @@ router.get('/partners/pending', async (req, res, next) => {
 });
 
 // Approve a partner (set is_active = true)
-router.put('/partners/:id/approve', async (req, res, next) => {
+router.put('/partners/:id/approve', validate(userIdParamSchema, 'params'), async (req, res, next) => {
   try {
     const { id } = req.params;
 
@@ -377,7 +377,7 @@ router.put('/partners/:id/approve', async (req, res, next) => {
 });
 
 // Reject a partner (set is_active = false)
-router.put('/partners/:id/reject', async (req, res, next) => {
+router.put('/partners/:id/reject', validate(userIdParamSchema, 'params'), async (req, res, next) => {
   try {
     const { id } = req.params;
 
@@ -492,7 +492,7 @@ router.get('/partners', validate(paginationSchema, 'query'), async (req, res, ne
 });
 
 // Single partner detail with commission stats, gift count, referral count
-router.get('/partners/:id', async (req, res, next) => {
+router.get('/partners/:id', validate(userIdParamSchema, 'params'), async (req, res, next) => {
   try {
     const { id } = req.params;
 
@@ -551,11 +551,19 @@ router.get('/commissions', validate(paginationSchema, 'query'), async (req, res,
     let paramIndex = 1;
 
     if (req.query.status) {
+      const validStatuses = ['pending', 'approved', 'paid', 'cancelled'];
+      if (!validStatuses.includes(req.query.status as string)) {
+        throw new AppError('Invalid status. Must be one of: pending, approved, paid, cancelled', 400);
+      }
       conditions.push(`pc.status = $${paramIndex++}`);
       params.push(req.query.status);
     }
 
     if (req.query.partner_id) {
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!uuidRegex.test(req.query.partner_id as string)) {
+        throw new AppError('Invalid partner_id format', 400);
+      }
       conditions.push(`pc.partner_id = $${paramIndex++}`);
       params.push(req.query.partner_id);
     }
@@ -618,12 +626,6 @@ router.get('/commissions/stats', async (req, res, next) => {
         COUNT(*) FILTER (WHERE status = 'cancelled')::int AS count_cancelled
       FROM partner_commissions
     `);
-
-    await AuditService.logFromRequest(req, 'admin.settings_change', {
-      severity: 'info',
-      resourceType: 'commission',
-      description: 'Admin viewed commission stats',
-    });
 
     res.json(result.rows[0]);
   } catch (error) {

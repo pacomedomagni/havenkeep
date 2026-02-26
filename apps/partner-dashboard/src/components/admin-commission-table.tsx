@@ -34,6 +34,8 @@ export default function AdminCommissionTable({ commissions: initialCommissions }
   })
 
   const handleApprove = async (commissionId: string) => {
+    if (!confirm('Are you sure you want to approve this commission?')) return
+
     setLoadingAction(commissionId)
     try {
       await apiClient(`/api/v1/partners/admin/commissions/${commissionId}/approve`, {
@@ -51,6 +53,8 @@ export default function AdminCommissionTable({ commissions: initialCommissions }
   }
 
   const handlePay = async (commissionId: string) => {
+    if (!confirm('Are you sure you want to mark this commission as paid?')) return
+
     setLoadingAction(commissionId)
     try {
       await apiClient(`/api/v1/partners/admin/commissions/${commissionId}/pay`, {
