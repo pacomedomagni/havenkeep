@@ -409,4 +409,226 @@ router.put('/partners/:id/reject', async (req, res, next) => {
   }
 });
 
+// ========== PARTNER & COMMISSION ADMIN ENDPOINTS ==========
+
+// Paginated list of ALL partners with user info and aggregate counts
+router.get('/partners', validate(paginationSchema, 'query'), async (req, res, next) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page as string, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string, 10) || 20));
+    const offset = (page - 1) * limit;
+
+    const conditions: string[] = [];
+    const params: any[] = [];
+    let paramIndex = 1;
+
+    if (req.query.is_active !== undefined) {
+      const isActive = req.query.is_active === 'true';
+      conditions.push(`p.is_active = $${paramIndex++}`);
+      params.push(isActive);
+    }
+
+    if (req.query.partner_type) {
+      conditions.push(`p.partner_type = $${paramIndex++}`);
+      params.push(req.query.partner_type);
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const [result, countResult] = await Promise.all([
+      query(
+        `SELECT
+          p.id,
+          p.user_id,
+          p.company_name,
+          p.partner_type,
+          p.phone,
+          p.license_number,
+          p.service_areas,
+          p.brand_color,
+          p.logo_url,
+          p.stripe_connect_id,
+          p.stripe_onboarded,
+          p.referral_code,
+          p.is_active,
+          p.created_at,
+          p.updated_at,
+          u.email,
+          u.full_name,
+          COALESCE(SUM(pc.amount), 0)::numeric AS total_commissions_earned,
+          COUNT(DISTINCT pg.id)::int AS total_gifts,
+          COUNT(DISTINCT pr.id)::int AS total_referrals
+        FROM partners p
+        JOIN users u ON u.id = p.user_id
+        LEFT JOIN partner_commissions pc ON pc.partner_id = p.id
+        LEFT JOIN partner_gifts pg ON pg.partner_id = p.id
+        LEFT JOIN partner_referrals pr ON pr.partner_id = p.id
+        ${whereClause}
+        GROUP BY p.id, u.email, u.full_name
+        ORDER BY p.created_at DESC
+        LIMIT $${paramIndex++} OFFSET $${paramIndex++}`,
+        [...params, limit, offset]
+      ),
+      query(
+        `SELECT COUNT(*) FROM partners p ${whereClause}`,
+        params
+      ),
+    ]);
+
+    const total = parseInt(countResult.rows[0].count, 10);
+
+    res.json({
+      partners: result.rows,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Single partner detail with commission stats, gift count, referral count
+router.get('/partners/:id', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const result = await query(
+      `SELECT
+        p.id,
+        p.user_id,
+        p.company_name,
+        p.partner_type,
+        p.phone,
+        p.license_number,
+        p.service_areas,
+        p.brand_color,
+        p.logo_url,
+        p.stripe_connect_id,
+        p.stripe_onboarded,
+        p.referral_code,
+        p.is_active,
+        p.created_at,
+        p.updated_at,
+        u.email,
+        u.full_name,
+        COALESCE(SUM(pc.amount) FILTER (WHERE pc.status = 'pending'), 0)::numeric AS total_pending_amount,
+        COALESCE(SUM(pc.amount) FILTER (WHERE pc.status = 'paid'), 0)::numeric AS total_paid_amount,
+        COUNT(DISTINCT pg.id)::int AS gift_count,
+        COUNT(DISTINCT pr.id)::int AS referral_count
+      FROM partners p
+      JOIN users u ON u.id = p.user_id
+      LEFT JOIN partner_commissions pc ON pc.partner_id = p.id
+      LEFT JOIN partner_gifts pg ON pg.partner_id = p.id
+      LEFT JOIN partner_referrals pr ON pr.partner_id = p.id
+      WHERE p.id = $1
+      GROUP BY p.id, u.email, u.full_name`,
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      throw new AppError('Partner not found', 404);
+    }
+
+    res.json({ partner: result.rows[0] });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// All commissions across all partners, paginated
+router.get('/commissions', validate(paginationSchema, 'query'), async (req, res, next) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page as string, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string, 10) || 20));
+    const offset = (page - 1) * limit;
+
+    const conditions: string[] = [];
+    const params: any[] = [];
+    let paramIndex = 1;
+
+    if (req.query.status) {
+      conditions.push(`pc.status = $${paramIndex++}`);
+      params.push(req.query.status);
+    }
+
+    if (req.query.partner_id) {
+      conditions.push(`pc.partner_id = $${paramIndex++}`);
+      params.push(req.query.partner_id);
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const [result, countResult] = await Promise.all([
+      query(
+        `SELECT
+          pc.id,
+          pc.partner_id,
+          pc.referral_id,
+          pc.amount,
+          pc.status,
+          pc.created_at,
+          p.company_name,
+          u.email
+        FROM partner_commissions pc
+        JOIN partners p ON p.id = pc.partner_id
+        JOIN users u ON u.id = p.user_id
+        ${whereClause}
+        ORDER BY pc.created_at DESC
+        LIMIT $${paramIndex++} OFFSET $${paramIndex++}`,
+        [...params, limit, offset]
+      ),
+      query(
+        `SELECT COUNT(*) FROM partner_commissions pc ${whereClause}`,
+        params
+      ),
+    ]);
+
+    const total = parseInt(countResult.rows[0].count, 10);
+
+    res.json({
+      commissions: result.rows,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Aggregate commission stats across all partners
+router.get('/commissions/stats', async (req, res, next) => {
+  try {
+    const result = await query(`
+      SELECT
+        COALESCE(SUM(amount) FILTER (WHERE status = 'pending'), 0)::numeric AS total_pending_amount,
+        COALESCE(SUM(amount) FILTER (WHERE status = 'approved'), 0)::numeric AS total_approved_amount,
+        COALESCE(SUM(amount) FILTER (WHERE status = 'paid'), 0)::numeric AS total_paid_amount,
+        COALESCE(SUM(amount) FILTER (WHERE status = 'cancelled'), 0)::numeric AS total_cancelled_amount,
+        COUNT(*) FILTER (WHERE status = 'pending')::int AS count_pending,
+        COUNT(*) FILTER (WHERE status = 'approved')::int AS count_approved,
+        COUNT(*) FILTER (WHERE status = 'paid')::int AS count_paid,
+        COUNT(*) FILTER (WHERE status = 'cancelled')::int AS count_cancelled
+      FROM partner_commissions
+    `);
+
+    await AuditService.logFromRequest(req, 'admin.settings_change', {
+      severity: 'info',
+      resourceType: 'commission',
+      description: 'Admin viewed commission stats',
+    });
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    next(error);
+  }
+});
+
 export default router;

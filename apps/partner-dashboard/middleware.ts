@@ -4,7 +4,9 @@ const API_URL = process.env.API_URL || 'http://localhost:3000'
 const ACCESS_TOKEN_COOKIE = 'hk_access_token'
 const REFRESH_TOKEN_COOKIE = 'hk_refresh_token'
 
-function decodeJwtPayload(token: string): { userId: string; email: string; exp: number } | null {
+function decodeJwtPayload(
+  token: string
+): { userId: string; email: string; exp: number; isAdmin?: boolean; isPartner?: boolean } | null {
   try {
     const parts = token.split('.')
     if (parts.length !== 3) return null
@@ -28,6 +30,12 @@ function redirectToLogin(request: NextRequest): NextResponse {
   return response
 }
 
+function getRoleRedirect(payload: { isAdmin?: boolean; isPartner?: boolean }): string | null {
+  if (payload.isAdmin) return '/admin'
+  if (payload.isPartner) return '/dashboard'
+  return null
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
@@ -35,7 +43,15 @@ export async function middleware(request: NextRequest) {
   if (pathname === '/') {
     const accessToken = request.cookies.get(ACCESS_TOKEN_COOKIE)?.value
     if (accessToken && !isTokenExpired(accessToken)) {
-      return NextResponse.redirect(new URL('/dashboard', request.url))
+      const payload = decodeJwtPayload(accessToken)
+      if (payload) {
+        const dest = getRoleRedirect(payload)
+        if (dest) {
+          return NextResponse.redirect(new URL(dest, request.url))
+        }
+      }
+      // Old JWT without role claims — force re-login
+      return redirectToLogin(request)
     }
     return NextResponse.redirect(new URL('/login', request.url))
   }
@@ -96,15 +112,34 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  // Has valid token on public route — redirect to dashboard
-  if (isPublicRoute && currentAccessToken) {
-    return NextResponse.redirect(new URL('/dashboard', request.url))
-  }
-
-  // Decode token for admin check
+  // Decode token for role-based routing
   const payload = currentAccessToken ? decodeJwtPayload(currentAccessToken) : null
   if (!payload) {
     return redirectToLogin(request)
+  }
+
+  // Handle old JWTs without role claims — force re-login
+  if (!payload.isAdmin && !payload.isPartner) {
+    if (isPublicRoute) return NextResponse.next()
+    return redirectToLogin(request)
+  }
+
+  // Has valid token on public route — redirect based on role
+  if (isPublicRoute && currentAccessToken) {
+    const dest = getRoleRedirect(payload)
+    if (dest) {
+      return NextResponse.redirect(new URL(dest, request.url))
+    }
+    return redirectToLogin(request)
+  }
+
+  // Route protection: /admin requires isAdmin, /dashboard requires isPartner
+  if (pathname.startsWith('/admin') && payload.isAdmin !== true) {
+    return NextResponse.redirect(new URL('/unauthorized', request.url))
+  }
+
+  if (pathname.startsWith('/dashboard') && payload.isPartner !== true) {
+    return NextResponse.redirect(new URL('/unauthorized', request.url))
   }
 
   return response

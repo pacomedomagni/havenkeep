@@ -111,7 +111,7 @@ router.post('/register', authRateLimiter, validate(registerSchema), async (req, 
 
     // Generate tokens
     const accessToken = jwt.sign(
-      { userId: user.id, email: user.email },
+      { userId: user.id, email: user.email, isAdmin: user.is_admin || false, isPartner: false },
       config.jwt.secret,
       { expiresIn: config.jwt.expiresIn }
     );
@@ -245,7 +245,7 @@ router.post('/login', authRateLimiter, validate(loginSchema), async (req, res, n
 
     // Generate tokens
     const accessToken = jwt.sign(
-      { userId: user.id, email: user.email },
+      { userId: user.id, email: user.email, isAdmin: user.is_admin || false, isPartner: user.is_partner || false },
       config.jwt.secret,
       { expiresIn: config.jwt.expiresIn }
     );
@@ -360,9 +360,11 @@ router.post('/refresh', refreshRateLimiter, validate(refreshTokenSchema), async 
       throw new AppError('Invalid refresh token', 401);
     }
 
-    // Get user
+    // Get user (include role fields for JWT claims)
     const userResult = await query(
-      `SELECT id, email FROM users WHERE id = $1`,
+      `SELECT u.id, u.email, u.is_admin,
+              (EXISTS(SELECT 1 FROM partners p WHERE p.user_id = u.id AND p.is_active = TRUE)) as is_partner
+       FROM users u WHERE u.id = $1`,
       [decoded.userId]
     );
 
@@ -385,7 +387,7 @@ router.post('/refresh', refreshRateLimiter, validate(refreshTokenSchema), async 
 
     // Generate new access token
     const accessToken = jwt.sign(
-      { userId: user.id, email: user.email },
+      { userId: user.id, email: user.email, isAdmin: user.is_admin || false, isPartner: user.is_partner || false },
       config.jwt.secret,
       { expiresIn: config.jwt.expiresIn }
     );
@@ -776,7 +778,7 @@ router.post('/google', authRateLimiter, validate(googleOAuthSchema), async (req,
 
     // Generate tokens
     const accessToken = jwt.sign(
-      { userId: user.id, email: user.email },
+      { userId: user.id, email: user.email, isAdmin: user.is_admin || false, isPartner: user.is_partner ?? false },
       config.jwt.secret,
       { expiresIn: config.jwt.expiresIn }
     );
@@ -981,7 +983,7 @@ router.post('/apple', authRateLimiter, validate(appleOAuthSchema), async (req, r
 
     // Generate tokens
     const accessToken = jwt.sign(
-      { userId: user.id, email: user.email },
+      { userId: user.id, email: user.email, isAdmin: user.is_admin || false, isPartner: user.is_partner ?? false },
       config.jwt.secret,
       { expiresIn: config.jwt.expiresIn }
     );
