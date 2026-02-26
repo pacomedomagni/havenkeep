@@ -7,11 +7,15 @@ import 'package:shared_models/shared_models.dart';
 import 'package:shared_ui/shared_ui.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../core/database/database.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/providers/homes_provider.dart';
 import '../../core/providers/items_provider.dart';
 import '../../core/router/router.dart';
+import '../../core/services/biometric_service.dart';
 import '../../core/services/csv_export_service.dart';
+import '../../core/services/offline_sync_service.dart';
+import '../../core/services/secure_storage_service.dart';
 
 /// Reads the app version + build number from the package metadata.
 final appVersionProvider = FutureProvider<String>((ref) async {
@@ -19,12 +23,55 @@ final appVersionProvider = FutureProvider<String>((ref) async {
   return '${info.version} (${info.buildNumber})';
 });
 
+/// Counts of pending offline sync queue entries.
+final pendingSyncCountProvider = FutureProvider<int>((ref) async {
+  final db = ref.read(localDatabaseProvider);
+  return db.pendingCount;
+});
+
+/// Counts of failed offline sync queue entries.
+final failedSyncCountProvider = FutureProvider<int>((ref) async {
+  final db = ref.read(localDatabaseProvider);
+  return db.failedCount;
+});
+
+/// Failed offline queue entries for display.
+final failedSyncItemsProvider = FutureProvider<List<OfflineQueueData>>((ref) async {
+  final db = ref.read(localDatabaseProvider);
+  return db.getFailedActions();
+});
+
 /// Profile & Settings screen (Screen 7.1).
-class SettingsScreen extends ConsumerWidget {
+class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends ConsumerState<SettingsScreen> {
+  bool _biometricsAvailable = false;
+  bool _biometricEnabled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadBiometricState();
+  }
+
+  Future<void> _loadBiometricState() async {
+    final available = await BiometricService.isAvailable();
+    final enabled = await SecureStorageService.isBiometricEnabled();
+    if (mounted) {
+      setState(() {
+        _biometricsAvailable = available;
+        _biometricEnabled = enabled;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final user = ref.watch(currentUserProvider);
     final home = ref.watch(currentHomeProvider);
     final archivedAsync = ref.watch(archivedItemsProvider);
@@ -195,6 +242,9 @@ class SettingsScreen extends ConsumerWidget {
 
           const SizedBox(height: HavenSpacing.lg),
 
+          // PENDING CHANGES section — offline sync queue status
+          _PendingChangesSection(),
+
           // PLAN section
           const SectionHeader(title: 'PLAN'),
           const SizedBox(height: HavenSpacing.sm),
@@ -263,6 +313,59 @@ class SettingsScreen extends ConsumerWidget {
             loading: () => const SizedBox.shrink(),
             error: (_, __) => const SizedBox.shrink(),
           ),
+
+          // Biometric unlock toggle – only visible when the device supports it
+          if (_biometricsAvailable)
+            Padding(
+              padding: const EdgeInsets.only(bottom: HavenSpacing.xs),
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: HavenSpacing.md,
+                  vertical: HavenSpacing.xs,
+                ),
+                decoration: BoxDecoration(
+                  color: HavenColors.surface,
+                  borderRadius: BorderRadius.circular(HavenRadius.card),
+                  border: Border.all(color: HavenColors.border),
+                ),
+                child: SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  secondary: const Icon(
+                    Icons.fingerprint,
+                    color: HavenColors.textSecondary,
+                    size: 22,
+                  ),
+                  title: const Text(
+                    'Biometric Unlock',
+                    style: TextStyle(
+                      fontSize: 15,
+                      color: HavenColors.textPrimary,
+                    ),
+                  ),
+                  subtitle: const Text(
+                    'Use fingerprint or face to unlock',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: HavenColors.textTertiary,
+                    ),
+                  ),
+                  value: _biometricEnabled,
+                  activeColor: HavenColors.primary,
+                  onChanged: (value) async {
+                    if (value) {
+                      // Require biometric verification before enabling
+                      final authenticated =
+                          await BiometricService.authenticate();
+                      if (!authenticated) return;
+                    }
+                    await SecureStorageService.setBiometricEnabled(value);
+                    if (mounted) {
+                      setState(() => _biometricEnabled = value);
+                    }
+                  },
+                ),
+              ),
+            ),
 
           _SettingsTile(
             icon: Icons.delete_outline,
@@ -481,6 +584,174 @@ class _SettingsTile extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Displays pending/failed offline sync queue items with a "Retry All" button.
+/// Only renders when there are pending or failed items.
+class _PendingChangesSection extends ConsumerWidget {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final pendingAsync = ref.watch(pendingSyncCountProvider);
+    final failedAsync = ref.watch(failedSyncCountProvider);
+    final failedItemsAsync = ref.watch(failedSyncItemsProvider);
+
+    final pendingCount = pendingAsync.valueOrNull ?? 0;
+    final failedCount = failedAsync.valueOrNull ?? 0;
+
+    // Hide the section entirely when there is nothing to show
+    if (pendingCount == 0 && failedCount == 0) {
+      return const SizedBox.shrink();
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SectionHeader(title: 'PENDING CHANGES'),
+        const SizedBox(height: HavenSpacing.sm),
+
+        // Summary tile
+        Container(
+          padding: const EdgeInsets.all(HavenSpacing.md),
+          decoration: BoxDecoration(
+            color: failedCount > 0
+                ? HavenColors.expired.withOpacity(0.08)
+                : HavenColors.surface,
+            borderRadius: BorderRadius.circular(HavenRadius.card),
+            border: Border.all(
+              color: failedCount > 0
+                  ? HavenColors.expired.withOpacity(0.3)
+                  : HavenColors.border,
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                failedCount > 0
+                    ? Icons.cloud_off_outlined
+                    : Icons.cloud_sync_outlined,
+                color: failedCount > 0
+                    ? HavenColors.expired
+                    : HavenColors.textSecondary,
+                size: 22,
+              ),
+              const SizedBox(width: HavenSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '$pendingCount pending, $failedCount failed',
+                      style: const TextStyle(
+                        fontSize: 15,
+                        color: HavenColors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      failedCount > 0
+                          ? 'Some changes could not be synced'
+                          : 'Changes waiting to sync',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: HavenColors.textTertiary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        // Failed items list + Retry All button
+        if (failedCount > 0) ...[
+          const SizedBox(height: HavenSpacing.sm),
+
+          failedItemsAsync.when(
+            data: (failedItems) => Column(
+              children: [
+                ...failedItems.map(
+                  (item) => Padding(
+                    padding: const EdgeInsets.only(bottom: HavenSpacing.xs),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: HavenSpacing.md,
+                        vertical: HavenSpacing.sm,
+                      ),
+                      decoration: BoxDecoration(
+                        color: HavenColors.surface,
+                        borderRadius:
+                            BorderRadius.circular(HavenRadius.card),
+                        border: Border.all(color: HavenColors.border),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.error_outline,
+                            color: HavenColors.expired,
+                            size: 18,
+                          ),
+                          const SizedBox(width: HavenSpacing.sm),
+                          Expanded(
+                            child: Text(
+                              '${item.action} ${item.entityType} (${item.attempts} attempts)',
+                              style: const TextStyle(
+                                fontSize: 13,
+                                color: HavenColors.textSecondary,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: HavenSpacing.sm),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    icon: const Icon(Icons.refresh, size: 18),
+                    label: const Text('Retry All'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: HavenColors.primary,
+                      side: const BorderSide(color: HavenColors.primary),
+                    ),
+                    onPressed: () async {
+                      final db = ref.read(localDatabaseProvider);
+                      await db.retryAllFailedActions();
+                      // Trigger a sync pass
+                      ref.read(offlineSyncServiceProvider).syncPendingChanges();
+                      // Refresh the counts
+                      ref.invalidate(pendingSyncCountProvider);
+                      ref.invalidate(failedSyncCountProvider);
+                      ref.invalidate(failedSyncItemsProvider);
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Retrying failed changes...'),
+                          ),
+                        );
+                      }
+                    },
+                  ),
+                ),
+              ],
+            ),
+            loading: () => const Center(
+              child: Padding(
+                padding: EdgeInsets.all(HavenSpacing.md),
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
+            error: (_, __) => const SizedBox.shrink(),
+          ),
+        ],
+
+        const SizedBox(height: HavenSpacing.lg),
+      ],
     );
   }
 }

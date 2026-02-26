@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { pool } from '../db';
 import { logger } from '../utils/logger';
 import { AppError } from '../utils/errors';
@@ -276,6 +277,7 @@ export class PartnersService {
       default_message?: string;
       default_premium_months?: number;
       service_areas?: string[];
+      license_number?: string | null;
     }
   ): Promise<Partner> {
     const client = await pool.connect();
@@ -322,6 +324,10 @@ export class PartnersService {
       if (data.service_areas !== undefined) {
         updates.push(`service_areas = $${paramIndex++}`);
         values.push(data.service_areas);
+      }
+      if (data.license_number !== undefined) {
+        updates.push(`license_number = $${paramIndex++}`);
+        values.push(data.license_number || null);
       }
 
       if (updates.length === 0) {
@@ -407,7 +413,7 @@ export class PartnersService {
       expiresAt.setMonth(expiresAt.getMonth() + 6); // Gift link expires in 6 months
 
       // Generate a unique activation code (e.g. "A3F9-C12E")
-      const rawCode = Math.random().toString(36).substring(2, 10).toUpperCase();
+      const rawCode = crypto.randomBytes(4).toString('hex').toUpperCase();
       const activationCode = `${rawCode.slice(0, 4)}-${rawCode.slice(4, 8)}`;
       const activationUrl = `${config.app.frontendUrl}/gifts/activate?code=${activationCode}`;
 
@@ -839,9 +845,12 @@ export class PartnersService {
   }
 
   /**
-   * Get partner analytics
+   * Get partner analytics, optionally filtered by date range
    */
-  static async getPartnerAnalytics(userId: string): Promise<{
+  static async getPartnerAnalytics(
+    userId: string,
+    options?: { startDate?: string; endDate?: string }
+  ): Promise<{
     total_gifts: number;
     activated_gifts: number;
     pending_gifts: number;
@@ -863,6 +872,25 @@ export class PartnersService {
 
       const partnerId = partnerResult.rows[0].id;
 
+      // Build date range conditions
+      const giftParams: any[] = [partnerId];
+      let giftDateFilter = '';
+      const commissionParams: any[] = [partnerId];
+      let commissionDateFilter = '';
+
+      if (options?.startDate) {
+        giftParams.push(options.startDate);
+        giftDateFilter += ` AND created_at >= $${giftParams.length}`;
+        commissionParams.push(options.startDate);
+        commissionDateFilter += ` AND created_at >= $${commissionParams.length}`;
+      }
+      if (options?.endDate) {
+        giftParams.push(options.endDate);
+        giftDateFilter += ` AND created_at <= $${giftParams.length}`;
+        commissionParams.push(options.endDate);
+        commissionDateFilter += ` AND created_at <= $${commissionParams.length}`;
+      }
+
       // Get gift stats
       const giftStats = await pool.query(
         `SELECT
@@ -870,8 +898,8 @@ export class PartnersService {
            COUNT(*) FILTER (WHERE is_activated = TRUE) as activated_gifts,
            COUNT(*) FILTER (WHERE is_activated = FALSE AND status != 'expired') as pending_gifts
          FROM partner_gifts
-         WHERE partner_id = $1`,
-        [partnerId]
+         WHERE partner_id = $1${giftDateFilter}`,
+        giftParams
       );
 
       const stats = giftStats.rows[0];
@@ -887,13 +915,13 @@ export class PartnersService {
            SUM(amount) FILTER (WHERE status = 'paid') as paid_commissions,
            SUM(amount) as total_commissions
          FROM partner_commissions
-         WHERE partner_id = $1`,
-        [partnerId]
+         WHERE partner_id = $1${commissionDateFilter}`,
+        commissionParams
       );
 
       const commissions = commissionStats.rows[0];
 
-      // Get recent activity
+      // Get recent activity (always show latest, no date filter)
       const recentActivity = await pool.query(
         `SELECT
            'gift_created' as type,
@@ -920,6 +948,32 @@ export class PartnersService {
       };
     } catch (error) {
       logger.error({ error, userId }, 'Error fetching partner analytics');
+      throw error;
+    }
+  }
+
+  /**
+   * Get monthly earnings history for the last 12 months
+   */
+  static async getEarningsHistory(partnerId: string): Promise<{ month: string; earnings: number }[]> {
+    try {
+      const result = await pool.query(
+        `SELECT
+           date_trunc('month', created_at) as month,
+           SUM(amount) as earnings
+         FROM partner_commissions
+         WHERE partner_id = $1 AND status IN ('approved', 'paid') AND created_at >= NOW() - INTERVAL '12 months'
+         GROUP BY date_trunc('month', created_at)
+         ORDER BY month ASC`,
+        [partnerId]
+      );
+
+      return result.rows.map((row: any) => ({
+        month: new Date(row.month).toLocaleString('default', { month: 'short' }),
+        earnings: parseFloat(row.earnings) || 0,
+      }));
+    } catch (error) {
+      logger.error({ error, partnerId }, 'Error fetching earnings history');
       throw error;
     }
   }

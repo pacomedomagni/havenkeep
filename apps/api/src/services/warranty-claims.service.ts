@@ -199,7 +199,7 @@ export class WarrantyClaimsService {
         throw new AppError('amount_saved cannot be negative', 400);
       }
 
-      await client.query('BEGIN');
+      await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
       // Verify claim belongs to user
       const claimCheck = await client.query(

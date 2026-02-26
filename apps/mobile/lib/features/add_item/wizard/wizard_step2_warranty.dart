@@ -69,6 +69,18 @@ class _WizardStep2WarrantyState extends State<WizardStep2Warranty> {
     return DateFormat('MMMM d, y').format(date);
   }
 
+  /// Add months safely, clamping the day to avoid overflow
+  /// (e.g., Jan 31 + 1 month = Feb 28, not Mar 3).
+  DateTime _addMonthsSafe(DateTime date, int months) {
+    final targetMonth = date.month + months;
+    final result = DateTime(date.year, targetMonth, date.day);
+    // If the day overflowed into the next month, clamp to last day of target month
+    if (result.month != ((targetMonth - 1) % 12) + 1) {
+      return DateTime(date.year, targetMonth + 1, 0);
+    }
+    return result;
+  }
+
   bool get _canContinue =>
       widget.data.purchaseDate != null && widget.data.warrantyMonths != null;
 
@@ -215,7 +227,7 @@ class _WizardStep2WarrantyState extends State<WizardStep2Warranty> {
                                 ),
                                 const SizedBox(height: 2),
                                 Text(
-                                  _formatDate(DateTime(widget.data.purchaseDate!.year, widget.data.purchaseDate!.month + widget.data.warrantyMonths!, widget.data.purchaseDate!.day)),
+                                  _formatDate(_addMonthsSafe(widget.data.purchaseDate!, widget.data.warrantyMonths!)),
                                   style: const TextStyle(
                                     fontSize: 16,
                                     fontWeight: FontWeight.bold,

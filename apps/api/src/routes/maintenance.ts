@@ -9,6 +9,7 @@ import {
   getHistoryQuerySchema,
 } from '../validators/maintenance.validator';
 import { asyncHandler } from '../utils/async-handler';
+import { writeRateLimiter } from '../middleware/rateLimiter';
 
 const router = Router();
 
@@ -82,6 +83,7 @@ router.get(
  */
 router.post(
   '/log',
+  writeRateLimiter,
   validate(logMaintenanceSchema),
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
@@ -133,6 +135,7 @@ router.get(
  */
 router.delete(
   '/history/:id',
+  writeRateLimiter,
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
     await MaintenanceService.deleteMaintenanceLog(req.params.id, userId);

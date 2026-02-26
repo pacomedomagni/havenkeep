@@ -157,11 +157,22 @@ export class StatsService {
   /**
    * Get health score breakdown/components
    *
-   * NOTE: The overall `score` is computed by the DB function `calculate_health_score`,
-   * while the `components` array is assembled in JS below. These two calculations
-   * can drift out of sync if one is updated without the other. When changing the
-   * scoring logic, make sure both the DB function and the JS component breakdown
-   * are updated together to keep them consistent.
+   * NOTE: The overall `score` is the single source of truth and is computed by
+   * the DB function `calculate_health_score` (see migration 002_enhanced_features.sql).
+   * The `components` array below mirrors that function's logic for display purposes.
+   *
+   * IMPORTANT: If the scoring logic changes, update BOTH the DB function AND the
+   * component breakdown below to keep them consistent. The DB function is authoritative;
+   * the JS breakdown is derived from the same inputs to show users how their score
+   * breaks down.
+   *
+   * Current scoring formula (must match DB function):
+   *   Items Tracked:         min(total_items * 2, 30)               max 30 pts
+   *   Active Warranties:     min(active_warranties * 3, 25)         max 25 pts
+   *   Documentation:         min(floor(documented/total * 20), 20)  max 20 pts
+   *   Maintenance (6mo):     min(recent_maintenance_count, 15)      max 15 pts
+   *   Expired Penalty:       -min(expired_count * 2, 10)            max -10 pts
+   *   Final score clamped to [0, 100].
    */
   static async getHealthScoreBreakdown(userId: string): Promise<{
     score: number;
@@ -174,19 +185,29 @@ export class StatsService {
     }>;
   }> {
     try {
-      const analytics = await this.getUserAnalytics(userId);
       const score = await this.calculateHealthScore(userId);
 
-      // Get item counts for breakdown
+      // Get item counts for breakdown -- mirrors the queries used by
+      // the DB function calculate_health_score (migration 002).
       const itemStats = await pool.query(
         `SELECT
            COUNT(*) as total_items,
-           COUNT(*) FILTER (WHERE warranty_end_date > CURRENT_DATE) as active_warranties,
-           COUNT(*) FILTER (WHERE warranty_end_date <= CURRENT_DATE) as expired_warranties,
+           COUNT(*) FILTER (WHERE warranty_end_date >= CURRENT_DATE) as active_warranties,
+           COUNT(*) FILTER (WHERE warranty_end_date < CURRENT_DATE) as expired_warranties,
            COUNT(DISTINCT CASE WHEN d.id IS NOT NULL THEN i.id END) as documented_items
          FROM items i
          LEFT JOIN documents d ON d.item_id = i.id
          WHERE i.user_id = $1 AND i.is_archived = FALSE`,
+        [userId]
+      );
+
+      // Maintenance count: only tasks completed in the last 6 months,
+      // matching the DB function's WHERE completed_date >= CURRENT_DATE - INTERVAL '6 months'.
+      const maintenanceStats = await pool.query(
+        `SELECT COUNT(*) as recent_maintenance_count
+         FROM maintenance_history
+         WHERE user_id = $1
+           AND completed_date >= CURRENT_DATE - INTERVAL '6 months'`,
         [userId]
       );
 
@@ -195,6 +216,7 @@ export class StatsService {
       const activeWarranties = parseInt(stats.active_warranties, 10);
       const expiredWarranties = parseInt(stats.expired_warranties, 10);
       const documentedItems = parseInt(stats.documented_items, 10);
+      const recentMaintenanceCount = parseInt(maintenanceStats.rows[0].recent_maintenance_count, 10);
 
       const components = [
         {
@@ -221,16 +243,16 @@ export class StatsService {
         },
         {
           name: 'Maintenance Completed',
-          points: Math.min(analytics.total_maintenance_completed, 15),
+          points: Math.min(recentMaintenanceCount, 15),
           max_points: 15,
-          status: analytics.total_maintenance_completed >= 10 ? 'good' :
-                  analytics.total_maintenance_completed >= 5 ? 'warning' : 'needs_improvement',
-          suggestion: analytics.total_maintenance_completed < 10 ? 'Complete regular maintenance tasks' : undefined,
+          status: recentMaintenanceCount >= 10 ? 'good' :
+                  recentMaintenanceCount >= 5 ? 'warning' : 'needs_improvement',
+          suggestion: recentMaintenanceCount < 10 ? 'Complete regular maintenance tasks' : undefined,
         },
         {
           name: 'Expired Warranties',
-          points: Math.max(0, 10 - (expiredWarranties * 2)),
-          max_points: 10,
+          points: -Math.min(expiredWarranties * 2, 10),
+          max_points: 0,
           status: expiredWarranties === 0 ? 'good' : expiredWarranties <= 2 ? 'warning' : 'needs_improvement',
           suggestion: expiredWarranties > 0 ? `${expiredWarranties} items have expired warranties. Consider extending or replacing.` : undefined,
         },

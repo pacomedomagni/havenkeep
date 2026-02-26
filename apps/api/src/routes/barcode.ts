@@ -3,30 +3,13 @@ import { authenticate, AuthRequest, requirePremium } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { barcodeLookupSchema } from '../validators/barcode';
 import { logger } from '../utils/logger';
+import { getRedisClient } from '../utils/redis';
 
 const router = Router();
 router.use(authenticate);
 router.use(requirePremium);
 
-// In-memory barcode result cache — 24-hour TTL per barcode.
-// Reduces hits against the trial UPC API (100 req/day limit).
-// Cache survives process lifetime only; acceptable for single-instance deployments.
-const barcodeCache = new Map<string, { result: object; cachedAt: number }>();
-const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
-
-function getCached(barcode: string): object | null {
-  const entry = barcodeCache.get(barcode);
-  if (!entry) return null;
-  if (Date.now() - entry.cachedAt > CACHE_TTL_MS) {
-    barcodeCache.delete(barcode);
-    return null;
-  }
-  return entry.result;
-}
-
-function setCache(barcode: string, result: object): void {
-  barcodeCache.set(barcode, { result, cachedAt: Date.now() });
-}
+const BARCODE_CACHE_TTL = 86400; // 24 hours in seconds
 
 router.post('/lookup', validate(barcodeLookupSchema), async (req: AuthRequest, res, next) => {
   try {
@@ -34,11 +17,17 @@ router.post('/lookup', validate(barcodeLookupSchema), async (req: AuthRequest, r
 
     logger.info({ barcode, userId: req.user!.id }, 'Barcode lookup requested');
 
-    // Serve from cache if available (avoids hitting rate-limited trial API)
-    const cached = getCached(barcode);
-    if (cached) {
-      logger.info({ barcode }, 'Barcode served from cache');
-      return res.json(cached);
+    // Serve from Redis cache if available (avoids hitting rate-limited trial API)
+    const cacheKey = `barcode:${barcode}`;
+    try {
+      const redis = await getRedisClient();
+      const cached = await redis.get(cacheKey);
+      if (cached) {
+        logger.info({ barcode }, 'Barcode served from Redis cache');
+        return res.json(JSON.parse(cached));
+      }
+    } catch (err) {
+      logger.warn({ err, barcode }, 'Redis cache read failed for barcode, proceeding with API call');
     }
 
     // Try UPC Database API (general product database, not food-only)
@@ -69,7 +58,12 @@ router.post('/lookup', validate(barcodeLookupSchema), async (req: AuthRequest, r
       if (statusCode === 404) {
         // API explicitly says not found — return 200 with null product data
         const notFoundResult = { barcode, brand: null, productName: null, description: null, imageUrl: null };
-        setCache(barcode, notFoundResult);
+        try {
+          const redis = await getRedisClient();
+          await redis.set(cacheKey, JSON.stringify(notFoundResult), { EX: BARCODE_CACHE_TTL });
+        } catch (err) {
+          logger.warn({ err, barcode }, 'Redis cache write failed for barcode');
+        }
         return res.json(notFoundResult);
       }
 
@@ -92,14 +86,24 @@ router.post('/lookup', validate(barcodeLookupSchema), async (req: AuthRequest, r
         imageUrl: Array.isArray(product.images) && product.images.length > 0 ? product.images[0] : null,
         description: typeof product.description === 'string' && product.description.length > 0 ? product.description : null,
       };
-      setCache(barcode, result);
+      try {
+        const redis = await getRedisClient();
+        await redis.set(cacheKey, JSON.stringify(result), { EX: BARCODE_CACHE_TTL });
+      } catch (err) {
+        logger.warn({ err, barcode }, 'Redis cache write failed for barcode');
+      }
       return res.json(result);
     }
 
     // API returned 200 but no items — product genuinely not found
     logger.info({ barcode, found: false }, 'Barcode not found');
     const emptyResult = { barcode, brand: null, productName: null, description: null, imageUrl: null };
-    setCache(barcode, emptyResult);
+    try {
+      const redis = await getRedisClient();
+      await redis.set(cacheKey, JSON.stringify(emptyResult), { EX: BARCODE_CACHE_TTL });
+    } catch (err) {
+      logger.warn({ err, barcode }, 'Redis cache write failed for barcode');
+    }
     res.json(emptyResult);
   } catch (error) {
     logger.error({ error, barcode: req.body?.barcode }, 'Barcode lookup failed');

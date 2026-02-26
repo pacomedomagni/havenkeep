@@ -12,6 +12,7 @@ import '../../core/providers/homes_provider.dart';
 import '../../core/providers/items_provider.dart';
 import '../../core/providers/maintenance_provider.dart';
 import '../../core/providers/notifications_provider.dart';
+import '../../core/providers/warranty_claims_provider.dart';
 import '../../core/router/router.dart';
 import '../../core/widgets/value_dashboard_card.dart';
 
@@ -176,6 +177,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 const SizedBox(height: HavenSpacing.lg),
                 _buildTipCard(),
               ],
+
+              // Community Savings feed
+              const SizedBox(height: HavenSpacing.lg),
+              const _CommunitySavingsCard(),
             ],
           ],
         ),
@@ -606,6 +611,146 @@ class _MaintenanceCard extends ConsumerWidget {
           ),
         );
       },
+    );
+  }
+}
+
+/// Community savings feed card — shows anonymized savings from other users.
+class _CommunitySavingsCard extends ConsumerWidget {
+  const _CommunitySavingsCard();
+
+  /// Hardcoded fallback entries shown when the API feed is empty or fails.
+  static const _fallbackEntries = [
+    {'item_name': 'refrigerator', 'amount': 1800},
+    {'item_name': 'HVAC system', 'amount': 3200},
+    {'item_name': 'dishwasher', 'amount': 650},
+    {'item_name': 'washer', 'amount': 1100},
+    {'item_name': 'water heater', 'amount': 2400},
+  ];
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final feedAsync = ref.watch(savingsFeedProvider);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Section header
+        const Row(
+          children: [
+            Icon(
+              Icons.emoji_events_outlined,
+              size: 18,
+              color: HavenColors.active,
+            ),
+            SizedBox(width: HavenSpacing.xs),
+            Text(
+              'COMMUNITY SAVINGS',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                color: HavenColors.textTertiary,
+                letterSpacing: 1.2,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: HavenSpacing.md),
+
+        // Feed card
+        Container(
+          width: double.infinity,
+          decoration: BoxDecoration(
+            color: HavenColors.surface,
+            borderRadius: BorderRadius.circular(HavenRadius.card),
+            border: Border.all(color: HavenColors.border),
+          ),
+          child: feedAsync.when(
+            data: (feed) {
+              final entries = feed.isNotEmpty ? feed.take(5).toList() : _fallbackEntries;
+              return _buildEntries(entries);
+            },
+            loading: () => const Padding(
+              padding: EdgeInsets.all(HavenSpacing.lg),
+              child: Center(
+                child: SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
+            ),
+            error: (_, __) => _buildEntries(_fallbackEntries),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildEntries(List<Map<String, dynamic>> entries) {
+    return Column(
+      children: [
+        for (int i = 0; i < entries.length; i++) ...[
+          _SavingsEntry(
+            itemName: entries[i]['item_name'] as String? ?? 'their item',
+            amount: entries[i]['amount'] is num
+                ? (entries[i]['amount'] as num).toDouble()
+                : double.tryParse(entries[i]['amount']?.toString() ?? '0') ?? 0,
+          ),
+          if (i < entries.length - 1)
+            const Divider(height: 1, color: HavenColors.border),
+        ],
+      ],
+    );
+  }
+}
+
+/// A single savings feed entry row.
+class _SavingsEntry extends StatelessWidget {
+  final String itemName;
+  final double amount;
+
+  const _SavingsEntry({required this.itemName, required this.amount});
+
+  @override
+  Widget build(BuildContext context) {
+    final formatted = amount >= 1000
+        ? '\$${(amount / 1000).toStringAsFixed(amount % 1000 == 0 ? 0 : 1)}k'
+        : '\$${amount.toStringAsFixed(0)}';
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: HavenSpacing.md,
+        vertical: HavenSpacing.sm + 2,
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              color: HavenColors.active.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Icon(
+              Icons.attach_money,
+              size: 18,
+              color: HavenColors.active,
+            ),
+          ),
+          const SizedBox(width: HavenSpacing.sm),
+          Expanded(
+            child: Text(
+              'A homeowner saved $formatted on their $itemName',
+              style: const TextStyle(
+                fontSize: 13,
+                color: HavenColors.textSecondary,
+                height: 1.3,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

@@ -24,7 +24,7 @@ export const getPurchasesQuerySchema = Joi.object({
   limit: Joi.number().integer().min(1).max(100).optional().default(50),
   offset: Joi.number().integer().min(0).optional().default(0),
   item_id: Joi.string().uuid().optional(),
-  status: Joi.string().valid('active', 'expired', 'cancelled', 'pending').optional(),
+  status: Joi.string().valid('active', 'expired', 'cancelled', 'pending', 'claimed').optional(),
 });
 
 export const getExpiringQuerySchema = Joi.object({

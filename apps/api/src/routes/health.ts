@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { pool } from '../db';
 import { createClient } from 'redis';
 import { config } from '../config';
+import { minioClient, BUCKET_NAME } from '../config/minio';
 
 const router = Router();
 
@@ -47,6 +48,15 @@ router.get('/health/detailed', async (req, res, next) => {
       health.checks.redis = { status: 'error', message: error.message };
     } finally {
       try { if (redis) await redis.quit(); } catch { /* ignore cleanup errors */ }
+    }
+
+    // MinIO health check
+    try {
+      await minioClient.bucketExists(BUCKET_NAME);
+      health.checks.minio = { status: 'ok' };
+    } catch (error: any) {
+      health.status = 'degraded';
+      health.checks.minio = { status: 'error', message: error.message };
     }
 
     const statusCode = health.status === 'ok' ? 200 : 503;

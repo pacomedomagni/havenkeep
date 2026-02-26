@@ -152,7 +152,7 @@ services:
       REVENUECAT_WEBHOOK_SECRET: ${REVENUECAT_WEBHOOK_SECRET:-}
       APP_BASE_URL: ${APP_BASE_URL:-https://api.havenkeep.kouakoudomagni.com}
       FRONTEND_URL: ${FRONTEND_URL:-https://havenkeep.kouakoudomagni.com}
-      DASHBOARD_URL: ${DASHBOARD_URL:-https://partener.havenkeep.kouakoudomagni.com}
+      DASHBOARD_URL: ${DASHBOARD_URL:-https://partner.havenkeep.kouakoudomagni.com}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/health"]

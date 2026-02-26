@@ -9,13 +9,23 @@ export default function SettingsPage() {
   const [partnerType, setPartnerType] = useState('realtor');
   const [phone, setPhone] = useState('');
   const [serviceAreas, setServiceAreas] = useState('');
+  const [brandColor, setBrandColor] = useState('#6C63FF');
+  const [logoUrl, setLogoUrl] = useState('');
+  const [licenseNumber, setLicenseNumber] = useState('');
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Stripe Connect state
+  const [stripeConnected, setStripeConnected] = useState(false);
+  const [stripeOnboarded, setStripeOnboarded] = useState(false);
+  const [stripeLoading, setStripeLoading] = useState(false);
+  const [stripeError, setStripeError] = useState<string | null>(null);
+
   useEffect(() => {
     loadProfile();
+    loadStripeStatus();
   }, []);
 
   async function loadProfile() {
@@ -28,11 +38,46 @@ export default function SettingsPage() {
         setPartnerType(data.partner_type || 'realtor');
         setPhone(data.phone || '');
         setServiceAreas(Array.isArray(data.service_areas) ? data.service_areas.join(', ') : '');
+        setBrandColor(data.brand_color || '#6C63FF');
+        setLogoUrl(data.logo_url || '');
+        setLicenseNumber(data.license_number || '');
       }
     } catch (err) {
       console.error('Error loading profile:', err);
     } finally {
       setInitialLoading(false);
+    }
+  }
+
+  async function loadStripeStatus() {
+    try {
+      const result = await apiClient('/api/v1/partners/stripe-connect/status');
+      const data = result.data as any;
+      if (data) {
+        setStripeConnected(data.connected);
+        setStripeOnboarded(data.onboarded);
+      }
+    } catch (err) {
+      console.error('Error loading Stripe status:', err);
+    }
+  }
+
+  async function handleStripeConnect() {
+    setStripeLoading(true);
+    setStripeError(null);
+
+    try {
+      const result = await apiClient('/api/v1/partners/stripe-connect/onboard', {
+        method: 'POST',
+      });
+      const data = result.data as any;
+      if (data?.url) {
+        window.location.href = data.url;
+      }
+    } catch (err: any) {
+      setStripeError(err.message || 'Failed to start Stripe onboarding');
+    } finally {
+      setStripeLoading(false);
     }
   }
 
@@ -47,6 +92,9 @@ export default function SettingsPage() {
     formData.set('partnerType', partnerType);
     formData.set('phone', phone);
     formData.set('serviceAreas', serviceAreas);
+    formData.set('brandColor', brandColor);
+    formData.set('logoUrl', logoUrl);
+    formData.set('licenseNumber', licenseNumber);
 
     const result = await updatePartnerProfile(formData);
     if (result?.error) {
@@ -140,6 +188,24 @@ export default function SettingsPage() {
           </div>
 
           <div>
+            <label htmlFor="licenseNumber" className="block text-sm font-medium text-haven-text-secondary mb-1.5">
+              License number <span className="text-haven-text-tertiary">(optional)</span>
+            </label>
+            <input
+              id="licenseNumber"
+              type="text"
+              value={licenseNumber}
+              onChange={(e) => setLicenseNumber(e.target.value)}
+              className="input-field"
+              placeholder="e.g. DRE#01234567"
+              maxLength={100}
+            />
+            <p className="text-xs text-haven-text-tertiary mt-1">
+              Your professional license or registration number
+            </p>
+          </div>
+
+          <div>
             <label htmlFor="serviceAreas" className="block text-sm font-medium text-haven-text-secondary mb-1.5">
               Service areas
             </label>
@@ -153,6 +219,50 @@ export default function SettingsPage() {
             />
             <p className="text-xs text-haven-text-tertiary mt-1">
               Separate multiple areas with commas
+            </p>
+          </div>
+
+          <div>
+            <label htmlFor="brandColor" className="block text-sm font-medium text-haven-text-secondary mb-1.5">
+              Brand Color
+            </label>
+            <div className="flex items-center gap-3">
+              <input
+                id="brandColor"
+                type="color"
+                value={brandColor}
+                onChange={(e) => setBrandColor(e.target.value)}
+                className="h-10 w-12 rounded border border-haven-border cursor-pointer bg-transparent p-0.5"
+              />
+              <input
+                type="text"
+                value={brandColor}
+                onChange={(e) => setBrandColor(e.target.value)}
+                className="input-field flex-1"
+                placeholder="#6C63FF"
+                pattern="^#[0-9A-Fa-f]{6}$"
+                maxLength={7}
+              />
+            </div>
+            <p className="text-xs text-haven-text-tertiary mt-1">
+              Used in gift emails and partner branding
+            </p>
+          </div>
+
+          <div>
+            <label htmlFor="logoUrl" className="block text-sm font-medium text-haven-text-secondary mb-1.5">
+              Logo URL <span className="text-haven-text-tertiary">(optional)</span>
+            </label>
+            <input
+              id="logoUrl"
+              type="url"
+              value={logoUrl}
+              onChange={(e) => setLogoUrl(e.target.value)}
+              className="input-field"
+              placeholder="https://example.com/logo.png"
+            />
+            <p className="text-xs text-haven-text-tertiary mt-1">
+              Displayed in gift emails sent to homebuyers
             </p>
           </div>
 
@@ -172,6 +282,82 @@ export default function SettingsPage() {
             </button>
           </div>
         </form>
+      </div>
+
+      {/* Payments — Stripe Connect */}
+      <div className="card">
+        <h2 className="text-lg font-semibold text-white mb-6">Payments</h2>
+
+        {stripeError && (
+          <div className="bg-haven-error/10 border border-haven-error/30 rounded-lg px-4 py-3 text-sm text-haven-error mb-4">
+            {stripeError}
+          </div>
+        )}
+
+        {stripeOnboarded ? (
+          <div className="flex items-center gap-3">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-haven-active/15 px-3 py-1 text-sm font-medium text-haven-active">
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+              Stripe Connected
+            </span>
+            <p className="text-sm text-haven-text-secondary">
+              Your Stripe account is connected and ready to receive payouts.
+            </p>
+          </div>
+        ) : stripeConnected ? (
+          <div className="space-y-3">
+            <div className="flex items-center gap-3">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-yellow-500/15 px-3 py-1 text-sm font-medium text-yellow-400">
+                Onboarding Incomplete
+              </span>
+            </div>
+            <p className="text-sm text-haven-text-secondary">
+              Your Stripe account has been created but onboarding is not yet complete. Please finish setup to receive payouts.
+            </p>
+            <button
+              onClick={handleStripeConnect}
+              disabled={stripeLoading}
+              className="btn-primary"
+            >
+              {stripeLoading ? (
+                <span className="inline-flex items-center gap-2">
+                  <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  Connecting...
+                </span>
+              ) : (
+                'Continue Stripe Setup'
+              )}
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <p className="text-sm text-haven-text-secondary">
+              Connect your Stripe account to receive commission payouts directly to your bank account.
+            </p>
+            <button
+              onClick={handleStripeConnect}
+              disabled={stripeLoading}
+              className="btn-primary"
+            >
+              {stripeLoading ? (
+                <span className="inline-flex items-center gap-2">
+                  <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  Connecting...
+                </span>
+              ) : (
+                'Connect Stripe Account'
+              )}
+            </button>
+          </div>
+        )}
       </div>
 
     </div>

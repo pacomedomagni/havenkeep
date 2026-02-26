@@ -26,16 +26,10 @@ export default function GenerateReferral({ isOpen, onClose }: GenerateReferralPr
       if (data.success && data.data) {
         setCode(data.data.referral_code);
       } else {
-        // Fallback: generate locally if endpoint not available yet
-        const bytes = crypto.getRandomValues(new Uint8Array(6));
-        const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('').toUpperCase();
-        setCode(`HK-${hex.substring(0, 4)}-${hex.substring(4, 8)}`);
+        setError('Failed to generate referral code. Please try again.');
       }
     } catch {
-      // Fallback: generate locally if endpoint not available yet
-      const bytes = crypto.getRandomValues(new Uint8Array(6));
-      const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('').toUpperCase();
-      setCode(`HK-${hex.substring(0, 4)}-${hex.substring(4, 8)}`);
+      setError('Failed to generate referral code. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -91,6 +85,9 @@ export default function GenerateReferral({ isOpen, onClose }: GenerateReferralPr
               Generate a unique referral code to share with your clients. You&apos;ll earn a
               commission for every user who signs up with your code.
             </p>
+            {error && (
+              <p className="text-red-400 text-sm mb-2">{error}</p>
+            )}
             <button onClick={generateCode} disabled={loading} className="btn-primary w-full">
               {loading ? (
                 <span className="inline-flex items-center gap-2">

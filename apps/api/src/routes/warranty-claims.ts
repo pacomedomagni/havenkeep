@@ -8,6 +8,7 @@ import {
   getClaimsQuerySchema,
 } from '../validators/warranty-claims.validator';
 import { asyncHandler } from '../utils/async-handler';
+import { writeRateLimiter } from '../middleware/rateLimiter';
 
 const router = Router();
 
@@ -21,6 +22,7 @@ router.use(authenticate);
  */
 router.post(
   '/',
+  writeRateLimiter,
   validate(createWarrantyClaimSchema),
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
@@ -130,6 +132,7 @@ router.get(
  */
 router.put(
   '/:id',
+  writeRateLimiter,
   validate(updateWarrantyClaimSchema),
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
@@ -154,6 +157,7 @@ router.put(
  */
 router.delete(
   '/:id',
+  writeRateLimiter,
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
     await WarrantyClaimsService.deleteClaim(req.params.id, userId);

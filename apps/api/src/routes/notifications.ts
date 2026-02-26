@@ -9,6 +9,7 @@ import {
   updatePreferencesSchema,
 } from '../validators/notifications.validator';
 import { asyncHandler } from '../utils/async-handler';
+import { pool } from '../db';
 
 const router = Router();
 
@@ -84,6 +85,118 @@ router.get(
     res.json({
       success: true,
       data: { count },
+    });
+  })
+);
+
+/**
+ * @route   GET /api/v1/notifications/tip
+ * @desc    Get a contextual tip based on the current user's state
+ * @access  Private
+ */
+router.get(
+  '/tip',
+  asyncHandler(async (req, res) => {
+    const userId = req.user!.id;
+
+    // Query user state in parallel: item count, last maintenance date,
+    // notification preferences, and expired warranty count + active warranty count
+    const [itemCountRes, lastMaintenanceRes, prefsRes, expiredWarrantyRes, activeWarrantyRes] =
+      await Promise.all([
+        pool.query(
+          `SELECT COUNT(*)::int AS count FROM items WHERE user_id = $1 AND is_archived = FALSE`,
+          [userId]
+        ),
+        pool.query(
+          `SELECT MAX(completed_date) AS last_date FROM maintenance_history WHERE user_id = $1`,
+          [userId]
+        ),
+        pool.query(`SELECT * FROM notification_preferences WHERE user_id = $1`, [userId]),
+        pool.query(
+          `SELECT COUNT(*)::int AS count FROM items
+           WHERE user_id = $1 AND is_archived = FALSE
+             AND warranty_end_date < CURRENT_DATE`,
+          [userId]
+        ),
+        pool.query(
+          `SELECT COUNT(*)::int AS count FROM items
+           WHERE user_id = $1 AND is_archived = FALSE
+             AND warranty_end_date >= CURRENT_DATE`,
+          [userId]
+        ),
+      ]);
+
+    const itemCount: number = itemCountRes.rows[0].count;
+    const lastMaintenanceDate: string | null = lastMaintenanceRes.rows[0].last_date;
+    const _prefs = prefsRes.rows[0] || null;
+    const expiredWarrantyCount: number = expiredWarrantyRes.rows[0].count;
+    const activeWarrantyCount: number = activeWarrantyRes.rows[0].count;
+
+    // Determine the contextual category and trigger based on user state
+    let targetCategory: string;
+    let targetTrigger: string | null;
+
+    if (itemCount === 0) {
+      targetCategory = 'new_user';
+      targetTrigger = 'no_items';
+    } else if (!lastMaintenanceDate) {
+      targetCategory = 'maintenance';
+      targetTrigger = 'no_maintenance';
+    } else if (expiredWarrantyCount > 0) {
+      targetCategory = 'warranty';
+      targetTrigger = 'expired_warranty';
+    } else if (activeWarrantyCount > 0) {
+      targetCategory = 'warranty';
+      targetTrigger = 'active_warranty';
+    } else if (itemCount >= 20) {
+      targetCategory = 'power_user';
+      targetTrigger = 'many_items';
+    } else {
+      targetCategory = 'general';
+      targetTrigger = null;
+    }
+
+    // Query contextual tips from the database
+    let tipsResult = await pool.query(
+      `SELECT content, category FROM tips
+       WHERE is_active = TRUE
+         AND category = $1
+         AND ($2::VARCHAR IS NULL OR trigger_condition IS NULL OR trigger_condition = $2)
+       ORDER BY id`,
+      [targetCategory, targetTrigger]
+    );
+
+    // Fall back to general tips if no contextual tips found
+    if (tipsResult.rows.length === 0) {
+      tipsResult = await pool.query(
+        `SELECT content, category FROM tips
+         WHERE is_active = TRUE AND category = 'general'
+         ORDER BY id`
+      );
+    }
+
+    let tip: string;
+    let category: string;
+
+    if (tipsResult.rows.length > 0) {
+      // Rotate tips by day of year
+      const now = new Date();
+      const startOfYear = new Date(now.getFullYear(), 0, 0);
+      const dayOfYear = Math.floor(
+        (now.getTime() - startOfYear.getTime()) / (1000 * 60 * 60 * 24)
+      );
+      const selected = tipsResult.rows[dayOfYear % tipsResult.rows.length];
+      tip = selected.content;
+      category = selected.category;
+    } else {
+      // Hardcoded ultimate fallback in case the tips table is empty
+      tip = 'Keep your home items organized and their warranties tracked.';
+      category = 'general';
+    }
+
+    res.json({
+      success: true,
+      data: { tip, category },
     });
   })
 );

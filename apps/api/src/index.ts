@@ -12,6 +12,8 @@ import { initializeRateLimiter } from './middleware/rateLimiter';
 import { initializeTokenBlacklist, closeTokenBlacklist } from './utils/token-blacklist';
 import { setCsrfToken } from './middleware/csrf';
 import { NotificationsService } from './services/notifications.service';
+import { WarrantyPurchasesService } from './services/warranty-purchases.service';
+import { ReconciliationService } from './services/reconciliation.service';
 import { pool } from './db';
 
 // Routes
@@ -35,6 +37,8 @@ import uploadsRoutes from './routes/uploads';
 import receiptsRoutes from './routes/receipts';
 import auditRoutes from './routes/audit';
 import webhooksRoutes from './routes/webhooks';
+import newsletterRoutes from './routes/newsletter';
+import contactRoutes from './routes/contact';
 
 // Validate environment before starting
 validateEnvironment();
@@ -123,6 +127,8 @@ function registerRoutes(appInstance: express.Express) {
   apiV1.use('/uploads', uploadsRoutes);
   apiV1.use('/receipts', receiptsRoutes);
   apiV1.use('/audit', auditRoutes);
+  apiV1.use('/newsletter', newsletterRoutes);
+  apiV1.use('/contact', contactRoutes);
 
   appInstance.use('/api/v1', apiV1);
 
@@ -154,6 +160,7 @@ let server: ReturnType<typeof app.listen>;
 const PORT = config.port;
 const NOTIFICATION_JOB_LOCK = 93422874;
 const MAINTENANCE_JOB_LOCK = 93422875;
+const WARRANTY_OFFERS_JOB_LOCK = 93422876;
 
 async function runExpirationNotificationsJob() {
   const client = await pool.connect();
@@ -201,6 +208,29 @@ async function runMaintenanceDueJob() {
   }
 }
 
+async function runWarrantyOffersJob() {
+  const client = await pool.connect();
+  try {
+    const lockResult = await client.query(
+      'SELECT pg_try_advisory_lock($1) AS locked',
+      [WARRANTY_OFFERS_JOB_LOCK]
+    );
+    if (!lockResult.rows[0]?.locked) {
+      return;
+    }
+
+    try {
+      await NotificationsService.checkAndNotifyWarrantyOffers();
+    } finally {
+      await client.query('SELECT pg_advisory_unlock($1)', [WARRANTY_OFFERS_JOB_LOCK]);
+    }
+  } catch (error) {
+    logger.error({ error }, 'Warranty offers notification job failed');
+  } finally {
+    client.release();
+  }
+}
+
 function scheduleExpirationNotifications() {
   const scheduleNext = () => {
     const now = new Date();
@@ -223,6 +253,37 @@ function scheduleExpirationNotifications() {
       } catch (error) {
         logger.error({ error }, 'Maintenance due notification job failed');
       }
+      // Send extended warranty offer notifications for high-value items
+      try {
+        await runWarrantyOffersJob();
+      } catch (error) {
+        logger.error({ error }, 'Warranty offers notification job failed');
+      }
+      // Auto-expire overdue extended warranties
+      try {
+        await WarrantyPurchasesService.expireOverdueWarranties();
+      } catch (error) {
+        logger.error({ error }, 'Warranty auto-expiry job failed');
+      }
+
+      // Weekly jobs — only on Sundays
+      if (new Date().getDay() === 0) {
+        // Audit log cleanup using the DB function from migration 004
+        try {
+          await pool.query('SELECT cleanup_old_audit_logs()');
+          logger.info('Weekly audit log cleanup completed');
+        } catch (error) {
+          logger.error({ error }, 'Weekly audit log cleanup failed');
+        }
+
+        // Reconcile analytics counters against source tables
+        try {
+          await ReconciliationService.reconcileUserAnalytics();
+        } catch (error) {
+          logger.error({ error }, 'Weekly analytics reconciliation failed');
+        }
+      }
+
       // Always schedule next, even if current run failed
       scheduleNext();
     }, delay);

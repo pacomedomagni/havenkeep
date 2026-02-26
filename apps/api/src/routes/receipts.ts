@@ -23,6 +23,12 @@ router.post(
       throw new AppError('Base64 image is required', 400);
     }
 
+    // Reject oversized images before sending to OpenAI (5MB limit)
+    const sizeBytes = Buffer.byteLength(image, 'base64');
+    if (sizeBytes > 5 * 1024 * 1024) {
+      throw new AppError('Image too large. Maximum size is 5MB.', 413);
+    }
+
     if (!config.openai?.apiKey) {
       throw new AppError(
         'Receipt scanning requires OpenAI API key configuration. Set OPENAI_API_KEY in environment.',

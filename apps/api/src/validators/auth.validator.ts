@@ -20,3 +20,9 @@ export const resetPasswordSchema = Joi.object({
 export const verifyEmailSchema = Joi.object({
   token: Joi.string().required(),
 });
+
+export const changeEmailSchema = Joi.object({
+  newEmail: Joi.string().email().required().max(255),
+  password: Joi.string().required(),
+})
+  .rename('new_email', 'newEmail', { ignoreUndefined: true, override: false });

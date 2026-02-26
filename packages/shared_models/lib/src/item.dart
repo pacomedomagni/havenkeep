@@ -34,6 +34,10 @@ class Item {
   // Informational (from DB, read-only — populated for some categories)
   final double? estimatedRepairCost;
 
+  // Lifespan tracking (computed by API from purchase_date + expected lifespan)
+  final int? expectedLifespanYears;
+  final int? lifespanPercentage;
+
   // Meta
   final String? notes;
   final bool isArchived;
@@ -64,6 +68,8 @@ class Item {
     this.warrantyStatus,
     this.daysRemaining,
     this.estimatedRepairCost,
+    this.expectedLifespanYears,
+    this.lifespanPercentage,
     this.notes,
     this.isArchived = false,
     this.addedVia = ItemAddedVia.manual,
@@ -113,6 +119,8 @@ class Item {
               ? (json['estimated_repair_cost'] as num).toDouble()
               : double.tryParse(json['estimated_repair_cost'].toString()))
           : null,
+      expectedLifespanYears: (json['expected_lifespan_years'] as num?)?.toInt(),
+      lifespanPercentage: (json['lifespan_percentage'] as num?)?.toInt(),
       notes: json['notes'] as String?,
       isArchived: json['is_archived'] as bool? ?? false,
       addedVia: json['added_via'] != null
@@ -233,6 +241,10 @@ class Item {
     int? daysRemaining,
     double? estimatedRepairCost,
     bool clearEstimatedRepairCost = false,
+    int? expectedLifespanYears,
+    bool clearExpectedLifespanYears = false,
+    int? lifespanPercentage,
+    bool clearLifespanPercentage = false,
     String? notes,
     bool clearNotes = false,
     bool? isArchived,
@@ -269,6 +281,8 @@ class Item {
       warrantyStatus: warrantyStatus ?? this.warrantyStatus,
       daysRemaining: daysRemaining ?? this.daysRemaining,
       estimatedRepairCost: clearEstimatedRepairCost ? null : (estimatedRepairCost ?? this.estimatedRepairCost),
+      expectedLifespanYears: clearExpectedLifespanYears ? null : (expectedLifespanYears ?? this.expectedLifespanYears),
+      lifespanPercentage: clearLifespanPercentage ? null : (lifespanPercentage ?? this.lifespanPercentage),
       notes: clearNotes ? null : (notes ?? this.notes),
       isArchived: isArchived ?? this.isArchived,
       addedVia: addedVia ?? this.addedVia,

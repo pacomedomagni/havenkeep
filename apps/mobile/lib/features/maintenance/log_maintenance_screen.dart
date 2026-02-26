@@ -165,14 +165,22 @@ class _LogMaintenanceScreenState extends ConsumerState<LogMaintenanceScreen> {
                       );
                     }).toList(),
                   ),
-                  onChanged: (v) => setState(() {
-                    _selectedItemId = v;
-                    _selectedScheduleId = null;
-                  }),
+                  onChanged: (v) {
+                    setState(() {
+                      _selectedItemId = v;
+                      _selectedScheduleId = null;
+                    });
+                  },
                 ),
               ),
             ),
             const SizedBox(height: HavenSpacing.lg),
+
+            // Schedule picker (visible only when an item is selected)
+            if (_selectedItemId != null) ...[
+              _buildSchedulePicker(itemsAsync),
+              const SizedBox(height: HavenSpacing.lg),
+            ],
 
             // Task name
             _SectionLabel('Task Name'),
@@ -335,6 +343,115 @@ class _LogMaintenanceScreenState extends ConsumerState<LogMaintenanceScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  /// Builds a schedule dropdown based on the selected item's category.
+  Widget _buildSchedulePicker(AsyncValue<List<Item>> itemsAsync) {
+    // Find the selected item to get its category
+    final items = itemsAsync.valueOrNull ?? [];
+    final selectedItem = items.where((i) => i.id == _selectedItemId).firstOrNull;
+
+    if (selectedItem == null) return const SizedBox.shrink();
+
+    final category = selectedItem.category.toJson(); // e.g. "refrigerator"
+    final schedulesAsync = ref.watch(maintenanceSchedulesProvider(category));
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionLabel('Maintenance Schedule'),
+        const SizedBox(height: HavenSpacing.sm),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: HavenSpacing.md),
+          decoration: BoxDecoration(
+            color: HavenColors.surface,
+            borderRadius: BorderRadius.circular(HavenRadius.card),
+            border: Border.all(color: HavenColors.border),
+          ),
+          child: schedulesAsync.when(
+            data: (schedules) {
+              if (schedules.isEmpty) {
+                return const Padding(
+                  padding: EdgeInsets.symmetric(vertical: HavenSpacing.md),
+                  child: Text(
+                    'No schedules for this category',
+                    style: TextStyle(
+                      color: HavenColors.textTertiary,
+                      fontSize: 14,
+                    ),
+                  ),
+                );
+              }
+
+              return DropdownButtonHideUnderline(
+                child: DropdownButton<String>(
+                  value: _selectedScheduleId,
+                  isExpanded: true,
+                  hint: const Text(
+                    'Select a schedule (optional)',
+                    style: TextStyle(color: HavenColors.textTertiary),
+                  ),
+                  dropdownColor: HavenColors.elevated,
+                  style: const TextStyle(color: HavenColors.textPrimary),
+                  items: [
+                    // Allow clearing the selection
+                    const DropdownMenuItem<String>(
+                      value: null,
+                      child: Text(
+                        'None (custom task)',
+                        style: TextStyle(
+                          color: HavenColors.textSecondary,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    ),
+                    ...schedules.map((schedule) {
+                      final freq = schedule.frequencyMonths >= 12
+                          ? 'Every ${schedule.frequencyMonths ~/ 12}y'
+                          : 'Every ${schedule.frequencyMonths}mo';
+                      return DropdownMenuItem(
+                        value: schedule.id,
+                        child: Text(
+                          '${schedule.taskName} ($freq)',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      );
+                    }),
+                  ],
+                  onChanged: (v) {
+                    setState(() {
+                      _selectedScheduleId = v;
+                      // Auto-fill the task name when a schedule is selected
+                      if (v != null) {
+                        final schedule = schedules.firstWhere((s) => s.id == v);
+                        if (_taskNameController.text.trim().isEmpty) {
+                          _taskNameController.text = schedule.taskName;
+                        }
+                      }
+                    });
+                  },
+                ),
+              );
+            },
+            loading: () => const Padding(
+              padding: EdgeInsets.symmetric(vertical: HavenSpacing.md),
+              child: SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
+            error: (_, __) => const Padding(
+              padding: EdgeInsets.symmetric(vertical: HavenSpacing.md),
+              child: Text(
+                'Could not load schedules',
+                style: TextStyle(color: HavenColors.expired, fontSize: 13),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

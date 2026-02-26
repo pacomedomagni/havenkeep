@@ -7,7 +7,13 @@ const validCategories = [
   'tv', 'computer', 'smart_home',
   'roofing', 'windows', 'doors', 'flooring',
   'plumbing', 'electrical',
-  'furniture', 'other',
+  'furniture',
+  'air_purifier', 'vacuum', 'ceiling_fan', 'smoke_detector',
+  'security_system', 'garage_door_opener', 'power_tools', 'lawn_mower',
+  'pool_equipment', 'grill', 'coffee_maker', 'home_theater',
+  'printer', 'networking', 'camera', 'lighting',
+  'dehumidifier', 'freezer', 'wine_cooler', 'trash_compactor',
+  'other',
 ];
 
 export const getCategoryParamsSchema = Joi.object({

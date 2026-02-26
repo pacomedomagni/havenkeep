@@ -1,5 +1,6 @@
 import { pool } from '../db';
 import { logger } from '../utils/logger';
+import { config } from '../config';
 import { AppError } from '../utils/errors';
 import { EmailService } from './email.service';
 import { FcmService } from './fcm.service';
@@ -480,7 +481,8 @@ export class NotificationsService {
                i.warranty_end_date, i.user_id,
                u.email, u.full_name,
                COALESCE(np.first_reminder_days, 30) as reminder_days,
-               COALESCE(np.email_enabled, FALSE) as email_enabled
+               COALESCE(np.email_enabled, FALSE) as email_enabled,
+               COALESCE(np.push_enabled, TRUE) as push_enabled
         FROM items i
         JOIN users u ON u.id = i.user_id
         LEFT JOIN notification_preferences np ON np.user_id = u.id
@@ -503,7 +505,7 @@ export class NotificationsService {
           const d = new Date(row.warranty_end_date);
           const expiryDate = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
 
-          await NotificationsService.createNotification({
+          const notification = await NotificationsService.createNotification({
             user_id: row.user_id,
             item_id: row.item_id,
             type: 'warranty_expiring',
@@ -511,15 +513,23 @@ export class NotificationsService {
             body: `Your warranty for ${itemLabel} expires on ${expiryDate}.`,
           });
 
-          // Send FCM push notification
-          try {
-            await FcmService.sendToUser(row.user_id, {
-              title: 'Warranty Expiring Soon',
-              body: `Your warranty for ${itemLabel} expires on ${expiryDate}.`,
-              data: { type: 'warranty_expiring', item_id: row.item_id },
-            });
-          } catch (fcmError) {
-            logger.error({ error: fcmError, userId: row.user_id }, 'FCM push failed (warranty_expiring)');
+          // Send FCM push notification (only if user has push enabled)
+          if (row.push_enabled !== false) {
+            try {
+              const sent = await FcmService.sendToUser(row.user_id, {
+                title: 'Warranty Expiring Soon',
+                body: `Your warranty for ${itemLabel} expires on ${expiryDate}.`,
+                data: { type: 'warranty_expiring', item_id: row.item_id },
+              });
+              if (sent > 0) {
+                await pool.query(
+                  `UPDATE notification_history SET delivered_at = NOW() WHERE id = $1`,
+                  [notification.id]
+                );
+              }
+            } catch (fcmError) {
+              logger.error({ error: fcmError, userId: row.user_id }, 'FCM push failed (warranty_expiring)');
+            }
           }
 
           // Send email if user has email notifications enabled
@@ -581,11 +591,16 @@ export class NotificationsService {
           i.name            AS item_name,
           i.brand,
           i.user_id,
+          u.email,
+          u.full_name,
           ms.id             AS schedule_id,
           ms.task_name,
           ms.frequency_months,
-          COALESCE(last_done.completed_date, i.purchase_date::DATE) AS reference_date
+          COALESCE(last_done.completed_date, i.purchase_date::DATE) AS reference_date,
+          COALESCE(np.push_enabled, TRUE) AS push_enabled,
+          COALESCE(np.email_enabled, FALSE) AS email_enabled
         FROM items i
+        JOIN users u ON u.id = i.user_id
         JOIN maintenance_schedules ms ON ms.category = i.category
         LEFT JOIN LATERAL (
           SELECT completed_date
@@ -596,6 +611,7 @@ export class NotificationsService {
           ORDER BY completed_date DESC
           LIMIT 1
         ) last_done ON TRUE
+        LEFT JOIN notification_preferences np ON np.user_id = i.user_id
         WHERE i.is_archived = FALSE
           AND i.purchase_date IS NOT NULL
           AND (COALESCE(last_done.completed_date, i.purchase_date::DATE) + make_interval(months => ms.frequency_months)) <= CURRENT_DATE
@@ -614,7 +630,7 @@ export class NotificationsService {
       for (const row of result.rows) {
         try {
           const itemLabel = row.brand ? `${row.brand} ${row.item_name}` : row.item_name;
-          await NotificationsService.createNotification({
+          const notification = await NotificationsService.createNotification({
             user_id: row.user_id,
             item_id: row.item_id,
             type: 'maintenance_due',
@@ -623,15 +639,39 @@ export class NotificationsService {
             data: { schedule_id: row.schedule_id, task_name: row.task_name },
           });
 
-          // Send FCM push notification
-          try {
-            await FcmService.sendToUser(row.user_id, {
-              title: 'Maintenance Due',
-              body: `Time to: ${row.task_name} for your ${itemLabel}.`,
-              data: { type: 'maintenance_due', item_id: row.item_id, schedule_id: row.schedule_id },
-            });
-          } catch (fcmError) {
-            logger.error({ error: fcmError, userId: row.user_id }, 'FCM push failed (maintenance_due)');
+          // Send FCM push notification (only if user has push enabled)
+          if (row.push_enabled !== false) {
+            try {
+              const sent = await FcmService.sendToUser(row.user_id, {
+                title: 'Maintenance Due',
+                body: `Time to: ${row.task_name} for your ${itemLabel}.`,
+                data: { type: 'maintenance_due', item_id: row.item_id, schedule_id: row.schedule_id },
+              });
+              if (sent > 0) {
+                await pool.query(
+                  `UPDATE notification_history SET delivered_at = NOW() WHERE id = $1`,
+                  [notification.id]
+                );
+              }
+            } catch (fcmError) {
+              logger.error({ error: fcmError, userId: row.user_id }, 'FCM push failed (maintenance_due)');
+            }
+          }
+
+          // Send email if user has email notifications enabled
+          if (row.email_enabled) {
+            try {
+              const itemUrl = `${config.app.frontendUrl}/items/${row.item_id}`;
+              await EmailService.sendMaintenanceDueEmail({
+                to: row.email,
+                user_name: row.full_name || 'there',
+                item_name: itemLabel,
+                task_name: row.task_name,
+                item_url: itemUrl,
+              });
+            } catch (emailError) {
+              logger.error({ error: emailError, itemId: row.item_id, userId: row.user_id }, 'Failed to send maintenance due email (notification still created)');
+            }
           }
 
           notifiedCount++;
@@ -644,6 +684,127 @@ export class NotificationsService {
       }
 
       logger.info({ count: notifiedCount }, 'Maintenance due notifications sent');
+      return notifiedCount;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Check for items with expired manufacturer warranties that qualify for
+   * extended warranty offers, and create claim_opportunity notifications.
+   *
+   * Scheduled daily alongside other notification jobs.
+   * Only targets items valued above $200 that do not already have an active
+   * extended warranty purchase, and limits to 3 notifications per batch per user
+   * to avoid overwhelming them.
+   *
+   * Idempotency: The 30-day dedup window prevents re-sending a claim_opportunity
+   * notification for the same item within that period.
+   */
+  static async checkAndNotifyWarrantyOffers(): Promise<number> {
+    const client = await pool.connect();
+    try {
+      // Find high-value items where manufacturer warranty has expired,
+      // no active extended warranty purchase exists, and no claim_opportunity
+      // notification was sent for this item in the last 30 days.
+      // Use ROW_NUMBER() to limit to 3 items per user per batch.
+      const result = await client.query(`
+        WITH eligible_items AS (
+          SELECT
+            i.id              AS item_id,
+            i.name            AS item_name,
+            i.brand,
+            i.price,
+            i.user_id,
+            u.email,
+            u.full_name,
+            COALESCE(np.push_enabled, TRUE) AS push_enabled,
+            COALESCE(np.email_enabled, FALSE) AS email_enabled,
+            COALESCE(np.warranty_offers_enabled, TRUE) AS warranty_offers_enabled,
+            ROW_NUMBER() OVER (PARTITION BY i.user_id ORDER BY i.price DESC) AS rn
+          FROM items i
+          JOIN users u ON u.id = i.user_id
+          LEFT JOIN notification_preferences np ON np.user_id = u.id
+          WHERE i.is_archived = FALSE
+            AND i.warranty_end_date < CURRENT_DATE
+            AND i.price > 200
+            AND NOT EXISTS (
+              SELECT 1 FROM warranty_purchases wp
+              WHERE wp.item_id = i.id
+                AND wp.status = 'active'
+            )
+            AND NOT EXISTS (
+              SELECT 1 FROM notification_history nh
+              WHERE nh.item_id = i.id
+                AND nh.type = 'claim_opportunity'
+                AND nh.sent_at > NOW() - INTERVAL '30 days'
+            )
+        )
+        SELECT * FROM eligible_items
+        WHERE rn <= 3
+          AND warranty_offers_enabled = TRUE
+        ORDER BY user_id, rn
+      `);
+
+      let notifiedCount = 0;
+      for (const row of result.rows) {
+        try {
+          const notification = await NotificationsService.createNotification({
+            user_id: row.user_id,
+            item_id: row.item_id,
+            type: 'claim_opportunity',
+            title: `Protect your ${row.item_name}`,
+            body: 'Your manufacturer warranty has expired. Consider extended protection.',
+            data: { price: row.price, brand: row.brand },
+          });
+
+          // Send FCM push notification (only if user has push enabled)
+          if (row.push_enabled !== false) {
+            try {
+              const sent = await FcmService.sendToUser(row.user_id, {
+                title: `Protect your ${row.item_name}`,
+                body: 'Your manufacturer warranty has expired. Consider extended protection.',
+                data: { type: 'claim_opportunity', item_id: row.item_id },
+              });
+              if (sent > 0) {
+                await pool.query(
+                  `UPDATE notification_history SET delivered_at = NOW() WHERE id = $1`,
+                  [notification.id]
+                );
+              }
+            } catch (fcmError) {
+              logger.error({ error: fcmError, userId: row.user_id }, 'FCM push failed (claim_opportunity)');
+            }
+          }
+
+          // Send email if user has email notifications enabled
+          if (row.email_enabled === true && row.email) {
+            try {
+              await EmailService.sendWarrantyExpirationEmail({
+                to: row.email,
+                user_name: row.full_name,
+                item_name: row.item_name,
+                brand: row.brand,
+                expiry_date: 'Expired',
+                days_remaining: 0,
+                item_id: row.item_id,
+              });
+            } catch (emailError) {
+              logger.error({ error: emailError, userId: row.user_id }, 'Email send failed (claim_opportunity)');
+            }
+          }
+
+          notifiedCount++;
+        } catch (itemError) {
+          logger.error(
+            { error: itemError, itemId: row.item_id },
+            'Failed to send claim_opportunity notification'
+          );
+        }
+      }
+
+      logger.info({ count: notifiedCount }, 'Warranty offer notifications sent');
       return notifiedCount;
     } finally {
       client.release();

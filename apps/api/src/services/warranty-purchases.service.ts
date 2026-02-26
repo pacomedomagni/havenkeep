@@ -138,6 +138,17 @@ export class WarrantyPurchasesService {
 
       await client.query('BEGIN');
 
+      // Check for duplicate active warranty on the same item
+      const duplicateCheck = await client.query(
+        `SELECT id FROM warranty_purchases
+         WHERE item_id = $1 AND user_id = $2 AND status = 'active'`,
+        [data.item_id, userId]
+      );
+
+      if (duplicateCheck.rows.length > 0) {
+        throw new AppError('An active extended warranty already exists for this item', 409);
+      }
+
       // Verify item belongs to user
       const itemCheck = await client.query(
         'SELECT id FROM items WHERE id = $1 AND user_id = $2',
@@ -149,9 +160,15 @@ export class WarrantyPurchasesService {
       }
 
       // Calculate expires_at from starts_at + duration_months
+      // Uses safe month addition to handle overflow (e.g., Jan 31 + 1 month = Feb 28)
       const startsAt = new Date(data.starts_at);
       const expiresAt = new Date(startsAt);
       expiresAt.setMonth(expiresAt.getMonth() + data.duration_months);
+      // Clamp day to avoid month overflow (e.g., Jan 31 + 1 month should be Feb 28, not Mar 3)
+      const expectedMonth = (startsAt.getMonth() + data.duration_months) % 12;
+      if (expiresAt.getMonth() !== expectedMonth) {
+        expiresAt.setDate(0); // Roll back to the last day of the previous month
+      }
 
       const result = await client.query(
         `INSERT INTO warranty_purchases (
@@ -319,6 +336,30 @@ export class WarrantyPurchasesService {
       return result.rows;
     } catch (error) {
       logger.error({ error, userId, daysAhead }, 'Error fetching expiring warranties');
+      throw error;
+    }
+  }
+
+  /**
+   * Expire all overdue active warranties in a single batch update.
+   * Designed to be called from a daily scheduled job.
+   */
+  static async expireOverdueWarranties(): Promise<number> {
+    try {
+      const result = await pool.query(
+        `UPDATE warranty_purchases
+         SET status = 'expired', updated_at = NOW()
+         WHERE status = 'active' AND expires_at < CURRENT_DATE
+         RETURNING id`
+      );
+
+      const count = result.rowCount ?? 0;
+      if (count > 0) {
+        logger.info({ count }, 'Expired overdue warranty purchases');
+      }
+      return count;
+    } catch (error) {
+      logger.error({ error }, 'Error expiring overdue warranty purchases');
       throw error;
     }
   }

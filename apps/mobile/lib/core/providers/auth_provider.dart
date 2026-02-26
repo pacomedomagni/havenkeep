@@ -278,6 +278,17 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
         );
   }
 
+  /// Request email change — sends a verification to the new address.
+  Future<void> requestEmailChange({
+    required String newEmail,
+    required String password,
+  }) async {
+    await ref.read(authRepositoryProvider).requestEmailChange(
+          newEmail: newEmail,
+          password: password,
+        );
+  }
+
   /// Delete the current user's account permanently.
   Future<void> deleteAccount({required String password}) async {
     await ref.read(authRepositoryProvider).deleteAccount(password: password);

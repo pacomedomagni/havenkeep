@@ -251,16 +251,24 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 ),
                 const SizedBox(height: HavenSpacing.md),
 
-                // Email (read-only)
+                // Email (tappable to change for email-auth users)
                 TextFormField(
                   initialValue: user.email,
                   readOnly: true,
                   style: const TextStyle(color: HavenColors.textTertiary),
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     labelText: 'Email',
-                    prefixIcon: Icon(Icons.email_outlined),
-                    helperText: 'Email changes require re-authentication',
+                    prefixIcon: const Icon(Icons.email_outlined),
+                    suffixIcon: user.authProvider == AuthProvider.email
+                        ? const Icon(Icons.edit_outlined, size: 20)
+                        : null,
+                    helperText: user.authProvider != AuthProvider.email
+                        ? 'Email managed by ${user.authProvider.displayLabel}'
+                        : 'Tap to change your email',
                   ),
+                  onTap: user.authProvider == AuthProvider.email
+                      ? () => _showChangeEmailDialog(user.email)
+                      : null,
                 ),
                 const SizedBox(height: HavenSpacing.lg),
 
@@ -447,6 +455,107 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       ),
     ),
     );
+  }
+
+  Future<void> _showChangeEmailDialog(String currentEmail) async {
+    final emailController = TextEditingController();
+    final passwordController = TextEditingController();
+    final dialogFormKey = GlobalKey<FormState>();
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: HavenColors.elevated,
+        title: const Text('Change Email'),
+        content: Form(
+          key: dialogFormKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'A verification link will be sent to your new email address.',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: HavenColors.textSecondary,
+                ),
+              ),
+              const SizedBox(height: HavenSpacing.md),
+              TextFormField(
+                controller: emailController,
+                keyboardType: TextInputType.emailAddress,
+                style: const TextStyle(color: HavenColors.textPrimary),
+                decoration: const InputDecoration(
+                  labelText: 'New Email',
+                  prefixIcon: Icon(Icons.email_outlined),
+                ),
+                validator: (v) {
+                  if (v == null || v.trim().isEmpty) return 'Email is required';
+                  if (!v.contains('@') || !v.contains('.')) return 'Enter a valid email';
+                  if (v.trim().toLowerCase() == currentEmail.toLowerCase()) {
+                    return 'Must be different from current email';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: HavenSpacing.md),
+              TextFormField(
+                controller: passwordController,
+                obscureText: true,
+                style: const TextStyle(color: HavenColors.textPrimary),
+                decoration: const InputDecoration(
+                  labelText: 'Current Password',
+                  prefixIcon: Icon(Icons.lock_outline),
+                ),
+                validator: (v) =>
+                    v == null || v.isEmpty ? 'Password is required' : null,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              if (dialogFormKey.currentState?.validate() == true) {
+                Navigator.of(ctx).pop(true);
+              }
+            },
+            child: const Text('Send Verification'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    try {
+      await ref.read(currentUserProvider.notifier).requestEmailChange(
+            newEmail: emailController.text.trim(),
+            password: passwordController.text,
+          );
+
+      if (mounted) {
+        showHavenSnackBar(
+          context,
+          message: 'Verification email sent to ${emailController.text.trim()}',
+          isSuccess: true,
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        showHavenSnackBar(
+          context,
+          message: ErrorHandler.getUserMessage(e),
+          isError: true,
+        );
+      }
+    } finally {
+      emailController.dispose();
+      passwordController.dispose();
+    }
   }
 
   Future<void> _confirmDiscard() async {

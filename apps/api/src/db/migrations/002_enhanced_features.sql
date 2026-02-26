@@ -530,7 +530,10 @@ CREATE TRIGGER update_notification_templates_updated_at
 -- 11. FUNCTIONS & PROCEDURES
 -- ============================================
 
--- Function to calculate warranty health score
+-- Function to calculate warranty health score.
+-- SINGLE SOURCE OF TRUTH for the overall score (0-100).
+-- A JS-side breakdown mirrors this logic in stats.service.ts → getHealthScoreBreakdown().
+-- If the scoring formula changes here, update the JS breakdown to match.
 CREATE OR REPLACE FUNCTION calculate_health_score(p_user_id UUID)
 RETURNS INTEGER AS $$
 DECLARE

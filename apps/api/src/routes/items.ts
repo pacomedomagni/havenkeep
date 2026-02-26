@@ -5,6 +5,7 @@ import { AppError } from '../middleware/errorHandler';
 import { validate } from '../middleware/validate';
 import { createItemSchema, updateItemSchema, paginationSchema, uuidParamSchema } from '../validators';
 import { AuditService } from '../services/audit.service';
+import { config } from '../config';
 
 const router = Router();
 
@@ -35,19 +36,9 @@ const ALLOWED_UPDATE_FIELDS = new Set([
   'warranty_provider', 'notes', 'is_archived', 'product_image_url', 'barcode',
 ]);
 
-// Export all items as CSV
+// Export all items as CSV (streaming — avoids buffering all rows in memory)
 router.get('/export.csv', async (req: AuthRequest, res, next) => {
   try {
-    const result = await query(
-      `SELECT name, brand, category, room, model_number, serial_number,
-              purchase_date, store, price, warranty_type, warranty_months,
-              warranty_end_date, notes, is_archived, added_via, created_at
-       FROM items
-       WHERE user_id = $1
-       ORDER BY is_archived ASC, warranty_end_date ASC NULLS LAST`,
-      [req.user!.id]
-    );
-
     const headers = [
       'Name', 'Brand', 'Category', 'Room', 'Model Number', 'Serial Number',
       'Purchase Date', 'Store', 'Price', 'Warranty Type', 'Warranty Months',
@@ -64,34 +55,79 @@ router.get('/export.csv', async (req: AuthRequest, res, next) => {
       return str;
     }
 
-    const rows = result.rows.map((item) => [
-      escapeCsv(item.name),
-      escapeCsv(item.brand),
-      escapeCsv(item.category),
-      escapeCsv(item.room),
-      escapeCsv(item.model_number),
-      escapeCsv(item.serial_number),
-      escapeCsv(item.purchase_date ? new Date(item.purchase_date).toISOString().split('T')[0] : ''),
-      escapeCsv(item.store),
-      escapeCsv(item.price != null ? Number(item.price).toFixed(2) : ''),
-      escapeCsv(item.warranty_type),
-      escapeCsv(item.warranty_months),
-      escapeCsv(item.warranty_end_date ? new Date(item.warranty_end_date).toISOString().split('T')[0] : ''),
-      escapeCsv(item.notes),
-      escapeCsv(item.is_archived ? 'Yes' : 'No'),
-      escapeCsv(item.added_via),
-      escapeCsv(item.created_at ? new Date(item.created_at).toISOString().split('T')[0] : ''),
-    ].join(','));
+    function formatRow(item: any): string {
+      return [
+        escapeCsv(item.name),
+        escapeCsv(item.brand),
+        escapeCsv(item.category),
+        escapeCsv(item.room),
+        escapeCsv(item.model_number),
+        escapeCsv(item.serial_number),
+        escapeCsv(item.purchase_date ? new Date(item.purchase_date).toISOString().split('T')[0] : ''),
+        escapeCsv(item.store),
+        escapeCsv(item.price != null ? Number(item.price).toFixed(2) : ''),
+        escapeCsv(item.warranty_type),
+        escapeCsv(item.warranty_months),
+        escapeCsv(item.warranty_end_date ? new Date(item.warranty_end_date).toISOString().split('T')[0] : ''),
+        escapeCsv(item.notes),
+        escapeCsv(item.is_archived ? 'Yes' : 'No'),
+        escapeCsv(item.added_via),
+        escapeCsv(item.created_at ? new Date(item.created_at).toISOString().split('T')[0] : ''),
+      ].join(',');
+    }
 
-    const csv = [headers.join(','), ...rows].join('\r\n');
     const date = new Date().toISOString().split('T')[0];
     const filename = `havenkeep_items_${date}.csv`;
 
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.send('\uFEFF' + csv); // BOM for Excel compatibility
+    res.setHeader('Transfer-Encoding', 'chunked');
+
+    // Audit log the export
+    await AuditService.logFromRequest(req, 'item.export', {
+      resourceType: 'item',
+      description: 'User exported items as CSV',
+    });
+
+    // Write BOM + header row
+    res.write('\uFEFF' + headers.join(',') + '\r\n');
+
+    // Stream rows in chunks using LIMIT/OFFSET to avoid loading all into memory
+    const CHUNK_SIZE = 500;
+    let offset = 0;
+    let hasMore = true;
+
+    while (hasMore) {
+      const result = await query(
+        `SELECT name, brand, category, room, model_number, serial_number,
+                purchase_date, store, price, warranty_type, warranty_months,
+                warranty_end_date, notes, is_archived, added_via, created_at
+         FROM items
+         WHERE user_id = $1
+         ORDER BY is_archived ASC, warranty_end_date ASC NULLS LAST
+         LIMIT $2 OFFSET $3`,
+        [req.user!.id, CHUNK_SIZE, offset]
+      );
+
+      for (const row of result.rows) {
+        res.write(formatRow(row) + '\r\n');
+      }
+
+      if (result.rows.length < CHUNK_SIZE) {
+        hasMore = false;
+      } else {
+        offset += CHUNK_SIZE;
+      }
+    }
+
+    res.end();
   } catch (error) {
-    next(error);
+    // If headers already sent, destroy the response; otherwise pass to error handler
+    if (res.headersSent) {
+      res.destroy();
+    } else {
+      next(error);
+    }
   }
 });
 
@@ -185,6 +221,19 @@ router.get('/', validate(paginationSchema, 'query'), async (req: AuthRequest, re
   }
 });
 
+// Default expected lifespan (in years) by category, used when the item has no explicit value
+const CATEGORY_DEFAULT_LIFESPAN: Record<string, number> = {
+  appliance: 12,
+  electronics: 5,
+  furniture: 15,
+  hvac: 15,
+  plumbing: 20,
+  roofing: 25,
+  flooring: 15,
+  outdoor: 10,
+  other: 10,
+};
+
 // Get single item
 router.get('/:id', validate(uuidParamSchema, 'params'), async (req: AuthRequest, res, next) => {
   try {
@@ -197,7 +246,31 @@ router.get('/:id', validate(uuidParamSchema, 'params'), async (req: AuthRequest,
       throw new AppError('Item not found', 404);
     }
 
-    res.json({ item: result.rows[0] });
+    const item = result.rows[0];
+
+    // Compute lifespan percentage
+    const expectedLifespan: number | null =
+      item.expected_lifespan_years ??
+      CATEGORY_DEFAULT_LIFESPAN[item.category] ??
+      null;
+
+    let lifespanPercentage: number | null = null;
+
+    if (expectedLifespan && item.purchase_date) {
+      const purchaseDate = new Date(item.purchase_date);
+      const now = new Date();
+      const yearsSincePurchase =
+        (now.getTime() - purchaseDate.getTime()) / (1000 * 60 * 60 * 24 * 365.25);
+      lifespanPercentage = Math.min(100, Math.round((yearsSincePurchase / expectedLifespan) * 100));
+    }
+
+    res.json({
+      item: {
+        ...item,
+        expected_lifespan_years: expectedLifespan,
+        lifespan_percentage: lifespanPercentage,
+      },
+    });
   } catch (error) {
     next(error);
   }
@@ -238,7 +311,7 @@ router.post('/', validate(createItemSchema), async (req: AuthRequest, res, next)
         [req.user!.id]
       );
 
-      if (parseInt(countResult.rows[0].count, 10) >= 5) {
+      if (parseInt(countResult.rows[0].count, 10) >= config.freeTier.itemLimit) {
         throw new AppError('Free plan limit reached. Upgrade to Premium for unlimited items.', 403);
       }
     }

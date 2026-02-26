@@ -7,6 +7,9 @@ export async function updatePartnerProfile(formData: FormData) {
   const partnerType = formData.get('partnerType') as string;
   const phone = formData.get('phone') as string;
   const serviceAreasRaw = formData.get('serviceAreas') as string;
+  const brandColor = formData.get('brandColor') as string;
+  const logoUrl = formData.get('logoUrl') as string;
+  const licenseNumber = formData.get('licenseNumber') as string;
 
   const serviceAreas = serviceAreasRaw
     .split(',')
@@ -21,6 +24,9 @@ export async function updatePartnerProfile(formData: FormData) {
         partner_type: partnerType,
         phone: phone || undefined,
         service_areas: serviceAreas,
+        brand_color: brandColor || undefined,
+        logo_url: logoUrl || undefined,
+        license_number: licenseNumber || null,
       },
     });
 

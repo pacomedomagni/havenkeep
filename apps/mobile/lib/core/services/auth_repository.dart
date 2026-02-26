@@ -201,6 +201,21 @@ class AuthRepository {
   }
 
   // ============================================
+  // EMAIL MANAGEMENT
+  // ============================================
+
+  /// Request an email change. Sends a verification email to the new address.
+  Future<void> requestEmailChange({
+    required String newEmail,
+    required String password,
+  }) async {
+    await _client.post('/api/v1/users/me/change-email', body: {
+      'newEmail': newEmail,
+      'password': password,
+    });
+  }
+
+  // ============================================
   // ACCOUNT MANAGEMENT
   // ============================================
 

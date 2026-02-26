@@ -5,6 +5,7 @@ import { AppError } from '../middleware/errorHandler';
 import { validate } from '../middleware/validate';
 import { createHomeSchema, updateHomeSchema, uuidParamSchema } from '../validators';
 import { AuditService } from '../services/audit.service';
+import { writeRateLimiter } from '../middleware/rateLimiter';
 
 const router = Router();
 router.use(authenticate);
@@ -41,7 +42,7 @@ router.get('/:id', validate(uuidParamSchema, 'params'), async (req, res, next) =
 });
 
 // Create new home
-router.post('/', validate(createHomeSchema), async (req, res, next) => {
+router.post('/', writeRateLimiter, validate(createHomeSchema), async (req, res, next) => {
   try {
     const { name, address, city, state, zip, homeType, moveInDate } = req.body;
     const result = await query(
@@ -63,7 +64,7 @@ router.post('/', validate(createHomeSchema), async (req, res, next) => {
 });
 
 // Update home
-router.put('/:id', validate(uuidParamSchema, 'params'), validate(updateHomeSchema), async (req, res, next) => {
+router.put('/:id', writeRateLimiter, validate(uuidParamSchema, 'params'), validate(updateHomeSchema), async (req, res, next) => {
   try {
     const { name, address, city, state, zip, homeType, moveInDate } = req.body;
     const updates: string[] = [];
@@ -135,7 +136,7 @@ router.put('/:id', validate(uuidParamSchema, 'params'), validate(updateHomeSchem
 });
 
 // Delete home
-router.delete('/:id', validate(uuidParamSchema, 'params'), async (req, res, next) => {
+router.delete('/:id', writeRateLimiter, validate(uuidParamSchema, 'params'), async (req, res, next) => {
   const client = await getClient();
   try {
     await client.query('BEGIN');

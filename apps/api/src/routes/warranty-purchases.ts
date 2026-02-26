@@ -9,6 +9,9 @@ import {
   getExpiringQuerySchema,
 } from '../validators/warranty-purchases.validator';
 import { asyncHandler } from '../utils/async-handler';
+import { query } from '../db';
+import { AppError } from '../middleware/errorHandler';
+import { writeRateLimiter } from '../middleware/rateLimiter';
 
 const router = Router();
 
@@ -90,6 +93,72 @@ router.get(
 );
 
 /**
+ * @route   GET /api/v1/warranty-purchases/quotes
+ * @desc    Get extended warranty quotes for an item
+ * @access  Private
+ */
+router.get(
+  '/quotes',
+  asyncHandler(async (req, res) => {
+    const userId = req.user!.id;
+    const itemId = req.query.item_id as string;
+
+    if (!itemId) {
+      throw new AppError('item_id query parameter is required', 400);
+    }
+
+    // Validate UUID format
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(itemId)) {
+      throw new AppError('item_id must be a valid UUID', 400);
+    }
+
+    // Look up the item with ownership check
+    const result = await query(
+      `SELECT id, name, category, price, purchase_date FROM items WHERE id = $1 AND user_id = $2`,
+      [itemId, userId]
+    );
+
+    if (result.rows.length === 0) {
+      throw new AppError('Item not found', 404);
+    }
+
+    const item = result.rows[0];
+    const itemPrice = Number(item.price) || 0;
+
+    // Calculate item age in years
+    const purchaseDate = new Date(item.purchase_date);
+    const now = new Date();
+    const ageInYears = (now.getTime() - purchaseDate.getTime()) / (1000 * 60 * 60 * 24 * 365.25);
+
+    // Generate warranty plans based on item price
+    let plans = [
+      { provider: 'HavenShield Basic', plan_name: '1 Year Protection', duration_months: 12, price: Math.round(itemPrice * 0.05), deductible: 75 },
+      { provider: 'HavenShield Plus', plan_name: '2 Year Protection', duration_months: 24, price: Math.round(itemPrice * 0.08), deductible: 50 },
+      { provider: 'HavenShield Premium', plan_name: '3 Year Protection', duration_months: 36, price: Math.round(itemPrice * 0.12), deductible: 0 },
+    ];
+
+    // Filter out longer plans if item is older than 5 years
+    if (ageInYears > 5) {
+      plans = plans.filter((p) => p.duration_months === 12);
+    }
+
+    res.json({
+      success: true,
+      data: {
+        quotes: plans,
+        item: {
+          id: item.id,
+          name: item.name,
+          category: item.category,
+          price: itemPrice,
+        },
+      },
+    });
+  })
+);
+
+/**
  * @route   GET /api/v1/warranty-purchases/:id
  * @desc    Get a single warranty purchase by ID
  * @access  Private
@@ -114,6 +183,7 @@ router.get(
  */
 router.post(
   '/',
+  writeRateLimiter,
   validate(createWarrantyPurchaseSchema),
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
@@ -134,6 +204,7 @@ router.post(
  */
 router.post(
   '/:id/cancel',
+  writeRateLimiter,
   validate(cancelWarrantyPurchaseSchema),
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;

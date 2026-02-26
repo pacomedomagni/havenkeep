@@ -8,6 +8,17 @@ import { minioClient, BUCKET_NAME, getPublicUrl } from '../config/minio';
 import { logger } from '../utils/logger';
 import { query } from '../db';
 
+// Validate file content matches expected type via magic bytes
+function validateMagicBytes(buffer: Buffer, mimetype: string): boolean {
+  if (buffer.length < 4) return false;
+  const header = buffer.slice(0, 4);
+  if (mimetype === 'image/jpeg') return header[0] === 0xFF && header[1] === 0xD8 && header[2] === 0xFF;
+  if (mimetype === 'image/png') return header[0] === 0x89 && header[1] === 0x50 && header[2] === 0x4E && header[3] === 0x47;
+  if (mimetype === 'image/webp') return buffer.length >= 12 && buffer.slice(0, 4).toString() === 'RIFF' && buffer.slice(8, 12).toString() === 'WEBP';
+  if (mimetype === 'image/heic' || mimetype === 'image/heif') return buffer.length >= 8 && buffer.slice(4, 8).toString() === 'ftyp';
+  return true;
+}
+
 const router = Router();
 router.use(authenticate);
 
@@ -49,6 +60,10 @@ router.post(
       const file = req.file;
       if (!file) {
         throw new AppError('No file uploaded', 400);
+      }
+
+      if (!validateMagicBytes(file.buffer, file.mimetype)) {
+        throw new AppError('File content does not match declared type', 400);
       }
 
       const userId = req.user!.id;
@@ -110,6 +125,10 @@ router.post(
       const file = req.file;
       if (!file) {
         throw new AppError('No file uploaded', 400);
+      }
+
+      if (!validateMagicBytes(file.buffer, file.mimetype)) {
+        throw new AppError('File content does not match declared type', 400);
       }
 
       const { itemId } = req.body;

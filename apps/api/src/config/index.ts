@@ -113,6 +113,10 @@ export const config = {
     apiUrl: process.env.API_URL || 'http://localhost:3000',
   },
 
+  freeTier: {
+    itemLimit: parseInt(process.env.FREE_TIER_ITEM_LIMIT || '5', 10),
+  },
+
   cors: {
     origins: (process.env.CORS_ORIGINS || 'http://localhost:3000,http://localhost:3001').split(','),
   },

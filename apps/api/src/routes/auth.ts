@@ -148,7 +148,7 @@ router.post('/register', authRateLimiter, validate(registerSchema), async (req, 
     const verificationExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
     query(
       `INSERT INTO email_verification_tokens (user_id, token, expires_at) VALUES ($1, $2, $3)`,
-      [user.id, verificationToken, verificationExpiresAt]
+      [user.id, hashRefreshToken(verificationToken), verificationExpiresAt]
     ).then(() => {
       const verifyUrl = `${config.app.frontendUrl}/verify-email?token=${verificationToken}`;
       return EmailService.sendEmailVerificationEmail({
@@ -653,11 +653,12 @@ router.post('/verify-email', authRateLimiter, validate(verifyEmailSchema), async
     const { token } = req.body;
 
     // Atomically consume the verification token and get user_id
+    // Token is hashed (SHA-256) before lookup — same pattern as password reset tokens.
     const tokenResult = await query(
       `DELETE FROM email_verification_tokens
        WHERE token = $1 AND expires_at > NOW()
        RETURNING user_id`,
-      [token]
+      [hashRefreshToken(token)]
     );
 
     if (tokenResult.rows.length === 0) {
@@ -792,6 +793,16 @@ router.post('/google', authRateLimiter, validate(googleOAuthSchema), async (req,
       `INSERT INTO refresh_tokens (user_id, token, expires_at)
        VALUES ($1, $2, $3)`,
       [user.id, hashRefreshToken(refreshToken), expiresAt]
+    );
+
+    // Cap active refresh tokens per user (keep most recent 10, remove oldest)
+    await query(
+      `DELETE FROM refresh_tokens
+       WHERE user_id = $1 AND id NOT IN (
+         SELECT id FROM refresh_tokens WHERE user_id = $1
+         ORDER BY created_at DESC LIMIT 10
+       )`,
+      [user.id]
     );
 
     // Audit log: OAuth login
@@ -987,6 +998,16 @@ router.post('/apple', authRateLimiter, validate(appleOAuthSchema), async (req, r
       `INSERT INTO refresh_tokens (user_id, token, expires_at)
        VALUES ($1, $2, $3)`,
       [user.id, hashRefreshToken(refreshToken), expiresAt]
+    );
+
+    // Cap active refresh tokens per user (keep most recent 10, remove oldest)
+    await query(
+      `DELETE FROM refresh_tokens
+       WHERE user_id = $1 AND id NOT IN (
+         SELECT id FROM refresh_tokens WHERE user_id = $1
+         ORDER BY created_at DESC LIMIT 10
+       )`,
+      [user.id]
     );
 
     // Audit log: OAuth login

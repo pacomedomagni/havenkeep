@@ -6,6 +6,10 @@ import { paginationSchema } from '../validators';
 import { userIdParamSchema, dateRangeQuerySchema } from '../validators/admin.validator';
 import { AppError } from '../utils/errors';
 import { AuditService } from '../services/audit.service';
+import { getRedisClient } from '../utils/redis';
+import { logger } from '../utils/logger';
+
+const ADMIN_STATS_TTL = 60; // 60 seconds
 
 const router = Router();
 router.use(authenticate);
@@ -29,6 +33,17 @@ router.use(requireAdmin);
 // Admin stats overview (basic)
 router.get('/stats', async (req, res, next) => {
   try {
+    // Check Redis cache first
+    try {
+      const redis = await getRedisClient();
+      const cached = await redis.get('admin:stats');
+      if (cached) {
+        return res.json({ stats: JSON.parse(cached) });
+      }
+    } catch (err) {
+      logger.warn({ err }, 'Redis cache read failed for admin:stats, falling back to DB');
+    }
+
     const stats = await query(`
       SELECT
         (SELECT COUNT(*) FROM users) as total_users,
@@ -39,6 +54,15 @@ router.get('/stats', async (req, res, next) => {
         (SELECT COUNT(*) FROM partner_gifts) as total_gifts,
         (SELECT COUNT(*) FROM warranty_claims) as total_claims
     `);
+
+    // Cache the result in Redis with 60-second TTL
+    try {
+      const redis = await getRedisClient();
+      await redis.set('admin:stats', JSON.stringify(stats.rows[0]), { EX: ADMIN_STATS_TTL });
+    } catch (err) {
+      logger.warn({ err }, 'Redis cache write failed for admin:stats');
+    }
+
     res.json({ stats: stats.rows[0] });
   } catch (error) {
     next(error);
@@ -48,6 +72,17 @@ router.get('/stats', async (req, res, next) => {
 // Full admin stats (dashboard overview)
 router.get('/stats/full', async (req, res, next) => {
   try {
+    // Check Redis cache first
+    try {
+      const redis = await getRedisClient();
+      const cached = await redis.get('admin:stats:full');
+      if (cached) {
+        return res.json({ stats: JSON.parse(cached) });
+      }
+    } catch (err) {
+      logger.warn({ err }, 'Redis cache read failed for admin:stats:full, falling back to DB');
+    }
+
     const stats = await query(`
       SELECT
         (SELECT COUNT(*) FROM users) AS total_users,
@@ -62,6 +97,15 @@ router.get('/stats/full', async (req, res, next) => {
         (SELECT COUNT(DISTINCT ua.user_id) FROM user_analytics ua WHERE ua.last_active_at >= NOW() - INTERVAL '7 days') AS wau,
         (SELECT COUNT(DISTINCT ua.user_id) FROM user_analytics ua WHERE ua.last_active_at >= NOW() - INTERVAL '30 days') AS mau
     `);
+
+    // Cache the result in Redis with 60-second TTL
+    try {
+      const redis = await getRedisClient();
+      await redis.set('admin:stats:full', JSON.stringify(stats.rows[0]), { EX: ADMIN_STATS_TTL });
+    } catch (err) {
+      logger.warn({ err }, 'Redis cache write failed for admin:stats:full');
+    }
+
     res.json({ stats: stats.rows[0] });
   } catch (error) {
     next(error);
@@ -271,6 +315,95 @@ router.delete('/users/:id', validate(userIdParamSchema, 'params'), async (req, r
     });
 
     res.json({ success: true, message: 'User deleted', user: result.rows[0] });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ========== PARTNER MANAGEMENT ==========
+
+// List pending partners (is_active = false)
+router.get('/partners/pending', async (req, res, next) => {
+  try {
+    const result = await query(
+      `SELECT p.*, u.email, u.full_name
+       FROM partners p
+       JOIN users u ON u.id = p.user_id
+       WHERE p.is_active = FALSE
+       ORDER BY p.created_at DESC`
+    );
+
+    res.json({
+      success: true,
+      data: result.rows,
+      total: result.rows.length,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Approve a partner (set is_active = true)
+router.put('/partners/:id/approve', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const result = await query(
+      `UPDATE partners SET is_active = TRUE, updated_at = NOW()
+       WHERE id = $1
+       RETURNING *`,
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      throw new AppError('Partner not found', 404);
+    }
+
+    await AuditService.logFromRequest(req, 'admin.settings_change', {
+      severity: 'info',
+      resourceType: 'partner',
+      resourceId: id,
+      description: `Admin approved partner: ${result.rows[0].company_name || id}`,
+    });
+
+    res.json({
+      success: true,
+      data: result.rows[0],
+      message: 'Partner approved',
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Reject a partner (set is_active = false)
+router.put('/partners/:id/reject', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const result = await query(
+      `UPDATE partners SET is_active = FALSE, updated_at = NOW()
+       WHERE id = $1
+       RETURNING *`,
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      throw new AppError('Partner not found', 404);
+    }
+
+    await AuditService.logFromRequest(req, 'admin.settings_change', {
+      severity: 'warning',
+      resourceType: 'partner',
+      resourceId: id,
+      description: `Admin rejected partner: ${result.rows[0].company_name || id}`,
+    });
+
+    res.json({
+      success: true,
+      data: result.rows[0],
+      message: 'Partner rejected',
+    });
   } catch (error) {
     next(error);
   }

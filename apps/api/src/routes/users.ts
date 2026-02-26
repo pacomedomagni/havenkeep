@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import { query } from '../db';
 import { authenticate } from '../middleware/auth';
@@ -6,11 +7,13 @@ import { AppError } from '../middleware/errorHandler';
 import { validate } from '../middleware/validate';
 import { updateUserSchema, pushTokenSchema } from '../validators';
 import { changePasswordSchema, deleteAccountSchema } from '../validators/users.validator';
+import { changeEmailSchema } from '../validators/auth.validator';
 import { blacklistTokenAuto } from '../utils/token-blacklist';
 import { config } from '../config';
 import { logger } from '../utils/logger';
 import { AuditService } from '../services/audit.service';
-import { verifyPremiumRateLimiter } from '../middleware/rateLimiter';
+import { EmailService } from '../services/email.service';
+import { verifyPremiumRateLimiter, passwordChangeRateLimiter } from '../middleware/rateLimiter';
 
 const router = Router();
 router.use(authenticate);
@@ -214,8 +217,101 @@ router.post('/me/verify-premium', verifyPremiumRateLimiter, async (req, res, nex
   }
 });
 
+// Change email — initiates verification flow
+router.post('/me/change-email', validate(changeEmailSchema), async (req, res, next) => {
+  try {
+    const { newEmail, password } = req.body;
+
+    // Get current user
+    const userResult = await query(
+      `SELECT email, password_hash, full_name FROM users WHERE id = $1`,
+      [req.user!.id]
+    );
+
+    if (userResult.rows.length === 0) {
+      throw new AppError('User not found', 404);
+    }
+
+    const user = userResult.rows[0];
+
+    if (!user.password_hash) {
+      throw new AppError('Password is not set for this account. OAuth users cannot change email this way.', 400);
+    }
+
+    // Verify current password
+    const valid = await bcrypt.compare(password, user.password_hash);
+    if (!valid) {
+      throw new AppError('Incorrect password', 401);
+    }
+
+    // Ensure new email is different from current
+    if (newEmail.toLowerCase() === user.email.toLowerCase()) {
+      throw new AppError('New email must be different from your current email', 400);
+    }
+
+    // Check if new email is already in use
+    const existingUser = await query(
+      `SELECT id FROM users WHERE LOWER(email) = LOWER($1)`,
+      [newEmail]
+    );
+
+    if (existingUser.rows.length > 0) {
+      throw new AppError('This email is already in use', 409);
+    }
+
+    // Generate a verification token
+    const token = crypto.randomBytes(32).toString('hex');
+    const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+
+    // Delete any existing change-email tokens for this user
+    await query(
+      `DELETE FROM email_verification_tokens WHERE user_id = $1 AND metadata->>'type' = 'change_email'`,
+      [req.user!.id]
+    );
+
+    // Store the hashed token with new_email metadata
+    await query(
+      `INSERT INTO email_verification_tokens (user_id, token, metadata, expires_at)
+       VALUES ($1, $2, $3, NOW() + INTERVAL '24 hours')`,
+      [
+        req.user!.id,
+        hashedToken,
+        JSON.stringify({ type: 'change_email', new_email: newEmail }),
+      ]
+    );
+
+    // Build verification URL
+    const verifyUrl = `${config.app.frontendUrl}/verify-email-change?token=${token}`;
+
+    // Send verification email to the NEW address
+    await EmailService.sendEmailChangeVerificationEmail({
+      to: newEmail,
+      user_name: user.full_name || 'there',
+      verify_url: verifyUrl,
+      new_email: newEmail,
+    });
+
+    // Audit log
+    await AuditService.logFromRequest(req, 'user.email_change_requested', {
+      resourceType: 'user',
+      resourceId: req.user!.id,
+      description: 'Email change verification sent',
+      metadata: { new_email: newEmail },
+    });
+
+    logger.info(
+      { userId: req.user!.id, newEmail },
+      'Email change verification sent'
+    );
+
+    res.json({ message: 'Verification email sent to your new address. Please check your inbox.' });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Change password
-router.put('/me/password', validate(changePasswordSchema), async (req, res, next) => {
+router.put('/me/password', passwordChangeRateLimiter, validate(changePasswordSchema), async (req, res, next) => {
   try {
     const { currentPassword, newPassword } = req.body;
 
@@ -278,16 +374,22 @@ router.put('/me/password', validate(changePasswordSchema), async (req, res, next
   }
 });
 
-// Delete account
+// Delete account (soft-delete with 30-day cooling-off period)
 // For email users: requires password confirmation.
 // For OAuth users (no password): requires confirmDelete=true in body.
+//
+// NOTE: Requires columns `deleted_at TIMESTAMPTZ` and
+// `deletion_scheduled_for TIMESTAMPTZ` on the `users` table.
+// Add via migration:
+//   ALTER TABLE users ADD COLUMN deleted_at TIMESTAMPTZ;
+//   ALTER TABLE users ADD COLUMN deletion_scheduled_for TIMESTAMPTZ;
 router.delete('/me', validate(deleteAccountSchema), async (req, res, next) => {
   try {
     const { password, confirmDelete } = req.body || {};
 
     // Get user info to determine auth method
     const userResult = await query(
-      `SELECT password_hash, auth_provider FROM users WHERE id = $1`,
+      `SELECT password_hash, auth_provider, email, full_name FROM users WHERE id = $1`,
       [req.user!.id]
     );
 
@@ -313,8 +415,19 @@ router.delete('/me', validate(deleteAccountSchema), async (req, res, next) => {
       }
     }
 
-    // Delete user (cascades to all related data)
-    await query(`DELETE FROM users WHERE id = $1`, [req.user!.id]);
+    // Soft-delete: mark user for deletion in 30 days and suspend the plan
+    await query(
+      `UPDATE users
+       SET deleted_at = NOW(),
+           deletion_scheduled_for = NOW() + INTERVAL '30 days',
+           plan = 'suspended',
+           updated_at = NOW()
+       WHERE id = $1`,
+      [req.user!.id]
+    );
+
+    // Invalidate all refresh tokens to log the user out everywhere
+    await query(`DELETE FROM refresh_tokens WHERE user_id = $1`, [req.user!.id]);
 
     // Blacklist the current access token
     const authHeader = req.headers.authorization;
@@ -326,13 +439,65 @@ router.delete('/me', validate(deleteAccountSchema), async (req, res, next) => {
       }
     }
 
+    // Fire-and-forget: send account deletion confirmation email
+    EmailService.sendAccountDeletionEmail({
+      to: user.email,
+      user_name: user.full_name || 'there',
+    }).catch((err) => {
+      logger.warn({ error: err, userId: req.user!.id }, 'Failed to send account deletion email (non-blocking)');
+    });
+
     await AuditService.logFromRequest(req, 'user.delete', {
       resourceType: 'user',
       resourceId: req.user!.id,
-      description: 'User deleted account',
+      description: 'User scheduled account for deletion (30-day cooling-off)',
     });
 
-    res.json({ message: 'Account deleted successfully' });
+    res.json({
+      message:
+        'Account scheduled for deletion in 30 days. You can recover it by logging in before then.',
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Recover a soft-deleted account during the cooling-off period
+router.post('/me/recover', async (req, res, next) => {
+  try {
+    const userResult = await query(
+      `SELECT id, deleted_at, deletion_scheduled_for FROM users WHERE id = $1`,
+      [req.user!.id]
+    );
+
+    if (userResult.rows.length === 0) {
+      throw new AppError('User not found', 404);
+    }
+
+    const user = userResult.rows[0];
+
+    if (!user.deleted_at) {
+      throw new AppError('Account is not scheduled for deletion', 400);
+    }
+
+    // Clear soft-delete markers and restore to free plan
+    await query(
+      `UPDATE users
+       SET deleted_at = NULL,
+           deletion_scheduled_for = NULL,
+           plan = 'free',
+           updated_at = NOW()
+       WHERE id = $1`,
+      [req.user!.id]
+    );
+
+    await AuditService.logFromRequest(req, 'user.update', {
+      resourceType: 'user',
+      resourceId: req.user!.id,
+      description: 'User recovered account from scheduled deletion',
+    });
+
+    res.json({ message: 'Account recovered successfully. Your plan has been set to free.' });
   } catch (error) {
     next(error);
   }

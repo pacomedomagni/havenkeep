@@ -30,6 +30,7 @@ export const updatePartnerSchema = Joi.object({
   default_message: Joi.string().max(1000).optional(),
   default_premium_months: Joi.number().integer().min(1).max(12).optional(),
   service_areas: Joi.array().items(Joi.string().max(100)).optional(),
+  license_number: Joi.string().max(100).allow(null, ''),
 }).min(1)
   // Accept camelCase from dashboard clients
   .rename('companyName', 'company_name', { ignoreUndefined: true, override: false })
@@ -37,7 +38,8 @@ export const updatePartnerSchema = Joi.object({
   .rename('logoUrl', 'logo_url', { ignoreUndefined: true, override: false })
   .rename('defaultMessage', 'default_message', { ignoreUndefined: true, override: false })
   .rename('defaultPremiumMonths', 'default_premium_months', { ignoreUndefined: true, override: false })
-  .rename('serviceAreas', 'service_areas', { ignoreUndefined: true, override: false });
+  .rename('serviceAreas', 'service_areas', { ignoreUndefined: true, override: false })
+  .rename('licenseNumber', 'license_number', { ignoreUndefined: true, override: false });
 
 export const createGiftSchema = Joi.object({
   homebuyer_email: Joi.string().email().required(),

@@ -26,6 +26,20 @@ class HavenDatabase extends _$HavenDatabase {
   @override
   int get schemaVersion => 1;
 
+  @override
+  MigrationStrategy get migration => MigrationStrategy(
+    onUpgrade: (m, from, to) async {
+      // Stepwise migration: apply each version's changes in order.
+      for (var target = from + 1; target <= to; target++) {
+        switch (target) {
+          case 2:
+            // Example: await m.addColumn(localItems, localItems.newColumn);
+            break;
+        }
+      }
+    },
+  );
+
   // ---------------------------------------------------------------------------
   // LOCAL ITEMS
   // ---------------------------------------------------------------------------
@@ -109,6 +123,31 @@ class HavenDatabase extends _$HavenDatabase {
   Future<void> retryAction(int actionId) =>
       (update(offlineQueue)..where((t) => t.id.equals(actionId)))
           .write(const OfflineQueueCompanion(status: Value('pending')));
+
+  /// Fetch all failed queue entries, ordered oldest first.
+  Future<List<OfflineQueueData>> getFailedActions() =>
+      (select(offlineQueue)
+            ..where((t) => t.status.equals('failed'))
+            ..orderBy([(t) => OrderingTerm.asc(t.createdAt)]))
+          .get();
+
+  /// Count of failed sync items.
+  Future<int> get failedCount async {
+    final countExpr = countAll();
+    final query = selectOnly(offlineQueue)
+      ..where(offlineQueue.status.equals('failed'))
+      ..addColumns([countExpr]);
+    final result = await query.getSingle();
+    return result.read(countExpr) ?? 0;
+  }
+
+  /// Re-queue all failed actions for retry (resets status to 'pending' and attempts to 0).
+  Future<void> retryAllFailedActions() =>
+      (update(offlineQueue)..where((t) => t.status.equals('failed')))
+          .write(const OfflineQueueCompanion(
+        status: Value('pending'),
+        attempts: Value(0),
+      ));
 
   /// Remove all synced actions from the queue.
   Future<void> clearSyncedActions() =>

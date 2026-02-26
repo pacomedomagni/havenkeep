@@ -85,9 +85,17 @@ class _PdfPreviewScreenState extends ConsumerState<PdfPreviewScreen> {
               icon: const Icon(Icons.print_outlined),
               tooltip: 'Print',
               onPressed: () async {
-                await ref
-                    .read(pdfExportServiceProvider)
-                    .printPdf(_pdfBytes!);
+                try {
+                  await ref
+                      .read(pdfExportServiceProvider)
+                      .printPdf(_pdfBytes!);
+                } catch (e) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Unable to print. Please try again.')),
+                    );
+                  }
+                }
               },
             ),
             IconButton(

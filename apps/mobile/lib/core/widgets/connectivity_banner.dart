@@ -19,33 +19,41 @@ class ConnectivityBanner extends ConsumerWidget {
     final isSyncing = ref.watch(isSyncingProvider);
     final pendingCount = ref.watch(offlineQueueCountProvider);
 
-    if (isOnline && !isSyncing && (pendingCount.value ?? 0) == 0) {
-      return const SizedBox.shrink();
-    }
+    final showBanner = !isOnline || isSyncing || (pendingCount.value ?? 0) > 0;
+
+    Widget bannerContent;
 
     if (!isOnline) {
-      return _Banner(
-        icon: Icons.cloud_off_outlined,
-        message: 'You\'re offline. Changes will sync when back online.',
-        color: HavenColors.expiring,
-        trailing: pendingCount.whenOrNull(
-          data: (count) => count > 0
-              ? Text(
+      final count = pendingCount.value ?? 0;
+      bannerContent = GestureDetector(
+        onTap: () {
+          ref.read(offlineSyncServiceProvider).syncPendingChanges();
+        },
+        child: _Banner(
+          icon: Icons.cloud_off_outlined,
+          message: 'You\'re offline. Tap to sync when ready.',
+          color: HavenColors.expiring,
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (count > 0)
+                Text(
                   '$count pending',
                   style: const TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
                     color: HavenColors.expiring,
                   ),
-                )
-              : null,
+                ),
+              const SizedBox(width: 4),
+              const Icon(Icons.sync, size: 14, color: HavenColors.expiring),
+            ],
+          ),
         ),
       );
-    }
-
-    if (isSyncing) {
+    } else if (isSyncing) {
       final count = pendingCount.value ?? 0;
-      return _Banner(
+      bannerContent = _Banner(
         icon: Icons.sync,
         message: count > 0
             ? 'Syncing $count ${count == 1 ? 'change' : 'changes'}...'
@@ -53,9 +61,15 @@ class ConnectivityBanner extends ConsumerWidget {
         color: HavenColors.primary,
         showSpinner: true,
       );
+    } else {
+      bannerContent = const SizedBox.shrink();
     }
 
-    return const SizedBox.shrink();
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeInOut,
+      child: showBanner ? bannerContent : const SizedBox.shrink(),
+    );
   }
 }
 

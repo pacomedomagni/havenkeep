@@ -5,6 +5,7 @@ import { AppError } from './errorHandler';
 import { query } from '../db';
 import { isTokenBlacklisted } from '../utils/token-blacklist';
 import { logger } from '../utils/logger';
+import { getRedisClient } from '../utils/redis';
 
 // Re-export Request as AuthRequest for backward compatibility
 export type AuthRequest = Request;
@@ -51,18 +52,43 @@ export async function authenticate(
       email: string;
     };
 
-    // Get user from database
-    // TODO: This DB query runs on every authenticated request and should be cached
-    // (e.g., via Redis with a short TTL) to reduce load. Keeping it simple for now.
-    const result = await query(
-      `SELECT u.id, u.email, u.plan, u.is_admin, u.plan_expires_at,
-              (EXISTS(SELECT 1 FROM partners p WHERE p.user_id = u.id AND p.is_active = TRUE)) as is_partner
-       FROM users u WHERE u.id = $1`,
-      [decoded.userId]
-    );
+    // Get user from database (cached in Redis with 60s TTL to reduce DB load)
+    const userCacheKey = `user:${decoded.userId}`;
+    let userRow: any = null;
 
-    if (result.rows.length === 0) {
-      throw new AppError('Invalid token', 401);
+    // Check Redis cache first
+    try {
+      const redis = await getRedisClient();
+      const cached = await redis.get(userCacheKey);
+      if (cached) {
+        userRow = JSON.parse(cached);
+      }
+    } catch (err) {
+      logger.warn({ err, userId: decoded.userId }, 'Redis cache read failed for user, falling back to DB');
+    }
+
+    // On cache miss, query the database and populate cache
+    if (!userRow) {
+      const result = await query(
+        `SELECT u.id, u.email, u.plan, u.is_admin, u.plan_expires_at, u.email_verified,
+                (EXISTS(SELECT 1 FROM partners p WHERE p.user_id = u.id AND p.is_active = TRUE)) as is_partner
+         FROM users u WHERE u.id = $1`,
+        [decoded.userId]
+      );
+
+      if (result.rows.length === 0) {
+        throw new AppError('Invalid token', 401);
+      }
+
+      userRow = result.rows[0];
+
+      // Cache the user row in Redis with a 60-second TTL
+      try {
+        const redis = await getRedisClient();
+        await redis.set(userCacheKey, JSON.stringify(userRow), { EX: 60 });
+      } catch (err) {
+        logger.warn({ err, userId: decoded.userId }, 'Redis cache write failed for user');
+      }
     }
 
     // BE-8: Reject requests from suspended users immediately.
@@ -70,17 +96,18 @@ export async function authenticate(
     // refresh tokens are deleted, but an existing access token may still be valid
     // until it expires. This check ensures suspended users cannot use the API
     // even with a valid access token.
-    if (result.rows[0].plan === 'suspended') {
+    if (userRow.plan === 'suspended') {
       throw new AppError('Account suspended', 403);
     }
 
     req.user = {
-      id: result.rows[0].id,
-      email: result.rows[0].email,
-      plan: result.rows[0].plan,
-      isAdmin: result.rows[0].is_admin,
-      isPartner: result.rows[0].is_partner,
-      planExpiresAt: result.rows[0].plan_expires_at ?? null,
+      id: userRow.id,
+      email: userRow.email,
+      plan: userRow.plan,
+      isAdmin: userRow.is_admin,
+      isPartner: userRow.is_partner,
+      planExpiresAt: userRow.plan_expires_at ?? null,
+      emailVerified: userRow.email_verified ?? false,
     };
 
     next();
@@ -123,6 +150,13 @@ export async function requireAdmin(req: Request, res: Response, next: NextFuncti
     logger.error({ error, userId }, 'Failed to verify admin status from database');
     return next(new AppError('Internal server error', 500));
   }
+}
+
+export function requireEmailVerified(req: Request, res: Response, next: NextFunction) {
+  if (!req.user?.emailVerified) {
+    return next(new AppError('Email verification required', 403));
+  }
+  next();
 }
 
 export function requirePremium(req: Request, res: Response, next: NextFunction) {

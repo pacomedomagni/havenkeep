@@ -373,6 +373,51 @@ class _ItemDetailBody extends ConsumerWidget {
             ),
           ),
 
+          // ----------------------------------------------------------------
+          // LIFESPAN TRACKING section
+          // ----------------------------------------------------------------
+          if (item.lifespanPercentage != null) ...[
+            const SizedBox(height: HavenSpacing.sm),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(HavenSpacing.md),
+              decoration: BoxDecoration(
+                color: HavenColors.elevated,
+                borderRadius: BorderRadius.circular(HavenRadius.card),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SectionHeader(title: 'LIFESPAN'),
+                  const SizedBox(height: HavenSpacing.sm),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: LinearProgressIndicator(
+                      value: item.lifespanPercentage! / 100.0,
+                      minHeight: 8,
+                      backgroundColor: HavenColors.surface,
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        item.lifespanPercentage! < 50
+                            ? Colors.green
+                            : item.lifespanPercentage! <= 80
+                                ? Colors.amber
+                                : Colors.red,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: HavenSpacing.sm),
+                  Text(
+                    '${item.lifespanPercentage}% of estimated ${item.expectedLifespanYears ?? "?"}-year lifespan',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: HavenColors.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+
           const SizedBox(height: HavenSpacing.sm),
 
           // ----------------------------------------------------------------

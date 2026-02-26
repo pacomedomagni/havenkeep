@@ -65,6 +65,29 @@ class MaintenanceRepository {
     }
   }
 
+  /// Get paginated maintenance history.
+  Future<List<MaintenanceHistory>> getHistoryPaginated({
+    required int limit,
+    required int offset,
+    String? itemId,
+  }) async {
+    try {
+      final params = <String, String>{
+        'limit': limit.toString(),
+        'offset': offset.toString(),
+      };
+      if (itemId != null) params['item_id'] = itemId;
+
+      final data = await _client.get('/api/v1/maintenance/history', queryParams: params);
+      return (data['data'] as List)
+          .map((json) => MaintenanceHistory.fromJson(json as Map<String, dynamic>))
+          .toList();
+    } catch (e) {
+      debugPrint('[MaintenanceRepository] getHistoryPaginated failed: $e');
+      rethrow;
+    }
+  }
+
   /// Delete a maintenance log entry.
   Future<void> deleteLog(String id) async {
     try {

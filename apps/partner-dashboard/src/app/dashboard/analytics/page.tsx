@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import ConversionFunnel from '@/components/charts/conversion-funnel';
+import EarningsChart from '@/components/charts/earnings-chart';
 import { apiClient } from '@/lib/api';
 
 interface AnalyticsData {
@@ -15,21 +16,41 @@ interface AnalyticsData {
   recent_activity: any[];
 }
 
+interface EarningsHistoryEntry {
+  month: string;
+  earnings: number;
+}
+
 export default function AnalyticsPage() {
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
+  const [earningsHistory, setEarningsHistory] = useState<EarningsHistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
 
-  useEffect(() => {
-    fetchAnalytics();
-  }, []);
-
-  const fetchAnalytics = async () => {
+  const fetchAnalytics = useCallback(async () => {
     try {
       setError(null);
-      const data = await apiClient<AnalyticsData>('/api/v1/partners/analytics');
-      if (data.success && data.data) {
-        setAnalytics(data.data);
+      setLoading(true);
+
+      // Build query string for date range
+      const params = new URLSearchParams();
+      if (startDate) params.set('startDate', startDate);
+      if (endDate) params.set('endDate', endDate);
+      const qs = params.toString();
+      const analyticsUrl = `/api/v1/partners/analytics${qs ? `?${qs}` : ''}`;
+
+      const [analyticsRes, earningsRes] = await Promise.all([
+        apiClient<AnalyticsData>(analyticsUrl),
+        apiClient<EarningsHistoryEntry[]>('/api/v1/partners/earnings-history'),
+      ]);
+
+      if (analyticsRes.success && analyticsRes.data) {
+        setAnalytics(analyticsRes.data);
+      }
+      if (earningsRes.success && earningsRes.data) {
+        setEarningsHistory(earningsRes.data);
       }
     } catch (err) {
       setError('Failed to load analytics data.');
@@ -37,7 +58,11 @@ export default function AnalyticsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [startDate, endDate]);
+
+  useEffect(() => {
+    fetchAnalytics();
+  }, [fetchAnalytics]);
 
   if (loading) {
     return (
@@ -57,11 +82,52 @@ export default function AnalyticsPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-white">Analytics</h1>
-        <p className="text-haven-text-secondary text-sm mt-1">
-          Deep dive into your referral performance and earnings
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Analytics</h1>
+          <p className="text-haven-text-secondary text-sm mt-1">
+            Deep dive into your referral performance and earnings
+          </p>
+        </div>
+
+        {/* Date Range Filters */}
+        <div className="flex items-center gap-3">
+          <div>
+            <label htmlFor="startDate" className="block text-xs text-haven-text-secondary mb-1">
+              Start date
+            </label>
+            <input
+              id="startDate"
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="input-field text-sm"
+            />
+          </div>
+          <div>
+            <label htmlFor="endDate" className="block text-xs text-haven-text-secondary mb-1">
+              End date
+            </label>
+            <input
+              id="endDate"
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="input-field text-sm"
+            />
+          </div>
+          {(startDate || endDate) && (
+            <button
+              onClick={() => {
+                setStartDate('');
+                setEndDate('');
+              }}
+              className="text-xs text-haven-text-secondary hover:text-white mt-4"
+            >
+              Clear
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Error Banner */}
@@ -114,6 +180,15 @@ export default function AnalyticsPage() {
               </span>
             </div>
           </div>
+        </div>
+
+        {/* Earnings Chart */}
+        <div className="card lg:col-span-2">
+          <h2 className="text-lg font-semibold text-white mb-4">Earnings Over Time</h2>
+          <p className="text-sm text-haven-text-secondary mb-4">
+            Monthly earnings for the last 12 months
+          </p>
+          <EarningsChart data={earningsHistory} />
         </div>
 
         {/* Activation Rate */}

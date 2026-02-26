@@ -1,0 +1,213 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Navigation from '../components/Navigation.astro';
+import Footer from '../components/Footer.astro';
+
+const faqs = [
+  {
+    category: "Plans & Pricing",
+    questions: [
+      {
+        q: "What's the difference between the Free and Premium plans?",
+        a: "The Free plan lets you track up to 5 items with basic warranty tracking, email reminders, and full mobile app access — free forever, no credit card required. Premium unlocks unlimited items and properties, AI-powered receipt scanning (OCR), PDF and CSV export, smart multi-stage reminders, and priority support. Premium starts at just $2/month when billed annually."
+      },
+      {
+        q: "Can I switch plans anytime?",
+        a: "Yes! You can upgrade, downgrade, or cancel your plan at any time. Changes take effect immediately, and we'll prorate any charges or credits."
+      },
+      {
+        q: "Is there a free trial for Premium?",
+        a: "Absolutely! All new Premium subscriptions come with a 14-day free trial. No credit card required to start. If you don't upgrade, you'll automatically move to the Free plan — no charge."
+      },
+      {
+        q: "How much do I save with annual billing?",
+        a: "The annual plan is $24/year, compared to $2.99/month ($35.88/year). That's a 33% savings — like getting 4 months free."
+      },
+      {
+        q: "Do you offer refunds?",
+        a: "Yes! We offer a 30-day money-back guarantee on all paid plans. If you're not satisfied, we'll refund your payment, no questions asked."
+      },
+    ]
+  },
+  {
+    category: "Warranty Tracking",
+    questions: [
+      {
+        q: "How does warranty tracking work?",
+        a: "Add an item by entering the product details, purchase date, and warranty length — or simply snap a photo of your receipt and let our AI extract the information automatically (Premium). HavenKeep calculates expiration dates, stores your documentation, and sends you reminders before coverage runs out so you can file claims on time."
+      },
+      {
+        q: "What types of warranties can I track?",
+        a: "You can track any warranty: appliances, electronics, HVAC systems, roofing, plumbing, vehicles, furniture, tools — anything with a coverage period. HavenKeep also supports manufacturer warranties, extended warranties, and home warranty plans."
+      },
+      {
+        q: "How do notifications and reminders work?",
+        a: "Free plan users receive email reminders before a warranty expires. Premium users get smart multi-stage reminders — notifications at 90 days, 30 days, 7 days, and the day of expiration — via email and push notifications on mobile. You can customize the timing in your account settings."
+      },
+    ]
+  },
+  {
+    category: "Security & Privacy",
+    questions: [
+      {
+        q: "How is my data secured?",
+        a: "All data is encrypted using AES-256 at rest and TLS 1.3 in transit. We host on enterprise-grade cloud infrastructure with 24/7 intrusion detection, automated security patching, and geographic redundancy. We never sell your data to third parties. For more details, visit our Security page."
+      },
+      {
+        q: "Can I export my data?",
+        a: "Premium users can export their full warranty database, receipts, and documents as PDF or CSV files at any time. Your data is always yours."
+      },
+      {
+        q: "How do I delete my account?",
+        a: "You can delete your account from Settings > Account > Delete Account in the app. Once confirmed, all your personal data, warranties, and uploaded documents are permanently removed from our servers within 30 days. You can also request deletion by emailing support@havenkeep.com."
+      },
+    ]
+  },
+  {
+    category: "App & Features",
+    questions: [
+      {
+        q: "Is there a mobile app?",
+        a: "Yes! HavenKeep is available on iOS and Android as well as the web. Your data syncs instantly across all your devices. The mobile app includes receipt scanning with your camera, push notifications, and full warranty management — everything you need on the go."
+      },
+      {
+        q: "What happens to my data if I cancel?",
+        a: "Your data is always yours. If you cancel, you can export all your warranties and receipts before your account closes. We keep your data for 30 days after cancellation in case you change your mind, then permanently delete it."
+      },
+      {
+        q: "Do you have a partner or affiliate program?",
+        a: "Yes! We partner with home inspectors, real estate agents, property managers, and home service providers. Partners can offer HavenKeep to their clients and earn referral commissions. Visit our Partners page or email partners@havenkeep.com to learn more."
+      },
+    ]
+  },
+];
+---
+
+<Layout title="FAQ" description="Find answers to frequently asked questions about HavenKeep — warranty tracking, plans, pricing, security, mobile app, and more.">
+  <Navigation />
+  <main>
+    <!-- Hero Section -->
+    <section class="pt-32 pb-8 bg-gradient-to-b from-gray-900 to-gray-800">
+      <div class="container">
+        <div class="max-w-3xl mx-auto text-center">
+          <div class="w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-6">
+            <svg class="w-10 h-10 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <h1 class="text-5xl md:text-6xl font-bold text-white mb-6">
+            Frequently Asked Questions
+          </h1>
+          <p class="text-xl md:text-2xl text-gray-300">
+            Everything you need to know about HavenKeep. Can't find what you're looking for? <a href="/contact" class="text-primary hover:text-secondary underline">Contact us</a>.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- FAQ Content -->
+    <section class="py-20 bg-gray-900">
+      <div class="container">
+        <div class="max-w-3xl mx-auto space-y-16">
+          {faqs.map((section) => (
+            <div>
+              <h2 class="text-2xl font-bold text-white mb-6 flex items-center gap-3">
+                <span class="w-1.5 h-8 bg-primary rounded-full" />
+                {section.category}
+              </h2>
+              <div class="space-y-4">
+                {section.questions.map((faq, index) => (
+                  <div class="faq-item border border-gray-700 rounded-lg bg-gray-800 overflow-hidden">
+                    <button
+                      class="faq-toggle w-full flex items-center justify-between p-6 text-left cursor-pointer hover:bg-gray-750 transition-colors"
+                      aria-expanded="false"
+                      data-faq-id={`${section.category}-${index}`}
+                    >
+                      <span class="text-lg font-semibold text-white pr-4">{faq.q}</span>
+                      <svg class="faq-chevron w-5 h-5 text-gray-400 flex-shrink-0 transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </button>
+                    <div class="faq-answer hidden px-6 pb-6">
+                      <p class="text-gray-300 leading-relaxed">{faq.a}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+
+    <!-- CTA Section -->
+    <section class="py-20 bg-gradient-to-br from-primary to-secondary">
+      <div class="container">
+        <div class="max-w-3xl mx-auto text-center text-white">
+          <h2 class="text-4xl font-bold mb-6">
+            Still have questions?
+          </h2>
+          <p class="text-xl text-white/90 mb-8">
+            Our team is here to help. Get in touch with us anytime.
+          </p>
+          <div class="flex flex-col sm:flex-row gap-4 justify-center">
+            <a href="https://app.havenkeep.com/signup" class="bg-white text-primary hover:bg-gray-100 font-semibold py-4 px-8 rounded-lg transition-colors duration-200 text-lg">
+              Start Free Trial
+            </a>
+            <a href="/contact" class="bg-white/10 hover:bg-white/20 text-white border-2 border-white font-semibold py-4 px-8 rounded-lg transition-colors duration-200 text-lg">
+              Contact Sales
+            </a>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+  <Footer />
+</Layout>
+
+<style>
+  .faq-item.open .faq-chevron {
+    transform: rotate(180deg);
+  }
+
+  .faq-toggle:hover .faq-chevron {
+    color: white;
+  }
+</style>
+
+<script>
+  function initFaqAccordion() {
+    const toggles = document.querySelectorAll('.faq-toggle');
+
+    toggles.forEach((toggle) => {
+      toggle.addEventListener('click', () => {
+        const item = toggle.closest('.faq-item');
+        const answer = item?.querySelector('.faq-answer');
+        const isOpen = item?.classList.contains('open');
+
+        // Close all other items
+        document.querySelectorAll('.faq-item.open').forEach((openItem) => {
+          if (openItem !== item) {
+            openItem.classList.remove('open');
+            openItem.querySelector('.faq-answer')?.classList.add('hidden');
+            openItem.querySelector('.faq-toggle')?.setAttribute('aria-expanded', 'false');
+          }
+        });
+
+        // Toggle current item
+        if (isOpen) {
+          item?.classList.remove('open');
+          answer?.classList.add('hidden');
+          toggle.setAttribute('aria-expanded', 'false');
+        } else {
+          item?.classList.add('open');
+          answer?.classList.remove('hidden');
+          toggle.setAttribute('aria-expanded', 'true');
+        }
+      });
+    });
+  }
+
+  initFaqAccordion();
+  document.addEventListener('astro:after-swap', initFaqAccordion);
+</script>

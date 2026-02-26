@@ -1,4 +1,5 @@
 import Joi from 'joi';
+import { config } from '../config';
 
 // Auth Validators
 export const registerSchema = Joi.object({
@@ -43,7 +44,13 @@ export const createItemSchema = Joi.object({
     'tv', 'computer', 'smart_home',
     'roofing', 'windows', 'doors', 'flooring',
     'plumbing', 'electrical',
-    'furniture', 'other'
+    'furniture',
+    'air_purifier', 'vacuum', 'ceiling_fan', 'smoke_detector',
+    'security_system', 'garage_door_opener', 'power_tools', 'lawn_mower',
+    'pool_equipment', 'grill', 'coffee_maker', 'home_theater',
+    'printer', 'networking', 'camera', 'lighting',
+    'dehumidifier', 'freezer', 'wine_cooler', 'trash_compactor',
+    'other'
   ).default('other'),
   room: Joi.string().valid(
     'kitchen', 'bathroom', 'master_bedroom', 'bedroom',
@@ -88,7 +95,13 @@ export const updateItemSchema = Joi.object({
     'tv', 'computer', 'smart_home',
     'roofing', 'windows', 'doors', 'flooring',
     'plumbing', 'electrical',
-    'furniture', 'other'
+    'furniture',
+    'air_purifier', 'vacuum', 'ceiling_fan', 'smoke_detector',
+    'security_system', 'garage_door_opener', 'power_tools', 'lawn_mower',
+    'pool_equipment', 'grill', 'coffee_maker', 'home_theater',
+    'printer', 'networking', 'camera', 'lighting',
+    'dehumidifier', 'freezer', 'wine_cooler', 'trash_compactor',
+    'other'
   ),
   room: Joi.string().valid(
     'kitchen', 'bathroom', 'master_bedroom', 'bedroom',
@@ -146,7 +159,19 @@ export const updateHomeSchema = Joi.object({
 // User Validators
 export const updateUserSchema = Joi.object({
   fullName: Joi.string().min(1).max(255),
-  avatarUrl: Joi.string().uri().max(500).allow(null, ''),
+  avatarUrl: Joi.string().uri().max(500).allow(null, '')
+    .custom((value, helpers) => {
+      if (!value) return value;
+      try {
+        const url = new URL(value);
+        if (!url.hostname.includes(config.minio.endpoint)) {
+          return helpers.error('any.invalid');
+        }
+      } catch {
+        return helpers.error('any.invalid');
+      }
+      return value;
+    }, 'avatar URL domain validation'),
 }).min(1)
   .rename('full_name', 'fullName', { ignoreUndefined: true, override: false })
   .rename('avatar_url', 'avatarUrl', { ignoreUndefined: true, override: false });

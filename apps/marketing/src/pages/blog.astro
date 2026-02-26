@@ -149,7 +149,8 @@ const posts = [
                 Subscribe
               </button>
             </form>
-            <p id="newsletter-success" class="hidden text-accent font-semibold mt-4">Thanks for your interest! We'll add you to our mailing list.</p>
+            <p id="newsletter-success" class="hidden text-accent font-semibold mt-4">Thanks for subscribing! You'll receive our latest updates.</p>
+            <p id="newsletter-error" class="hidden text-red-400 font-semibold mt-4"></p>
           </div>
         </div>
       </div>
@@ -160,25 +161,49 @@ const posts = [
 
 <script>
   const form = document.getElementById('newsletter-form') as HTMLFormElement;
-  const submitBtn = document.getElementById('newsletter-submit');
+  const submitBtn = document.getElementById('newsletter-submit') as HTMLButtonElement;
   const successMsg = document.getElementById('newsletter-success');
+  const errorMsg = document.getElementById('newsletter-error');
 
-  form?.addEventListener('submit', (e) => {
+  form?.addEventListener('submit', async (e) => {
     e.preventDefault();
 
     const email = (document.getElementById('newsletter-email') as HTMLInputElement).value;
-    const mailto = `mailto:hello@havenkeep.com?subject=${encodeURIComponent('Newsletter Subscription')}&body=${encodeURIComponent('Please subscribe this email to the HavenKeep newsletter: ' + email)}`;
 
-    window.location.href = mailto;
+    // Disable button while submitting
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Subscribing...';
+    errorMsg?.classList.add('hidden');
 
-    // Show success UI
-    form.classList.add('hidden');
-    successMsg?.classList.remove('hidden');
+    try {
+      const response = await fetch('/api/v1/newsletter/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
 
-    setTimeout(() => {
-      form.reset();
-      form.classList.remove('hidden');
-      successMsg?.classList.add('hidden');
-    }, 5000);
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Subscription failed');
+      }
+
+      // Show success UI
+      form.classList.add('hidden');
+      successMsg?.classList.remove('hidden');
+
+      setTimeout(() => {
+        form.reset();
+        form.classList.remove('hidden');
+        successMsg?.classList.add('hidden');
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Subscribe';
+      }, 5000);
+    } catch (err: any) {
+      errorMsg!.textContent = err.message || 'Something went wrong. Please try again.';
+      errorMsg?.classList.remove('hidden');
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Subscribe';
+    }
   });
 </script>

@@ -185,3 +185,19 @@ export const verifyPremiumRateLimiter = rateLimit({
   max: 5,
   message: 'Too many premium verification attempts, please try again later.',
 });
+
+// Rate limiter for password change endpoint
+// 5 attempts per hour to prevent brute-force current password guessing
+export const passwordChangeRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 5,
+  message: 'Too many password change attempts, please try again later.',
+});
+
+// Rate limiter for write endpoints (POST, PUT, DELETE)
+// 30 requests per 15 minutes to prevent abuse of data-mutating operations
+export const writeRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 30,
+  message: 'Too many write requests, please try again later.',
+});
