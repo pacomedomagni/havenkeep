@@ -18,6 +18,7 @@ export type AuditAction =
   | 'user.delete'
   | 'user.plan_upgrade'
   | 'user.plan_downgrade'
+  | 'user.email_change_requested'
   // Item actions
   | 'item.create'
   | 'item.update'
@@ -25,6 +26,7 @@ export type AuditAction =
   | 'item.archive'
   | 'item.unarchive'
   | 'item.transfer'
+  | 'item.export'
   // Home actions
   | 'home.create'
   | 'home.update'

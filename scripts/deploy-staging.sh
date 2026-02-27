@@ -1,8 +1,13 @@
 #!/bin/bash
-# HavenKeep Staging Deployment — Remote via SSH
+# ═══════════════════════════════════════════════════════════════════════════════
+# HavenKeep Staging Deployment — Local Build + SSH Push
+# ═══════════════════════════════════════════════════════════════════════════════
 # Droplet: 104.248.51.126 (shared with Loni + Restorae)
-# Ports: 8080 (HTTP) / 8443 (HTTPS) — avoids conflict with other apps
+# Ports: 20** series (2000 API, 2001 Dashboard, 2002 Marketing)
+# SSL: Handled by Loni's Caddy
+#
 # Usage: ./scripts/deploy-staging.sh [command]
+# ═══════════════════════════════════════════════════════════════════════════════
 
 set -e
 
@@ -20,13 +25,15 @@ REMOTE_DIR="/opt/havenkeep"
 
 COMPOSE_FILE="docker-compose.staging.yml"
 ENV_FILE=".env.staging"
+PLATFORM="linux/amd64"
 
-DOMAINS=(
-  "api.havenkeep.kouakoudomagni.com"
-  "havenkeep.kouakoudomagni.com"
-  "partener.havenkeep.kouakoudomagni.com"
-)
-CERT_EMAIL="info@noslag.com"
+# Image names
+API_IMAGE="havenkeep-api:staging"
+DASHBOARD_IMAGE="havenkeep-dashboard:staging"
+MARKETING_IMAGE="havenkeep-marketing:staging"
+
+# Tar output directory
+TAR_DIR=".docker-images"
 
 SSH_CMD="ssh -i $SSH_KEY -o StrictHostKeyChecking=accept-new $REMOTE_USER@$REMOTE_HOST"
 SCP_CMD="scp -i $SSH_KEY"
@@ -53,106 +60,162 @@ CMD=${1:-help}
 
 case "$CMD" in
 
-  # ── Sync files to droplet ──
-  sync)
-    check_local_env
-    echo -e "${GREEN}Syncing project to $REMOTE_HOST:$REMOTE_DIR ...${NC}"
+  # ── Build images locally for AMD64 ──
+  build)
+    SERVICE=${2:-all}
+    echo -e "${GREEN}Building images for $PLATFORM ...${NC}"
+    mkdir -p "$TAR_DIR"
 
-    # Create remote directory
-    remote "mkdir -p $REMOTE_DIR"
+    if [ "$SERVICE" = "all" ] || [ "$SERVICE" = "api" ]; then
+      echo -e "${CYAN}  Building API...${NC}"
+      docker build --platform "$PLATFORM" \
+        -f apps/api/Dockerfile \
+        --target production \
+        -t "$API_IMAGE" \
+        apps/api
+      echo -e "${CYAN}  Saving API image...${NC}"
+      docker save "$API_IMAGE" | gzip > "$TAR_DIR/api.tar.gz"
+    fi
 
-    # Rsync the project (exclude heavy/local stuff)
-    rsync -avz --progress \
-      -e "ssh -i $SSH_KEY" \
-      --exclude='node_modules' \
-      --exclude='.next' \
-      --exclude='dist' \
-      --exclude='build' \
-      --exclude='.dart_tool' \
-      --exclude='.pub-cache' \
-      --exclude='.git' \
-      --exclude='apps/mobile' \
-      --exclude='.env' \
-      --exclude='.env.local' \
-      --exclude='.env.staging' \
-      --exclude='.env.production' \
-      --exclude='*.log' \
-      --exclude='.DS_Store' \
-      --delete \
-      ./ "$REMOTE_USER@$REMOTE_HOST:$REMOTE_DIR/"
+    if [ "$SERVICE" = "all" ] || [ "$SERVICE" = "dashboard" ]; then
+      echo -e "${CYAN}  Building Partner Dashboard...${NC}"
+      docker build --platform "$PLATFORM" \
+        -f apps/partner-dashboard/Dockerfile \
+        --target production \
+        --build-arg NEXT_PUBLIC_API_URL=https://api.havenkeep.kouakoudomagni.com \
+        -t "$DASHBOARD_IMAGE" \
+        apps/partner-dashboard
+      echo -e "${CYAN}  Saving Dashboard image...${NC}"
+      docker save "$DASHBOARD_IMAGE" | gzip > "$TAR_DIR/dashboard.tar.gz"
+    fi
 
-    # Send .env.staging separately
-    echo -e "${CYAN}Sending .env.staging...${NC}"
-    $SCP_CMD "$ENV_FILE" "$REMOTE_USER@$REMOTE_HOST:$REMOTE_DIR/$ENV_FILE"
+    if [ "$SERVICE" = "all" ] || [ "$SERVICE" = "marketing" ]; then
+      echo -e "${CYAN}  Building Marketing site...${NC}"
+      docker build --platform "$PLATFORM" \
+        -f apps/marketing/Dockerfile.staging \
+        -t "$MARKETING_IMAGE" \
+        apps/marketing
+      echo -e "${CYAN}  Saving Marketing image...${NC}"
+      docker save "$MARKETING_IMAGE" | gzip > "$TAR_DIR/marketing.tar.gz"
+    fi
 
-    echo -e "${GREEN}✓ Sync complete${NC}"
+    echo ""
+    echo -e "${GREEN}Images built:${NC}"
+    ls -lh "$TAR_DIR"/*.tar.gz 2>/dev/null
+    echo -e "${GREEN}Done.${NC}"
     ;;
 
-  # ── Deploy (sync + build + start) ──
+  # ── Push image tarballs to server ──
+  push)
+    SERVICE=${2:-all}
+    echo -e "${GREEN}Pushing images to $REMOTE_HOST ...${NC}"
+
+    remote "mkdir -p $REMOTE_DIR/images"
+
+    if [ "$SERVICE" = "all" ] || [ "$SERVICE" = "api" ]; then
+      echo -e "${CYAN}  Uploading API image...${NC}"
+      $SCP_CMD "$TAR_DIR/api.tar.gz" "$REMOTE_USER@$REMOTE_HOST:$REMOTE_DIR/images/api.tar.gz"
+      echo -e "${CYAN}  Loading API image on server...${NC}"
+      remote "gunzip -c $REMOTE_DIR/images/api.tar.gz | docker load"
+    fi
+
+    if [ "$SERVICE" = "all" ] || [ "$SERVICE" = "dashboard" ]; then
+      echo -e "${CYAN}  Uploading Dashboard image...${NC}"
+      $SCP_CMD "$TAR_DIR/dashboard.tar.gz" "$REMOTE_USER@$REMOTE_HOST:$REMOTE_DIR/images/dashboard.tar.gz"
+      echo -e "${CYAN}  Loading Dashboard image on server...${NC}"
+      remote "gunzip -c $REMOTE_DIR/images/dashboard.tar.gz | docker load"
+    fi
+
+    if [ "$SERVICE" = "all" ] || [ "$SERVICE" = "marketing" ]; then
+      echo -e "${CYAN}  Uploading Marketing image...${NC}"
+      $SCP_CMD "$TAR_DIR/marketing.tar.gz" "$REMOTE_USER@$REMOTE_HOST:$REMOTE_DIR/images/marketing.tar.gz"
+      echo -e "${CYAN}  Loading Marketing image on server...${NC}"
+      remote "gunzip -c $REMOTE_DIR/images/marketing.tar.gz | docker load"
+    fi
+
+    echo -e "${GREEN}All images pushed and loaded.${NC}"
+    ;;
+
+  # ── Sync config files (compose, env, monitoring) ──
+  sync)
+    check_local_env
+    echo -e "${GREEN}Syncing config files to $REMOTE_HOST:$REMOTE_DIR ...${NC}"
+
+    remote "mkdir -p $REMOTE_DIR/monitoring"
+
+    # Send compose file
+    $SCP_CMD "$COMPOSE_FILE" "$REMOTE_USER@$REMOTE_HOST:$REMOTE_DIR/$COMPOSE_FILE"
+
+    # Send env file
+    $SCP_CMD "$ENV_FILE" "$REMOTE_USER@$REMOTE_HOST:$REMOTE_DIR/$ENV_FILE"
+
+    # Send monitoring configs
+    $SCP_CMD monitoring/loki-config.yml "$REMOTE_USER@$REMOTE_HOST:$REMOTE_DIR/monitoring/loki-config.yml"
+    $SCP_CMD monitoring/promtail-config.yml "$REMOTE_USER@$REMOTE_HOST:$REMOTE_DIR/monitoring/promtail-config.yml"
+
+    echo -e "${GREEN}Sync complete.${NC}"
+    ;;
+
+  # ── Deploy (start/restart services on server) ──
+  deploy)
+    echo -e "${GREEN}Deploying HavenKeep staging...${NC}"
+
+    echo -e "${CYAN}Starting infrastructure...${NC}"
+    remote "cd $REMOTE_DIR && docker compose -f $COMPOSE_FILE --env-file $ENV_FILE up -d postgres redis minio"
+
+    echo "Waiting for PostgreSQL..."
+    for i in $(seq 1 30); do
+      if remote "cd $REMOTE_DIR && docker compose -f $COMPOSE_FILE --env-file $ENV_FILE exec -T postgres pg_isready -U havenkeep" 2>/dev/null; then
+        echo -e "${GREEN}PostgreSQL is ready.${NC}"
+        break
+      fi
+      if [ "$i" -eq 30 ]; then
+        echo -e "${RED}PostgreSQL failed to start.${NC}"
+        exit 1
+      fi
+      sleep 2
+    done
+
+    echo -e "${CYAN}Starting all services...${NC}"
+    remote "cd $REMOTE_DIR && docker compose -f $COMPOSE_FILE --env-file $ENV_FILE up -d --no-build"
+
+    echo ""
+    echo -e "${GREEN}═══════════════════════════════════════${NC}"
+    echo -e "${GREEN}  HavenKeep staging deployed!${NC}"
+    echo -e "${GREEN}═══════════════════════════════════════${NC}"
+    echo ""
+    echo -e "  API:        ${CYAN}https://api.havenkeep.kouakoudomagni.com${NC}"
+    echo -e "  Marketing:  ${CYAN}https://havenkeep.kouakoudomagni.com${NC}"
+    echo -e "  Dashboard:  ${CYAN}https://partner.havenkeep.kouakoudomagni.com${NC}"
+    echo ""
+    ;;
+
+  # ── Full pipeline: build + push + sync + deploy ──
   up)
     check_local_env
-    echo -e "${GREEN}Deploying HavenKeep staging...${NC}"
+    echo -e "${GREEN}Full deploy: build → push → sync → deploy${NC}"
     echo ""
-
-    # Step 1: Sync
+    $0 build "${2:-all}"
+    echo ""
+    $0 push "${2:-all}"
+    echo ""
     $0 sync
-
     echo ""
-    echo -e "${CYAN}Building and starting containers on remote...${NC}"
-
-    # Step 2: Use HTTP-only nginx config if no SSL certs yet
-    remote "cd $REMOTE_DIR && \
-      if [ ! -d /var/lib/docker/volumes/havenkeep_certbot_certs/_data/live ]; then \
-        echo 'No SSL certs found — using HTTP-only nginx config'; \
-        cp nginx/nginx-initial.conf nginx/nginx-active.conf; \
-      else \
-        echo 'SSL certs found — using HTTPS nginx config'; \
-        cp nginx/nginx.conf nginx/nginx-active.conf; \
-      fi"
-
-    # Step 3: Build and start
-    remote "cd $REMOTE_DIR && \
-      docker compose -f $COMPOSE_FILE --env-file $ENV_FILE up -d --build"
-
-    echo ""
-    echo -e "${GREEN}═══════════════════════════════════════${NC}"
-    echo -e "${GREEN}  HavenKeep staging is live!${NC}"
-    echo -e "${GREEN}═══════════════════════════════════════${NC}"
-    echo ""
-    echo -e "  Marketing:  ${CYAN}http://havenkeep.kouakoudomagni.com:8080${NC}"
-    echo -e "  API:        ${CYAN}http://api.havenkeep.kouakoudomagni.com:8080${NC}"
-    echo -e "  Partner:    ${CYAN}http://partener.havenkeep.kouakoudomagni.com:8080${NC}"
-    echo ""
-    echo -e "  ${YELLOW}After setting DNS + SSL: replace http→https and :8080→:8443${NC}"
+    $0 deploy
     ;;
 
   # ── Stop ──
   down)
     echo -e "${YELLOW}Stopping HavenKeep staging...${NC}"
     remote "cd $REMOTE_DIR && docker compose -f $COMPOSE_FILE --env-file $ENV_FILE down"
-    echo -e "${GREEN}✓ Stopped${NC}"
-    ;;
-
-  # ── Rebuild a specific service ──
-  rebuild)
-    SERVICE=${2:-}
-    if [ -n "$SERVICE" ]; then
-      echo -e "${GREEN}Rebuilding $SERVICE...${NC}"
-      $0 sync
-      remote "cd $REMOTE_DIR && docker compose -f $COMPOSE_FILE --env-file $ENV_FILE up -d --build $SERVICE"
-    else
-      echo -e "${GREEN}Rebuilding all services...${NC}"
-      $0 sync
-      remote "cd $REMOTE_DIR && docker compose -f $COMPOSE_FILE --env-file $ENV_FILE up -d --build"
-    fi
-    echo -e "${GREEN}✓ Rebuild complete${NC}"
+    echo -e "${GREEN}Stopped.${NC}"
     ;;
 
   # ── Database migration ──
   migrate)
     echo -e "${GREEN}Running database migrations...${NC}"
     remote "cd $REMOTE_DIR && docker compose -f $COMPOSE_FILE --env-file $ENV_FILE --profile migrate run --rm migrate"
-    echo -e "${GREEN}✓ Migration complete${NC}"
+    echo -e "${GREEN}Migration complete.${NC}"
     ;;
 
   # ── Logs ──
@@ -161,7 +224,7 @@ case "$CMD" in
     if [ -n "$SERVICE" ]; then
       remote "cd $REMOTE_DIR && docker compose -f $COMPOSE_FILE logs -f --tail=100 $SERVICE"
     else
-      remote "cd $REMOTE_DIR && docker compose -f $COMPOSE_FILE logs -f --tail=100 api partner-dashboard marketing nginx"
+      remote "cd $REMOTE_DIR && docker compose -f $COMPOSE_FILE logs -f --tail=100 api partner-dashboard marketing"
     fi
     ;;
 
@@ -171,12 +234,14 @@ case "$CMD" in
     remote "cd $REMOTE_DIR && docker compose -f $COMPOSE_FILE ps"
     echo ""
     echo -e "${CYAN}Health checks:${NC}"
-    for domain in "${DOMAINS[@]}"; do
-      HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "http://${domain}:8080" 2>/dev/null || echo "000")
+    for endpoint in "API:2000/health" "Dashboard:2001" "Marketing:2002"; do
+      NAME="${endpoint%%:*}"
+      URL="http://$REMOTE_HOST:${endpoint#*:}"
+      HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$URL" 2>/dev/null || echo "000")
       if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "301" ] || [ "$HTTP_CODE" = "302" ]; then
-        echo -e "  ${GREEN}✓${NC} ${domain} (HTTP $HTTP_CODE)"
+        echo -e "  ${GREEN}✓${NC} ${NAME} (HTTP $HTTP_CODE)"
       else
-        echo -e "  ${RED}✗${NC} ${domain} (HTTP $HTTP_CODE)"
+        echo -e "  ${RED}✗${NC} ${NAME} (HTTP $HTTP_CODE)"
       fi
     done
     ;;
@@ -187,59 +252,18 @@ case "$CMD" in
     $SSH_CMD
     ;;
 
-  # ── SSL init via certbot ──
-  ssl-init)
-    echo -e "${GREEN}Obtaining SSL certificates...${NC}"
-    echo ""
-    echo -e "${YELLOW}Note: DNS A records must point to $REMOTE_HOST for all domains.${NC}"
-    echo ""
-
-    # Ensure nginx is running with HTTP config for ACME challenges
-    remote "cd $REMOTE_DIR && \
-      cp nginx/nginx-initial.conf nginx/nginx-active.conf && \
-      docker compose -f $COMPOSE_FILE --env-file $ENV_FILE up -d nginx"
-
-    sleep 3
-
-    for domain in "${DOMAINS[@]}"; do
-      echo -e "  Requesting cert for ${YELLOW}${domain}${NC}..."
-      remote "cd $REMOTE_DIR && \
-        docker compose -f $COMPOSE_FILE --env-file $ENV_FILE run --rm certbot \
-          certbot certonly --webroot \
-          --webroot-path=/var/www/certbot \
-          --email $CERT_EMAIL \
-          --agree-tos \
-          --no-eff-email \
-          -d $domain" || echo -e "  ${RED}Failed for $domain${NC}"
-    done
-
-    echo ""
-    echo -e "${CYAN}Switching to HTTPS nginx config...${NC}"
-    remote "cd $REMOTE_DIR && \
-      cp nginx/nginx.conf nginx/nginx-active.conf && \
-      docker compose -f $COMPOSE_FILE --env-file $ENV_FILE restart nginx"
-
-    echo ""
-    echo -e "${GREEN}SSL setup complete!${NC}"
-    echo -e "  API:        ${CYAN}https://api.havenkeep.kouakoudomagni.com:8443${NC}"
-    echo -e "  Marketing:  ${CYAN}https://havenkeep.kouakoudomagni.com:8443${NC}"
-    echo -e "  Partner:    ${CYAN}https://partener.havenkeep.kouakoudomagni.com:8443${NC}"
-    ;;
-
-  # ── SSL renew ──
-  ssl-renew)
-    echo -e "${GREEN}Renewing SSL certificates...${NC}"
-    remote "cd $REMOTE_DIR && \
-      docker compose -f $COMPOSE_FILE --env-file $ENV_FILE run --rm certbot certbot renew && \
-      docker compose -f $COMPOSE_FILE --env-file $ENV_FILE restart nginx"
-    echo -e "${GREEN}✓ SSL renewal complete${NC}"
-    ;;
-
   # ── Quick remote shell into a container ──
   exec)
     SERVICE=${2:-api}
     echo -e "${CYAN}Entering $SERVICE container...${NC}"
     remote "cd $REMOTE_DIR && docker compose -f $COMPOSE_FILE exec $SERVICE sh"
+    ;;
+
+  # ── Clean up local tar files ──
+  clean)
+    echo -e "${YELLOW}Removing local image tarballs...${NC}"
+    rm -rf "$TAR_DIR"
+    echo -e "${GREEN}Cleaned.${NC}"
     ;;
 
   # ── Help ──
@@ -248,23 +272,27 @@ case "$CMD" in
     echo -e "${CYAN}HavenKeep Staging Deploy${NC}"
     echo -e "${CYAN}========================${NC}"
     echo ""
-    echo "Usage: ./scripts/deploy-staging.sh [command]"
+    echo "Usage: ./scripts/deploy-staging.sh [command] [service]"
     echo ""
     echo "Commands:"
-    echo "  up          Sync + build + start all services"
-    echo "  down        Stop all services"
-    echo "  sync        Rsync project files to droplet"
-    echo "  rebuild     Rebuild (optionally: rebuild api)"
-    echo "  migrate     Run database migrations"
-    echo "  logs        Tail logs (optionally: logs api)"
-    echo "  status      Show container status + health checks"
-    echo "  ssh         SSH into the droplet"
-    echo "  exec        Shell into container (optionally: exec api)"
-    echo "  ssl-init    Obtain SSL certs (run after DNS is set)"
-    echo "  ssl-renew   Renew SSL certificates"
+    echo "  up [svc]      Full pipeline: build + push + sync + deploy"
+    echo "  build [svc]   Build images locally for AMD64"
+    echo "  push [svc]    Push image tarballs to server + docker load"
+    echo "  sync          Sync compose, env, and monitoring configs"
+    echo "  deploy        Start/restart services on server (no build)"
+    echo "  down          Stop all services"
+    echo "  migrate       Run database migrations"
+    echo "  logs [svc]    Tail logs (e.g. logs api)"
+    echo "  status        Show container status + health checks"
+    echo "  ssh           SSH into the droplet"
+    echo "  exec [svc]    Shell into container (default: api)"
+    echo "  clean         Remove local .docker-images/ tarballs"
+    echo ""
+    echo "Services: all (default), api, dashboard, marketing"
     echo ""
     echo -e "Droplet: ${YELLOW}$REMOTE_HOST${NC}"
     echo -e "Remote:  ${YELLOW}$REMOTE_DIR${NC}"
+    echo -e "Ports:   ${YELLOW}2000 (API) / 2001 (Dashboard) / 2002 (Marketing)${NC}"
     echo ""
     exit 1
     ;;

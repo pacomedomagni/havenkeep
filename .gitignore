@@ -60,3 +60,6 @@ coverage/
 *.freezed.dart
 *.mocks.dart
 secrets/
+
+# --- Docker image tarballs ---
+.docker-images/

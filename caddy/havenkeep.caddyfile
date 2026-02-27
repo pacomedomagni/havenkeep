@@ -1,0 +1,96 @@
+# ═══════════════════════════════════════════════════════════════
+# HAVENKEEP — Staging
+# ═══════════════════════════════════════════════════════════════
+# Append this to Loni's Caddyfile:
+#   docker exec loni-caddy-1 cat /etc/caddy/Caddyfile  (to see current)
+#   Then add these blocks and reload:
+#   docker exec loni-caddy-1 caddy reload --config /etc/caddy/Caddyfile
+
+# HavenKeep API
+api.havenkeep.kouakoudomagni.com {
+    log {
+        output file /var/log/caddy/havenkeep-api.log {
+            roll_size 50mb
+            roll_keep 3
+            roll_keep_for 720h
+        }
+        format json
+    }
+
+    reverse_proxy havenkeep-stg-api:3000 {
+        health_uri /health
+        health_interval 30s
+        health_timeout 10s
+        health_status 2xx
+
+        transport http {
+            dial_timeout 5s
+            response_header_timeout 30s
+            read_timeout 60s
+            write_timeout 60s
+        }
+
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+
+    header {
+        X-Content-Type-Options nosniff
+        X-Frame-Options DENY
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        -Server
+    }
+}
+
+# HavenKeep Partner Dashboard
+partner.havenkeep.kouakoudomagni.com {
+    log {
+        output file /var/log/caddy/havenkeep-dashboard.log {
+            roll_size 50mb
+            roll_keep 3
+            roll_keep_for 720h
+        }
+        format json
+    }
+
+    reverse_proxy havenkeep-stg-dashboard:3001 {
+        transport http {
+            dial_timeout 5s
+            response_header_timeout 30s
+        }
+    }
+
+    header {
+        X-Content-Type-Options nosniff
+        X-Frame-Options SAMEORIGIN
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        -Server
+    }
+}
+
+# HavenKeep Marketing Site
+havenkeep.kouakoudomagni.com {
+    log {
+        output file /var/log/caddy/havenkeep-marketing.log {
+            roll_size 50mb
+            roll_keep 3
+            roll_keep_for 720h
+        }
+        format json
+    }
+
+    reverse_proxy havenkeep-stg-marketing:80 {
+        transport http {
+            dial_timeout 5s
+            response_header_timeout 30s
+        }
+    }
+
+    header {
+        X-Content-Type-Options nosniff
+        X-Frame-Options DENY
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        -Server
+    }
+}
