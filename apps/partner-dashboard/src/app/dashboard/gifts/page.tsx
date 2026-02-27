@@ -200,7 +200,7 @@ export default function GiftsPage() {
                       {getStatusBadge(gift.status, gift.is_activated)}
                     </td>
                     <td className="py-3 px-4 text-sm text-white font-medium text-right">
-                      ${gift.amount_charged.toFixed(2)}
+                      ${(gift.amount_charged || 0).toFixed(2)}
                     </td>
                     <td className="py-3 px-4 text-right">
                       <button

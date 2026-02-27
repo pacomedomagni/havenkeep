@@ -1,40 +1,23 @@
-'use client'
+'use client';
 
-import { useState } from 'react'
-import { signIn } from './actions'
-import { useRouter } from 'next/navigation'
+import { useFormState, useFormStatus } from 'react-dom';
+import { signIn } from './actions';
+
+function SubmitButton() {
+  const { pending } = useFormStatus();
+  return (
+    <button
+      type="submit"
+      disabled={pending}
+      className="w-full bg-primary-600 hover:bg-primary-700 text-white font-medium py-2 px-4 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
+    >
+      {pending ? 'Signing in...' : 'Sign In'}
+    </button>
+  );
+}
 
 export default function LoginPage() {
-  const router = useRouter()
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault()
-    setLoading(true)
-    setError(null)
-
-    const formData = new FormData(e.currentTarget)
-
-    try {
-      const result = await signIn(formData)
-      if (result?.error) {
-        setError(result.error)
-      } else {
-        router.push('/dashboard')
-        router.refresh()
-      }
-    } catch (err: any) {
-      // signIn uses redirect() on success which throws NEXT_REDIRECT
-      // Only show error for non-redirect exceptions
-      if (err?.digest?.startsWith('NEXT_REDIRECT')) {
-        return
-      }
-      setError(err?.message || 'An unexpected error occurred. Please try again.')
-    } finally {
-      setLoading(false)
-    }
-  }
+  const [state, action] = useFormState(signIn, null);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 to-primary-100">
@@ -44,23 +27,23 @@ export default function LoginPage() {
             <svg className="w-14 h-14" viewBox="0 0 64 64" fill="none">
               <defs>
                 <linearGradient id="login-grad" x1="8" y1="4" x2="56" y2="63" gradientUnits="userSpaceOnUse">
-                  <stop offset="0%" stopColor="#6366F1"/>
-                  <stop offset="100%" stopColor="#8B5CF6"/>
+                  <stop offset="0%" stopColor="#6366F1" />
+                  <stop offset="100%" stopColor="#8B5CF6" />
                 </linearGradient>
               </defs>
               <path d="M32 4L8 14v18c0 14.4 10.24 27.84 24 31 13.76-3.16 24-16.6 24-31V14L32 4z" fill="url(#login-grad)" />
-              <path d="M32 18L19 28v13h8v-8h10v8h8V28L32 18z" fill="white" opacity="0.95"/>
-              <path d="M27 30l4 4 8-8" stroke="#10B981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+              <path d="M32 18L19 28v13h8v-8h10v8h8V28L32 18z" fill="white" opacity="0.95" />
+              <path d="M27 30l4 4 8-8" stroke="#10B981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
             </svg>
           </div>
-          <h1 className="text-3xl font-bold text-gray-900">HavenKeep Admin</h1>
+          <h1 className="text-3xl font-bold text-gray-900">HavenKeep</h1>
           <p className="text-gray-600 mt-2">Sign in to access the dashboard</p>
         </div>
 
-        <form onSubmit={handleLogin} className="space-y-6">
-          {error && (
+        <form action={action} className="space-y-6">
+          {state?.error && (
             <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
-              {error}
+              {state.error}
             </div>
           )}
 
@@ -73,8 +56,9 @@ export default function LoginPage() {
               name="email"
               type="email"
               required
+              autoComplete="email"
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-              placeholder="admin@havenkeep.com"
+              placeholder="you@example.com"
             />
           </div>
 
@@ -87,20 +71,15 @@ export default function LoginPage() {
               name="password"
               type="password"
               required
+              autoComplete="current-password"
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
               placeholder="••••••••"
             />
           </div>
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-primary-600 hover:bg-primary-700 text-white font-medium py-2 px-4 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {loading ? 'Signing in...' : 'Sign In'}
-          </button>
+          <SubmitButton />
         </form>
       </div>
     </div>
-  )
+  );
 }

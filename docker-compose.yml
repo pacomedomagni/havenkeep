@@ -127,7 +127,6 @@ services:
     container_name: havenkeep-partner-dashboard
     environment:
       NODE_ENV: development
-      NEXT_PUBLIC_API_URL: http://localhost:3000
       API_URL: http://api:3000
     ports:
       - "3001:3001"

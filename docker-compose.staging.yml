@@ -8,7 +8,7 @@ services:
       - "8080:80"
       - "8443:443"
     volumes:
-      - ./nginx/nginx-active.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/ssl-params.conf:/etc/nginx/ssl-params.conf:ro
       - certbot_webroot:/var/www/certbot:ro
       - certbot_certs:/etc/letsencrypt:ro
