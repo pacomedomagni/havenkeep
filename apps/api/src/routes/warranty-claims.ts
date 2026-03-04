@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { authenticate } from '../middleware/auth';
 import { validate } from '../middleware/validate';
+import { uuidParamSchema } from '../validators';
 import { WarrantyClaimsService } from '../services/warranty-claims.service';
 import {
   createWarrantyClaimSchema,
@@ -114,6 +115,7 @@ router.get(
  */
 router.get(
   '/:id',
+  validate(uuidParamSchema, 'params'),
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
     const claim = await WarrantyClaimsService.getClaimById(req.params.id, userId);
@@ -132,6 +134,7 @@ router.get(
  */
 router.put(
   '/:id',
+  validate(uuidParamSchema, 'params'),
   writeRateLimiter,
   validate(updateWarrantyClaimSchema),
   asyncHandler(async (req, res) => {
@@ -157,6 +160,7 @@ router.put(
  */
 router.delete(
   '/:id',
+  validate(uuidParamSchema, 'params'),
   writeRateLimiter,
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;

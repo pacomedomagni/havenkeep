@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { authenticate } from '../middleware/auth';
 import { validate } from '../middleware/validate';
+import { uuidParamSchema } from '../validators';
 import { WarrantyPurchasesService } from '../services/warranty-purchases.service';
 import {
   createWarrantyPurchaseSchema,
@@ -165,6 +166,7 @@ router.get(
  */
 router.get(
   '/:id',
+  validate(uuidParamSchema, 'params'),
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
     const purchase = await WarrantyPurchasesService.getPurchaseById(req.params.id, userId);
@@ -204,6 +206,7 @@ router.post(
  */
 router.post(
   '/:id/cancel',
+  validate(uuidParamSchema, 'params'),
   writeRateLimiter,
   validate(cancelWarrantyPurchaseSchema),
   asyncHandler(async (req, res) => {

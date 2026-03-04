@@ -143,8 +143,48 @@ function createMemoryRateLimiter() {
 // Export the initializer — must be awaited in index.ts
 export { initializeRateLimiter };
 
+// Shared Redis store reference, populated after initializeRateLimiter runs.
+// Endpoint-specific limiters lazily pick this up so they benefit from
+// distributed rate limiting in production without requiring async init.
+let sharedRedisClient: ReturnType<typeof createClient> | null = null;
+
+function createEndpointRateLimiter(options: {
+  windowMs: number;
+  max: number;
+  message: string;
+  skipSuccessfulRequests?: boolean;
+}) {
+  // If Redis is available, create a RedisStore for this limiter
+  const store = sharedRedisClient
+    ? new RedisStore(sharedRedisClient, options.windowMs, `rl:${options.message.slice(0, 10)}:`)
+    : undefined;
+
+  return rateLimit({
+    ...options,
+    standardHeaders: true,
+    legacyHeaders: false,
+    ...(store ? { store: store as any } : {}),
+  });
+}
+
+// Initialize the shared Redis client for endpoint-specific limiters.
+// Called after initializeRateLimiter resolves.
+async function initializeEndpointRedis() {
+  if (config.env === 'production') {
+    try {
+      sharedRedisClient = await getRedisClient();
+    } catch (error) {
+      logger.error('Failed to initialize Redis for endpoint rate limiters, using in-memory store', error);
+    }
+  }
+}
+
+// Eagerly attempt to connect (non-blocking).
+// The limiters will use in-memory until this resolves.
+initializeEndpointRedis().catch(() => {});
+
 // Specific rate limiters for sensitive endpoints
-export const authRateLimiter = rateLimit({
+export const authRateLimiter = createEndpointRateLimiter({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 10,
   message: 'Too many attempts, please try again later.',
@@ -153,26 +193,26 @@ export const authRateLimiter = rateLimit({
 // Refresh rate limiter: 10 requests per 15 minutes.
 // This is intentionally generous since mobile apps may refresh tokens frequently.
 // Consider reducing if abuse is detected.
-export const refreshRateLimiter = rateLimit({
+export const refreshRateLimiter = createEndpointRateLimiter({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 10,
   message: 'Too many token refresh attempts, please try again later.',
   skipSuccessfulRequests: false, // Count all attempts for brute-force protection
 });
 
-export const uploadRateLimiter = rateLimit({
+export const uploadRateLimiter = createEndpointRateLimiter({
   windowMs: 60 * 1000, // 1 minute
   max: 10,
   message: 'Too many uploads, please try again later.',
 });
 
-export const passwordResetRateLimiter = rateLimit({
+export const passwordResetRateLimiter = createEndpointRateLimiter({
   windowMs: 60 * 60 * 1000, // 1 hour
   max: 3,
   message: 'Too many password reset attempts, please try again later.',
 });
 
-export const activationCodeRateLimiter = rateLimit({
+export const activationCodeRateLimiter = createEndpointRateLimiter({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 10,
   message: 'Too many activation code attempts, please try again later.',
@@ -180,7 +220,7 @@ export const activationCodeRateLimiter = rateLimit({
 
 // BE-12: Rate limiter for premium verification endpoint
 // Limits to 5 requests per 15 minutes to prevent abuse of RevenueCat API calls
-export const verifyPremiumRateLimiter = rateLimit({
+export const verifyPremiumRateLimiter = createEndpointRateLimiter({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 5,
   message: 'Too many premium verification attempts, please try again later.',
@@ -188,7 +228,7 @@ export const verifyPremiumRateLimiter = rateLimit({
 
 // Rate limiter for password change endpoint
 // 5 attempts per hour to prevent brute-force current password guessing
-export const passwordChangeRateLimiter = rateLimit({
+export const passwordChangeRateLimiter = createEndpointRateLimiter({
   windowMs: 60 * 60 * 1000, // 1 hour
   max: 5,
   message: 'Too many password change attempts, please try again later.',
@@ -196,7 +236,7 @@ export const passwordChangeRateLimiter = rateLimit({
 
 // Rate limiter for write endpoints (POST, PUT, DELETE)
 // 30 requests per 15 minutes to prevent abuse of data-mutating operations
-export const writeRateLimiter = rateLimit({
+export const writeRateLimiter = createEndpointRateLimiter({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 30,
   message: 'Too many write requests, please try again later.',

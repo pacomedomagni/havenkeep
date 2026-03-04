@@ -183,7 +183,17 @@ export class NotificationsService {
 
       logger.info({ notificationId, userId }, 'Notification marked as read');
 
-      return result.rows[0];
+      // Re-fetch with JOINs for consistent response shape
+      const full = await pool.query(
+        `SELECT nh.*, nt.name as template_name, i.name as item_name
+         FROM notification_history nh
+         LEFT JOIN notification_templates nt ON nt.id = nh.template_id
+         LEFT JOIN items i ON i.id = nh.item_id
+         WHERE nh.id = $1 AND nh.user_id = $2`,
+        [notificationId, userId]
+      );
+
+      return full.rows[0] || result.rows[0];
     } catch (error) {
       logger.error({ error, notificationId, userId }, 'Error marking notification as read');
       throw error;

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import rateLimit from 'express-rate-limit';
 import { authenticate, requirePremium } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
 import { asyncHandler } from '../utils/async-handler';
@@ -8,6 +9,14 @@ import { config } from '../config';
 const router = Router();
 router.use(authenticate);
 
+const receiptScanRateLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 10, // 10 per minute
+  message: 'Too many receipt scan requests, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 /**
  * @route   POST /api/v1/receipts/scan
  * @desc    Scan a receipt image and extract structured data
@@ -15,12 +24,18 @@ router.use(authenticate);
  */
 router.post(
   '/scan',
+  receiptScanRateLimiter,
   requirePremium,
   asyncHandler(async (req, res) => {
     const { image } = req.body;
 
     if (!image || typeof image !== 'string') {
       throw new AppError('Base64 image is required', 400);
+    }
+
+    // Validate base64 format (reject non-base64 input)
+    if (!/^[A-Za-z0-9+/]+=*$/.test(image.slice(0, 100))) {
+      throw new AppError('Invalid base64 image data', 400);
     }
 
     // Reject oversized images before sending to OpenAI (5MB limit)
@@ -88,15 +103,32 @@ If you cannot extract a field, use null.`,
 
     let extracted;
     try {
-      extracted = JSON.parse(content);
+      // Strip markdown code fences if present (e.g. ```json ... ```)
+      const cleaned = content.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
+      extracted = JSON.parse(cleaned);
     } catch {
       logger.warn({ content }, 'Failed to parse receipt scan response');
       throw new AppError('Could not parse receipt data', 502);
     }
 
+    // Sanitize: only allow expected fields through
+    const sanitized = {
+      merchant: typeof extracted.merchant === 'string' ? extracted.merchant.slice(0, 255) : null,
+      date: typeof extracted.date === 'string' ? extracted.date.slice(0, 10) : null,
+      total: typeof extracted.total === 'number' ? extracted.total : null,
+      items: Array.isArray(extracted.items)
+        ? extracted.items.slice(0, 50).map((item: any) => ({
+            name: typeof item.name === 'string' ? item.name.slice(0, 255) : '',
+            price: typeof item.price === 'number' ? item.price : 0,
+            quantity: typeof item.quantity === 'number' ? item.quantity : 1,
+          }))
+        : [],
+      categoryGuess: typeof extracted.categoryGuess === 'string' ? extracted.categoryGuess.slice(0, 50) : null,
+    };
+
     res.json({
       success: true,
-      data: extracted,
+      data: sanitized,
     });
   })
 );

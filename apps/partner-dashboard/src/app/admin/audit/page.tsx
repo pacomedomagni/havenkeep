@@ -16,9 +16,9 @@ async function getAuditLogs() {
 async function getAuditStats() {
   try {
     const { stats } = await serverApiClient<{ stats: any }>('/api/v1/audit/stats')
-    return stats || { total_events: 0, warning_count: 0, error_count: 0, critical_count: 0 }
+    return stats || { total: 0, by_severity: { info: 0, warning: 0, error: 0, critical: 0 }, failed_actions: 0 }
   } catch {
-    return { total_events: 0, warning_count: 0, error_count: 0, critical_count: 0 }
+    return { total: 0, by_severity: { info: 0, warning: 0, error: 0, critical: 0 }, failed_actions: 0 }
   }
 }
 
@@ -42,14 +42,14 @@ export default async function AuditPage() {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
           <StatsCard
             title="Total Events"
-            value={Number(stats.total_events || 0).toLocaleString()}
+            value={Number(stats.total || 0).toLocaleString()}
             icon={<InformationCircleIcon className="h-6 w-6 text-haven-primary" />}
           />
 
           <StatsCard
             title="Warnings"
-            value={Number(stats.warning_count || 0).toLocaleString()}
-            change={Number(stats.warning_count) > 0 ? {
+            value={Number(stats.by_severity?.warning || 0).toLocaleString()}
+            change={Number(stats.by_severity?.warning) > 0 ? {
               value: 'requires attention',
               positive: false,
             } : undefined}
@@ -58,8 +58,8 @@ export default async function AuditPage() {
 
           <StatsCard
             title="Errors"
-            value={Number(stats.error_count || 0).toLocaleString()}
-            change={Number(stats.error_count) > 0 ? {
+            value={Number(stats.by_severity?.error || 0).toLocaleString()}
+            change={Number(stats.by_severity?.error) > 0 ? {
               value: 'needs investigation',
               positive: false,
             } : undefined}
@@ -68,8 +68,8 @@ export default async function AuditPage() {
 
           <StatsCard
             title="Critical Events"
-            value={Number(stats.critical_count || 0).toLocaleString()}
-            change={Number(stats.critical_count) > 0 ? {
+            value={Number(stats.by_severity?.critical || 0).toLocaleString()}
+            change={Number(stats.by_severity?.critical) > 0 ? {
               value: 'immediate action needed',
               positive: false,
             } : undefined}

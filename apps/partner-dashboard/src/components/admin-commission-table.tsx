@@ -189,9 +189,9 @@ export default function AdminCommissionTable({ commissions: initialCommissions }
                       <div className="text-sm font-medium text-white">
                         {commission.partner_name || commission.company_name || '-'}
                       </div>
-                      {commission.partner_email && (
+                      {commission.email && (
                         <div className="text-sm text-haven-text-secondary">
-                          {commission.partner_email}
+                          {commission.email}
                         </div>
                       )}
                     </td>

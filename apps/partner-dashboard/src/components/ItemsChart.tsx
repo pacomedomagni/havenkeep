@@ -3,13 +3,13 @@
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 
 interface ItemsChartProps {
-  data: Array<{ date: string; items_created: number }>
+  data: Array<{ date: string; count: number }>
 }
 
 export default function ItemsChart({ data }: ItemsChartProps) {
   const formattedData = data.map(d => ({
     date: new Date(d.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-    items: d.items_created,
+    items: d.count,
   }))
 
   return (

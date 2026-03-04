@@ -567,26 +567,28 @@ ${maskPII(stripHtmlTags(emailData.body).substring(0, 4000))}`,
     receipt: ExtractedReceipt,
     scanId: string
   ): Promise<boolean> {
-    // Check free plan limit before starting the transaction
-    const userResult = await pool.query(
-      'SELECT plan FROM users WHERE id = $1',
-      [userId]
-    );
-    if (userResult.rows[0]?.plan === 'free') {
-      const countResult = await pool.query(
-        'SELECT COUNT(*) FROM items WHERE user_id = $1 AND is_archived = FALSE',
-        [userId]
-      );
-      if (parseInt(countResult.rows[0].count, 10) >= 5) {
-        logger.info({ userId, scanId }, 'Skipping item import: free plan limit reached');
-        return false; // Signal to caller that this was skipped
-      }
-    }
-
     const client = await pool.connect();
 
     try {
       await client.query('BEGIN');
+
+      // Check free plan limit inside the transaction with row lock to prevent TOCTOU races
+      const userResult = await client.query(
+        'SELECT plan FROM users WHERE id = $1 FOR UPDATE',
+        [userId]
+      );
+      if (userResult.rows[0]?.plan === 'free') {
+        const countResult = await client.query(
+          'SELECT COUNT(*) FROM items WHERE user_id = $1 AND is_archived = FALSE',
+          [userId]
+        );
+        if (parseInt(countResult.rows[0].count, 10) >= 5) {
+          await client.query('ROLLBACK');
+          client.release();
+          logger.info({ userId, scanId }, 'Skipping item import: free plan limit reached');
+          return false; // Signal to caller that this was skipped
+        }
+      }
 
       // Get user's default home
       const homeResult = await client.query(

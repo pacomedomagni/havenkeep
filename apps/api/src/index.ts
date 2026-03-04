@@ -146,7 +146,6 @@ function registerRoutes(appInstance: express.Express) {
   appInstance.use((req, res) => {
     res.status(404).json({
       error: 'Not found',
-      path: req.path,
       suggestion: 'Check API documentation for available endpoints'
     });
   });

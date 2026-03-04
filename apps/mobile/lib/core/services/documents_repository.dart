@@ -18,7 +18,7 @@ class DocumentsRepository {
   Future<List<Document>> getDocumentsForItem(String itemId) async {
     try {
       final data = await _client.get('/api/v1/documents',
-          queryParams: {'itemId': itemId});
+          queryParams: {'item_id': itemId});
 
       final docs = data['documents'] as List;
       return docs
@@ -64,9 +64,9 @@ class DocumentsRepository {
         file: file,
         fieldName: 'files',
         fields: {
-          'itemId': itemId,
+          'item_id': itemId,
           'type': type.toJson(),
-          if (mimeType != null) 'mimeType': mimeType,
+          if (mimeType != null) 'mime_type': mimeType,
         },
       );
 

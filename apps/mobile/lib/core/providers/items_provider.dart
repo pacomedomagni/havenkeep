@@ -188,25 +188,10 @@ class ItemsNotifier extends AsyncNotifier<List<Item>> {
 }
 
 /// Warranty stats for the dashboard (active, expiring, expired counts).
-/// Derived from itemsProvider so it respects the current home filter.
-final warrantyStatsProvider = Provider<AsyncValue<Map<String, int>>>((ref) {
-  final itemsAsync = ref.watch(itemsProvider);
-  return itemsAsync.whenData((items) {
-    int active = 0;
-    int expiring = 0;
-    int expired = 0;
-    for (final item in items) {
-      switch (item.computedWarrantyStatus) {
-        case WarrantyStatus.active:
-          active++;
-        case WarrantyStatus.expiring:
-          expiring++;
-        case WarrantyStatus.expired:
-          expired++;
-      }
-    }
-    return {'active': active, 'expiring': expiring, 'expired': expired};
-  });
+/// Fetched from the server-side stats endpoint.
+final warrantyStatsProvider = FutureProvider<Map<String, int>>((ref) async {
+  ref.watch(currentUserProvider);
+  return ref.read(itemsRepositoryProvider).getWarrantyStats();
 });
 
 /// Items that need attention (expiring + expired, max 3 for dashboard).

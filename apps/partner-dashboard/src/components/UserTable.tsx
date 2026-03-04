@@ -55,7 +55,7 @@ export default function UserTable({ users: initialUsers }: UserTableProps) {
         method: 'PUT',
       })
 
-      setUsers(users.map(u => u.id === userId ? { ...u, plan: 'free' } : u))
+      setUsers(users.map(u => u.id === userId ? { ...u, plan: 'suspended' } : u))
       setToast({ message: 'User suspended successfully', type: 'success' })
     } catch {
       setToast({ message: 'Failed to suspend user. Please try again.', type: 'error' })

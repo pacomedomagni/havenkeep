@@ -6,7 +6,7 @@ import { ClockIcon, CheckBadgeIcon, BanknotesIcon } from '@heroicons/react/24/ou
 
 async function getCommissions() {
   try {
-    const { commissions } = await serverApiClient<{ commissions: any[] }>('/api/v1/admin/commissions')
+    const { commissions } = await serverApiClient<{ commissions: any[] }>('/api/v1/admin/commissions?limit=100')
     return commissions || []
   } catch {
     return []

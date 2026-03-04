@@ -56,14 +56,15 @@ export class WarrantyClaimsService {
 
       const claim = result.rows[0];
 
-      // Update user analytics
+      // Upsert user analytics
       await client.query(
-        `UPDATE user_analytics
-         SET total_warranty_savings = total_warranty_savings + $1,
-             total_claims_filed = total_claims_filed + 1,
-             has_filed_claim = TRUE,
-             updated_at = NOW()
-         WHERE user_id = $2`,
+        `INSERT INTO user_analytics (user_id, total_warranty_savings, total_claims_filed, has_filed_claim)
+         VALUES ($2, $1, 1, TRUE)
+         ON CONFLICT (user_id)
+         DO UPDATE SET total_warranty_savings = user_analytics.total_warranty_savings + $1,
+                       total_claims_filed = user_analytics.total_claims_filed + 1,
+                       has_filed_claim = TRUE,
+                       updated_at = NOW()`,
         [data.amount_saved, userId]
       );
 
@@ -273,14 +274,15 @@ export class WarrantyClaimsService {
         values
       );
 
-      // Update user analytics if amount_saved changed
+      // Upsert user analytics if amount_saved changed
       if (data.amount_saved !== undefined && data.amount_saved !== oldAmountSaved) {
         const diff = data.amount_saved - oldAmountSaved;
         await client.query(
-          `UPDATE user_analytics
-           SET total_warranty_savings = total_warranty_savings + $1,
-               updated_at = NOW()
-           WHERE user_id = $2`,
+          `INSERT INTO user_analytics (user_id, total_warranty_savings)
+           VALUES ($2, GREATEST(0, $1))
+           ON CONFLICT (user_id)
+           DO UPDATE SET total_warranty_savings = user_analytics.total_warranty_savings + $1,
+                         updated_at = NOW()`,
           [diff, userId]
         );
       }
@@ -326,13 +328,14 @@ export class WarrantyClaimsService {
         [claimId, userId]
       );
 
-      // Update user analytics
+      // Upsert user analytics
       await client.query(
-        `UPDATE user_analytics
-         SET total_warranty_savings = GREATEST(0, total_warranty_savings - $1),
-             total_claims_filed = GREATEST(0, total_claims_filed - 1),
-             updated_at = NOW()
-         WHERE user_id = $2`,
+        `INSERT INTO user_analytics (user_id, total_warranty_savings, total_claims_filed)
+         VALUES ($2, 0, 0)
+         ON CONFLICT (user_id)
+         DO UPDATE SET total_warranty_savings = GREATEST(0, user_analytics.total_warranty_savings - $1),
+                       total_claims_filed = GREATEST(0, user_analytics.total_claims_filed - 1),
+                       updated_at = NOW()`,
         [amountSaved, userId]
       );
 
@@ -378,7 +381,13 @@ export class WarrantyClaimsService {
         };
       }
 
-      return result.rows[0];
+      const row = result.rows[0];
+      return {
+        total_warranty_savings: parseFloat(row.total_warranty_savings) || 0,
+        total_preventive_savings: parseFloat(row.total_preventive_savings) || 0,
+        total_savings: parseFloat(row.total_savings) || 0,
+        total_claims: parseInt(row.total_claims, 10) || 0,
+      };
     } catch (error) {
       logger.error({ error, userId }, 'Error fetching total savings');
       throw error;

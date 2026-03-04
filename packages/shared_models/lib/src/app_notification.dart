@@ -42,13 +42,17 @@ class AppNotification {
           : NotificationType.warranty_expiring,
       title: json['title'] as String? ?? '',
       body: json['body'] as String? ?? '',
-      isRead: json['is_read'] as bool? ?? false,
+      isRead: json['is_read'] as bool? ?? (json['opened_at'] != null),
       actionType: json['action_type'] != null
           ? NotificationAction.fromJson(json['action_type'] as String)
           : null,
       actionData: json['action_data'] != null && json['action_data'] is Map
           ? Map<String, dynamic>.from(json['action_data'] as Map)
-          : null,
+          : json['data'] != null && json['data'] is Map
+              ? Map<String, dynamic>.from(json['data'] as Map)
+              : json['data'] != null
+                  ? {'data': json['data'].toString()}
+                  : null,
       scheduledAt: DateTime.tryParse(json['scheduled_at'] as String? ?? '') ?? DateTime.now(),
       sentAt: json['sent_at'] != null
           ? DateTime.tryParse(json['sent_at'] as String)

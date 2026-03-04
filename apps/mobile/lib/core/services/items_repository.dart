@@ -20,21 +20,29 @@ class ItemsRepository {
     bool includeArchived = false,
   }) async {
     try {
-      final params = <String, String>{
-        'page': '1',
-        'limit': '100',
-      };
+      final allItems = <Item>[];
+      var page = 1;
+      const limit = 100;
+      while (true) {
+        final params = <String, String>{
+          'page': page.toString(),
+          'limit': limit.toString(),
+        };
 
-      if (homeId != null) params['home_id'] = homeId;
-      if (!includeArchived) params['archived'] = 'false';
+        if (homeId != null) params['home_id'] = homeId;
+        if (!includeArchived) params['archived'] = 'false';
 
-      final data = await _client.get('/api/v1/items', queryParams: params);
-      final items = (data['items'] as List)
-          .map((json) => Item.fromJson(json as Map<String, dynamic>))
-          .toList();
+        final data = await _client.get('/api/v1/items', queryParams: params);
+        final items = (data['items'] as List)
+            .map((json) => Item.fromJson(json as Map<String, dynamic>))
+            .toList();
+        allItems.addAll(items);
+        if (items.length < limit) break; // Last page
+        page++;
+      }
 
       // Client-side filtering for category and room
-      var filtered = items;
+      var filtered = allItems;
       if (category != null) {
         filtered = filtered.where((i) => i.category == category).toList();
       }
@@ -64,17 +72,26 @@ class ItemsRepository {
   /// The Express API returns raw items; status is computed client-side.
   Future<List<Item>> getItemsWithStatus({String? homeId}) async {
     try {
-      final params = <String, String>{
-        'page': '1',
-        'limit': '100',
-        'archived': 'false',
-      };
-      if (homeId != null) params['home_id'] = homeId;
+      final allItems = <Item>[];
+      var page = 1;
+      const limit = 100;
+      while (true) {
+        final params = <String, String>{
+          'page': page.toString(),
+          'limit': limit.toString(),
+          'archived': 'false',
+        };
+        if (homeId != null) params['home_id'] = homeId;
 
-      final data = await _client.get('/api/v1/items', queryParams: params);
-      return (data['items'] as List)
-          .map((json) => Item.fromJson(json as Map<String, dynamic>))
-          .toList();
+        final data = await _client.get('/api/v1/items', queryParams: params);
+        final items = (data['items'] as List)
+            .map((json) => Item.fromJson(json as Map<String, dynamic>))
+            .toList();
+        allItems.addAll(items);
+        if (items.length < limit) break; // Last page
+        page++;
+      }
+      return allItems;
     } catch (e) {
       debugPrint('[ItemsRepository] getItemsWithStatus failed: $e');
       rethrow;
@@ -178,7 +195,7 @@ class ItemsRepository {
   /// Archive an item (soft delete — doesn't count toward free limit).
   Future<void> archiveItem(String id) async {
     try {
-      await _client.put('/api/v1/items/$id', body: {'isArchived': true});
+      await _client.put('/api/v1/items/$id', body: {'is_archived': true});
     } catch (e) {
       debugPrint('[ItemsRepository] archiveItem failed: $e');
       rethrow;
@@ -188,7 +205,7 @@ class ItemsRepository {
   /// Unarchive an item.
   Future<void> unarchiveItem(String id) async {
     try {
-      await _client.put('/api/v1/items/$id', body: {'isArchived': false});
+      await _client.put('/api/v1/items/$id', body: {'is_archived': false});
     } catch (e) {
       debugPrint('[ItemsRepository] unarchiveItem failed: $e');
       rethrow;

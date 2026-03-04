@@ -1,17 +1,17 @@
 export type PartnerType = 'realtor' | 'builder' | 'contractor' | 'property_manager' | 'other';
 export type ReferralStatus = 'pending' | 'converted' | 'expired';
-export type CommissionStatus = 'pending' | 'paid' | 'cancelled';
+export type CommissionStatus = 'pending' | 'approved' | 'paid' | 'cancelled';
 
 export interface Partner {
   id: string;
-  userId: string;
-  companyName: string;
-  partnerType: PartnerType;
-  licenseNumber?: string;
-  serviceAreas: string[];
-  isApproved: boolean;
-  referralCode: string;
-  createdAt: string;
+  user_id: string;
+  company_name: string;
+  partner_type: PartnerType;
+  license_number?: string;
+  service_areas: string[];
+  is_active: boolean;
+  referral_code: string;
+  created_at: string;
 }
 
 export interface Referral {
@@ -47,7 +47,7 @@ export interface AdminPartner {
   service_areas: string[]
   brand_color?: string
   logo_url?: string
-  stripe_connect_id?: string
+  stripe_account_id?: string
   stripe_onboarded: boolean
   referral_code: string
   is_active: boolean

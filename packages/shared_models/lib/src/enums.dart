@@ -240,7 +240,8 @@ enum AuthProvider {
 
 enum UserPlan {
   free,
-  premium;
+  premium,
+  suspended;
 
   factory UserPlan.fromJson(String value) {
     return UserPlan.values.firstWhere(
@@ -254,6 +255,7 @@ enum UserPlan {
   String get displayLabel => switch (this) {
         UserPlan.free => 'Free',
         UserPlan.premium => 'Premium',
+        UserPlan.suspended => 'Suspended',
       };
 }
 

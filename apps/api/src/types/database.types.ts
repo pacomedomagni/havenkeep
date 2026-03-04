@@ -3,7 +3,7 @@
 // Auto-generated from PostgreSQL schema
 // ============================================
 
-export type UserPlan = 'free' | 'premium';
+export type UserPlan = 'free' | 'premium' | 'suspended';
 export type AuthProvider = 'email' | 'google' | 'apple';
 export type ItemAddedVia =
   | 'manual'
@@ -37,6 +37,26 @@ export type ItemCategory =
   | 'plumbing'
   | 'electrical'
   | 'furniture'
+  | 'air_purifier'
+  | 'vacuum'
+  | 'ceiling_fan'
+  | 'smoke_detector'
+  | 'security_system'
+  | 'garage_door_opener'
+  | 'power_tools'
+  | 'lawn_mower'
+  | 'pool_equipment'
+  | 'grill'
+  | 'coffee_maker'
+  | 'home_theater'
+  | 'printer'
+  | 'networking'
+  | 'camera'
+  | 'lighting'
+  | 'dehumidifier'
+  | 'freezer'
+  | 'wine_cooler'
+  | 'trash_compactor'
   | 'other';
 
 export type ItemRoom =
@@ -63,10 +83,10 @@ export type DocumentType = 'receipt' | 'warranty_card' | 'manual' | 'invoice' | 
 export type EmailScanStatus = 'pending' | 'scanning' | 'completed' | 'failed';
 export type PartnerType = 'realtor' | 'builder' | 'contractor' | 'property_manager' | 'other';
 export type PartnerTier = 'basic' | 'premium' | 'platinum';
-export type GiftStatus = 'created' | 'sent' | 'activated' | 'expired';
+export type GiftStatus = 'pending_payment' | 'created' | 'sent' | 'activated' | 'expired';
 export type CommissionStatus = 'pending' | 'approved' | 'paid' | 'cancelled';
 export type CommissionType = 'gift' | 'warranty_sale' | 'referral' | 'subscription';
-export type WarrantyPurchaseStatus = 'active' | 'expired' | 'cancelled' | 'claimed';
+export type WarrantyPurchaseStatus = 'pending' | 'active' | 'expired' | 'cancelled' | 'claimed';
 export type NotificationType =
   | 'warranty_expiring'
   | 'warranty_expired'

@@ -22,9 +22,9 @@ class NotificationPreferences {
 
   factory NotificationPreferences.fromJson(Map<String, dynamic> json) {
     return NotificationPreferences(
-      userId: json['user_id'] as String,
+      userId: json['user_id'] as String? ?? '',
       remindersEnabled: json['reminders_enabled'] as bool? ?? true,
-      firstReminderDays: json['first_reminder_days'] as int? ?? 30,
+      firstReminderDays: (json['first_reminder_days'] as num?)?.toInt() ?? 30,
       reminderTime: json['reminder_time'] as String? ?? '09:00',
       warrantyOffersEnabled:
           json['warranty_offers_enabled'] as bool? ?? true,

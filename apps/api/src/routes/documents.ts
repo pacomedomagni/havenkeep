@@ -299,9 +299,9 @@ router.post(
 // Delete document
 router.delete('/:id', validate(uuidParamSchema, 'params'), async (req: AuthRequest, res, next) => {
   try {
-    // Get document details
+    // Atomic ownership check + delete to prevent TOCTOU race
     const docResult = await query(
-      `SELECT * FROM documents WHERE id = $1 AND user_id = $2`,
+      `DELETE FROM documents WHERE id = $1 AND user_id = $2 RETURNING *`,
       [req.params.id, req.user!.id]
     );
 
@@ -329,9 +329,6 @@ router.delete('/:id', validate(uuidParamSchema, 'params'), async (req: AuthReque
     } catch (minioError) {
       logger.warn({ error: minioError }, 'Failed to delete from MinIO');
     }
-
-    // Delete from database
-    await query(`DELETE FROM documents WHERE id = $1`, [req.params.id]);
 
     logger.info({
       userId: req.user!.id,

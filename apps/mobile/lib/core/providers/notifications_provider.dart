@@ -95,13 +95,12 @@ class NotificationsNotifier extends AsyncNotifier<List<AppNotification>> {
   }
 }
 
-/// Count of unread notifications.
-final unreadNotificationCountProvider = Provider<int>((ref) {
-  final notifications = ref.watch(notificationsProvider);
-  return notifications.whenOrNull(
-        data: (list) => list.where((n) => !n.isRead).length,
-      ) ??
-      0;
+/// Count of unread notifications (fetched from the server).
+final unreadNotificationCountProvider = FutureProvider<int>((ref) async {
+  ref.watch(currentUserProvider);
+  final user = ref.read(currentUserProvider).value;
+  if (user == null) return 0;
+  return ref.read(notificationsRepositoryProvider).getUnreadCount();
 });
 
 /// Notification preferences for the current user.

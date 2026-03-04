@@ -130,12 +130,12 @@ export default async function PartnerDetailPage({ params }: { params: Promise<{ 
           <div className="card">
             <h3 className="text-lg font-semibold text-white mb-4">Stripe Integration</h3>
             <div className="flex items-center gap-3">
-              {partner.stripe_connect_id ? (
+              {partner.stripe_account_id ? (
                 <>
                   <span className="inline-flex h-3 w-3 rounded-full bg-green-400" />
                   <span className="text-white">Connected</span>
                   <span className="text-haven-text-tertiary text-sm font-mono ml-2">
-                    {partner.stripe_connect_id}
+                    {partner.stripe_account_id}
                   </span>
                 </>
               ) : (

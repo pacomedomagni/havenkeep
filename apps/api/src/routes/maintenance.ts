@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { authenticate } from '../middleware/auth';
 import { validate } from '../middleware/validate';
+import { uuidParamSchema } from '../validators';
 import { MaintenanceService } from '../services/maintenance.service';
 import {
   getCategoryParamsSchema,
@@ -135,6 +136,7 @@ router.get(
  */
 router.delete(
   '/history/:id',
+  validate(uuidParamSchema, 'params'),
   writeRateLimiter,
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;

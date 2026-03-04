@@ -6,7 +6,7 @@ import { UsersIcon, ClockIcon, CheckCircleIcon } from '@heroicons/react/24/outli
 
 async function getPartners() {
   try {
-    const { partners } = await serverApiClient<{ partners: any[] }>('/api/v1/admin/partners')
+    const { partners } = await serverApiClient<{ partners: any[] }>('/api/v1/admin/partners?limit=100')
     return partners || []
   } catch {
     return []

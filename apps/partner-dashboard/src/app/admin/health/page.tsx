@@ -11,7 +11,7 @@ interface HealthData {
   status: string
   uptime?: number
   environment?: string
-  services?: {
+  checks?: {
     database?: ServiceHealth
     redis?: ServiceHealth
     minio?: ServiceHealth
@@ -100,7 +100,7 @@ export default async function HealthPage() {
     )
   }
 
-  const svcData = health.services ?? {}
+  const svcData = health.checks ?? {}
   const services = [
     {
       name: 'Database',

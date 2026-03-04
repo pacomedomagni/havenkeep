@@ -133,14 +133,16 @@ router.post('/register', authRateLimiter, validate(registerSchema), async (req, 
 
     await client.query('COMMIT');
 
-    // Audit log: successful registration
-    await AuditService.logAuth({
+    // Audit log: successful registration (fire-and-forget to avoid throwing after COMMIT)
+    AuditService.logAuth({
       action: 'auth.register',
       userId: user.id,
       email: user.email,
       ipAddress: getIpAddress(req),
       userAgent: req.get('user-agent'),
       success: true,
+    }).catch((auditError) => {
+      logger.error({ error: auditError, userId: user.id }, 'Failed to log registration audit event');
     });
 
     // Send email verification (fire-and-forget)

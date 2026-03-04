@@ -98,6 +98,7 @@ export default function OnboardingPage() {
                 >
                   <option value="realtor">Realtor</option>
                   <option value="builder">Builder</option>
+                  <option value="contractor">Contractor</option>
                   <option value="property_manager">Property Manager</option>
                   <option value="other">Other</option>
                 </select>

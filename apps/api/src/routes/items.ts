@@ -6,6 +6,7 @@ import { validate } from '../middleware/validate';
 import { createItemSchema, updateItemSchema, paginationSchema, uuidParamSchema } from '../validators';
 import { AuditService } from '../services/audit.service';
 import { config } from '../config';
+import { writeRateLimiter } from '../middleware/rateLimiter';
 
 const router = Router();
 
@@ -277,7 +278,7 @@ router.get('/:id', validate(uuidParamSchema, 'params'), async (req: AuthRequest,
 });
 
 // Create item
-router.post('/', validate(createItemSchema), async (req: AuthRequest, res, next) => {
+router.post('/', writeRateLimiter, validate(createItemSchema), async (req: AuthRequest, res, next) => {
   const client = await getClient();
   try {
     const {
@@ -382,7 +383,7 @@ router.post('/', validate(createItemSchema), async (req: AuthRequest, res, next)
 });
 
 // Update item - FIXED SQL INJECTION
-router.put('/:id', validate(uuidParamSchema, 'params'), validate(updateItemSchema), async (req: AuthRequest, res, next) => {
+router.put('/:id', writeRateLimiter, validate(uuidParamSchema, 'params'), validate(updateItemSchema), async (req: AuthRequest, res, next) => {
   try {
     const { id } = req.params;
     const updates = req.body;
@@ -534,7 +535,7 @@ router.put('/:id', validate(uuidParamSchema, 'params'), validate(updateItemSchem
 });
 
 // Delete item
-router.delete('/:id', validate(uuidParamSchema, 'params'), async (req: AuthRequest, res, next) => {
+router.delete('/:id', writeRateLimiter, validate(uuidParamSchema, 'params'), async (req: AuthRequest, res, next) => {
   try {
     // Get item details before deleting for audit log
     const itemResult = await query(

@@ -32,8 +32,6 @@ export default function ReferralsPage() {
       if (data.success) {
         const mapped: Referral[] = (data.data || []).map((r: any) => ({
           id: r.id,
-          partnerId: '',
-          code: '',
           referredEmail: r.email_masked,
           referredName: r.full_name,
           referredUserId: r.id,

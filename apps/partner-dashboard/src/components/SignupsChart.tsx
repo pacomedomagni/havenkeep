@@ -3,13 +3,13 @@
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 
 interface SignupsChartProps {
-  data: Array<{ date: string; signups: number }>
+  data: Array<{ date: string; count: number }>
 }
 
 export default function SignupsChart({ data }: SignupsChartProps) {
   const formattedData = data.map(d => ({
     date: new Date(d.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-    signups: d.signups,
+    signups: d.count,
   }))
 
   return (

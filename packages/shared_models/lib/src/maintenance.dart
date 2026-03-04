@@ -6,6 +6,14 @@ class MaintenanceSchedule {
   final String? description;
   final int frequencyMonths;
   final int priority;
+  final String? frequencyLabel;
+  final int? estimatedDurationMinutes;
+  final String? difficulty;
+  final double? preventsCost;
+  final String? howToUrl;
+  final String? videoUrl;
+  final List<String>? toolsNeeded;
+  final bool isRequiredForWarranty;
   final DateTime createdAt;
 
   const MaintenanceSchedule({
@@ -15,6 +23,14 @@ class MaintenanceSchedule {
     this.description,
     required this.frequencyMonths,
     this.priority = 0,
+    this.frequencyLabel,
+    this.estimatedDurationMinutes,
+    this.difficulty,
+    this.preventsCost,
+    this.howToUrl,
+    this.videoUrl,
+    this.toolsNeeded,
+    this.isRequiredForWarranty = false,
     required this.createdAt,
   });
 
@@ -26,6 +42,18 @@ class MaintenanceSchedule {
       description: json['description'] as String?,
       frequencyMonths: (json['frequency_months'] as num?)?.toInt() ?? 0,
       priority: (json['priority'] as num?)?.toInt() ?? 0,
+      frequencyLabel: json['frequency_label'] as String?,
+      estimatedDurationMinutes: (json['estimated_duration_minutes'] as num?)?.toInt(),
+      difficulty: json['difficulty'] as String?,
+      preventsCost: json['prevents_cost'] != null
+          ? (json['prevents_cost'] as num).toDouble()
+          : null,
+      howToUrl: json['how_to_url'] as String?,
+      videoUrl: json['video_url'] as String?,
+      toolsNeeded: json['tools_needed'] != null
+          ? (json['tools_needed'] as List).map((e) => e as String).toList()
+          : null,
+      isRequiredForWarranty: json['is_required_for_warranty'] as bool? ?? false,
       createdAt: DateTime.tryParse(json['created_at'] as String? ?? '') ?? DateTime.now(),
     );
   }
@@ -37,6 +65,14 @@ class MaintenanceSchedule {
         'description': description,
         'frequency_months': frequencyMonths,
         'priority': priority,
+        'frequency_label': frequencyLabel,
+        'estimated_duration_minutes': estimatedDurationMinutes,
+        'difficulty': difficulty,
+        'prevents_cost': preventsCost,
+        'how_to_url': howToUrl,
+        'video_url': videoUrl,
+        'tools_needed': toolsNeeded,
+        'is_required_for_warranty': isRequiredForWarranty,
         'created_at': createdAt.toIso8601String(),
       };
 }

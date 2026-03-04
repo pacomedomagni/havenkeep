@@ -499,6 +499,8 @@ export class PartnersService {
 
           throw new AppError(userFriendlyMessage, 402);
         }
+      } else {
+        throw new AppError('Payment method required. Please add a payment method in your settings before creating gifts.', 402);
       }
 
       // Stripe succeeded — update gift status to 'created' within the same transaction
@@ -780,12 +782,17 @@ export class PartnersService {
 
       // Upgrade user to premium
       const premiumExpiresAt = new Date();
-      premiumExpiresAt.setMonth(premiumExpiresAt.getMonth() + gift.premium_months);
+      const targetMonth = premiumExpiresAt.getMonth() + gift.premium_months;
+      premiumExpiresAt.setMonth(targetMonth);
+      // Clamp day overflow (e.g., Jan 31 + 1 month should be Feb 28, not Mar 3)
+      if (premiumExpiresAt.getMonth() !== ((targetMonth % 12) + 12) % 12) {
+        premiumExpiresAt.setDate(0); // Go to last day of previous month
+      }
 
       await client.query(
         `UPDATE users
          SET plan = 'premium',
-             plan_expires_at = $2
+             plan_expires_at = GREATEST(COALESCE(plan_expires_at, $2), $2)
          WHERE id = $1`,
         [newUserId, premiumExpiresAt]
       );
@@ -969,7 +976,7 @@ export class PartnersService {
       );
 
       return result.rows.map((row: any) => ({
-        month: new Date(row.month).toLocaleString('default', { month: 'short' }),
+        month: new Date(row.month).toLocaleString('en-US', { month: 'short' }),
         earnings: parseFloat(row.earnings) || 0,
       }));
     } catch (error) {

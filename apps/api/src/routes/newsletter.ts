@@ -1,9 +1,18 @@
 import { Router } from 'express';
+import rateLimit from 'express-rate-limit';
 import { pool } from '../db';
 import { logger } from '../utils/logger';
 import { asyncHandler } from '../utils/async-handler';
 
 const router = Router();
+
+const newsletterRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 5, // 5 per hour per IP
+  message: 'Too many subscription attempts, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 /**
  * @route   POST /api/v1/newsletter/subscribe
@@ -12,6 +21,7 @@ const router = Router();
  */
 router.post(
   '/subscribe',
+  newsletterRateLimiter,
   asyncHandler(async (req, res) => {
     const { email } = req.body;
 

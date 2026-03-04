@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import Stripe from 'stripe';
+import rateLimit from 'express-rate-limit';
 import { pool } from '../db';
 import { config } from '../config';
 import { authenticate, requireAdmin } from '../middleware/auth';
@@ -16,6 +17,14 @@ import { asyncHandler } from '../utils/async-handler';
 import { activationCodeRateLimiter } from '../middleware/rateLimiter';
 import { AuditService } from '../services/audit.service';
 import { AppError } from '../middleware/errorHandler';
+
+const giftResendRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 3, // 3 resends per hour per IP
+  message: 'Too many gift email resend attempts, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 const stripe = new Stripe(config.stripe.secretKey, {
   apiVersion: '2023-10-16',
@@ -280,6 +289,7 @@ router.get(
  */
 router.post(
   '/gifts/:id/resend',
+  giftResendRateLimiter,
   requirePartner,
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
@@ -501,16 +511,16 @@ const PARTNER_TIERS = [
     features: ['10 gifts/month', '10% commission'],
   },
   {
-    id: 'professional',
-    name: 'Professional',
+    id: 'premium',
+    name: 'Premium',
     price_monthly: 49,
     max_gifts_per_month: 50,
     commission_rate: 0.15,
     features: ['50 gifts/month', '15% commission', 'Priority support'],
   },
   {
-    id: 'enterprise',
-    name: 'Enterprise',
+    id: 'platinum',
+    name: 'Platinum',
     price_monthly: 149,
     max_gifts_per_month: -1,
     commission_rate: 0.20,

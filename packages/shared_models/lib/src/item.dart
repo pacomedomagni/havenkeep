@@ -38,6 +38,11 @@ class Item {
   final int? expectedLifespanYears;
   final int? lifespanPercentage;
 
+  // Maintenance tracking
+  final DateTime? installationDate;
+  final DateTime? lastMaintenanceDate;
+  final DateTime? nextMaintenanceDue;
+
   // Meta
   final String? notes;
   final bool isArchived;
@@ -70,6 +75,9 @@ class Item {
     this.estimatedRepairCost,
     this.expectedLifespanYears,
     this.lifespanPercentage,
+    this.installationDate,
+    this.lastMaintenanceDate,
+    this.nextMaintenanceDue,
     this.notes,
     this.isArchived = false,
     this.addedVia = ItemAddedVia.manual,
@@ -121,6 +129,15 @@ class Item {
           : null,
       expectedLifespanYears: (json['expected_lifespan_years'] as num?)?.toInt(),
       lifespanPercentage: (json['lifespan_percentage'] as num?)?.toInt(),
+      installationDate: json['installation_date'] != null
+          ? DateTime.tryParse(json['installation_date'] as String)
+          : null,
+      lastMaintenanceDate: json['last_maintenance_date'] != null
+          ? DateTime.tryParse(json['last_maintenance_date'] as String)
+          : null,
+      nextMaintenanceDue: json['next_maintenance_due'] != null
+          ? DateTime.tryParse(json['next_maintenance_due'] as String)
+          : null,
       notes: json['notes'] as String?,
       isArchived: json['is_archived'] as bool? ?? false,
       addedVia: json['added_via'] != null
@@ -155,6 +172,9 @@ class Item {
       // warranty_end_date is GENERATED — don't send on insert/update
       'warranty_type': warrantyType.toJson(),
       'warranty_provider': warrantyProvider,
+      'installation_date': installationDate?.toIso8601String().split('T').first,
+      'last_maintenance_date': lastMaintenanceDate?.toIso8601String().split('T').first,
+      'next_maintenance_due': nextMaintenanceDue?.toIso8601String().split('T').first,
       'notes': notes,
       'is_archived': isArchived,
       'added_via': addedVia.toJson(),
@@ -165,6 +185,9 @@ class Item {
   Map<String, dynamic> toInsertJson() {
     final json = toJson();
     json.remove('id'); // Let DB generate UUID
+    json.remove('installation_date'); // Server-managed
+    json.remove('last_maintenance_date'); // Server-managed
+    json.remove('next_maintenance_due'); // Server-managed
     return json;
   }
 
@@ -245,6 +268,12 @@ class Item {
     bool clearExpectedLifespanYears = false,
     int? lifespanPercentage,
     bool clearLifespanPercentage = false,
+    DateTime? installationDate,
+    bool clearInstallationDate = false,
+    DateTime? lastMaintenanceDate,
+    bool clearLastMaintenanceDate = false,
+    DateTime? nextMaintenanceDue,
+    bool clearNextMaintenanceDue = false,
     String? notes,
     bool clearNotes = false,
     bool? isArchived,
@@ -283,6 +312,9 @@ class Item {
       estimatedRepairCost: clearEstimatedRepairCost ? null : (estimatedRepairCost ?? this.estimatedRepairCost),
       expectedLifespanYears: clearExpectedLifespanYears ? null : (expectedLifespanYears ?? this.expectedLifespanYears),
       lifespanPercentage: clearLifespanPercentage ? null : (lifespanPercentage ?? this.lifespanPercentage),
+      installationDate: clearInstallationDate ? null : (installationDate ?? this.installationDate),
+      lastMaintenanceDate: clearLastMaintenanceDate ? null : (lastMaintenanceDate ?? this.lastMaintenanceDate),
+      nextMaintenanceDue: clearNextMaintenanceDue ? null : (nextMaintenanceDue ?? this.nextMaintenanceDue),
       notes: clearNotes ? null : (notes ?? this.notes),
       isArchived: isArchived ?? this.isArchived,
       addedVia: addedVia ?? this.addedVia,
