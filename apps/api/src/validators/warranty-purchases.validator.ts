@@ -5,7 +5,7 @@ export const createWarrantyPurchaseSchema = Joi.object({
   provider: Joi.string().max(100).required(),
   plan_name: Joi.string().max(255).required(),
   external_policy_id: Joi.string().max(255).optional(),
-  duration_months: Joi.number().integer().min(1).max(120).required(),
+  duration_months: Joi.number().integer().min(1).max(240).required(),
   starts_at: Joi.date().iso().required(),
   coverage_details: Joi.object().optional(),
   price: Joi.number().min(0).max(1000000).required(),

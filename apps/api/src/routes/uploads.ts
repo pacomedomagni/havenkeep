@@ -91,9 +91,11 @@ router.post(
 
     logger.info({ userId, url: publicUrl }, 'Avatar uploaded');
 
+    // Return url at the top level — the mobile client reads `data['url']`
+    // from the parsed response body (no nested `data` wrapper).
     res.json({
       success: true,
-      data: { url: publicUrl },
+      url: publicUrl,
     });
   })
 );
@@ -168,9 +170,11 @@ router.post(
 
     logger.info({ userId: req.user!.id, itemId, url: publicUrl }, 'Item image uploaded');
 
+    // Return url at the top level — the mobile client reads `data['url']`
+    // from the parsed response body (no nested `data` wrapper).
     res.json({
       success: true,
-      data: { url: publicUrl },
+      url: publicUrl,
     });
   })
 );

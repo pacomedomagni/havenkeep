@@ -30,7 +30,7 @@ export default function CommissionsPage() {
         const mapped: Commission[] = (data.data || []).map((c: any) => ({
           id: c.id,
           partnerId: c.partner_id,
-          referralId: c.referral_id || c.id,
+          referralId: c.reference_id || c.id,
           amount: parseFloat(c.amount),
           status: c.status as CommissionStatus,
           paidAt: c.paid_at,

@@ -16,4 +16,6 @@ export const changePasswordSchema = Joi.object({
 export const deleteAccountSchema = Joi.object({
   password: Joi.string().optional(),
   confirmDelete: Joi.boolean().optional(),
-});
+})
+  // Accept snake_case from clients
+  .rename('confirm_delete', 'confirmDelete', { ignoreUndefined: true, override: false });

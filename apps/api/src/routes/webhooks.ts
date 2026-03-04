@@ -164,11 +164,19 @@ async function handleChargeRefunded(charge: Stripe.Charge): Promise<void> {
   try {
     await client.query('BEGIN');
 
+    // Capture the pre-update is_activated value via CTE, then set is_activated = FALSE
+    // to satisfy chk_partner_gifts_activation_consistency (is_activated=TRUE requires status 'active'|'redeemed')
     const result = await client.query(
-      `UPDATE partner_gifts
-       SET status = 'expired', updated_at = NOW()
-       WHERE stripe_charge_id = $1 AND status IN ('created', 'sent', 'activated', 'expired')
-       RETURNING id, partner_id, homebuyer_email, is_activated, activated_user_id`,
+      `WITH old AS (
+         SELECT id, partner_id, homebuyer_email, is_activated AS was_activated, activated_user_id
+         FROM partner_gifts
+         WHERE stripe_charge_id = $1 AND status IN ('created', 'sent', 'activated', 'expired')
+       )
+       UPDATE partner_gifts pg
+       SET status = 'expired', is_activated = FALSE, updated_at = NOW()
+       FROM old
+       WHERE pg.id = old.id
+       RETURNING old.id, old.partner_id, old.homebuyer_email, old.was_activated, old.activated_user_id`,
       [chargeId]
     );
 
@@ -192,14 +200,7 @@ async function handleChargeRefunded(charge: Stripe.Charge): Promise<void> {
     );
 
     // If the gift was already activated, revoke the premium upgrade
-    if (gift.is_activated) {
-      await client.query(
-        `UPDATE partner_gifts
-         SET is_activated = FALSE, status = 'expired', updated_at = NOW()
-         WHERE id = $1`,
-        [gift.id]
-      );
-
+    if (gift.was_activated) {
       // Revoke the premium plan from the activated user
       if (gift.activated_user_id) {
         // Only downgrade if the user has no other active, non-expired gifts

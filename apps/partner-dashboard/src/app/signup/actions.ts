@@ -23,6 +23,10 @@ export async function signUp(formData: FormData) {
     return { error: 'Password must be at least 8 characters with uppercase, lowercase, number, and special character' };
   }
 
+  if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])/.test(password)) {
+    return { error: 'Password must be at least 8 characters with uppercase, lowercase, number, and special character' };
+  }
+
   try {
     const response = await fetch(`${API_URL}/api/v1/auth/register`, {
       method: 'POST',

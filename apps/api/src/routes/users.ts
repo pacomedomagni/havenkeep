@@ -64,7 +64,9 @@ router.put('/me', writeRateLimiter, validate(updateUserSchema), asyncHandler(asy
       ${updates.join(', ')},
       updated_at = NOW()
      WHERE id = $${paramIndex}
-     RETURNING id, email, full_name, avatar_url, plan`,
+     RETURNING id, email, full_name, avatar_url, auth_provider, plan, plan_expires_at,
+               referred_by, referral_code, email_verified, apple_user_id, is_admin, created_at, updated_at,
+               (EXISTS(SELECT 1 FROM partners p WHERE p.user_id = users.id AND p.is_active = TRUE)) as is_partner`,
     values
   );
 

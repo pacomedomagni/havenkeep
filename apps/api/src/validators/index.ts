@@ -80,10 +80,10 @@ export const createItemSchema = Joi.object({
   .rename('warranty_type', 'warrantyType', { ignoreUndefined: true, override: false })
   .rename('warranty_provider', 'warrantyProvider', { ignoreUndefined: true, override: false })
   .rename('product_image_url', 'productImageUrl', { ignoreUndefined: true, override: false })
-  .rename('added_via', 'addedVia', { ignoreUndefined: true, override: false })
-  .rename('user_id', 'userId', { ignoreUndefined: true, override: false });
+  .rename('added_via', 'addedVia', { ignoreUndefined: true, override: false });
 
 export const updateItemSchema = Joi.object({
+  homeId: Joi.string().uuid(),
   name: Joi.string().min(1).max(255),
   brand: Joi.string().max(100).allow(null, ''),
   modelNumber: Joi.string().max(100).allow(null, ''),
@@ -122,6 +122,7 @@ export const updateItemSchema = Joi.object({
   // addedVia intentionally excluded — it is a write-once audit field set at creation
 }).min(1) // At least one field must be provided
   // Accept snake_case from mobile clients
+  .rename('home_id', 'homeId', { ignoreUndefined: true, override: false })
   .rename('model_number', 'modelNumber', { ignoreUndefined: true, override: false })
   .rename('serial_number', 'serialNumber', { ignoreUndefined: true, override: false })
   .rename('purchase_date', 'purchaseDate', { ignoreUndefined: true, override: false })

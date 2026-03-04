@@ -57,7 +57,8 @@ const upload = multer({
 
 // Get all documents (optionally filtered by item)
 router.get('/', asyncHandler(async (req: AuthRequest, res) => {
-  const { itemId } = req.query;
+  // Mobile sends snake_case `item_id`; accept both forms.
+  const itemId = req.query.item_id ?? req.query.itemId;
 
   if (itemId) {
     // Verify item belongs to user
@@ -106,18 +107,13 @@ router.post(
   '/upload',
   uploadRateLimiter,
   upload.array('files', 5),
+  validate(uploadDocumentSchema), // runs after multer so form fields are available; renames item_id -> itemId
   asyncHandler(async (req: AuthRequest, res) => {
     const { itemId, type } = req.body;
     const files = req.files as Express.Multer.File[];
 
     if (!files || files.length === 0) {
       throw new AppError('No files uploaded', 400);
-    }
-
-    // Validate itemId is a valid UUID
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    if (!itemId || !uuidRegex.test(itemId)) {
-      throw new AppError('Valid itemId (UUID) is required', 400);
     }
 
     // Verify item belongs to user

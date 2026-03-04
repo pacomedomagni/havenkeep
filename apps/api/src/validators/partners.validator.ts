@@ -64,7 +64,7 @@ export const createGiftSchema = Joi.object({
 export const getGiftsQuerySchema = Joi.object({
   limit: Joi.number().integer().min(1).max(100).optional().default(50),
   offset: Joi.number().integer().min(0).optional().default(0),
-  status: Joi.string().valid('created', 'sent', 'activated', 'expired').optional(),
+  status: Joi.string().valid('created', 'sent', 'activated', 'expired', 'pending_payment').optional(),
 });
 
 export const getCommissionsQuerySchema = Joi.object({

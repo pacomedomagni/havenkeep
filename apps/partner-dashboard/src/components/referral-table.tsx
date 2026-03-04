@@ -85,7 +85,7 @@ export default function ReferralTable({ referrals }: ReferralTableProps) {
           {sorted.map((referral) => (
             <tr key={referral.id} className="hover:bg-haven-elevated/50 transition-colors">
               <td className="py-3 px-4 text-sm font-mono text-haven-primary">
-                {referral.code}
+                {referral.code || referral.referredName || '\u2014'}
               </td>
               <td className="py-3 px-4 text-sm text-haven-text-secondary">
                 {referral.referredEmail || '\u2014'}

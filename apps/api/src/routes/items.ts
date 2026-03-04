@@ -36,6 +36,7 @@ const ALLOWED_UPDATE_FIELDS = new Set([
   'name', 'brand', 'model_number', 'serial_number', 'category', 'room',
   'purchase_date', 'store', 'price', 'warranty_months', 'warranty_type',
   'warranty_provider', 'notes', 'is_archived', 'product_image_url', 'barcode',
+  'home_id',
 ]);
 
 // Export all items as CSV (streaming — avoids buffering all rows in memory)
@@ -385,6 +386,7 @@ router.put('/:id', writeRateLimiter, validate(uuidParamSchema, 'params'), valida
 
   // Map camelCase to snake_case and validate
   const fieldMapping: Record<string, string> = {
+    homeId: 'home_id',
     name: 'name',
     brand: 'brand',
     modelNumber: 'model_number',
