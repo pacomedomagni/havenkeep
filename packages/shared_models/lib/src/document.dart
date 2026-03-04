@@ -12,6 +12,7 @@ class Document {
   final String mimeType;
   final String? thumbnailUrl;
   final DateTime createdAt;
+  final DateTime updatedAt;
 
   const Document({
     required this.id,
@@ -24,6 +25,7 @@ class Document {
     this.mimeType = 'application/octet-stream',
     this.thumbnailUrl,
     required this.createdAt,
+    required this.updatedAt,
   });
 
   factory Document.fromJson(Map<String, dynamic> json) {
@@ -40,6 +42,7 @@ class Document {
       mimeType: json['mime_type'] as String? ?? 'application/octet-stream',
       thumbnailUrl: json['thumbnail_url'] as String?,
       createdAt: DateTime.tryParse(json['created_at'] as String? ?? '') ?? DateTime.now(),
+      updatedAt: DateTime.tryParse(json['updated_at'] as String? ?? '') ?? DateTime.now(),
     );
   }
 
@@ -55,6 +58,7 @@ class Document {
       'mime_type': mimeType,
       'thumbnail_url': thumbnailUrl,
       'created_at': createdAt.toIso8601String(),
+      'updated_at': updatedAt.toIso8601String(),
     };
   }
 
@@ -91,6 +95,7 @@ class Document {
     String? thumbnailUrl,
     bool clearThumbnailUrl = false,
     DateTime? createdAt,
+    DateTime? updatedAt,
   }) {
     return Document(
       id: id ?? this.id,
@@ -104,6 +109,7 @@ class Document {
       thumbnailUrl:
           clearThumbnailUrl ? null : (thumbnailUrl ?? this.thumbnailUrl),
       createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
     );
   }
 

@@ -447,9 +447,9 @@ router.get('/partners', validate(paginationSchema, 'query'), async (req, res, ne
           p.service_areas,
           p.brand_color,
           p.logo_url,
-          p.stripe_connect_id,
+          p.stripe_account_id,
           p.stripe_onboarded,
-          p.referral_code,
+          u.referral_code,
           p.is_active,
           p.created_at,
           p.updated_at,
@@ -457,12 +457,11 @@ router.get('/partners', validate(paginationSchema, 'query'), async (req, res, ne
           u.full_name,
           COALESCE(SUM(pc.amount), 0)::numeric AS total_commissions_earned,
           COUNT(DISTINCT pg.id)::int AS total_gifts,
-          COUNT(DISTINCT pr.id)::int AS total_referrals
+          (SELECT COUNT(*) FROM users ref WHERE ref.referred_by = p.user_id)::int AS total_referrals
         FROM partners p
         JOIN users u ON u.id = p.user_id
         LEFT JOIN partner_commissions pc ON pc.partner_id = p.id
         LEFT JOIN partner_gifts pg ON pg.partner_id = p.id
-        LEFT JOIN partner_referrals pr ON pr.partner_id = p.id
         ${whereClause}
         GROUP BY p.id, u.email, u.full_name
         ORDER BY p.created_at DESC
@@ -507,9 +506,9 @@ router.get('/partners/:id', validate(userIdParamSchema, 'params'), async (req, r
         p.service_areas,
         p.brand_color,
         p.logo_url,
-        p.stripe_connect_id,
+        p.stripe_account_id,
         p.stripe_onboarded,
-        p.referral_code,
+        u.referral_code,
         p.is_active,
         p.created_at,
         p.updated_at,
@@ -518,12 +517,11 @@ router.get('/partners/:id', validate(userIdParamSchema, 'params'), async (req, r
         COALESCE(SUM(pc.amount) FILTER (WHERE pc.status = 'pending'), 0)::numeric AS total_pending_amount,
         COALESCE(SUM(pc.amount) FILTER (WHERE pc.status = 'paid'), 0)::numeric AS total_paid_amount,
         COUNT(DISTINCT pg.id)::int AS gift_count,
-        COUNT(DISTINCT pr.id)::int AS referral_count
+        (SELECT COUNT(*) FROM users ref WHERE ref.referred_by = p.user_id)::int AS referral_count
       FROM partners p
       JOIN users u ON u.id = p.user_id
       LEFT JOIN partner_commissions pc ON pc.partner_id = p.id
       LEFT JOIN partner_gifts pg ON pg.partner_id = p.id
-      LEFT JOIN partner_referrals pr ON pr.partner_id = p.id
       WHERE p.id = $1
       GROUP BY p.id, u.email, u.full_name`,
       [id]
@@ -575,7 +573,7 @@ router.get('/commissions', validate(paginationSchema, 'query'), async (req, res,
         `SELECT
           pc.id,
           pc.partner_id,
-          pc.referral_id,
+          pc.reference_id,
           pc.amount,
           pc.status,
           pc.created_at,

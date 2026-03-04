@@ -183,6 +183,22 @@ async function initializeEndpointRedis() {
 // The limiters will use in-memory until this resolves.
 initializeEndpointRedis().catch(() => {});
 
+/**
+ * Close the Redis client(s) used by the rate limiter.
+ * Call during graceful shutdown to avoid leaked connections.
+ */
+export async function closeRateLimiterRedis(): Promise<void> {
+  if (redisClient) {
+    try {
+      await redisClient.quit();
+    } catch (err) {
+      logger.error({ err }, 'Error closing rate limiter Redis client');
+    }
+    redisClient = null;
+    sharedRedisClient = null;
+  }
+}
+
 // Specific rate limiters for sensitive endpoints
 export const authRateLimiter = createEndpointRateLimiter({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -240,4 +256,32 @@ export const writeRateLimiter = createEndpointRateLimiter({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 30,
   message: 'Too many write requests, please try again later.',
+});
+
+// Gift email resend limiter: 3 resends per hour per IP
+export const giftResendRateLimiter = createEndpointRateLimiter({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 3,
+  message: 'Too many gift email resend attempts, please try again later.',
+});
+
+// Receipt scan limiter: 10 per minute per IP
+export const receiptScanRateLimiter = createEndpointRateLimiter({
+  windowMs: 60 * 1000, // 1 minute
+  max: 10,
+  message: 'Too many receipt scan requests, please try again later.',
+});
+
+// Newsletter subscription limiter: 5 per hour per IP
+export const newsletterRateLimiter = createEndpointRateLimiter({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 5,
+  message: 'Too many subscription attempts, please try again later.',
+});
+
+// Contact form limiter: 3 per hour per IP
+export const contactRateLimiter = createEndpointRateLimiter({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 3,
+  message: 'Too many contact submissions, please try again later.',
 });

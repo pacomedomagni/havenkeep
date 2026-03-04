@@ -152,6 +152,29 @@ class HavenDatabase extends _$HavenDatabase {
   /// Remove all synced actions from the queue.
   Future<void> clearSyncedActions() =>
       (delete(offlineQueue)..where((t) => t.status.equals('synced'))).go();
+
+  /// Get the total number of entries in the offline queue.
+  Future<int> getQueueSize() async {
+    final countExpr = countAll();
+    final query = selectOnly(offlineQueue)..addColumns([countExpr]);
+    final result = await query.getSingle();
+    return result.read(countExpr) ?? 0;
+  }
+
+  /// Remove the oldest [count] entries from the offline queue.
+  Future<void> removeOldestEntries(int count) async {
+    final oldest = await (select(offlineQueue)
+          ..orderBy([(t) => OrderingTerm.asc(t.createdAt)])
+          ..limit(count))
+        .get();
+    for (final entry in oldest) {
+      await (delete(offlineQueue)..where((t) => t.id.equals(entry.id))).go();
+    }
+  }
+
+  /// Remove all queue entries older than [cutoff].
+  Future<void> removeEntriesOlderThan(DateTime cutoff) =>
+      (delete(offlineQueue)..where((t) => t.createdAt.isSmallerThanValue(cutoff))).go();
 }
 
 LazyDatabase _openConnection() {

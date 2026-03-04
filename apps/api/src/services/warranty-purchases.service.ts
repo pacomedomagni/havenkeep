@@ -42,7 +42,8 @@ export class WarrantyPurchasesService {
         SELECT wp.*,
                i.name as item_name,
                i.category as item_category,
-               i.brand as item_brand
+               i.brand as item_brand,
+               i.model_number as item_model_number
         FROM warranty_purchases wp
         JOIN items i ON i.id = wp.item_id
         WHERE wp.user_id = $1
@@ -141,7 +142,7 @@ export class WarrantyPurchasesService {
       // Check for duplicate active warranty on the same item
       const duplicateCheck = await client.query(
         `SELECT id FROM warranty_purchases
-         WHERE item_id = $1 AND user_id = $2 AND status = 'active'`,
+         WHERE item_id = $1 AND user_id = $2 AND status = 'active' FOR UPDATE`,
         [data.item_id, userId]
       );
 
@@ -364,32 +365,4 @@ export class WarrantyPurchasesService {
     }
   }
 
-  /**
-   * Update warranty purchase status (internal method, e.g., for auto-expiring)
-   */
-  static async updatePurchaseStatus(
-    purchaseId: string,
-    status: 'active' | 'expired' | 'cancelled' | 'pending'
-  ): Promise<WarrantyPurchase> {
-    try {
-      const result = await pool.query(
-        `UPDATE warranty_purchases
-         SET status = $2, updated_at = NOW()
-         WHERE id = $1
-         RETURNING *`,
-        [purchaseId, status]
-      );
-
-      if (result.rows.length === 0) {
-        throw new AppError('Warranty purchase not found', 404);
-      }
-
-      logger.info({ purchaseId, status }, 'Warranty purchase status updated');
-
-      return result.rows[0];
-    } catch (error) {
-      logger.error({ error, purchaseId, status }, 'Error updating warranty purchase status');
-      throw error;
-    }
-  }
 }

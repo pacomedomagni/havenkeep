@@ -3,16 +3,6 @@
 // Auto-generated from PostgreSQL schema
 // ============================================
 
-export type UserPlan = 'free' | 'premium' | 'suspended';
-export type AuthProvider = 'email' | 'google' | 'apple';
-export type ItemAddedVia =
-  | 'manual'
-  | 'email'
-  | 'barcode'
-  | 'barcode_scan'
-  | 'receipt_scan'
-  | 'quick_add'
-  | 'bulk_setup';
 export type ItemCategory =
   | 'refrigerator'
   | 'dishwasher'
@@ -59,141 +49,13 @@ export type ItemCategory =
   | 'trash_compactor'
   | 'other';
 
-export type ItemRoom =
-  | 'kitchen'
-  | 'bathroom'
-  | 'master_bedroom'
-  | 'bedroom'
-  | 'living_room'
-  | 'dining_room'
-  | 'laundry'
-  | 'garage'
-  | 'basement'
-  | 'attic'
-  | 'outdoor'
-  | 'hvac_utility'
-  | 'office'
-  | 'other';
-
-export type WarrantyType = 'manufacturer' | 'extended' | 'store' | 'home_warranty';
-export type HomeType = 'house' | 'condo' | 'apartment' | 'townhouse' | 'other';
-export type DocumentType = 'receipt' | 'warranty_card' | 'manual' | 'invoice' | 'other';
-
-// New types for enhanced features
 export type EmailScanStatus = 'pending' | 'scanning' | 'completed' | 'failed';
 export type PartnerType = 'realtor' | 'builder' | 'contractor' | 'property_manager' | 'other';
 export type PartnerTier = 'basic' | 'premium' | 'platinum';
-export type GiftStatus = 'pending_payment' | 'created' | 'sent' | 'activated' | 'expired';
+export type GiftStatus = 'pending_payment' | 'payment_failed' | 'created' | 'sent' | 'activated' | 'expired';
 export type CommissionStatus = 'pending' | 'approved' | 'paid' | 'cancelled';
 export type CommissionType = 'gift' | 'warranty_sale' | 'referral' | 'subscription';
 export type WarrantyPurchaseStatus = 'pending' | 'active' | 'expired' | 'cancelled' | 'claimed';
-export type NotificationType =
-  | 'warranty_expiring'
-  | 'warranty_expired'
-  | 'item_added'
-  | 'warranty_extended'
-  | 'maintenance_due'
-  | 'claim_update'
-  | 'claim_opportunity'
-  | 'health_score_update'
-  | 'gift_received'
-  | 'gift_activated'
-  | 'partner_commission'
-  | 'promotional'
-  | 'tip'
-  | 'system';
-
-// ============================================
-// Core Tables
-// ============================================
-
-export interface User {
-  id: string;
-  email: string;
-  password_hash: string | null;
-  full_name: string;
-  avatar_url: string | null;
-  auth_provider: AuthProvider;
-  plan: UserPlan;
-  plan_expires_at: Date | null;
-  stripe_customer_id: string | null;
-  referred_by: string | null;
-  referral_code: string | null;
-  is_admin: boolean;
-  email_verified: boolean;
-  apple_user_id: string | null;
-  created_at: Date;
-  updated_at: Date;
-}
-
-export interface Home {
-  id: string;
-  user_id: string;
-  name: string;
-  address: string | null;
-  city: string | null;
-  state: string | null;
-  zip: string | null;
-  home_type: HomeType;
-  move_in_date: Date | null;
-  created_at: Date;
-  updated_at: Date;
-}
-
-export interface Item {
-  id: string;
-  home_id: string;
-  user_id: string;
-
-  // Product info
-  name: string;
-  brand: string | null;
-  model_number: string | null;
-  serial_number: string | null;
-  category: ItemCategory;
-  room: ItemRoom | null;
-  product_image_url: string | null;
-  barcode: string | null;
-
-  // Purchase info
-  purchase_date: Date;
-  store: string | null;
-  price: number | null;
-
-  // Warranty info
-  warranty_months: number;
-  warranty_end_date: Date;
-  warranty_type: WarrantyType;
-  warranty_provider: string | null;
-  added_via: ItemAddedVia;
-
-  // Enhanced fields
-  estimated_repair_cost: number | null;
-  expected_lifespan_years: number | null;
-  installation_date: Date | null;
-  last_maintenance_date: Date | null;
-  next_maintenance_due: Date | null;
-
-  // Meta
-  notes: string | null;
-  is_archived: boolean;
-  archived_at: Date | null;
-  created_at: Date;
-  updated_at: Date;
-}
-
-export interface Document {
-  id: string;
-  item_id: string;
-  user_id: string;
-  type: DocumentType;
-  file_url: string;
-  file_name: string;
-  file_size: number;
-  mime_type: string;
-  thumbnail_url: string | null;
-  created_at: Date;
-}
 
 // ============================================
 // Warranty Claims
@@ -327,6 +189,7 @@ export interface Partner {
   default_message: string | null;
   default_premium_months: number;
   service_areas: string[];
+  license_number: string | null;
 
   // Stripe Connect
   stripe_account_id: string | null;
@@ -493,78 +356,6 @@ export interface UserAnalytics {
 }
 
 // ============================================
-// Notifications
-// ============================================
-
-export interface NotificationTemplate {
-  id: string;
-  name: string;
-  type: NotificationType;
-
-  // Template content
-  title_template: string;
-  body_template: string;
-
-  // Actions
-  actions: Array<{
-    id: string;
-    title: string;
-    icon: string;
-  }>;
-
-  // Settings
-  is_active: boolean;
-  priority: number;
-
-  // Meta
-  created_at: Date;
-  updated_at: Date;
-}
-
-export interface NotificationHistory {
-  id: string;
-  user_id: string;
-  template_id: string | null;
-
-  // Related entities
-  item_id: string | null;
-  gift_id: string | null;
-
-  // Content
-  type: NotificationType;
-  title: string;
-  body: string;
-  data: Record<string, any>;
-
-  // Tracking
-  sent_at: Date;
-  delivered_at: Date | null;
-  opened_at: Date | null;
-  action_taken: string | null;
-  action_taken_at: Date | null;
-
-  // Platform
-  platform: string | null;
-  fcm_message_id: string | null;
-
-  // Meta
-  created_at: Date;
-}
-
-export interface NotificationPreferences {
-  user_id: string;
-  reminders_enabled: boolean;
-  first_reminder_days: number;
-  reminder_time: string;
-  warranty_offers_enabled: boolean;
-  tips_enabled: boolean;
-  push_enabled: boolean;
-  email_enabled: boolean;
-  created_at: Date;
-  updated_at: Date;
-}
-
-// ============================================
 // Savings Feed
 // ============================================
 
@@ -627,39 +418,4 @@ export interface CreateMaintenanceHistoryDto {
   notes?: string;
   duration_minutes?: number;
   cost?: number;
-}
-
-export interface CreateEmailScanDto {
-  provider: 'gmail' | 'outlook';
-  access_token: string;
-  date_range_start?: string;
-  date_range_end?: string;
-}
-
-export interface CreatePartnerGiftDto {
-  homebuyer_email: string;
-  homebuyer_name: string;
-  homebuyer_phone?: string;
-  home_address?: string;
-  closing_date?: string;
-  premium_months?: number;
-  custom_message?: string;
-}
-
-export interface ExtendedWarrantyQuoteRequest {
-  item_id: string;
-}
-
-export interface ExtendedWarrantyQuote {
-  provider: string;
-  logo: string;
-  rating: number;
-  plans: Array<{
-    name: string;
-    duration: number;
-    price: number;
-    coverage: string[];
-    deductible: number;
-    claim_limit: number;
-  }>;
 }

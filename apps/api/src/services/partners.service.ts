@@ -12,12 +12,22 @@ const stripe = new Stripe(config.stripe.secretKey, {
   apiVersion: '2023-10-16',
 });
 
-// MED-8: Tier pricing extracted from createGift(). TODO: move to DB or config service.
-const TIER_PRICING: Record<string, number> = {
-  basic: 99,
-  premium: 149,
-  platinum: 249,
-} as const;
+// Tier pricing in dollars — configurable via env or DB in the future
+const TIER_PRICING: Record<string, number> = JSON.parse(
+  process.env.PARTNER_TIER_PRICING || '{"basic":99,"premium":149,"platinum":249}'
+);
+
+/** Safely add months to a date, handling day overflow (e.g. Jan 31 + 1 month = Feb 28). */
+function addMonthsSafe(date: Date, months: number): Date {
+  const result = new Date(date);
+  const targetMonth = result.getMonth() + months;
+  result.setMonth(targetMonth);
+  const expectedMonth = ((date.getMonth() + months) % 12 + 12) % 12;
+  if (result.getMonth() !== expectedMonth) {
+    result.setDate(0);
+  }
+  return result;
+}
 
 // MED-7: User-friendly messages for common Stripe decline codes
 const STRIPE_DECLINE_MESSAGES: Record<string, string> = {
@@ -164,6 +174,7 @@ export class PartnersService {
       logo_url?: string;
       default_message?: string;
       service_areas?: string[];
+      license_number?: string | null;
     }
   ): Promise<Partner> {
     const client = await pool.connect();
@@ -185,8 +196,8 @@ export class PartnersService {
       const result = await client.query(
         `INSERT INTO partners (
           user_id, partner_type, company_name, phone, website,
-          brand_color, logo_url, default_message, service_areas, subscription_tier
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'basic')
+          brand_color, logo_url, default_message, service_areas, subscription_tier, license_number
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'basic', $10)
         RETURNING *`,
         [
           userId,
@@ -199,6 +210,7 @@ export class PartnersService {
           data.default_message ||
             'Welcome to your new home! I\'m excited to share this tool to help you protect your appliances and warranties.',
           data.service_areas || [],
+          data.license_number || null,
         ]
       );
 
@@ -400,6 +412,12 @@ export class PartnersService {
 
       const partner = partnerResult.rows[0];
 
+      // Prevent partner from gifting premium to themselves
+      const partnerUser = await client.query('SELECT email FROM users WHERE id = $1', [userId]);
+      if (partnerUser.rows[0]?.email?.toLowerCase() === data.homebuyer_email.toLowerCase()) {
+        throw new AppError('Cannot send a gift to your own email address', 400);
+      }
+
       // MED-8: Use extracted tier pricing constant
       const amountCharged = TIER_PRICING[partner.subscription_tier];
       if (amountCharged === undefined) {
@@ -409,8 +427,7 @@ export class PartnersService {
       const premiumMonths = data.premium_months || partner.default_premium_months || 6;
 
       // Create gift record with status 'pending_payment'
-      const expiresAt = new Date();
-      expiresAt.setMonth(expiresAt.getMonth() + 6); // Gift link expires in 6 months
+      const expiresAt = addMonthsSafe(new Date(), 6); // Gift link expires in 6 months
 
       // Generate a unique activation code (e.g. "A3F9-C12E")
       const rawCode = crypto.randomBytes(4).toString('hex').toUpperCase();

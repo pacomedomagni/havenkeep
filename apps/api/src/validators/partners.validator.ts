@@ -11,6 +11,7 @@ export const registerPartnerSchema = Joi.object({
   logo_url: Joi.string().uri().optional(),
   default_message: Joi.string().max(1000).optional(),
   service_areas: Joi.array().items(Joi.string().max(100)).optional(),
+  license_number: Joi.string().max(100).allow(null, ''),
 })
   // Accept camelCase from dashboard clients
   .rename('partnerType', 'partner_type', { ignoreUndefined: true, override: false })
@@ -18,7 +19,8 @@ export const registerPartnerSchema = Joi.object({
   .rename('brandColor', 'brand_color', { ignoreUndefined: true, override: false })
   .rename('logoUrl', 'logo_url', { ignoreUndefined: true, override: false })
   .rename('defaultMessage', 'default_message', { ignoreUndefined: true, override: false })
-  .rename('serviceAreas', 'service_areas', { ignoreUndefined: true, override: false });
+  .rename('serviceAreas', 'service_areas', { ignoreUndefined: true, override: false })
+  .rename('licenseNumber', 'license_number', { ignoreUndefined: true, override: false });
 
 export const updatePartnerSchema = Joi.object({
   partner_type: Joi.string().valid('realtor', 'builder', 'contractor', 'property_manager', 'other'),

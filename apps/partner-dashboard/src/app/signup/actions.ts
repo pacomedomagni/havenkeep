@@ -3,8 +3,7 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { setAuthCookies } from '@/lib/auth';
-
-const API_URL = process.env.API_URL || 'http://localhost:3000';
+import { API_URL } from '@/lib/config';
 
 export async function signUp(formData: FormData) {
   const email = formData.get('email') as string;

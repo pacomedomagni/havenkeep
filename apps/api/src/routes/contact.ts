@@ -1,11 +1,11 @@
 import { Router } from 'express';
 import Joi from 'joi';
-import rateLimit from 'express-rate-limit';
 import { pool } from '../db';
 import { logger } from '../utils/logger';
 import { validate } from '../middleware/validate';
 import { asyncHandler } from '../utils/async-handler';
 import { EmailService } from '../services/email.service';
+import { contactRateLimiter } from '../middleware/rateLimiter';
 
 const router = Router();
 
@@ -41,21 +41,6 @@ const contactSchema = Joi.object({
     'string.max': 'Message must be 5000 characters or fewer',
     'any.required': 'Message is required',
   }),
-});
-
-// Rate limit: 3 contact form submissions per hour per IP
-const contactRateLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 hour
-  max: 3,
-  message: 'Too many contact submissions, please try again later.',
-  standardHeaders: true,
-  legacyHeaders: false,
-  handler: (_req, res) => {
-    res.status(429).json({
-      success: false,
-      error: 'Too many contact submissions. Please try again later.',
-    });
-  },
 });
 
 /**

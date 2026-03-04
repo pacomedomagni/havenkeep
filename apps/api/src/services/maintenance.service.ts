@@ -297,14 +297,14 @@ export class MaintenanceService {
     try {
       await client.query('BEGIN');
 
-      // Verify item belongs to user
+      // Verify item belongs to user and is not archived
       const itemCheck = await client.query(
-        'SELECT id FROM items WHERE id = $1 AND user_id = $2',
+        'SELECT id FROM items WHERE id = $1 AND user_id = $2 AND is_archived = FALSE',
         [data.item_id, userId]
       );
 
       if (itemCheck.rows.length === 0) {
-        throw new AppError('Item not found or does not belong to user', 404);
+        throw new AppError('Item not found or is archived', 404);
       }
 
       // If schedule_id is provided, verify it exists

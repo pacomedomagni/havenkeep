@@ -1,9 +1,13 @@
 import { NextResponse, type NextRequest } from 'next/server'
 
-const API_URL = process.env.API_URL || 'http://localhost:3000'
+const API_URL = process.env.API_URL || 'http://localhost:3000' // Must match lib/config.ts
 const ACCESS_TOKEN_COOKIE = 'hk_access_token'
 const REFRESH_TOKEN_COOKIE = 'hk_refresh_token'
 
+// Decodes JWT payload WITHOUT signature verification.
+// This is intentional — Edge middleware cannot use Node.js crypto for signature verification.
+// Security is enforced server-side: all API calls go through the Express authenticate middleware
+// which verifies JWT signatures. This middleware only handles client-side routing.
 function decodeJwtPayload(
   token: string
 ): { userId: string; email: string; exp: number; isAdmin?: boolean; isPartner?: boolean } | null {
@@ -50,7 +54,6 @@ export async function middleware(request: NextRequest) {
           return NextResponse.redirect(new URL(dest, request.url))
         }
       }
-      // Old JWT without role claims — force re-login
       return redirectToLogin(request)
     }
     return NextResponse.redirect(new URL('/login', request.url))
@@ -129,7 +132,7 @@ export async function middleware(request: NextRequest) {
     return redirectToLogin(request)
   }
 
-  // Handle old JWTs without role claims — force re-login
+  // Non-admin/non-partner users cannot access the dashboard
   if (!payload.isAdmin && !payload.isPartner) {
     if (isPublicRoute) return NextResponse.next()
     return redirectToLogin(request)

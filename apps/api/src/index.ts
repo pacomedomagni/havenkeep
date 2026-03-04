@@ -8,8 +8,9 @@ import { validateEnvironment } from './config/validator';
 import { logger } from './utils/logger';
 import { errorHandler } from './middleware/errorHandler';
 import { requestLogger } from './middleware/requestLogger';
-import { initializeRateLimiter } from './middleware/rateLimiter';
+import { initializeRateLimiter, closeRateLimiterRedis } from './middleware/rateLimiter';
 import { initializeTokenBlacklist, closeTokenBlacklist } from './utils/token-blacklist';
+import { closeRedisClient } from './utils/redis';
 import { setCsrfToken } from './middleware/csrf';
 import { NotificationsService } from './services/notifications.service';
 import { WarrantyPurchasesService } from './services/warranty-purchases.service';
@@ -131,16 +132,6 @@ function registerRoutes(appInstance: express.Express) {
   apiV1.use('/contact', contactRoutes);
 
   appInstance.use('/api/v1', apiV1);
-
-  // DEPRECATED: Legacy unversioned routes. Will be removed in a future release.
-  // Clients should use /api/v1/* endpoints instead.
-  appInstance.use('/api/auth', authRoutes);
-  appInstance.use('/api/users', usersRoutes);
-  appInstance.use('/api/homes', homesRoutes);
-  appInstance.use('/api/items', itemsRoutes);
-  appInstance.use('/api/documents', documentsRoutes);
-  appInstance.use('/api/barcode', barcodeRoutes);
-  appInstance.use('/api/admin', adminRoutes);
 
   // 404 handler
   appInstance.use((req, res) => {
@@ -328,9 +319,21 @@ const gracefulShutdown = (signal: string) => {
     }
     try {
       await closeTokenBlacklist();
-      logger.info('Redis connection closed');
+      logger.info('Token blacklist Redis connection closed');
     } catch (err) {
-      logger.error({ err }, 'Error closing Redis');
+      logger.error({ err }, 'Error closing token blacklist Redis');
+    }
+    try {
+      await closeRedisClient();
+      logger.info('Shared Redis connection closed');
+    } catch (err) {
+      logger.error({ err }, 'Error closing shared Redis');
+    }
+    try {
+      await closeRateLimiterRedis();
+      logger.info('Rate limiter Redis connection closed');
+    } catch (err) {
+      logger.error({ err }, 'Error closing rate limiter Redis');
     }
     process.exit(0);
   });

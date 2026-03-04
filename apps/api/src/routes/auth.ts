@@ -5,7 +5,7 @@ import crypto from 'crypto';
 import { query, getClient } from '../db';
 import Joi from 'joi';
 import { config } from '../config';
-import { AppError } from '../middleware/errorHandler';
+import { AppError } from '../utils/errors';
 import { authRateLimiter, refreshRateLimiter, passwordResetRateLimiter } from '../middleware/rateLimiter';
 import { authenticate } from '../middleware/auth';
 import { validate } from '../middleware/validate';
@@ -64,6 +64,57 @@ async function resolveReferredBy(referralCode?: string): Promise<string | null> 
   return result.rows.length > 0 ? result.rows[0].id : null;
 }
 
+/**
+ * Cap refresh tokens per user by deleting the oldest ones, keeping only the
+ * N most recent. This prevents unbounded token accumulation.
+ */
+async function capRefreshTokens(userId: string, maxTokens: number = 10): Promise<void> {
+  await query(
+    `DELETE FROM refresh_tokens
+     WHERE user_id = $1 AND id NOT IN (
+       SELECT id FROM refresh_tokens WHERE user_id = $1
+       ORDER BY created_at DESC LIMIT $2
+     )`,
+    [userId, maxTokens]
+  );
+}
+
+/**
+ * Create an authenticated session for a user: generates an access token and a
+ * refresh token, stores the hashed refresh token in the database, and caps the
+ * total number of active refresh tokens.
+ */
+async function createAuthSession(
+  userId: string,
+  email: string,
+  isAdmin: boolean,
+  isPartner: boolean
+): Promise<{ accessToken: string; refreshToken: string }> {
+  const accessToken = jwt.sign(
+    { userId, email, isAdmin, isPartner },
+    config.jwt.secret,
+    { expiresIn: config.jwt.expiresIn }
+  );
+
+  const refreshToken = jwt.sign(
+    { userId },
+    config.jwt.refreshSecret,
+    { expiresIn: config.jwt.refreshExpiresIn }
+  );
+
+  const expiresAt = new Date(Date.now() + REFRESH_TOKEN_EXPIRY_MS);
+
+  await query(
+    `INSERT INTO refresh_tokens (user_id, token, expires_at)
+     VALUES ($1, $2, $3)`,
+    [userId, hashRefreshToken(refreshToken), expiresAt]
+  );
+
+  await capRefreshTokens(userId);
+
+  return { accessToken, refreshToken };
+}
+
 // Register
 router.post('/register', authRateLimiter, validate(registerSchema), async (req, res, next) => {
   const client = await getClient();
@@ -109,7 +160,8 @@ router.post('/register', authRateLimiter, validate(registerSchema), async (req, 
       [user.id, 'My Home']
     );
 
-    // Generate tokens
+    // Store refresh token inside the transaction (we generate both tokens here
+    // so that the refresh token is committed atomically with the user row)
     const accessToken = jwt.sign(
       { userId: user.id, email: user.email, isAdmin: user.is_admin || false, isPartner: false },
       config.jwt.secret,
@@ -122,13 +174,20 @@ router.post('/register', authRateLimiter, validate(registerSchema), async (req, 
       { expiresIn: config.jwt.refreshExpiresIn }
     );
 
-    // Store hashed refresh token
-    const expiresAt = new Date(Date.now() + REFRESH_TOKEN_EXPIRY_MS);
+    const refreshExpiresAt = new Date(Date.now() + REFRESH_TOKEN_EXPIRY_MS);
 
     await client.query(
       `INSERT INTO refresh_tokens (user_id, token, expires_at)
        VALUES ($1, $2, $3)`,
-      [user.id, hashRefreshToken(refreshToken), expiresAt]
+      [user.id, hashRefreshToken(refreshToken), refreshExpiresAt]
+    );
+
+    // Store email verification token inside the transaction
+    const verificationToken = crypto.randomBytes(32).toString('hex');
+    const verificationExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+    await client.query(
+      `INSERT INTO email_verification_tokens (user_id, token, expires_at) VALUES ($1, $2, $3)`,
+      [user.id, hashRefreshToken(verificationToken), verificationExpiresAt]
     );
 
     await client.query('COMMIT');
@@ -146,18 +205,11 @@ router.post('/register', authRateLimiter, validate(registerSchema), async (req, 
     });
 
     // Send email verification (fire-and-forget)
-    const verificationToken = crypto.randomBytes(32).toString('hex');
-    const verificationExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
-    query(
-      `INSERT INTO email_verification_tokens (user_id, token, expires_at) VALUES ($1, $2, $3)`,
-      [user.id, hashRefreshToken(verificationToken), verificationExpiresAt]
-    ).then(() => {
-      const verifyUrl = `${config.app.frontendUrl}/verify-email?token=${verificationToken}`;
-      return EmailService.sendEmailVerificationEmail({
-        to: user.email,
-        user_name: user.full_name || 'there',
-        verify_url: verifyUrl,
-      });
+    const verifyUrl = `${config.app.frontendUrl}/verify-email?token=${verificationToken}`;
+    EmailService.sendEmailVerificationEmail({
+      to: user.email,
+      user_name: user.full_name || 'there',
+      verify_url: verifyUrl,
     }).catch((err) => {
       logger.error({ error: err, userId: user.id }, 'Failed to send verification email');
     });
@@ -245,36 +297,9 @@ router.post('/login', authRateLimiter, validate(loginSchema), async (req, res, n
       throw err;
     }
 
-    // Generate tokens
-    const accessToken = jwt.sign(
-      { userId: user.id, email: user.email, isAdmin: user.is_admin || false, isPartner: user.is_partner || false },
-      config.jwt.secret,
-      { expiresIn: config.jwt.expiresIn }
-    );
-
-    const refreshToken = jwt.sign(
-      { userId: user.id },
-      config.jwt.refreshSecret,
-      { expiresIn: config.jwt.refreshExpiresIn }
-    );
-
-    // Store hashed refresh token
-    const expiresAt = new Date(Date.now() + REFRESH_TOKEN_EXPIRY_MS);
-
-    await query(
-      `INSERT INTO refresh_tokens (user_id, token, expires_at)
-       VALUES ($1, $2, $3)`,
-      [user.id, hashRefreshToken(refreshToken), expiresAt]
-    );
-
-    // Cap active refresh tokens per user (keep most recent 10, remove oldest)
-    await query(
-      `DELETE FROM refresh_tokens
-       WHERE user_id = $1 AND id NOT IN (
-         SELECT id FROM refresh_tokens WHERE user_id = $1
-         ORDER BY created_at DESC LIMIT 10
-       )`,
-      [user.id]
+    // Generate tokens, store refresh token, and cap active tokens
+    const { accessToken, refreshToken } = await createAuthSession(
+      user.id, user.email, user.is_admin || false, user.is_partner || false
     );
 
     // Audit log: successful login
@@ -387,27 +412,9 @@ router.post('/refresh', refreshRateLimiter, validate(refreshTokenSchema), async 
       }
     }
 
-    // Generate new access token
-    const accessToken = jwt.sign(
-      { userId: user.id, email: user.email, isAdmin: user.is_admin || false, isPartner: user.is_partner || false },
-      config.jwt.secret,
-      { expiresIn: config.jwt.expiresIn }
-    );
-
-    // Generate new refresh token (rotation)
-    const newRefreshToken = jwt.sign(
-      { userId: user.id },
-      config.jwt.refreshSecret,
-      { expiresIn: config.jwt.refreshExpiresIn }
-    );
-
-    // Store the new hashed refresh token
-    const expiresAt = new Date(Date.now() + REFRESH_TOKEN_EXPIRY_MS);
-
-    await query(
-      `INSERT INTO refresh_tokens (user_id, token, expires_at)
-       VALUES ($1, $2, $3)`,
-      [user.id, hashRefreshToken(newRefreshToken), expiresAt]
+    // Generate new tokens (rotation) and cap active refresh tokens
+    const { accessToken, refreshToken: newRefreshToken } = await createAuthSession(
+      user.id, user.email, user.is_admin || false, user.is_partner || false
     );
 
     res.json({ accessToken, refreshToken: newRefreshToken });
@@ -778,35 +785,9 @@ router.post('/google', authRateLimiter, validate(googleOAuthSchema), async (req,
       user = userResult.rows[0];
     }
 
-    // Generate tokens
-    const accessToken = jwt.sign(
-      { userId: user.id, email: user.email, isAdmin: user.is_admin || false, isPartner: user.is_partner ?? false },
-      config.jwt.secret,
-      { expiresIn: config.jwt.expiresIn }
-    );
-
-    const refreshToken = jwt.sign(
-      { userId: user.id },
-      config.jwt.refreshSecret,
-      { expiresIn: config.jwt.refreshExpiresIn }
-    );
-
-    const expiresAt = new Date(Date.now() + REFRESH_TOKEN_EXPIRY_MS);
-
-    await query(
-      `INSERT INTO refresh_tokens (user_id, token, expires_at)
-       VALUES ($1, $2, $3)`,
-      [user.id, hashRefreshToken(refreshToken), expiresAt]
-    );
-
-    // Cap active refresh tokens per user (keep most recent 10, remove oldest)
-    await query(
-      `DELETE FROM refresh_tokens
-       WHERE user_id = $1 AND id NOT IN (
-         SELECT id FROM refresh_tokens WHERE user_id = $1
-         ORDER BY created_at DESC LIMIT 10
-       )`,
-      [user.id]
+    // Generate tokens, store refresh token, and cap active tokens
+    const { accessToken, refreshToken } = await createAuthSession(
+      user.id, user.email, user.is_admin || false, user.is_partner ?? false
     );
 
     // Audit log: OAuth login
@@ -983,35 +964,9 @@ router.post('/apple', authRateLimiter, validate(appleOAuthSchema), async (req, r
       );
     }
 
-    // Generate tokens
-    const accessToken = jwt.sign(
-      { userId: user.id, email: user.email, isAdmin: user.is_admin || false, isPartner: user.is_partner ?? false },
-      config.jwt.secret,
-      { expiresIn: config.jwt.expiresIn }
-    );
-
-    const refreshToken = jwt.sign(
-      { userId: user.id },
-      config.jwt.refreshSecret,
-      { expiresIn: config.jwt.refreshExpiresIn }
-    );
-
-    const expiresAt = new Date(Date.now() + REFRESH_TOKEN_EXPIRY_MS);
-
-    await query(
-      `INSERT INTO refresh_tokens (user_id, token, expires_at)
-       VALUES ($1, $2, $3)`,
-      [user.id, hashRefreshToken(refreshToken), expiresAt]
-    );
-
-    // Cap active refresh tokens per user (keep most recent 10, remove oldest)
-    await query(
-      `DELETE FROM refresh_tokens
-       WHERE user_id = $1 AND id NOT IN (
-         SELECT id FROM refresh_tokens WHERE user_id = $1
-         ORDER BY created_at DESC LIMIT 10
-       )`,
-      [user.id]
+    // Generate tokens, store refresh token, and cap active tokens
+    const { accessToken, refreshToken } = await createAuthSession(
+      user.id, user.email, user.is_admin || false, user.is_partner ?? false
     );
 
     // Audit log: OAuth login

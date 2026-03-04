@@ -202,10 +202,24 @@ async function handleChargeRefunded(charge: Stripe.Charge): Promise<void> {
 
       // Revoke the premium plan from the activated user
       if (gift.activated_user_id) {
-        await client.query(
-          `UPDATE users SET plan = 'free', plan_expires_at = NULL, updated_at = NOW() WHERE id = $1`,
-          [gift.activated_user_id]
+        // Only downgrade if the user has no other active, non-expired gifts
+        const otherGifts = await client.query(
+          `SELECT id FROM partner_gifts
+           WHERE activated_user_id = $1 AND id != $2
+             AND is_activated = TRUE AND status != 'expired'`,
+          [gift.activated_user_id, gift.id]
         );
+        if (otherGifts.rows.length === 0) {
+          await client.query(
+            `UPDATE users SET plan = 'free', plan_expires_at = NULL, updated_at = NOW() WHERE id = $1`,
+            [gift.activated_user_id]
+          );
+        } else {
+          logger.info(
+            { userId: gift.activated_user_id, otherActiveGifts: otherGifts.rows.length },
+            'charge.refunded: user has other active gifts, keeping premium'
+          );
+        }
       }
 
       logger.warn(
@@ -289,9 +303,9 @@ function validateRevenueCatWebhookAuth(req: Request, res: Response, next: NextFu
   }
 
   const token = authHeader.substring(7);
-  const tokenBuffer = Buffer.from(token);
-  const secretBuffer = Buffer.from(webhookSecret);
-  if (tokenBuffer.length !== secretBuffer.length || !crypto.timingSafeEqual(tokenBuffer, secretBuffer)) {
+  const tokenHash = crypto.createHash('sha256').update(token).digest();
+  const secretHash = crypto.createHash('sha256').update(webhookSecret).digest();
+  if (!crypto.timingSafeEqual(tokenHash, secretHash)) {
     logger.warn({ ip: req.ip }, 'RevenueCat webhook: invalid authorization token');
     return res.status(401).json({ error: 'Unauthorized' });
   }

@@ -1,5 +1,6 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
+import { API_URL } from './config';
 
 const ACCESS_TOKEN_COOKIE = 'hk_access_token';
 const REFRESH_TOKEN_COOKIE = 'hk_refresh_token';
@@ -52,10 +53,8 @@ export async function getUser(): Promise<AuthUser | null> {
   const payload = decodeJwtPayload(tokens.accessToken);
   if (!payload) return null;
 
-  // Fetch real user data from API to get accurate plan + isAdmin status
-  const apiUrl = process.env.API_URL || 'http://localhost:3000';
   try {
-    const response = await fetch(`${apiUrl}/api/v1/admin/me`, {
+    const response = await fetch(`${API_URL}/api/v1/admin/me`, {
       headers: {
         Authorization: `Bearer ${tokens.accessToken}`,
         'Content-Type': 'application/json',
@@ -74,17 +73,10 @@ export async function getUser(): Promise<AuthUser | null> {
       };
     }
   } catch {
-    // Fall through to JWT-only data
+    // API unreachable — return null so callers redirect to login
   }
 
-  // Fallback: use JWT data only (isAdmin/isPartner default to false for safety)
-  return {
-    id: payload.userId,
-    email: payload.email,
-    plan: 'free',
-    isAdmin: false,
-    isPartner: false,
-  };
+  return null;
 }
 
 export async function requireAuth(): Promise<AuthUser> {
@@ -168,8 +160,7 @@ export async function serverApiClient<T = any>(
     fetchOptions.body = JSON.stringify(body);
   }
 
-  const apiUrl = process.env.API_URL || 'http://localhost:3000';
-  const url = `${apiUrl}${endpoint}`;
+  const url = `${API_URL}${endpoint}`;
   const response = await fetch(url, fetchOptions);
 
   if (!response.ok) {

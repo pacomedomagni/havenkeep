@@ -1,21 +1,13 @@
 import { Router } from 'express';
-import rateLimit from 'express-rate-limit';
 import { authenticate, requirePremium } from '../middleware/auth';
-import { AppError } from '../middleware/errorHandler';
+import { AppError } from '../utils/errors';
 import { asyncHandler } from '../utils/async-handler';
 import { logger } from '../utils/logger';
 import { config } from '../config';
+import { receiptScanRateLimiter } from '../middleware/rateLimiter';
 
 const router = Router();
 router.use(authenticate);
-
-const receiptScanRateLimiter = rateLimit({
-  windowMs: 60 * 1000, // 1 minute
-  max: 10, // 10 per minute
-  message: 'Too many receipt scan requests, please try again later.',
-  standardHeaders: true,
-  legacyHeaders: false,
-});
 
 /**
  * @route   POST /api/v1/receipts/scan

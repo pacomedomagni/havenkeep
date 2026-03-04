@@ -3,6 +3,7 @@ import { pool } from '../db';
 import { createClient } from 'redis';
 import { config } from '../config';
 import { minioClient, BUCKET_NAME } from '../config/minio';
+import { authenticate, requireAdmin } from '../middleware/auth';
 
 const router = Router();
 
@@ -16,8 +17,8 @@ router.get('/health', (req, res) => {
   });
 });
 
-// Detailed health check
-router.get('/health/detailed', async (req, res, next) => {
+// Detailed health check (admin only — exposes internal service status)
+router.get('/health/detailed', authenticate, requireAdmin, async (req, res, next) => {
   try {
     const health: any = {
       status: 'ok',

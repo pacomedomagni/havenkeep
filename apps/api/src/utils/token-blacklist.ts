@@ -54,7 +54,7 @@ const BLACKLIST_PREFIX = 'token:blacklist:';
  * Calculate the remaining TTL (in seconds) for a JWT access token.
  * Returns 0 if the token is already expired or cannot be decoded.
  */
-export function getTokenRemainingTtl(token: string): number {
+function getTokenRemainingTtl(token: string): number {
   try {
     const decoded = jwt.decode(token) as { exp?: number } | null;
     if (!decoded?.exp) return 0;
@@ -144,17 +144,6 @@ export async function isTokenBlacklisted(token: string): Promise<boolean> {
 
     return true;
   }
-}
-
-/**
- * Blacklist all active tokens for a user by blacklisting the current token
- * and deleting all refresh tokens (forcing re-auth).
- */
-export async function blacklistUserTokens(token: string, tokenExp: number): Promise<void> {
-  const now = Math.floor(Date.now() / 1000);
-  const remainingSeconds = Math.max(tokenExp - now, 0);
-  if (remainingSeconds <= 0) return;
-  await blacklistToken(token, remainingSeconds);
 }
 
 /**

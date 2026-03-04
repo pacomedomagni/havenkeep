@@ -1,6 +1,5 @@
 import { Router } from 'express';
 import Stripe from 'stripe';
-import rateLimit from 'express-rate-limit';
 import { pool } from '../db';
 import { config } from '../config';
 import { authenticate, requireAdmin } from '../middleware/auth';
@@ -13,18 +12,11 @@ import {
   getGiftsQuerySchema,
   getCommissionsQuerySchema,
 } from '../validators/partners.validator';
+import { uuidParamSchema } from '../validators';
 import { asyncHandler } from '../utils/async-handler';
-import { activationCodeRateLimiter } from '../middleware/rateLimiter';
+import { activationCodeRateLimiter, writeRateLimiter, giftResendRateLimiter } from '../middleware/rateLimiter';
 import { AuditService } from '../services/audit.service';
-import { AppError } from '../middleware/errorHandler';
-
-const giftResendRateLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 hour
-  max: 3, // 3 resends per hour per IP
-  message: 'Too many gift email resend attempts, please try again later.',
-  standardHeaders: true,
-  legacyHeaders: false,
-});
+import { AppError } from '../utils/errors';
 
 const stripe = new Stripe(config.stripe.secretKey, {
   apiVersion: '2023-10-16',
@@ -48,6 +40,7 @@ const router = Router();
  */
 router.get(
   '/gifts/:id/public',
+  validate(uuidParamSchema, 'params'),
   asyncHandler(async (req, res) => {
     const gift = await PartnersService.getPublicGiftDetails(req.params.id);
 
@@ -90,6 +83,60 @@ router.post(
       success: true,
       data: result,
     });
+  })
+);
+
+/**
+ * @route   GET /api/v1/partners/gifts/:id/track/email-open
+ * @desc    Track email open (called via 1x1 tracking pixel in gift email)
+ * @access  Public
+ */
+router.get(
+  '/gifts/:id/track/email-open',
+  validate(uuidParamSchema, 'params'),
+  asyncHandler(async (req, res) => {
+    const result = await pool.query(
+      `UPDATE partner_gifts
+       SET email_opened_at = COALESCE(email_opened_at, NOW())
+       WHERE id = $1
+       RETURNING id`,
+      [req.params.id]
+    );
+    if (result.rows.length === 0) {
+      res.status(404).end();
+      return;
+    }
+    // Return a 1x1 transparent GIF
+    const pixel = Buffer.from(
+      'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
+      'base64'
+    );
+    res.setHeader('Content-Type', 'image/gif');
+    res.setHeader('Cache-Control', 'no-store');
+    res.end(pixel);
+  })
+);
+
+/**
+ * @route   POST /api/v1/partners/gifts/:id/track/app-download
+ * @desc    Track when homebuyer downloads the app (called on first app launch)
+ * @access  Public
+ */
+router.post(
+  '/gifts/:id/track/app-download',
+  validate(uuidParamSchema, 'params'),
+  asyncHandler(async (req, res) => {
+    const result = await pool.query(
+      `UPDATE partner_gifts
+       SET app_download_at = COALESCE(app_download_at, NOW())
+       WHERE id = $1
+       RETURNING id`,
+      [req.params.id]
+    );
+    if (result.rows.length === 0) {
+      throw new AppError('Gift not found', 404);
+    }
+    res.json({ success: true });
   })
 );
 
@@ -149,6 +196,7 @@ router.get(
  */
 router.post(
   '/register',
+  writeRateLimiter,
   validate(registerPartnerSchema),
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
@@ -187,6 +235,7 @@ router.get(
  */
 router.put(
   '/me',
+  writeRateLimiter,
   validate(updatePartnerSchema),
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
@@ -270,6 +319,7 @@ router.get(
  */
 router.get(
   '/gifts/:id',
+  validate(uuidParamSchema, 'params'),
   requirePartner,
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
@@ -289,6 +339,7 @@ router.get(
  */
 router.post(
   '/gifts/:id/resend',
+  validate(uuidParamSchema, 'params'),
   giftResendRateLimiter,
   requirePartner,
   asyncHandler(async (req, res) => {
@@ -397,71 +448,20 @@ router.get(
 );
 
 /**
- * @route   GET /api/v1/partners/gifts/:id/track/email-open
- * @desc    Track email open (called via 1x1 tracking pixel in gift email)
- * @access  Public
- */
-router.get(
-  '/gifts/:id/track/email-open',
-  asyncHandler(async (req, res) => {
-    const result = await pool.query(
-      `UPDATE partner_gifts
-       SET email_opened_at = COALESCE(email_opened_at, NOW())
-       WHERE id = $1
-       RETURNING id`,
-      [req.params.id]
-    );
-    if (result.rows.length === 0) {
-      res.status(404).end();
-      return;
-    }
-    // Return a 1x1 transparent GIF
-    const pixel = Buffer.from(
-      'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
-      'base64'
-    );
-    res.setHeader('Content-Type', 'image/gif');
-    res.setHeader('Cache-Control', 'no-store');
-    res.end(pixel);
-  })
-);
-
-/**
- * @route   POST /api/v1/partners/gifts/:id/track/app-download
- * @desc    Track when homebuyer downloads the app (called on first app launch)
- * @access  Public
- */
-router.post(
-  '/gifts/:id/track/app-download',
-  asyncHandler(async (req, res) => {
-    const result = await pool.query(
-      `UPDATE partner_gifts
-       SET app_download_at = COALESCE(app_download_at, NOW())
-       WHERE id = $1
-       RETURNING id`,
-      [req.params.id]
-    );
-    if (result.rows.length === 0) {
-      throw new AppError('Gift not found', 404);
-    }
-    res.json({ success: true });
-  })
-);
-
-/**
  * @route   POST /api/v1/partners/gifts/:id/track/first-item
  * @desc    Track when homebuyer adds their first item (called by items service)
  * @access  Private (authenticated user)
  */
 router.post(
   '/gifts/:id/track/first-item',
+  validate(uuidParamSchema, 'params'),
   asyncHandler(async (req, res) => {
     const result = await pool.query(
       `UPDATE partner_gifts
        SET first_item_added_at = COALESCE(first_item_added_at, NOW())
-       WHERE id = $1
+       WHERE id = $1 AND activated_user_id = $2
        RETURNING id`,
-      [req.params.id]
+      [req.params.id, req.user!.id]
     );
     if (result.rows.length === 0) {
       throw new AppError('Gift not found', 404);
@@ -477,6 +477,7 @@ router.post(
  */
 router.post(
   '/gifts/:id/activate',
+  validate(uuidParamSchema, 'params'),
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
     const userEmail = req.user!.email;
@@ -650,6 +651,7 @@ router.get(
  */
 router.put(
   '/admin/commissions/:id/approve',
+  validate(uuidParamSchema, 'params'),
   requireAdmin,
   asyncHandler(async (req, res) => {
     const { id } = req.params;
@@ -693,6 +695,7 @@ router.put(
  */
 router.put(
   '/admin/commissions/:id/pay',
+  validate(uuidParamSchema, 'params'),
   requireAdmin,
   asyncHandler(async (req, res) => {
     const { id } = req.params;
@@ -736,6 +739,7 @@ router.put(
  */
 router.put(
   '/admin/commissions/:id/cancel',
+  validate(uuidParamSchema, 'params'),
   requireAdmin,
   asyncHandler(async (req, res) => {
     const { id } = req.params;

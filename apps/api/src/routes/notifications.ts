@@ -9,6 +9,7 @@ import {
   updatePreferencesSchema,
 } from '../validators/notifications.validator';
 import { asyncHandler } from '../utils/async-handler';
+import { writeRateLimiter } from '../middleware/rateLimiter';
 import { pool } from '../db';
 
 const router = Router();
@@ -287,6 +288,7 @@ router.get(
  */
 router.put(
   '/preferences',
+  writeRateLimiter,
   validate(updatePreferencesSchema),
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;

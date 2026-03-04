@@ -1,18 +1,17 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { config } from '../config';
-import { AppError } from './errorHandler';
+import { AppError } from '../utils/errors';
 import { query } from '../db';
 import { isTokenBlacklisted } from '../utils/token-blacklist';
 import { logger } from '../utils/logger';
 import { getRedisClient } from '../utils/redis';
 
-// Re-export Request as AuthRequest for backward compatibility
 export type AuthRequest = Request;
 
-// In-memory cache for admin verification with 30-second TTL
+// In-memory cache for admin verification with 10-second TTL
 const adminCache = new Map<string, { isAdmin: boolean; expiresAt: number }>();
-const ADMIN_CACHE_TTL_MS = 30_000; // 30 seconds
+const ADMIN_CACHE_TTL_MS = 10_000; // 10 seconds
 
 function getCachedAdminStatus(userId: string): boolean | null {
   const entry = adminCache.get(userId);
@@ -52,7 +51,7 @@ export async function authenticate(
       email: string;
     };
 
-    // Get user from database (cached in Redis with 60s TTL to reduce DB load)
+    // Get user from database (cached in Redis with 10s TTL to reduce DB load)
     const userCacheKey = `user:${decoded.userId}`;
     let userRow: any = null;
 
@@ -82,10 +81,10 @@ export async function authenticate(
 
       userRow = result.rows[0];
 
-      // Cache the user row in Redis with a 60-second TTL
+      // Cache the user row in Redis with a 10-second TTL
       try {
         const redis = await getRedisClient();
-        await redis.set(userCacheKey, JSON.stringify(userRow), { EX: 60 });
+        await redis.set(userCacheKey, JSON.stringify(userRow), { EX: 10 });
       } catch (err) {
         logger.warn({ err, userId: decoded.userId }, 'Redis cache write failed for user');
       }
@@ -152,13 +151,6 @@ export async function requireAdmin(req: Request, res: Response, next: NextFuncti
   }
 }
 
-export function requireEmailVerified(req: Request, res: Response, next: NextFunction) {
-  if (!req.user?.emailVerified) {
-    return next(new AppError('Email verification required', 403));
-  }
-  next();
-}
-
 export function requirePremium(req: Request, res: Response, next: NextFunction) {
   if (req.user?.plan !== 'premium') {
     return next(new AppError('Premium plan required', 403));
@@ -169,7 +161,8 @@ export function requirePremium(req: Request, res: Response, next: NextFunction) 
   if (req.user.planExpiresAt) {
     const expiresAtUtc = new Date(req.user.planExpiresAt).getTime();
     const nowUtc = Date.now();
-    if (expiresAtUtc < nowUtc) {
+    const PREMIUM_GRACE_PERIOD_MS = 24 * 60 * 60 * 1000; // 24 hours
+    if (expiresAtUtc + PREMIUM_GRACE_PERIOD_MS < nowUtc) {
       return next(new AppError('Premium plan has expired', 403));
     }
   }

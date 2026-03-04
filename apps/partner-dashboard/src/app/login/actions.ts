@@ -3,6 +3,7 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { setAuthCookies } from '@/lib/auth';
+import { API_URL } from '@/lib/config';
 
 export async function signIn(
   _prevState: { error: string } | null,
@@ -14,8 +15,6 @@ export async function signIn(
   if (!email || !password) {
     return { error: 'Email and password are required' };
   }
-
-  const API_URL = process.env.API_URL || 'http://localhost:3000';
   let destination = '/dashboard';
 
   try {

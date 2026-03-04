@@ -3,21 +3,12 @@ import multer from 'multer';
 import sharp from 'sharp';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { uploadRateLimiter } from '../middleware/rateLimiter';
-import { AppError } from '../middleware/errorHandler';
+import { AppError } from '../utils/errors';
 import { minioClient, BUCKET_NAME, getPublicUrl } from '../config/minio';
 import { logger } from '../utils/logger';
 import { query } from '../db';
-
-// Validate file content matches expected type via magic bytes
-function validateMagicBytes(buffer: Buffer, mimetype: string): boolean {
-  if (buffer.length < 4) return false;
-  const header = buffer.slice(0, 4);
-  if (mimetype === 'image/jpeg') return header[0] === 0xFF && header[1] === 0xD8 && header[2] === 0xFF;
-  if (mimetype === 'image/png') return header[0] === 0x89 && header[1] === 0x50 && header[2] === 0x4E && header[3] === 0x47;
-  if (mimetype === 'image/webp') return buffer.length >= 12 && buffer.slice(0, 4).toString() === 'RIFF' && buffer.slice(8, 12).toString() === 'WEBP';
-  if (mimetype === 'image/heic' || mimetype === 'image/heif') return buffer.length >= 8 && buffer.slice(4, 8).toString() === 'ftyp';
-  return true;
-}
+import { asyncHandler } from '../utils/async-handler';
+import { validateMagicBytes } from '../utils/file-validation';
 
 const router = Router();
 router.use(authenticate);
@@ -55,60 +46,56 @@ router.post(
   '/avatar',
   uploadRateLimiter,
   upload.single('file'),
-  async (req: AuthRequest, res, next) => {
-    try {
-      const file = req.file;
-      if (!file) {
-        throw new AppError('No file uploaded', 400);
-      }
-
-      if (!validateMagicBytes(file.buffer, file.mimetype)) {
-        throw new AppError('File content does not match declared type', 400);
-      }
-
-      const userId = req.user!.id;
-      const ext = file.originalname.split('.').pop()?.toLowerCase() || 'jpg';
-      const baseKey = `avatars/${userId}/avatar`;
-
-      // Optimize and convert to WebP
-      let fileBuffer: Buffer;
-      let contentType = 'image/webp';
-      let objectKey = `${baseKey}.webp`;
-      try {
-        fileBuffer = await sharp(file.buffer)
-          .resize(400, 400, { fit: 'cover' })
-          .webp({ quality: 85 })
-          .toBuffer();
-      } catch {
-        fileBuffer = file.buffer;
-        contentType = file.mimetype;
-        objectKey = `${baseKey}.${ext}`;
-      }
-
-      // Upload to MinIO (upsert)
-      await minioClient.putObject(
-        BUCKET_NAME,
-        objectKey,
-        fileBuffer,
-        fileBuffer.length,
-        {
-          'Content-Type': contentType,
-          'x-amz-meta-user-id': userId,
-        }
-      );
-
-      const publicUrl = getPublicUrl(objectKey);
-
-      logger.info({ userId, url: publicUrl }, 'Avatar uploaded');
-
-      res.json({
-        success: true,
-        data: { url: publicUrl },
-      });
-    } catch (error) {
-      next(error);
+  asyncHandler(async (req: AuthRequest, res) => {
+    const file = req.file;
+    if (!file) {
+      throw new AppError('No file uploaded', 400);
     }
-  }
+
+    if (!validateMagicBytes(file.buffer, file.mimetype)) {
+      throw new AppError('File content does not match declared type', 400);
+    }
+
+    const userId = req.user!.id;
+    const ext = file.originalname.split('.').pop()?.toLowerCase() || 'jpg';
+    const baseKey = `avatars/${userId}/avatar`;
+
+    // Optimize and convert to WebP
+    let fileBuffer: Buffer;
+    let contentType = 'image/webp';
+    let objectKey = `${baseKey}.webp`;
+    try {
+      fileBuffer = await sharp(file.buffer)
+        .resize(400, 400, { fit: 'cover' })
+        .webp({ quality: 85 })
+        .toBuffer();
+    } catch {
+      fileBuffer = file.buffer;
+      contentType = file.mimetype;
+      objectKey = `${baseKey}.${ext}`;
+    }
+
+    // Upload to MinIO (upsert)
+    await minioClient.putObject(
+      BUCKET_NAME,
+      objectKey,
+      fileBuffer,
+      fileBuffer.length,
+      {
+        'Content-Type': contentType,
+        'x-amz-meta-user-id': userId,
+      }
+    );
+
+    const publicUrl = getPublicUrl(objectKey);
+
+    logger.info({ userId, url: publicUrl }, 'Avatar uploaded');
+
+    res.json({
+      success: true,
+      data: { url: publicUrl },
+    });
+  })
 );
 
 /**
@@ -120,76 +107,72 @@ router.post(
   '/item-image',
   uploadRateLimiter,
   upload.single('file'),
-  async (req: AuthRequest, res, next) => {
-    try {
-      const file = req.file;
-      if (!file) {
-        throw new AppError('No file uploaded', 400);
-      }
-
-      if (!validateMagicBytes(file.buffer, file.mimetype)) {
-        throw new AppError('File content does not match declared type', 400);
-      }
-
-      const { itemId } = req.body;
-      if (!itemId) {
-        throw new AppError('itemId is required', 400);
-      }
-
-      // Verify item belongs to user
-      const itemCheck = await query(
-        `SELECT id FROM items WHERE id = $1 AND user_id = $2`,
-        [itemId, req.user!.id]
-      );
-
-      if (itemCheck.rows.length === 0) {
-        throw new AppError('Item not found', 404);
-      }
-
-      const timestamp = Date.now();
-      const baseKey = `item-images/${itemId}/${timestamp}`;
-
-      // Optimize and convert to WebP
-      let fileBuffer: Buffer;
-      let contentType = 'image/webp';
-      let objectKey = `${baseKey}.webp`;
-      try {
-        fileBuffer = await sharp(file.buffer)
-          .resize(1200, 1200, { fit: 'inside', withoutEnlargement: true })
-          .webp({ quality: 85 })
-          .toBuffer();
-      } catch {
-        fileBuffer = file.buffer;
-        contentType = file.mimetype;
-        const ext = file.originalname.split('.').pop()?.toLowerCase() || 'jpg';
-        objectKey = `${baseKey}.${ext}`;
-      }
-
-      // Upload to MinIO
-      await minioClient.putObject(
-        BUCKET_NAME,
-        objectKey,
-        fileBuffer,
-        fileBuffer.length,
-        {
-          'Content-Type': contentType,
-          'x-amz-meta-item-id': itemId,
-          'x-amz-meta-user-id': req.user!.id,
-        }
-      );
-
-      const publicUrl = getPublicUrl(objectKey);
-
-      logger.info({ userId: req.user!.id, itemId, url: publicUrl }, 'Item image uploaded');
-
-      res.json({
-        success: true,
-        data: { url: publicUrl },
-      });
-    } catch (error) {
-      next(error);
+  asyncHandler(async (req: AuthRequest, res) => {
+    const file = req.file;
+    if (!file) {
+      throw new AppError('No file uploaded', 400);
     }
-  }
+
+    if (!validateMagicBytes(file.buffer, file.mimetype)) {
+      throw new AppError('File content does not match declared type', 400);
+    }
+
+    const { itemId } = req.body;
+    if (!itemId) {
+      throw new AppError('itemId is required', 400);
+    }
+
+    // Verify item belongs to user
+    const itemCheck = await query(
+      `SELECT id FROM items WHERE id = $1 AND user_id = $2`,
+      [itemId, req.user!.id]
+    );
+
+    if (itemCheck.rows.length === 0) {
+      throw new AppError('Item not found', 404);
+    }
+
+    const timestamp = Date.now();
+    const baseKey = `item-images/${itemId}/${timestamp}`;
+
+    // Optimize and convert to WebP
+    let fileBuffer: Buffer;
+    let contentType = 'image/webp';
+    let objectKey = `${baseKey}.webp`;
+    try {
+      fileBuffer = await sharp(file.buffer)
+        .resize(1200, 1200, { fit: 'inside', withoutEnlargement: true })
+        .webp({ quality: 85 })
+        .toBuffer();
+    } catch {
+      fileBuffer = file.buffer;
+      contentType = file.mimetype;
+      const ext = file.originalname.split('.').pop()?.toLowerCase() || 'jpg';
+      objectKey = `${baseKey}.${ext}`;
+    }
+
+    // Upload to MinIO
+    await minioClient.putObject(
+      BUCKET_NAME,
+      objectKey,
+      fileBuffer,
+      fileBuffer.length,
+      {
+        'Content-Type': contentType,
+        'x-amz-meta-item-id': itemId,
+        'x-amz-meta-user-id': req.user!.id,
+      }
+    );
+
+    const publicUrl = getPublicUrl(objectKey);
+
+    logger.info({ userId: req.user!.id, itemId, url: publicUrl }, 'Item image uploaded');
+
+    res.json({
+      success: true,
+      data: { url: publicUrl },
+    });
+  })
 );
 
 export default router;

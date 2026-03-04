@@ -101,23 +101,37 @@ class WarrantyClaim {
 /// Status of a warranty claim.
 enum ClaimStatus {
   pending,
-  in_progress,
+  submitted,
+  inReview,
+  approved,
+  denied,
   completed,
-  denied;
+  cancelled;
 
   factory ClaimStatus.fromJson(String value) {
-    return ClaimStatus.values.firstWhere(
-      (e) => e.name == value,
-      orElse: () => ClaimStatus.pending,
-    );
+    // Handle snake_case from API (e.g. 'in_review')
+    final mapped = switch (value) {
+      'in_review' => ClaimStatus.inReview,
+      _ => ClaimStatus.values.firstWhere(
+        (e) => e.name == value,
+        orElse: () => ClaimStatus.pending,
+      ),
+    };
+    return mapped;
   }
 
-  String toJson() => name;
+  String toJson() => switch (this) {
+        ClaimStatus.inReview => 'in_review',
+        _ => name,
+      };
 
   String get displayLabel => switch (this) {
         ClaimStatus.pending => 'Pending',
-        ClaimStatus.in_progress => 'In Progress',
-        ClaimStatus.completed => 'Completed',
+        ClaimStatus.submitted => 'Submitted',
+        ClaimStatus.inReview => 'In Review',
+        ClaimStatus.approved => 'Approved',
         ClaimStatus.denied => 'Denied',
+        ClaimStatus.completed => 'Completed',
+        ClaimStatus.cancelled => 'Cancelled',
       };
 }

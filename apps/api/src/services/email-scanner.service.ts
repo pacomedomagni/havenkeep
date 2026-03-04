@@ -654,26 +654,6 @@ ${maskPII(stripHtmlTags(emailData.body).substring(0, 4000))}`,
   }
 
   /**
-   * Mark email scans stuck in "scanning" state as "failed" if older than 30 minutes.
-   * Should be called at service initialization or periodically.
-   */
-  static async cleanupStaleScans(): Promise<void> {
-    try {
-      const result = await pool.query(`
-        UPDATE email_scans
-        SET status = 'failed', error_message = 'Scan timed out', completed_at = NOW()
-        WHERE status = 'scanning'
-        AND created_at < NOW() - INTERVAL '30 minutes'
-      `);
-      if (result.rowCount && result.rowCount > 0) {
-        logger.info({ count: result.rowCount }, 'Cleaned up stale email scans');
-      }
-    } catch (error) {
-      logger.error({ error }, 'Error cleaning up stale email scans');
-    }
-  }
-
-  /**
    * Get scan status
    */
   static async getScanStatus(scanId: string, userId: string): Promise<EmailScan> {

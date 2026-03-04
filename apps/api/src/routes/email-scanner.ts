@@ -4,6 +4,7 @@ import { EmailScannerService } from '../services/email-scanner.service';
 import { asyncHandler } from '../utils/async-handler';
 import Joi from 'joi';
 import { validate } from '../middleware/validate';
+import { uuidParamSchema } from '../validators';
 
 const router = Router();
 
@@ -50,6 +51,7 @@ router.post(
  */
 router.get(
   '/scans/:id',
+  validate(uuidParamSchema, 'params'),
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
     const scan = await EmailScannerService.getScanStatus(req.params.id, userId);

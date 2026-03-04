@@ -1,6 +1,6 @@
 import { Client } from 'minio';
+import crypto from 'crypto';
 import { config } from './index';
-import { logger } from '../utils/logger';
 
 // MinIO client configuration
 export const minioClient = new Client({
@@ -14,56 +14,15 @@ export const minioClient = new Client({
 // Bucket name
 export const BUCKET_NAME = config.minio.bucket;
 
-// Initialize bucket
-export async function initializeBucket() {
-  try {
-    const exists = await minioClient.bucketExists(BUCKET_NAME);
-
-    if (!exists) {
-      await minioClient.makeBucket(BUCKET_NAME, 'us-east-1');
-      logger.info(`✅ MinIO bucket created: ${BUCKET_NAME}`);
-
-      // Set bucket policy for public read on specific paths
-      const policy = {
-        Version: '2012-10-17',
-        Statement: [
-          {
-            Effect: 'Allow',
-            Principal: { AWS: ['*'] },
-            Action: ['s3:GetObject'],
-            Resource: [
-              `arn:aws:s3:::${BUCKET_NAME}/public/*`,
-              `arn:aws:s3:::${BUCKET_NAME}/documents/*`,
-            ],
-          },
-        ],
-      };
-
-      await minioClient.setBucketPolicy(BUCKET_NAME, JSON.stringify(policy));
-      logger.info('✅ MinIO bucket policy set');
-    } else {
-      logger.info(`✅ MinIO bucket exists: ${BUCKET_NAME}`);
-    }
-  } catch (error) {
-    logger.error({ error }, '❌ MinIO bucket initialization failed');
-    throw error;
-  }
-}
-
 // Helper to generate object key
 export function generateObjectKey(userId: string, itemId: string, filename: string): string {
   const timestamp = Date.now();
   const sanitizedFilename = filename.replace(/[^a-zA-Z0-9.-]/g, '_');
-  return `documents/${userId}/${itemId}/${timestamp}-${sanitizedFilename}`;
+  return `documents/${userId}/${itemId}/${timestamp}-${crypto.randomUUID().slice(0, 8)}-${sanitizedFilename}`;
 }
 
 // Helper to get public URL (for public/* paths only)
 export function getPublicUrl(objectKey: string): string {
   const protocol = config.minio.useSSL ? 'https' : 'http';
   return `${protocol}://${config.minio.endpoint}:${config.minio.port}/${BUCKET_NAME}/${objectKey}`;
-}
-
-// Generate a pre-signed URL for private documents (expires in 1 hour by default)
-export async function getSignedUrl(objectKey: string, expirySeconds = 3600): Promise<string> {
-  return minioClient.presignedGetObject(BUCKET_NAME, objectKey, expirySeconds);
 }

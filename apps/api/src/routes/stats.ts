@@ -3,6 +3,7 @@ import { authenticate } from '../middleware/auth';
 import { StatsService } from '../services/stats.service';
 import { asyncHandler } from '../utils/async-handler';
 import { validate } from '../middleware/validate';
+import { writeRateLimiter } from '../middleware/rateLimiter';
 import { trackEngagementSchema, trackFeatureSchema } from '../validators';
 
 const router = Router();
@@ -108,6 +109,7 @@ router.get(
  */
 router.post(
   '/track-engagement',
+  writeRateLimiter,
   validate(trackEngagementSchema),
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
@@ -132,6 +134,7 @@ router.post(
  */
 router.post(
   '/track-feature',
+  writeRateLimiter,
   validate(trackFeatureSchema),
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;

@@ -3,7 +3,7 @@ declare namespace Express {
     user?: {
       id: string;
       email: string;
-      plan: 'free' | 'premium';
+      plan: 'free' | 'premium' | 'suspended';
       isAdmin: boolean;
       isPartner: boolean;
       planExpiresAt?: string | null;

@@ -2,18 +2,6 @@ export type PartnerType = 'realtor' | 'builder' | 'contractor' | 'property_manag
 export type ReferralStatus = 'pending' | 'converted' | 'expired';
 export type CommissionStatus = 'pending' | 'approved' | 'paid' | 'cancelled';
 
-export interface Partner {
-  id: string;
-  user_id: string;
-  company_name: string;
-  partner_type: PartnerType;
-  license_number?: string;
-  service_areas: string[];
-  is_active: boolean;
-  referral_code: string;
-  created_at: string;
-}
-
 export interface Referral {
   id: string;
   partnerId: string;
@@ -33,29 +21,6 @@ export interface Commission {
   status: CommissionStatus;
   paidAt?: string;
   createdAt: string;
-}
-
-export interface AdminPartner {
-  id: string
-  user_id: string
-  email: string
-  full_name: string
-  company_name: string
-  partner_type: string
-  license_number?: string
-  phone?: string
-  service_areas: string[]
-  brand_color?: string
-  logo_url?: string
-  stripe_account_id?: string
-  stripe_onboarded: boolean
-  referral_code: string
-  is_active: boolean
-  total_commissions: number
-  total_gifts: number
-  total_referrals: number
-  created_at: string
-  updated_at: string
 }
 
 export interface AdminCommission {
@@ -97,29 +62,4 @@ export interface AuditLogEntry {
   http_method?: string
   success: boolean
   created_at: string
-}
-
-export interface AuditStats {
-  total_logs: number
-  security_events_24h: number
-  warning_plus_events: number
-}
-
-export interface HealthCheck {
-  status: 'ok' | 'degraded' | 'error'
-  timestamp: string
-  uptime: number
-  environment: string
-  checks: {
-    database: { status: string; message?: string }
-    redis: { status: string; message?: string }
-    minio: { status: string; message?: string }
-  }
-}
-
-export interface PaginationInfo {
-  page: number
-  limit: number
-  total: number
-  totalPages: number
 }

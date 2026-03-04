@@ -26,6 +26,15 @@ const _kBaseDelayMs = 300;
 /// Maximum delay cap in milliseconds for exponential backoff.
 const _kMaxDelayMs = 30000;
 
+/// Maximum number of entries allowed in the offline queue.
+const _kMaxQueueSize = 500;
+
+/// Number of oldest entries to remove when the queue exceeds _kMaxQueueSize.
+const _kQueueEvictionCount = 100;
+
+/// Maximum age in days for queue entries before they are considered stale.
+const _kMaxQueueEntryAgeDays = 7;
+
 /// Error indicating a non-retriable failure (e.g., missing local file).
 /// These should be marked as permanently failed without retry.
 class NonRetriableError implements Exception {
@@ -83,6 +92,16 @@ class OfflineSyncService {
     required OfflineAction action,
     required Map<String, dynamic> payload,
   }) async {
+    // Limit queue to _kMaxQueueSize entries to prevent unbounded growth
+    final queueSize = await _db.getQueueSize();
+    if (queueSize >= _kMaxQueueSize) {
+      debugPrint(
+        '[OfflineSync] Queue size ($queueSize) exceeds limit ($_kMaxQueueSize). '
+        'Removing $_kQueueEvictionCount oldest entries.',
+      );
+      await _db.removeOldestEntries(_kQueueEvictionCount);
+    }
+
     await _db.enqueueAction(OfflineQueueCompanion(
       entityType: Value(entityType),
       entityId: Value(entityId),
@@ -127,6 +146,12 @@ class OfflineSyncService {
     _pendingSync = false;
 
     try {
+      // Remove stale entries older than _kMaxQueueEntryAgeDays days
+      final staleCutoff = DateTime.now().subtract(
+        Duration(days: _kMaxQueueEntryAgeDays),
+      );
+      await _db.removeEntriesOlderThan(staleCutoff);
+
       final pending = await _db.getPendingActions();
 
       for (final entry in pending) {

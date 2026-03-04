@@ -123,7 +123,7 @@ router.get(
         total: result.total,
         limit: Number(limit),
         offset: Number(offset),
-        has_more: result.total > Number(offset) + result.history.length,
+        has_more: (Number(offset) + result.history.length) < result.total,
       },
     });
   })

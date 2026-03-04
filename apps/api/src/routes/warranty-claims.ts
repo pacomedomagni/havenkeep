@@ -66,7 +66,7 @@ router.get(
         total: result.total,
         limit: limitNum,
         offset: offsetNum,
-        has_more: result.total > offsetNum + result.claims.length,
+        has_more: (offsetNum + result.claims.length) < result.total,
       },
     });
   })

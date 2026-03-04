@@ -11,7 +11,7 @@ import {
 } from '../validators/warranty-purchases.validator';
 import { asyncHandler } from '../utils/async-handler';
 import { query } from '../db';
-import { AppError } from '../middleware/errorHandler';
+import { AppError } from '../utils/errors';
 import { writeRateLimiter } from '../middleware/rateLimiter';
 
 const router = Router();
@@ -49,7 +49,7 @@ router.get(
         total: result.total,
         limit: limitNum,
         offset: offsetNum,
-        has_more: result.total > offsetNum + result.purchases.length,
+        has_more: (offsetNum + result.purchases.length) < result.total,
       },
     });
   })
@@ -134,9 +134,9 @@ router.get(
 
     // Generate warranty plans based on item price
     let plans = [
-      { provider: 'HavenShield Basic', plan_name: '1 Year Protection', duration_months: 12, price: Math.round(itemPrice * 0.05), deductible: 75 },
-      { provider: 'HavenShield Plus', plan_name: '2 Year Protection', duration_months: 24, price: Math.round(itemPrice * 0.08), deductible: 50 },
-      { provider: 'HavenShield Premium', plan_name: '3 Year Protection', duration_months: 36, price: Math.round(itemPrice * 0.12), deductible: 0 },
+      { provider: 'HavenShield Basic', plan_name: '1 Year Protection', duration_months: 12, price: Math.round(itemPrice * 0.05 * 100) / 100, deductible: 75 },
+      { provider: 'HavenShield Plus', plan_name: '2 Year Protection', duration_months: 24, price: Math.round(itemPrice * 0.08 * 100) / 100, deductible: 50 },
+      { provider: 'HavenShield Premium', plan_name: '3 Year Protection', duration_months: 36, price: Math.round(itemPrice * 0.12 * 100) / 100, deductible: 0 },
     ];
 
     // Filter out longer plans if item is older than 5 years
