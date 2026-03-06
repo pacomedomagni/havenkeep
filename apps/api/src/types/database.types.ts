@@ -397,25 +397,25 @@ export interface DashboardStats {
 // ============================================
 
 export interface CreateWarrantyClaimDto {
-  item_id: string;
-  claim_date?: string;
-  issue_description?: string;
-  repair_description?: string;
-  repair_cost: number;
-  amount_saved: number;
-  out_of_pocket?: number;
+  itemId: string;
+  claimDate?: string;
+  issueDescription?: string;
+  repairDescription?: string;
+  repairCost: number;
+  amountSaved: number;
+  outOfPocket?: number;
   status?: string;
-  filed_with?: string;
-  claim_number?: string;
+  filedWith?: string;
+  claimNumber?: string;
   notes?: string;
 }
 
 export interface CreateMaintenanceHistoryDto {
-  item_id: string;
-  schedule_id?: string;
-  task_name: string;
-  completed_date?: string;
+  itemId: string;
+  scheduleId?: string;
+  taskName: string;
+  completedDate?: string;
   notes?: string;
-  duration_minutes?: number;
+  durationMinutes?: number;
   cost?: number;
 }

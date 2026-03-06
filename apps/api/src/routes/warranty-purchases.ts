@@ -30,7 +30,7 @@ router.get(
   validate(getPurchasesQuerySchema, 'query'),
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
-    const { item_id, status } = req.query;
+    const { itemId, status } = req.query;
 
     // BE-1/2/3: Explicitly convert and clamp pagination params to safe integers
     const page = Math.max(1, parseInt(req.query.page as string, 10) || 1);
@@ -40,7 +40,7 @@ router.get(
     const result = await WarrantyPurchasesService.getUserPurchases(userId, {
       limit,
       offset,
-      itemId: item_id as string,
+      itemId: itemId as string,
       status: status as string,
     });
 

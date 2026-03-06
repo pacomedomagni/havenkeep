@@ -425,13 +425,13 @@ export class NotificationsService {
          RETURNING *`,
         [
           userId,
-          prefs.reminders_enabled !== undefined ? prefs.reminders_enabled : null,
-          prefs.first_reminder_days !== undefined ? prefs.first_reminder_days : null,
-          prefs.reminder_time !== undefined ? prefs.reminder_time : null,
-          prefs.warranty_offers_enabled !== undefined ? prefs.warranty_offers_enabled : null,
-          prefs.tips_enabled !== undefined ? prefs.tips_enabled : null,
-          prefs.push_enabled !== undefined ? prefs.push_enabled : null,
-          prefs.email_enabled !== undefined ? prefs.email_enabled : null,
+          prefs.remindersEnabled !== undefined ? prefs.remindersEnabled : null,
+          prefs.firstReminderDays !== undefined ? prefs.firstReminderDays : null,
+          prefs.reminderTime !== undefined ? prefs.reminderTime : null,
+          prefs.warrantyOffersEnabled !== undefined ? prefs.warrantyOffersEnabled : null,
+          prefs.tipsEnabled !== undefined ? prefs.tipsEnabled : null,
+          prefs.pushEnabled !== undefined ? prefs.pushEnabled : null,
+          prefs.emailEnabled !== undefined ? prefs.emailEnabled : null,
         ]
       );
 

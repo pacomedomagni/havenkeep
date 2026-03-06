@@ -98,11 +98,11 @@ router.post(
   validate(trackEngagementSchema),
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
-    const { type, session_duration } = req.body;
+    const { type, sessionDuration } = req.body;
 
     await StatsService.trackEngagement(userId, {
       type,
-      sessionDuration: session_duration,
+      sessionDuration,
     });
 
     sendMessage(res, 'Engagement tracked');

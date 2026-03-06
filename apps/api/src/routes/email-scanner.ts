@@ -15,10 +15,14 @@ router.use(requirePremium);
 
 const initiateScanSchema = Joi.object({
   provider: Joi.string().valid('gmail', 'outlook').required(),
-  access_token: Joi.string().required(),
-  date_range_start: Joi.date().iso().optional(),
-  date_range_end: Joi.date().iso().optional(),
-});
+  accessToken: Joi.string().required(),
+  dateRangeStart: Joi.date().iso().optional(),
+  dateRangeEnd: Joi.date().iso().optional(),
+})
+  // Accept snake_case from mobile clients
+  .rename('access_token', 'accessToken', { ignoreUndefined: true, override: false })
+  .rename('date_range_start', 'dateRangeStart', { ignoreUndefined: true, override: false })
+  .rename('date_range_end', 'dateRangeEnd', { ignoreUndefined: true, override: false });
 
 /**
  * @route   POST /api/v1/email-scanner/scan
@@ -30,11 +34,11 @@ router.post(
   validate(initiateScanSchema),
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
-    const { provider, access_token, date_range_start, date_range_end } = req.body;
+    const { provider, accessToken, dateRangeStart, dateRangeEnd } = req.body;
 
-    const scan = await EmailScannerService.initiateScan(userId, provider, access_token, {
-      dateRangeStart: date_range_start,
-      dateRangeEnd: date_range_end,
+    const scan = await EmailScannerService.initiateScan(userId, provider, accessToken, {
+      dateRangeStart,
+      dateRangeEnd,
     });
 
     sendSuccess(res, scan, { status: 202, message: 'Email scan initiated. This may take a few minutes.' });

@@ -166,15 +166,15 @@ export class PartnersService {
   static async registerPartner(
     userId: string,
     data: {
-      partner_type: 'realtor' | 'builder' | 'contractor' | 'property_manager' | 'other';
-      company_name?: string;
+      partnerType: 'realtor' | 'builder' | 'contractor' | 'property_manager' | 'other';
+      companyName?: string;
       phone?: string;
       website?: string;
-      brand_color?: string;
-      logo_url?: string;
-      default_message?: string;
-      service_areas?: string[];
-      license_number?: string | null;
+      brandColor?: string;
+      logoUrl?: string;
+      defaultMessage?: string;
+      serviceAreas?: string[];
+      licenseNumber?: string | null;
     }
   ): Promise<Partner> {
     const client = await pool.connect();
@@ -201,16 +201,16 @@ export class PartnersService {
         RETURNING *`,
         [
           userId,
-          data.partner_type,
-          data.company_name,
+          data.partnerType,
+          data.companyName,
           data.phone,
           data.website,
-          data.brand_color || '#3B82F6',
-          data.logo_url,
-          data.default_message ||
+          data.brandColor || '#3B82F6',
+          data.logoUrl,
+          data.defaultMessage ||
             'Welcome to your new home! I\'m excited to share this tool to help you protect your appliances and warranties.',
-          data.service_areas || [],
-          data.license_number || null,
+          data.serviceAreas || [],
+          data.licenseNumber || null,
         ]
       );
 
@@ -227,7 +227,7 @@ export class PartnersService {
             return EmailService.sendPartnerWelcomeEmail({
               to: user.email,
               partner_name: user.full_name || 'Partner',
-              company_name: data.company_name,
+              company_name: data.companyName,
             });
           }
         })
@@ -280,16 +280,16 @@ export class PartnersService {
   static async updatePartner(
     userId: string,
     data: {
-      partner_type?: 'realtor' | 'builder' | 'contractor' | 'property_manager' | 'other';
-      company_name?: string;
+      partnerType?: 'realtor' | 'builder' | 'contractor' | 'property_manager' | 'other';
+      companyName?: string;
       phone?: string;
       website?: string;
-      brand_color?: string;
-      logo_url?: string;
-      default_message?: string;
-      default_premium_months?: number;
-      service_areas?: string[];
-      license_number?: string | null;
+      brandColor?: string;
+      logoUrl?: string;
+      defaultMessage?: string;
+      defaultPremiumMonths?: number;
+      serviceAreas?: string[];
+      licenseNumber?: string | null;
     }
   ): Promise<Partner> {
     const client = await pool.connect();
@@ -301,13 +301,13 @@ export class PartnersService {
       const values: any[] = [];
       let paramIndex = 1;
 
-      if (data.partner_type !== undefined) {
+      if (data.partnerType !== undefined) {
         updates.push(`partner_type = $${paramIndex++}`);
-        values.push(data.partner_type);
+        values.push(data.partnerType);
       }
-      if (data.company_name !== undefined) {
+      if (data.companyName !== undefined) {
         updates.push(`company_name = $${paramIndex++}`);
-        values.push(data.company_name);
+        values.push(data.companyName);
       }
       if (data.phone !== undefined) {
         updates.push(`phone = $${paramIndex++}`);
@@ -317,29 +317,29 @@ export class PartnersService {
         updates.push(`website = $${paramIndex++}`);
         values.push(data.website);
       }
-      if (data.brand_color !== undefined) {
+      if (data.brandColor !== undefined) {
         updates.push(`brand_color = $${paramIndex++}`);
-        values.push(data.brand_color);
+        values.push(data.brandColor);
       }
-      if (data.logo_url !== undefined) {
+      if (data.logoUrl !== undefined) {
         updates.push(`logo_url = $${paramIndex++}`);
-        values.push(data.logo_url);
+        values.push(data.logoUrl);
       }
-      if (data.default_message !== undefined) {
+      if (data.defaultMessage !== undefined) {
         updates.push(`default_message = $${paramIndex++}`);
-        values.push(data.default_message);
+        values.push(data.defaultMessage);
       }
-      if (data.default_premium_months !== undefined) {
+      if (data.defaultPremiumMonths !== undefined) {
         updates.push(`default_premium_months = $${paramIndex++}`);
-        values.push(data.default_premium_months);
+        values.push(data.defaultPremiumMonths);
       }
-      if (data.service_areas !== undefined) {
+      if (data.serviceAreas !== undefined) {
         updates.push(`service_areas = $${paramIndex++}`);
-        values.push(data.service_areas);
+        values.push(data.serviceAreas);
       }
-      if (data.license_number !== undefined) {
+      if (data.licenseNumber !== undefined) {
         updates.push(`license_number = $${paramIndex++}`);
-        values.push(data.license_number || null);
+        values.push(data.licenseNumber || null);
       }
 
       if (updates.length === 0) {
@@ -386,13 +386,13 @@ export class PartnersService {
   static async createGift(
     userId: string,
     data: {
-      homebuyer_email: string;
-      homebuyer_name: string;
-      homebuyer_phone?: string;
-      home_address?: string;
-      closing_date?: string;
-      premium_months?: number;
-      custom_message?: string;
+      homebuyerEmail: string;
+      homebuyerName: string;
+      homebuyerPhone?: string;
+      homeAddress?: string;
+      closingDate?: string;
+      premiumMonths?: number;
+      customMessage?: string;
     }
   ): Promise<PartnerGift> {
     const client = await pool.connect();
@@ -414,7 +414,7 @@ export class PartnersService {
 
       // Prevent partner from gifting premium to themselves
       const partnerUser = await client.query('SELECT email FROM users WHERE id = $1', [userId]);
-      if (partnerUser.rows[0]?.email?.toLowerCase() === data.homebuyer_email.toLowerCase()) {
+      if (partnerUser.rows[0]?.email?.toLowerCase() === data.homebuyerEmail.toLowerCase()) {
         throw new AppError('Cannot send a gift to your own email address', 400);
       }
 
@@ -424,7 +424,7 @@ export class PartnersService {
         throw new AppError(`Unknown subscription tier: ${partner.subscription_tier}`, 400);
       }
 
-      const premiumMonths = data.premium_months || partner.default_premium_months || 6;
+      const premiumMonths = data.premiumMonths || partner.default_premium_months || 6;
 
       // Create gift record with status 'pending_payment'
       const expiresAt = addMonthsSafe(new Date(), 6); // Gift link expires in 6 months
@@ -444,13 +444,13 @@ export class PartnersService {
         RETURNING *`,
         [
           partner.id,
-          data.homebuyer_email.toLowerCase(),
-          data.homebuyer_name,
-          data.homebuyer_phone,
-          data.home_address,
-          data.closing_date,
+          data.homebuyerEmail.toLowerCase(),
+          data.homebuyerName,
+          data.homebuyerPhone,
+          data.homeAddress,
+          data.closingDate,
           premiumMonths,
-          data.custom_message || partner.default_message,
+          data.customMessage || partner.default_message,
           amountCharged,
           expiresAt,
           activationCode,
@@ -476,13 +476,13 @@ export class PartnersService {
               amount: amountCharged * 100,
               currency: 'usd',
               customer: userResult.rows[0].stripe_customer_id,
-              description: `Closing gift for ${data.homebuyer_name}`,
+              description: `Closing gift for ${data.homebuyerName}`,
               confirm: true,
               off_session: true,
               metadata: {
                 partner_id: partner.id,
                 gift_id: gift.id,
-                homebuyer_email: data.homebuyer_email,
+                homebuyer_email: data.homebuyerEmail,
               },
             },
             {
@@ -560,13 +560,13 @@ export class PartnersService {
         gift_id: finalGift.id,
       }).catch((emailError) => {
         logger.error(
-          { error: emailError, giftId: finalGift.id, homebuyer: data.homebuyer_email },
+          { error: emailError, giftId: finalGift.id, homebuyer: data.homebuyerEmail },
           'Failed to send gift activation email, but gift was created successfully'
         );
       });
 
       logger.info(
-        { giftId: finalGift.id, partnerId: partner.id, homebuyer: data.homebuyer_email },
+        { giftId: finalGift.id, partnerId: partner.id, homebuyer: data.homebuyerEmail },
         'Gift created'
       );
 

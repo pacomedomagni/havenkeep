@@ -206,8 +206,9 @@ export const pushTokenSchema = Joi.object({
 // Engagement Tracking Validators
 export const trackEngagementSchema = Joi.object({
   type: Joi.string().min(1).max(100).required(),
-  session_duration: Joi.number().integer().min(0).max(86400).allow(null),
-});
+  sessionDuration: Joi.number().integer().min(0).max(86400).allow(null),
+})
+  .rename('session_duration', 'sessionDuration', { ignoreUndefined: true, override: false });
 
 // Feature Tracking Validators
 export const trackFeatureSchema = Joi.object({

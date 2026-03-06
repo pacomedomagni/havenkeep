@@ -4,19 +4,19 @@ import { WarrantyPurchase } from '../types/database.types';
 import { AppError } from '../utils/errors';
 
 interface CreateWarrantyPurchaseData {
-  item_id: string;
+  itemId: string;
   provider: string;
-  plan_name: string;
-  external_policy_id?: string;
-  duration_months: number;
-  starts_at: string;
-  coverage_details?: Record<string, any>;
+  planName: string;
+  externalPolicyId?: string;
+  durationMonths: number;
+  startsAt: string;
+  coverageDetails?: Record<string, any>;
   price: number;
   deductible?: number;
-  claim_limit?: number;
-  commission_amount?: number;
-  commission_rate?: number;
-  stripe_payment_intent_id?: string;
+  claimLimit?: number;
+  commissionAmount?: number;
+  commissionRate?: number;
+  stripePaymentIntentId?: string;
 }
 
 export class WarrantyPurchasesService {
@@ -130,10 +130,10 @@ export class WarrantyPurchasesService {
     const client = await pool.connect();
 
     try {
-      // BE-18/MED-12: Validate duration_months is within acceptable range (1-240 months / 20 years)
-      if (data.duration_months !== undefined) {
-        if (data.duration_months < 1 || data.duration_months > 240) {
-          throw new AppError('duration_months must be between 1 and 240', 400);
+      // BE-18/MED-12: Validate durationMonths is within acceptable range (1-240 months / 20 years)
+      if (data.durationMonths !== undefined) {
+        if (data.durationMonths < 1 || data.durationMonths > 240) {
+          throw new AppError('durationMonths must be between 1 and 240', 400);
         }
       }
 
@@ -143,7 +143,7 @@ export class WarrantyPurchasesService {
       const duplicateCheck = await client.query(
         `SELECT id FROM warranty_purchases
          WHERE item_id = $1 AND user_id = $2 AND status = 'active' FOR UPDATE`,
-        [data.item_id, userId]
+        [data.itemId, userId]
       );
 
       if (duplicateCheck.rows.length > 0) {
@@ -153,20 +153,20 @@ export class WarrantyPurchasesService {
       // Verify item belongs to user
       const itemCheck = await client.query(
         'SELECT id FROM items WHERE id = $1 AND user_id = $2',
-        [data.item_id, userId]
+        [data.itemId, userId]
       );
 
       if (itemCheck.rows.length === 0) {
         throw new AppError('Item not found or does not belong to user', 404);
       }
 
-      // Calculate expires_at from starts_at + duration_months
+      // Calculate expires_at from startsAt + durationMonths
       // Uses safe month addition to handle overflow (e.g., Jan 31 + 1 month = Feb 28)
-      const startsAt = new Date(data.starts_at);
+      const startsAt = new Date(data.startsAt);
       const expiresAt = new Date(startsAt);
-      expiresAt.setMonth(expiresAt.getMonth() + data.duration_months);
+      expiresAt.setMonth(expiresAt.getMonth() + data.durationMonths);
       // Clamp day to avoid month overflow (e.g., Jan 31 + 1 month should be Feb 28, not Mar 3)
-      const expectedMonth = (startsAt.getMonth() + data.duration_months) % 12;
+      const expectedMonth = (startsAt.getMonth() + data.durationMonths) % 12;
       if (expiresAt.getMonth() !== expectedMonth) {
         expiresAt.setDate(0); // Roll back to the last day of the previous month
       }
@@ -180,21 +180,21 @@ export class WarrantyPurchasesService {
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
         RETURNING *`,
         [
-          data.item_id,
+          data.itemId,
           userId,
           data.provider,
-          data.plan_name,
-          data.external_policy_id || null,
-          data.duration_months,
+          data.planName,
+          data.externalPolicyId || null,
+          data.durationMonths,
           startsAt,
           expiresAt,
-          data.coverage_details ? JSON.stringify(data.coverage_details) : null,
+          data.coverageDetails ? JSON.stringify(data.coverageDetails) : null,
           data.price,
           data.deductible || 0,
-          data.claim_limit || null,
-          data.commission_amount || null,
-          data.commission_rate || null,
-          data.stripe_payment_intent_id || null,
+          data.claimLimit || null,
+          data.commissionAmount || null,
+          data.commissionRate || null,
+          data.stripePaymentIntentId || null,
           'active',
         ]
       );
@@ -203,7 +203,7 @@ export class WarrantyPurchasesService {
 
       await client.query('COMMIT');
 
-      logger.info({ purchaseId: purchase.id, userId, itemId: data.item_id }, 'Warranty purchase created');
+      logger.info({ purchaseId: purchase.id, userId, itemId: data.itemId }, 'Warranty purchase created');
 
       return purchase;
     } catch (error) {

@@ -14,9 +14,9 @@ export class WarrantyClaimsService {
     const client = await pool.connect();
 
     try {
-      // BE-17: Validate amount_saved is non-negative
-      if (data.amount_saved !== undefined && data.amount_saved < 0) {
-        throw new AppError('amount_saved cannot be negative', 400);
+      // BE-17: Validate amountSaved is non-negative
+      if (data.amountSaved !== undefined && data.amountSaved < 0) {
+        throw new AppError('amountSaved cannot be negative', 400);
       }
 
       await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
@@ -24,7 +24,7 @@ export class WarrantyClaimsService {
       // Verify item belongs to user and is not archived
       const itemCheck = await client.query(
         'SELECT id FROM items WHERE id = $1 AND user_id = $2 AND is_archived = FALSE',
-        [data.item_id, userId]
+        [data.itemId, userId]
       );
 
       if (itemCheck.rows.length === 0) {
@@ -39,17 +39,17 @@ export class WarrantyClaimsService {
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         RETURNING *`,
         [
-          data.item_id,
+          data.itemId,
           userId,
-          data.claim_date || new Date(),
-          data.issue_description,
-          data.repair_description,
-          data.repair_cost,
-          data.amount_saved,
-          data.out_of_pocket || 0,
+          data.claimDate || new Date(),
+          data.issueDescription,
+          data.repairDescription,
+          data.repairCost,
+          data.amountSaved,
+          data.outOfPocket || 0,
           data.status || 'completed',
-          data.filed_with,
-          data.claim_number,
+          data.filedWith,
+          data.claimNumber,
           data.notes,
         ]
       );
@@ -65,7 +65,7 @@ export class WarrantyClaimsService {
                        total_claims_filed = user_analytics.total_claims_filed + 1,
                        has_filed_claim = TRUE,
                        updated_at = NOW()`,
-        [data.amount_saved, userId]
+        [data.amountSaved, userId]
       );
 
       // Add to savings feed (anonymized)
@@ -74,7 +74,7 @@ export class WarrantyClaimsService {
          FROM items i
          JOIN homes h ON h.id = i.home_id
          WHERE i.id = $1`,
-        [data.item_id]
+        [data.itemId]
       );
 
       if (userLocation.rows.length > 0) {
@@ -86,7 +86,7 @@ export class WarrantyClaimsService {
                   $4 || ' just saved $' || $3::text || ' on a ' || i.category || ' repair'
            FROM items i
            WHERE i.id = $5`,
-          [city, state, data.amount_saved, city, data.item_id]
+          [city, state, data.amountSaved, city, data.itemId]
         );
       }
 
@@ -195,9 +195,9 @@ export class WarrantyClaimsService {
     const client = await pool.connect();
 
     try {
-      // BE-17: Validate amount_saved is non-negative
-      if (data.amount_saved !== undefined && data.amount_saved < 0) {
-        throw new AppError('amount_saved cannot be negative', 400);
+      // BE-17: Validate amountSaved is non-negative
+      if (data.amountSaved !== undefined && data.amountSaved < 0) {
+        throw new AppError('amountSaved cannot be negative', 400);
       }
 
       await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
@@ -219,41 +219,41 @@ export class WarrantyClaimsService {
       const values: any[] = [];
       let paramIndex = 1;
 
-      if (data.claim_date !== undefined) {
+      if (data.claimDate !== undefined) {
         updates.push(`claim_date = $${paramIndex++}`);
-        values.push(data.claim_date);
+        values.push(data.claimDate);
       }
-      if (data.issue_description !== undefined) {
+      if (data.issueDescription !== undefined) {
         updates.push(`issue_description = $${paramIndex++}`);
-        values.push(data.issue_description);
+        values.push(data.issueDescription);
       }
-      if (data.repair_description !== undefined) {
+      if (data.repairDescription !== undefined) {
         updates.push(`repair_description = $${paramIndex++}`);
-        values.push(data.repair_description);
+        values.push(data.repairDescription);
       }
-      if (data.repair_cost !== undefined) {
+      if (data.repairCost !== undefined) {
         updates.push(`repair_cost = $${paramIndex++}`);
-        values.push(data.repair_cost);
+        values.push(data.repairCost);
       }
-      if (data.amount_saved !== undefined) {
+      if (data.amountSaved !== undefined) {
         updates.push(`amount_saved = $${paramIndex++}`);
-        values.push(data.amount_saved);
+        values.push(data.amountSaved);
       }
-      if (data.out_of_pocket !== undefined) {
+      if (data.outOfPocket !== undefined) {
         updates.push(`out_of_pocket = $${paramIndex++}`);
-        values.push(data.out_of_pocket);
+        values.push(data.outOfPocket);
       }
       if (data.status !== undefined) {
         updates.push(`status = $${paramIndex++}`);
         values.push(data.status);
       }
-      if (data.filed_with !== undefined) {
+      if (data.filedWith !== undefined) {
         updates.push(`filed_with = $${paramIndex++}`);
-        values.push(data.filed_with);
+        values.push(data.filedWith);
       }
-      if (data.claim_number !== undefined) {
+      if (data.claimNumber !== undefined) {
         updates.push(`claim_number = $${paramIndex++}`);
-        values.push(data.claim_number);
+        values.push(data.claimNumber);
       }
       if (data.notes !== undefined) {
         updates.push(`notes = $${paramIndex++}`);
@@ -274,9 +274,9 @@ export class WarrantyClaimsService {
         values
       );
 
-      // Upsert user analytics if amount_saved changed
-      if (data.amount_saved !== undefined && data.amount_saved !== oldAmountSaved) {
-        const diff = data.amount_saved - oldAmountSaved;
+      // Upsert user analytics if amountSaved changed
+      if (data.amountSaved !== undefined && data.amountSaved !== oldAmountSaved) {
+        const diff = data.amountSaved - oldAmountSaved;
         await client.query(
           `INSERT INTO user_analytics (user_id, total_warranty_savings)
            VALUES ($2, GREATEST(0, $1))

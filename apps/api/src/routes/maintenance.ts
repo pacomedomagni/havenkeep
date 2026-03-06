@@ -96,7 +96,7 @@ router.get(
   validate(getHistoryQuerySchema, 'query'),
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
-    const { item_id } = req.query;
+    const { itemId } = req.query;
 
     const page = Math.max(1, parseInt(req.query.page as string, 10) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string, 10) || 50));
@@ -105,7 +105,7 @@ router.get(
     const result = await MaintenanceService.getMaintenanceHistory(userId, {
       limit,
       offset,
-      itemId: item_id as string,
+      itemId: itemId as string,
     });
 
     sendSuccess(res, result.history, {

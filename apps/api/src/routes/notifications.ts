@@ -274,7 +274,7 @@ router.put(
   validate(updatePreferencesSchema),
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
-    const prefs = { ...req.body, user_id: userId };
+    const prefs = { ...req.body, userId };
     const result = await NotificationsService.upsertPreferences(userId, prefs);
 
     sendSuccess(res, result);

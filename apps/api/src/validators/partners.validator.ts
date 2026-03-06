@@ -1,65 +1,66 @@
 import Joi from 'joi';
 
 export const registerPartnerSchema = Joi.object({
-  partner_type: Joi.string()
+  partnerType: Joi.string()
     .valid('realtor', 'builder', 'contractor', 'property_manager', 'other')
     .required(),
-  company_name: Joi.string().max(255).optional(),
+  companyName: Joi.string().max(255).optional(),
   phone: Joi.string().max(50).optional(),
   website: Joi.string().uri().max(255).optional(),
-  brand_color: Joi.string().pattern(/^#[0-9A-F]{6}$/i).optional(),
-  logo_url: Joi.string().uri().optional(),
-  default_message: Joi.string().max(1000).optional(),
-  service_areas: Joi.array().items(Joi.string().max(100)).optional(),
-  license_number: Joi.string().max(100).allow(null, ''),
+  brandColor: Joi.string().pattern(/^#[0-9A-F]{6}$/i).optional(),
+  logoUrl: Joi.string().uri().optional(),
+  defaultMessage: Joi.string().max(1000).optional(),
+  serviceAreas: Joi.array().items(Joi.string().max(100)).optional(),
+  licenseNumber: Joi.string().max(100).allow(null, ''),
 })
-  // Accept camelCase from dashboard clients
-  .rename('partnerType', 'partner_type', { ignoreUndefined: true, override: false })
-  .rename('companyName', 'company_name', { ignoreUndefined: true, override: false })
-  .rename('brandColor', 'brand_color', { ignoreUndefined: true, override: false })
-  .rename('logoUrl', 'logo_url', { ignoreUndefined: true, override: false })
-  .rename('defaultMessage', 'default_message', { ignoreUndefined: true, override: false })
-  .rename('serviceAreas', 'service_areas', { ignoreUndefined: true, override: false })
-  .rename('licenseNumber', 'license_number', { ignoreUndefined: true, override: false });
+  // Accept snake_case from clients
+  .rename('partner_type', 'partnerType', { ignoreUndefined: true, override: false })
+  .rename('company_name', 'companyName', { ignoreUndefined: true, override: false })
+  .rename('brand_color', 'brandColor', { ignoreUndefined: true, override: false })
+  .rename('logo_url', 'logoUrl', { ignoreUndefined: true, override: false })
+  .rename('default_message', 'defaultMessage', { ignoreUndefined: true, override: false })
+  .rename('service_areas', 'serviceAreas', { ignoreUndefined: true, override: false })
+  .rename('license_number', 'licenseNumber', { ignoreUndefined: true, override: false });
 
 export const updatePartnerSchema = Joi.object({
-  partner_type: Joi.string().valid('realtor', 'builder', 'contractor', 'property_manager', 'other'),
-  company_name: Joi.string().max(255).optional(),
+  partnerType: Joi.string().valid('realtor', 'builder', 'contractor', 'property_manager', 'other'),
+  companyName: Joi.string().max(255).optional(),
   phone: Joi.string().max(50).optional(),
   website: Joi.string().uri().max(255).optional(),
-  brand_color: Joi.string().pattern(/^#[0-9A-F]{6}$/i).optional(),
-  logo_url: Joi.string().uri().optional(),
-  default_message: Joi.string().max(1000).optional(),
-  default_premium_months: Joi.number().integer().min(1).max(12).optional(),
-  service_areas: Joi.array().items(Joi.string().max(100)).optional(),
-  license_number: Joi.string().max(100).allow(null, ''),
+  brandColor: Joi.string().pattern(/^#[0-9A-F]{6}$/i).optional(),
+  logoUrl: Joi.string().uri().optional(),
+  defaultMessage: Joi.string().max(1000).optional(),
+  defaultPremiumMonths: Joi.number().integer().min(1).max(12).optional(),
+  serviceAreas: Joi.array().items(Joi.string().max(100)).optional(),
+  licenseNumber: Joi.string().max(100).allow(null, ''),
 }).min(1)
-  // Accept camelCase from dashboard clients
-  .rename('companyName', 'company_name', { ignoreUndefined: true, override: false })
-  .rename('brandColor', 'brand_color', { ignoreUndefined: true, override: false })
-  .rename('logoUrl', 'logo_url', { ignoreUndefined: true, override: false })
-  .rename('defaultMessage', 'default_message', { ignoreUndefined: true, override: false })
-  .rename('defaultPremiumMonths', 'default_premium_months', { ignoreUndefined: true, override: false })
-  .rename('serviceAreas', 'service_areas', { ignoreUndefined: true, override: false })
-  .rename('licenseNumber', 'license_number', { ignoreUndefined: true, override: false });
+  // Accept snake_case from clients
+  .rename('partner_type', 'partnerType', { ignoreUndefined: true, override: false })
+  .rename('company_name', 'companyName', { ignoreUndefined: true, override: false })
+  .rename('brand_color', 'brandColor', { ignoreUndefined: true, override: false })
+  .rename('logo_url', 'logoUrl', { ignoreUndefined: true, override: false })
+  .rename('default_message', 'defaultMessage', { ignoreUndefined: true, override: false })
+  .rename('default_premium_months', 'defaultPremiumMonths', { ignoreUndefined: true, override: false })
+  .rename('service_areas', 'serviceAreas', { ignoreUndefined: true, override: false })
+  .rename('license_number', 'licenseNumber', { ignoreUndefined: true, override: false });
 
 export const createGiftSchema = Joi.object({
-  homebuyer_email: Joi.string().email().required(),
-  homebuyer_name: Joi.string().max(255).required(),
-  homebuyer_phone: Joi.string().max(50).optional(),
-  home_address: Joi.string().max(500).optional(),
-  closing_date: Joi.date().iso().optional(),
-  premium_months: Joi.number().integer().min(1).max(12).optional(),
-  custom_message: Joi.string().max(1000).optional(),
+  homebuyerEmail: Joi.string().email().required(),
+  homebuyerName: Joi.string().max(255).required(),
+  homebuyerPhone: Joi.string().max(50).optional(),
+  homeAddress: Joi.string().max(500).optional(),
+  closingDate: Joi.date().iso().optional(),
+  premiumMonths: Joi.number().integer().min(1).max(12).optional(),
+  customMessage: Joi.string().max(1000).optional(),
 })
-  // Accept camelCase from dashboard clients
-  .rename('homebuyerEmail', 'homebuyer_email', { ignoreUndefined: true, override: false })
-  .rename('homebuyerName', 'homebuyer_name', { ignoreUndefined: true, override: false })
-  .rename('homebuyerPhone', 'homebuyer_phone', { ignoreUndefined: true, override: false })
-  .rename('homeAddress', 'home_address', { ignoreUndefined: true, override: false })
-  .rename('closingDate', 'closing_date', { ignoreUndefined: true, override: false })
-  .rename('premiumMonths', 'premium_months', { ignoreUndefined: true, override: false })
-  .rename('customMessage', 'custom_message', { ignoreUndefined: true, override: false });
+  // Accept snake_case from clients
+  .rename('homebuyer_email', 'homebuyerEmail', { ignoreUndefined: true, override: false })
+  .rename('homebuyer_name', 'homebuyerName', { ignoreUndefined: true, override: false })
+  .rename('homebuyer_phone', 'homebuyerPhone', { ignoreUndefined: true, override: false })
+  .rename('home_address', 'homeAddress', { ignoreUndefined: true, override: false })
+  .rename('closing_date', 'closingDate', { ignoreUndefined: true, override: false })
+  .rename('premium_months', 'premiumMonths', { ignoreUndefined: true, override: false })
+  .rename('custom_message', 'customMessage', { ignoreUndefined: true, override: false });
 
 export const getGiftsQuerySchema = Joi.object({
   limit: Joi.number().integer().min(1).max(100).optional().default(50),

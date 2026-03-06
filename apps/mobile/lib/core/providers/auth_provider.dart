@@ -7,9 +7,12 @@ import 'package:shared_models/shared_models.dart';
 import '../services/auth_repository.dart';
 import '../services/push_notification_service.dart';
 import 'demo_mode_provider.dart';
+import 'documents_provider.dart';
 import 'items_provider.dart';
+import 'maintenance_provider.dart';
 import 'notifications_provider.dart';
 import 'premium_provider.dart';
+import 'warranty_claims_provider.dart';
 import 'warranty_purchases_provider.dart';
 import 'homes_provider.dart';
 import 'email_scanner_provider.dart';
@@ -334,10 +337,19 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
   /// Safely invalidate all data providers (won't crash if any fail).
   void _safeInvalidateAll() {
     try { ref.invalidate(itemsProvider); } catch (_) {}
-    try { ref.invalidate(notificationsProvider); } catch (_) {}
-    try { ref.invalidate(warrantyPurchasesProvider); } catch (_) {}
-    try { ref.invalidate(homesProvider); } catch (_) {}
     try { ref.invalidate(archivedItemsProvider); } catch (_) {}
+    try { ref.invalidate(homesProvider); } catch (_) {}
+    try { ref.invalidate(selectedHomeIdProvider); } catch (_) {}
+    try { ref.invalidate(notificationsProvider); } catch (_) {}
+    try { ref.invalidate(unreadNotificationCountProvider); } catch (_) {}
+    try { ref.invalidate(notificationPreferencesProvider); } catch (_) {}
+    try { ref.invalidate(warrantyPurchasesProvider); } catch (_) {}
+    try { ref.invalidate(claimsProvider); } catch (_) {}
+    try { ref.invalidate(claimSavingsProvider); } catch (_) {}
+    try { ref.invalidate(maintenanceSchedulesProvider); } catch (_) {}
+    try { ref.invalidate(maintenanceDueProvider); } catch (_) {}
+    try { ref.invalidate(maintenanceHistoryProvider); } catch (_) {}
+    try { ref.invalidate(allDocumentsProvider); } catch (_) {}
     try { ref.invalidate(emailScansProvider); } catch (_) {}
   }
 }

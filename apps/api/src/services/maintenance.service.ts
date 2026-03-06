@@ -300,18 +300,18 @@ export class MaintenanceService {
       // Verify item belongs to user and is not archived
       const itemCheck = await client.query(
         'SELECT id FROM items WHERE id = $1 AND user_id = $2 AND is_archived = FALSE',
-        [data.item_id, userId]
+        [data.itemId, userId]
       );
 
       if (itemCheck.rows.length === 0) {
         throw new AppError('Item not found or is archived', 404);
       }
 
-      // If schedule_id is provided, verify it exists
-      if (data.schedule_id) {
+      // If scheduleId is provided, verify it exists
+      if (data.scheduleId) {
         const scheduleCheck = await client.query(
           'SELECT id FROM maintenance_schedules WHERE id = $1',
-          [data.schedule_id]
+          [data.scheduleId]
         );
 
         if (scheduleCheck.rows.length === 0) {
@@ -327,13 +327,13 @@ export class MaintenanceService {
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         RETURNING *`,
         [
-          data.item_id,
+          data.itemId,
           userId,
-          data.schedule_id || null,
-          data.task_name,
-          data.completed_date || new Date(),
+          data.scheduleId || null,
+          data.taskName,
+          data.completedDate || new Date(),
           data.notes || null,
-          data.duration_minutes || null,
+          data.durationMinutes || null,
           data.cost || 0,
         ]
       );
@@ -345,7 +345,7 @@ export class MaintenanceService {
         `UPDATE items
          SET last_maintenance_date = $1, updated_at = NOW()
          WHERE id = $2`,
-        [data.completed_date || new Date(), data.item_id]
+        [data.completedDate || new Date(), data.itemId]
       );
 
       // Update user analytics
@@ -359,10 +359,10 @@ export class MaintenanceService {
       );
 
       // If there is a schedule with prevents_cost, add to preventive savings
-      if (data.schedule_id) {
+      if (data.scheduleId) {
         const scheduleResult = await client.query(
           'SELECT prevents_cost FROM maintenance_schedules WHERE id = $1',
-          [data.schedule_id]
+          [data.scheduleId]
         );
 
         if (scheduleResult.rows.length > 0 && scheduleResult.rows[0].prevents_cost) {
@@ -380,7 +380,7 @@ export class MaintenanceService {
 
       await client.query('COMMIT');
 
-      logger.info({ entryId: entry.id, userId, itemId: data.item_id }, 'Maintenance logged');
+      logger.info({ entryId: entry.id, userId, itemId: data.itemId }, 'Maintenance logged');
 
       return entry;
     } catch (error) {

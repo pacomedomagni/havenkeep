@@ -44,7 +44,7 @@ router.get(
   validate(getClaimsQuerySchema, 'query'),
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
-    const { item_id } = req.query;
+    const { itemId } = req.query;
 
     // BE-1/2/3: Explicitly convert and clamp pagination params to safe integers
     const page = Math.max(1, parseInt(req.query.page as string, 10) || 1);
@@ -54,7 +54,7 @@ router.get(
     const result = await WarrantyClaimsService.getUserClaims(userId, {
       limit,
       offset,
-      itemId: item_id as string,
+      itemId: itemId as string,
     });
 
     sendSuccess(res, result.claims, {
