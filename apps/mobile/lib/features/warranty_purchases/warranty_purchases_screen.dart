@@ -104,7 +104,7 @@ class _PurchaseCard extends ConsumerWidget {
                   vertical: HavenSpacing.xs,
                 ),
                 decoration: BoxDecoration(
-                  color: statusColor.withOpacity(0.15),
+                  color: statusColor.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(HavenRadius.chip),
                 ),
                 child: Text(
@@ -207,8 +207,8 @@ class _EmptyState extends StatelessWidget {
         borderRadius: BorderRadius.circular(HavenRadius.card),
         border: Border.all(color: HavenColors.border),
       ),
-      child: Column(
-        children: const [
+      child: const Column(
+        children: [
           Icon(Icons.shield_outlined, color: HavenColors.textTertiary),
           SizedBox(height: HavenSpacing.sm),
           Text(

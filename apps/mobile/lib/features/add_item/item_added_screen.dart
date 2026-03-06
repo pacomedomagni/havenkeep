@@ -182,11 +182,11 @@ class _ItemAddedScreenState extends ConsumerState<ItemAddedScreen>
               ),
             );
           },
-          loading: () => Padding(
-            padding: const EdgeInsets.all(HavenSpacing.xl),
+          loading: () => const Padding(
+            padding: EdgeInsets.all(HavenSpacing.xl),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
-              children: const [
+              children: [
                 SkeletonBox(width: 80, height: 80),
                 SizedBox(height: HavenSpacing.lg),
                 SkeletonLine(width: 200, height: 24),

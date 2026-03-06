@@ -8,9 +8,9 @@ class GiftActivationSuccessScreen extends StatefulWidget {
   final int premiumMonths;
 
   const GiftActivationSuccessScreen({
-    Key? key,
+    super.key,
     this.premiumMonths = 6,
-  }) : super(key: key);
+  });
 
   @override
   State<GiftActivationSuccessScreen> createState() =>

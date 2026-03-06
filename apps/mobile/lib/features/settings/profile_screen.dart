@@ -11,7 +11,6 @@ import 'package:shared_ui/shared_ui.dart';
 
 import '../../core/providers/auth_provider.dart';
 import '../../core/providers/items_provider.dart';
-import '../../core/providers/profile_photo_provider.dart';
 import '../../core/services/image_upload_service.dart';
 import '../../core/utils/error_handler.dart';
 import '../../core/widgets/error_state_widget.dart';
@@ -49,7 +48,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   void _initFromUser(User user) {
     if (_isInitialized) return;
     _isInitialized = true;
-    _nameController.text = user.fullName ?? '';
+    _nameController.text = user.fullName;
   }
 
   Future<void> _save() async {
@@ -191,7 +190,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                 : null,
                             child: user.avatarUrl == null
                                 ? Text(
-                                    ((user.fullName?.isNotEmpty ?? false) ? user.fullName![0] : '?').toUpperCase(),
+                                    (user.fullName.isNotEmpty ? user.fullName[0] : '?').toUpperCase(),
                                     style: const TextStyle(
                                       fontSize: 32,
                                       color: HavenColors.textPrimary,
@@ -204,7 +203,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                             Positioned.fill(
                               child: Container(
                                 decoration: BoxDecoration(
-                                  color: Colors.black.withOpacity(0.5),
+                                  color: Colors.black.withValues(alpha: 0.5),
                                   shape: BoxShape.circle,
                                 ),
                                 child: const Center(
@@ -433,10 +432,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             ),
           );
         },
-        loading: () => Padding(
-          padding: const EdgeInsets.all(HavenSpacing.md),
+        loading: () => const Padding(
+          padding: EdgeInsets.all(HavenSpacing.md),
           child: Column(
-            children: const [
+            children: [
               SizedBox(height: HavenSpacing.lg),
               SkeletonBox(width: 80, height: 80),
               SizedBox(height: HavenSpacing.lg),
@@ -472,7 +471,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
+              const Text(
                 'A verification link will be sent to your new email address.',
                 style: TextStyle(
                   fontSize: 13,

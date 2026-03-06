@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:shared_models/shared_models.dart';
 import 'package:shared_ui/shared_ui.dart';
 
 import '../../../core/providers/items_provider.dart';
@@ -556,7 +555,7 @@ class _RoomSetupScreenState extends ConsumerState<RoomSetupScreen> {
               SizedBox(
                 width: 100,
                 child: DropdownButtonFormField<int>(
-                  value: warranty,
+                  initialValue: warranty,
                   isDense: true,
                   decoration: const InputDecoration(
                     labelText: 'Warranty',

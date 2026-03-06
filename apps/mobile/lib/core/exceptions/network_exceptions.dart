@@ -7,17 +7,12 @@ class NetworkException extends AppException {
   final int? statusCode;
 
   NetworkException(
-    String message, {
+    super.message, {
     this.statusCode,
-    String? code,
-    dynamic originalError,
-    StackTrace? stackTrace,
-  }) : super(
-          message,
-          code: code ?? 'NETWORK_ERROR',
-          originalError: originalError,
-          stackTrace: stackTrace,
-        );
+    super.code = 'NETWORK_ERROR',
+    super.originalError,
+    super.stackTrace,
+  });
 
   @override
   String get userMessage {

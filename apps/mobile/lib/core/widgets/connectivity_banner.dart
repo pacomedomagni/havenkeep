@@ -96,7 +96,7 @@ class _Banner extends StatelessWidget {
         horizontal: HavenSpacing.md,
         vertical: HavenSpacing.sm,
       ),
-      color: color.withOpacity(0.15),
+      color: color.withValues(alpha: 0.15),
       child: SafeArea(
         bottom: false,
         child: Row(

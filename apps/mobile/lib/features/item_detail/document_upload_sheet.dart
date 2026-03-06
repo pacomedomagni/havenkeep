@@ -373,9 +373,9 @@ class _DocumentUploadSheetState extends ConsumerState<DocumentUploadSheet> {
                   width: double.infinity,
                   padding: const EdgeInsets.all(HavenSpacing.sm),
                   decoration: BoxDecoration(
-                    color: HavenColors.expired.withOpacity(0.1),
+                    color: HavenColors.expired.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(HavenRadius.button),
-                    border: Border.all(color: HavenColors.expired.withOpacity(0.3)),
+                    border: Border.all(color: HavenColors.expired.withValues(alpha: 0.3)),
                   ),
                   child: Row(
                     children: [

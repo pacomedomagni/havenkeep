@@ -32,7 +32,6 @@ class _BarcodeScanScreenState extends ConsumerState<BarcodeScanScreen> {
   bool _isSaving = false;
   bool _isProcessing = false;
   BarcodeLookupResult? _lookupResult;
-  String? _detectedBarcode;
   String? _error;
   bool _hasDetected = false;
 
@@ -63,7 +62,6 @@ class _BarcodeScanScreenState extends ConsumerState<BarcodeScanScreen> {
     }
 
     setState(() {
-      _detectedBarcode = barcode;
       _isLookingUp = true;
     });
 
@@ -149,7 +147,6 @@ class _BarcodeScanScreenState extends ConsumerState<BarcodeScanScreen> {
     setState(() {
       _hasDetected = false;
       _isProcessing = false;
-      _detectedBarcode = null;
       _lookupResult = null;
       _isLookingUp = false;
       _error = null;

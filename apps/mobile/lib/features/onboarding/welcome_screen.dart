@@ -488,9 +488,9 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
                   width: double.infinity,
                   padding: const EdgeInsets.all(HavenSpacing.sm),
                   decoration: BoxDecoration(
-                    color: HavenColors.primary.withOpacity(0.1),
+                    color: HavenColors.primary.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(HavenRadius.button),
-                    border: Border.all(color: HavenColors.primary.withOpacity(0.3)),
+                    border: Border.all(color: HavenColors.primary.withValues(alpha: 0.3)),
                   ),
                   child: GestureDetector(
                     onTap: _openForgotPassword,

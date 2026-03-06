@@ -346,7 +346,7 @@ class _EditItemScreenState extends ConsumerState<EditItemScreen> {
 
                   // Category
                   DropdownButtonFormField<ItemCategory>(
-                    value: _category,
+                    initialValue: _category,
                     decoration: const InputDecoration(labelText: 'Category'),
                     dropdownColor: HavenColors.elevated,
                     items: ItemCategory.values
@@ -437,7 +437,7 @@ class _EditItemScreenState extends ConsumerState<EditItemScreen> {
 
                   // Warranty Type
                   DropdownButtonFormField<WarrantyType>(
-                    value: _warrantyType,
+                    initialValue: _warrantyType,
                     decoration: const InputDecoration(labelText: 'Warranty Type'),
                     dropdownColor: HavenColors.elevated,
                     items: WarrantyType.values
@@ -532,10 +532,10 @@ class _EditItemScreenState extends ConsumerState<EditItemScreen> {
           ),
           title: const Text('Edit Item'),
         ),
-        body: Padding(
-          padding: const EdgeInsets.all(HavenSpacing.md),
+        body: const Padding(
+          padding: EdgeInsets.all(HavenSpacing.md),
           child: Column(
-            children: const [
+            children: [
               SkeletonLine(height: 48),
               SizedBox(height: HavenSpacing.md),
               SkeletonLine(height: 48),

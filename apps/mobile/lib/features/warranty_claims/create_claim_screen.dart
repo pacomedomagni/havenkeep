@@ -191,7 +191,7 @@ class _CreateClaimScreenState extends ConsumerState<CreateClaimScreen> {
               const SizedBox(height: HavenSpacing.lg),
 
               // Claim date
-              _SectionLabel('Claim Date'),
+              const _SectionLabel('Claim Date'),
               const SizedBox(height: HavenSpacing.sm),
               GestureDetector(
                 onTap: _pickDate,
@@ -218,7 +218,7 @@ class _CreateClaimScreenState extends ConsumerState<CreateClaimScreen> {
               const SizedBox(height: HavenSpacing.lg),
 
               // Status
-              _SectionLabel('Status'),
+              const _SectionLabel('Status'),
               const SizedBox(height: HavenSpacing.sm),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: HavenSpacing.md),
@@ -248,7 +248,7 @@ class _CreateClaimScreenState extends ConsumerState<CreateClaimScreen> {
               const SizedBox(height: HavenSpacing.lg),
 
               // Issue description
-              _SectionLabel('Issue Description'),
+              const _SectionLabel('Issue Description'),
               const SizedBox(height: HavenSpacing.sm),
               _buildTextField(
                 controller: _issueController,
@@ -258,7 +258,7 @@ class _CreateClaimScreenState extends ConsumerState<CreateClaimScreen> {
               const SizedBox(height: HavenSpacing.lg),
 
               // Repair description
-              _SectionLabel('Repair Description'),
+              const _SectionLabel('Repair Description'),
               const SizedBox(height: HavenSpacing.sm),
               _buildTextField(
                 controller: _repairController,
@@ -268,7 +268,7 @@ class _CreateClaimScreenState extends ConsumerState<CreateClaimScreen> {
               const SizedBox(height: HavenSpacing.lg),
 
               // Costs
-              _SectionLabel('Costs'),
+              const _SectionLabel('Costs'),
               const SizedBox(height: HavenSpacing.sm),
               Row(
                 children: [
@@ -297,7 +297,7 @@ class _CreateClaimScreenState extends ConsumerState<CreateClaimScreen> {
               const SizedBox(height: HavenSpacing.lg),
 
               // Filed with & claim number
-              _SectionLabel('Claim Details'),
+              const _SectionLabel('Claim Details'),
               const SizedBox(height: HavenSpacing.sm),
               _buildTextField(
                 controller: _filedWithController,
@@ -311,7 +311,7 @@ class _CreateClaimScreenState extends ConsumerState<CreateClaimScreen> {
               const SizedBox(height: HavenSpacing.lg),
 
               // Notes
-              _SectionLabel('Notes'),
+              const _SectionLabel('Notes'),
               const SizedBox(height: HavenSpacing.sm),
               _buildTextField(
                 controller: _notesController,

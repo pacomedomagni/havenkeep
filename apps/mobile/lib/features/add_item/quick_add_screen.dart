@@ -230,7 +230,7 @@ class _QuickAddScreenState extends ConsumerState<QuickAddScreen> {
                   child: Container(
                     width: 120,
                     height: 120,
-                    decoration: BoxDecoration(
+                    decoration: const BoxDecoration(
                       color: HavenColors.surface,
                       shape: BoxShape.circle,
                     ),
@@ -412,7 +412,7 @@ class _QuickAddScreenState extends ConsumerState<QuickAddScreen> {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Text(
+                      const Text(
                         'Want to add more details?',
                         style: TextStyle(
                           fontSize: 13,

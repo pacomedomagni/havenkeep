@@ -126,7 +126,7 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
                 width: 56,
                 height: 56,
                 decoration: BoxDecoration(
-                  color: HavenColors.expired.withOpacity(0.15),
+                  color: HavenColors.expired.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(HavenRadius.button),
                 ),
                 child: const Icon(
@@ -220,7 +220,7 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: HavenColors.expired,
                       disabledBackgroundColor:
-                          HavenColors.expired.withOpacity(0.3),
+                          HavenColors.expired.withValues(alpha: 0.3),
                     ),
                     child: _isLoading
                         ? const SizedBox(
@@ -310,7 +310,7 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: HavenColors.expired,
                       disabledBackgroundColor:
-                          HavenColors.expired.withOpacity(0.3),
+                          HavenColors.expired.withValues(alpha: 0.3),
                     ),
                     child: _isLoading
                         ? const SizedBox(

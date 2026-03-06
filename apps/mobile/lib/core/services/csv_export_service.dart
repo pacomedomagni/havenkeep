@@ -61,9 +61,11 @@ class CsvExportService {
       final file = File('${dir.path}/havenkeep_items_$timestamp.csv');
       await file.writeAsString(csvData);
 
-      await Share.shareXFiles(
-        [XFile(file.path, mimeType: 'text/csv')],
-        subject: 'HavenKeep Items Export',
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [XFile(file.path, mimeType: 'text/csv')],
+          subject: 'HavenKeep Items Export',
+        ),
       );
     } catch (e) {
       throw Exception('Failed to export CSV: $e');

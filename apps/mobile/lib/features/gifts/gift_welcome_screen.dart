@@ -11,9 +11,9 @@ class GiftWelcomeScreen extends ConsumerStatefulWidget {
   final String giftId;
 
   const GiftWelcomeScreen({
-    Key? key,
+    super.key,
     required this.giftId,
-  }) : super(key: key);
+  });
 
   @override
   ConsumerState<GiftWelcomeScreen> createState() => _GiftWelcomeScreenState();

@@ -110,7 +110,7 @@ class AuthRepository {
 
   /// Performs the actual logout API call.
   Future<void> _signOutApiCall() async {
-    final storage = const FlutterSecureStorage(
+    const storage = FlutterSecureStorage(
       aOptions: AndroidOptions(encryptedSharedPreferences: true),
       iOptions: IOSOptions(accessibility: KeychainAccessibility.first_unlock),
     );

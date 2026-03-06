@@ -11,8 +11,6 @@ import 'package:shared_models/shared_models.dart';
 class PdfExportService {
   /// Brand color for the PDF header.
   static final _brandColor = PdfColor.fromHex('#6C63FF');
-  static final _darkBg = PdfColor.fromHex('#121212');
-  static final _cardBg = PdfColor.fromHex('#1E1E1E');
   static final _textPrimary = PdfColor.fromHex('#FFFFFF');
   static final _textSecondary = PdfColor.fromHex('#B0B0B0');
   static final _borderColor = PdfColor.fromHex('#2A2A2A');

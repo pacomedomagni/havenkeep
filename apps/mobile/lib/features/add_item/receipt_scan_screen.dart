@@ -356,7 +356,7 @@ class _ReceiptScanScreenState extends ConsumerState<ReceiptScanScreen> {
           const SectionHeader(title: 'Category'),
           const SizedBox(height: HavenSpacing.sm),
           DropdownButtonFormField<ItemCategory>(
-            value: _category,
+            initialValue: _category,
             decoration: const InputDecoration(
               filled: true,
               fillColor: HavenColors.surface,

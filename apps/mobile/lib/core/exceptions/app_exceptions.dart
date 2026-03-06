@@ -1,7 +1,7 @@
-/// Base exception hierarchy for HavenKeep app.
-///
-/// All custom exceptions should extend [AppException] to provide consistent
-/// error handling throughout the application.
+// Base exception hierarchy for HavenKeep app.
+//
+// All custom exceptions should extend [AppException] to provide consistent
+// error handling throughout the application.
 
 /// Base class for all application exceptions.
 ///
@@ -127,16 +127,11 @@ class ItemLimitExceededException extends AppException {
 /// Base exception for database operations.
 abstract class DatabaseException extends AppException {
   DatabaseException(
-    String message, {
-    String? code,
-    dynamic originalError,
-    StackTrace? stackTrace,
-  }) : super(
-          message,
-          code: code,
-          originalError: originalError,
-          stackTrace: stackTrace,
-        );
+    super.message, {
+    super.code,
+    super.originalError,
+    super.stackTrace,
+  });
 
   @override
   String get userMessage => 'Database error occurred. Please try again.';

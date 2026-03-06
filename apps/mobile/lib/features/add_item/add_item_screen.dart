@@ -169,11 +169,11 @@ class AddItemScreen extends ConsumerWidget {
               const SizedBox(height: HavenSpacing.lg),
 
               // Divider with "or"
-              Row(
+              const Row(
                 children: [
-                  const Expanded(child: Divider(color: HavenColors.border)),
+                  Expanded(child: Divider(color: HavenColors.border)),
                   Padding(
-                    padding: const EdgeInsets.symmetric(
+                    padding: EdgeInsets.symmetric(
                         horizontal: HavenSpacing.md),
                     child: Text(
                       'or',
@@ -183,7 +183,7 @@ class AddItemScreen extends ConsumerWidget {
                       ),
                     ),
                   ),
-                  const Expanded(child: Divider(color: HavenColors.border)),
+                  Expanded(child: Divider(color: HavenColors.border)),
                 ],
               ),
 
@@ -283,7 +283,6 @@ class _MethodCard extends StatelessWidget {
   final String title;
   final String subtitle;
   final bool isDisabled;
-  final String? disabledLabel;
   final VoidCallback? onTap;
 
   const _MethodCard({
@@ -291,7 +290,6 @@ class _MethodCard extends StatelessWidget {
     required this.title,
     required this.subtitle,
     this.isDisabled = false,
-    this.disabledLabel,
     this.onTap,
   });
 
@@ -340,26 +338,7 @@ class _MethodCard extends StatelessWidget {
                   ],
                 ),
               ),
-              if (isDisabled && disabledLabel != null)
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: HavenSpacing.sm,
-                    vertical: HavenSpacing.xs,
-                  ),
-                  decoration: BoxDecoration(
-                    color: HavenColors.elevated,
-                    borderRadius: BorderRadius.circular(HavenRadius.chip),
-                  ),
-                  child: Text(
-                    disabledLabel!,
-                    style: const TextStyle(
-                      fontSize: 10,
-                      color: HavenColors.textTertiary,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                )
-              else if (!isDisabled)
+              if (!isDisabled)
                 const Icon(
                   Icons.chevron_right,
                   color: HavenColors.textTertiary,

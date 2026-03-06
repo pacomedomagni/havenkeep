@@ -181,8 +181,8 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
   }
 
   Widget _buildHeroSection() {
-    return Column(
-      children: const [
+    return const Column(
+      children: [
         Icon(
           Icons.star,
           size: 80,
@@ -207,7 +207,7 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
       children: [
         _buildComparisonCard(
           title: 'Free',
-          features: [
+          features: const [
             _FeatureItem(Icons.inventory_2, '5 items', false),
             _FeatureItem(Icons.category, 'Basic categories', false),
             _FeatureItem(Icons.edit, 'Manual entry only', false),
@@ -217,7 +217,7 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
         const SizedBox(height: HavenSpacing.md),
         _buildComparisonCard(
           title: 'Premium',
-          features: [
+          features: const [
             _FeatureItem(Icons.all_inclusive, 'Unlimited items', true),
             _FeatureItem(Icons.category, 'All categories', true),
             _FeatureItem(Icons.qr_code_scanner, 'Receipt & barcode scanning', true),
@@ -324,7 +324,7 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
                   child: Switch(
                     value: _isAnnual,
                     onChanged: (value) => setState(() => _isAnnual = value),
-                    activeColor: HavenColors.gold,
+                    activeThumbColor: HavenColors.gold,
                     inactiveThumbColor: HavenColors.primary,
                     inactiveTrackColor: HavenColors.elevated,
                   ),

@@ -291,7 +291,7 @@ class _ManualEntryScreenState extends ConsumerState<ManualEntryScreen> {
 
                 // Category
                 DropdownButtonFormField<ItemCategory>(
-                  value: _category,
+                  initialValue: _category,
                   decoration: const InputDecoration(
                     labelText: 'Category',
                   ),

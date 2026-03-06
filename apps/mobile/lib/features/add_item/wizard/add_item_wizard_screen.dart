@@ -209,7 +209,7 @@ class _AddItemWizardScreenState extends ConsumerState<AddItemWizardScreen> {
             if (isCompleted) {
               color = HavenColors.primary;
             } else if (isCurrent) {
-              color = HavenColors.primary.withOpacity(0.5);
+              color = HavenColors.primary.withValues(alpha: 0.5);
             } else {
               color = HavenColors.border;
             }

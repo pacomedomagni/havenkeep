@@ -35,6 +35,7 @@ class TestHelpers {
     String? warrantyProvider,
     DateTime? warrantyEndDate,
     WarrantyStatus? status,
+    int? daysRemaining,
     String? notes,
     bool? isArchived,
     ItemAddedVia? addedVia,
@@ -60,6 +61,7 @@ class TestHelpers {
       warrantyType: warrantyType ?? WarrantyType.manufacturer,
       warrantyProvider: warrantyProvider,
       warrantyEndDate: warrantyEndDate,
+      daysRemaining: daysRemaining,
       notes: notes,
       isArchived: isArchived ?? false,
       addedVia: addedVia ?? ItemAddedVia.manual,
@@ -163,6 +165,7 @@ class TestHelpers {
       mimeType: mimeType ?? 'application/pdf',
       thumbnailUrl: thumbnailUrl,
       createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
     );
   }
 

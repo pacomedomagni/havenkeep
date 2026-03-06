@@ -168,7 +168,7 @@ class _ItemDetailBody extends ConsumerWidget {
     final docsAsync = ref.watch(documentsForItemProvider(itemId));
     final theme = Theme.of(context);
     final status = item.computedWarrantyStatus;
-    final days = item.computedDaysRemaining ?? 0;
+    final days = item.computedDaysRemaining;
 
     final statusColor = switch (status) {
       WarrantyStatus.active => HavenColors.active,
@@ -208,7 +208,7 @@ class _ItemDetailBody extends ConsumerWidget {
                     vertical: HavenSpacing.sm,
                   ),
                   decoration: BoxDecoration(
-                    color: statusColor.withOpacity(0.15),
+                    color: statusColor.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(HavenRadius.chip),
                   ),
                   child: Row(
@@ -243,7 +243,7 @@ class _ItemDetailBody extends ConsumerWidget {
                     status == WarrantyStatus.expired
                         ? 'Expired ${_formatDate(item.warrantyEndDate!)}'
                         : 'Expires ${_formatDate(item.warrantyEndDate!)}',
-                    style: TextStyle(
+                    style: const TextStyle(
                       fontSize: 13,
                       color: HavenColors.textSecondary,
                     ),
@@ -408,7 +408,7 @@ class _ItemDetailBody extends ConsumerWidget {
                   const SizedBox(height: HavenSpacing.sm),
                   Text(
                     '${item.lifespanPercentage}% of estimated ${item.expectedLifespanYears ?? "?"}-year lifespan',
-                    style: TextStyle(
+                    style: const TextStyle(
                       fontSize: 13,
                       color: HavenColors.textSecondary,
                     ),
@@ -505,7 +505,7 @@ class _ItemDetailBody extends ConsumerWidget {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   // Step-by-step claim guidance
-                  _ClaimStep(
+                  const _ClaimStep(
                     number: 1,
                     title: 'Gather your documents',
                     description: 'You\'ll need your receipt, warranty card, and photos of the issue.',

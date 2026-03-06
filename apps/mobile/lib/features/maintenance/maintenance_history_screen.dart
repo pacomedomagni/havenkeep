@@ -220,11 +220,10 @@ class _MaintenanceHistoryScreenState
           ref.invalidate(maintenanceDueProvider);
           return true;
         } catch (e) {
-          if (context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text(ErrorHandler.getUserMessage(e))),
-            );
-          }
+          if (!mounted) return false;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(ErrorHandler.getUserMessage(e))),
+          );
           return false;
         }
       },

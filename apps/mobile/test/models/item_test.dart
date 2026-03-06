@@ -147,7 +147,6 @@ void main() {
 
     group('fromJson / toJson', () {
       test('round-trip serialization preserves all fields', () {
-        final now = DateTime.now();
         final item = TestHelpers.createTestItem(
           id: 'test-id',
           name: 'Test Refrigerator',
@@ -226,7 +225,6 @@ void main() {
       });
 
       test('handles warrantyEndDate from database', () {
-        final endDate = DateTime(2024, 1, 15);
         final json = {
           'id': 'test-id',
           'home_id': 'home-id',

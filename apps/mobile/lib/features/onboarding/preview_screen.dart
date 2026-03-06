@@ -20,7 +20,6 @@ class PreviewScreen extends StatefulWidget {
 
 class _PreviewScreenState extends State<PreviewScreen> {
   final PageController _pageController = PageController();
-  int _currentPage = 0;
 
   @override
   void dispose() {
@@ -48,12 +47,7 @@ class _PreviewScreenState extends State<PreviewScreen> {
             Expanded(
               child: PageView(
                 controller: _pageController,
-                onPageChanged: (index) {
-                  setState(() {
-                    _currentPage = index;
-                  });
-                },
-                children: [
+                children: const [
                   _PreviewPage(
                     icon: Icons.shield_outlined,
                     title: 'Your warranties,\nprotected',

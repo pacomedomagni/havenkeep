@@ -33,7 +33,7 @@ class EmailScannerScreen extends ConsumerWidget {
       body: ListView(
         padding: const EdgeInsets.all(HavenSpacing.md),
         children: [
-          _InfoCard(
+          const _InfoCard(
             title: 'Import purchases from your inbox',
             body:
                 'Connect Gmail or Outlook to scan for purchase receipts and '
@@ -138,7 +138,7 @@ class EmailScannerScreen extends ConsumerWidget {
           scansAsync.when(
             data: (scans) {
               if (scans.isEmpty) {
-                return _EmptyState(
+                return const _EmptyState(
                   title: 'No scans yet',
                   subtitle: 'Start a scan to import receipts from email.',
                 );
@@ -323,7 +323,7 @@ class _ScanCard extends StatelessWidget {
                   vertical: HavenSpacing.xs,
                 ),
                 decoration: BoxDecoration(
-                  color: statusColor.withOpacity(0.15),
+                  color: statusColor.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(HavenRadius.chip),
                 ),
                 child: Text(

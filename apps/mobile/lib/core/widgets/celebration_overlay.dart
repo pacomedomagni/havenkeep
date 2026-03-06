@@ -163,7 +163,7 @@ class _CelebrationOverlayState extends State<CelebrationOverlay>
                         Text(
                           widget.subtitle,
                           textAlign: TextAlign.center,
-                          style: TextStyle(
+                          style: const TextStyle(
                             fontSize: 16,
                             color: HavenColors.textSecondary,
                             height: 1.4,
@@ -173,7 +173,7 @@ class _CelebrationOverlayState extends State<CelebrationOverlay>
                         const SizedBox(height: 8),
 
                         // Tap to dismiss hint
-                        Text(
+                        const Text(
                           'Tap anywhere to continue',
                           style: TextStyle(
                             fontSize: 13,
@@ -340,7 +340,7 @@ class CelebrationTrigger {
 
       case CelebrationType.milestone:
         return (
-          '🏆 ${itemCount} Items Protected!',
+          '🏆 $itemCount Items Protected!',
           "You're building an impressive warranty collection. Keep it up!"
         );
 

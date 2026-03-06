@@ -137,7 +137,7 @@ class _LogMaintenanceScreenState extends ConsumerState<LogMaintenanceScreen> {
           padding: const EdgeInsets.all(HavenSpacing.md),
           children: [
             // Item picker
-            _SectionLabel('Item'),
+            const _SectionLabel('Item'),
             const SizedBox(height: HavenSpacing.sm),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: HavenSpacing.md),
@@ -183,7 +183,7 @@ class _LogMaintenanceScreenState extends ConsumerState<LogMaintenanceScreen> {
             ],
 
             // Task name
-            _SectionLabel('Task Name'),
+            const _SectionLabel('Task Name'),
             const SizedBox(height: HavenSpacing.sm),
             TextFormField(
               controller: _taskNameController,
@@ -208,7 +208,7 @@ class _LogMaintenanceScreenState extends ConsumerState<LogMaintenanceScreen> {
             const SizedBox(height: HavenSpacing.lg),
 
             // Date
-            _SectionLabel('Date Completed'),
+            const _SectionLabel('Date Completed'),
             const SizedBox(height: HavenSpacing.sm),
             GestureDetector(
               onTap: _pickDate,
@@ -236,7 +236,7 @@ class _LogMaintenanceScreenState extends ConsumerState<LogMaintenanceScreen> {
             const SizedBox(height: HavenSpacing.lg),
 
             // Duration & Cost
-            _SectionLabel('Duration & Cost'),
+            const _SectionLabel('Duration & Cost'),
             const SizedBox(height: HavenSpacing.sm),
             Row(
               children: [
@@ -301,7 +301,7 @@ class _LogMaintenanceScreenState extends ConsumerState<LogMaintenanceScreen> {
             const SizedBox(height: HavenSpacing.lg),
 
             // Notes
-            _SectionLabel('Notes'),
+            const _SectionLabel('Notes'),
             const SizedBox(height: HavenSpacing.sm),
             TextFormField(
               controller: _notesController,

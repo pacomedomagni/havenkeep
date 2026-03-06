@@ -17,7 +17,7 @@ class FirstActionScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final user = ref.watch(currentUserProvider);
-    final firstName = user.value?.fullName?.split(' ').first ?? 'there';
+    final firstName = user.value?.fullName.split(' ').first ?? 'there';
 
     return Scaffold(
       backgroundColor: HavenColors.background,
@@ -110,27 +110,21 @@ class _ActionCard extends StatelessWidget {
   final String title;
   final String description;
   final VoidCallback onTap;
-  final bool isDisabled;
-  final String? disabledLabel;
 
   const _ActionCard({
     required this.icon,
     required this.title,
     required this.description,
     required this.onTap,
-    this.isDisabled = false,
-    this.disabledLabel,
   });
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: isDisabled
-          ? null
-          : () {
-              HapticFeedback.mediumImpact();
-              onTap();
-            },
+      onTap: () {
+        HapticFeedback.mediumImpact();
+        onTap();
+      },
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 150),
         padding: const EdgeInsets.all(HavenSpacing.lg),
@@ -138,81 +132,50 @@ class _ActionCard extends StatelessWidget {
           color: HavenColors.elevated,
           borderRadius: BorderRadius.circular(HavenRadius.card),
           border: Border.all(
-            color: isDisabled
-                ? HavenColors.border
-                : HavenColors.border,
+            color: HavenColors.border,
           ),
         ),
-        child: Opacity(
-          opacity: isDisabled ? 0.5 : 1.0,
-          child: Row(
-            children: [
-              // Icon
-              Text(
-                icon,
-                style: const TextStyle(fontSize: 32),
-              ),
-              const SizedBox(width: HavenSpacing.md),
+        child: Row(
+          children: [
+            // Icon
+            Text(
+              icon,
+              style: const TextStyle(fontSize: 32),
+            ),
+            const SizedBox(width: HavenSpacing.md),
 
-              // Text
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Text(
-                          title,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            color: HavenColors.textPrimary,
-                          ),
-                        ),
-                        if (disabledLabel != null) ...[
-                          const SizedBox(width: HavenSpacing.sm),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: HavenSpacing.sm,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: HavenColors.surface,
-                              borderRadius:
-                                  BorderRadius.circular(HavenRadius.chip),
-                            ),
-                            child: Text(
-                              disabledLabel!,
-                              style: const TextStyle(
-                                fontSize: 10,
-                                color: HavenColors.textTertiary,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ],
+            // Text
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: HavenColors.textPrimary,
                     ),
-                    const SizedBox(height: HavenSpacing.xs),
-                    Text(
-                      description,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        color: HavenColors.textSecondary,
-                        height: 1.3,
-                      ),
+                  ),
+                  const SizedBox(height: HavenSpacing.xs),
+                  Text(
+                    description,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      color: HavenColors.textSecondary,
+                      height: 1.3,
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
+            ),
 
-              // Chevron
-              if (!isDisabled)
-                const Icon(
-                  Icons.chevron_right,
-                  color: HavenColors.textTertiary,
-                ),
-            ],
-          ),
+            // Chevron
+            const Icon(
+              Icons.chevron_right,
+              color: HavenColors.textTertiary,
+            ),
+          ],
         ),
       ),
     );

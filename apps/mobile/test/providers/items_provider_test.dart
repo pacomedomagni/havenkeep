@@ -5,10 +5,20 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:havenkeep_mobile/core/providers/items_provider.dart';
 import 'package:havenkeep_mobile/core/providers/auth_provider.dart';
 import 'package:havenkeep_mobile/core/services/items_repository.dart';
+import 'package:api_client/api_client.dart' show kFreePlanItemLimit;
 import 'package:shared_models/shared_models.dart';
 
 import '../helpers/test_helpers.dart';
 import 'items_provider_test.mocks.dart';
+
+/// Test notifier that immediately resolves to a fixed user value.
+class _TestCurrentUserNotifier extends CurrentUserNotifier {
+  final User? _user;
+  _TestCurrentUserNotifier(this._user);
+
+  @override
+  Future<User?> build() async => _user;
+}
 
 @GenerateMocks([ItemsRepository])
 void main() {
@@ -32,7 +42,7 @@ void main() {
       overrides: [
         itemsRepositoryProvider.overrideWithValue(mockRepository),
         currentUserProvider.overrideWith(
-          (ref) => AsyncValue.data(testUser),
+          () => _TestCurrentUserNotifier(testUser),
         ),
       ],
     );
@@ -170,7 +180,7 @@ void main() {
 
         // Force stats to be computed
         await container.read(warrantyStatsProvider.future);
-        await container.read(needsAttentionProvider.future);
+        container.read(needsAttentionProvider);
 
         await container.read(itemsProvider.notifier).addItem(newItem);
 
@@ -395,10 +405,6 @@ void main() {
 
     group('unarchiveItem', () {
       test('adds item back to active list', () async {
-        final archivedItem = TestHelpers.createTestItem(
-          id: 'item-1',
-          isArchived: true,
-        );
         final restoredItem = TestHelpers.createTestItem(
           id: 'item-1',
           isArchived: false,
@@ -481,28 +487,32 @@ void main() {
 
       container = createContainer(authenticated: false);
 
-      final items = await container.read(needsAttentionProvider.future);
+      // Wait for itemsProvider to resolve first
+      await container.read(itemsProvider.future);
 
-      expect(items, isEmpty);
-      verifyNever(mockRepository.getNeedsAttention());
+      final result = container.read(needsAttentionProvider);
+
+      expect(result.value, isEmpty);
     });
 
-    test('fetches needs attention items when authenticated', () async {
+    test('returns expiring and expired items from itemsProvider', () async {
       final items = [
-        TestHelpers.createTestItem(status: WarrantyStatus.expiring),
-        TestHelpers.createTestItem(status: WarrantyStatus.expired),
+        TestHelpers.createTestItem(id: 'expiring-1', status: WarrantyStatus.expiring),
+        TestHelpers.createTestItem(id: 'active-1', status: WarrantyStatus.active),
+        TestHelpers.createTestItem(id: 'expired-1', status: WarrantyStatus.expired),
       ];
 
-      when(mockRepository.getItemsWithStatus()).thenAnswer((_) async => []);
-      when(mockRepository.getNeedsAttention())
+      when(mockRepository.getItemsWithStatus())
           .thenAnswer((_) async => items);
 
       container = createContainer();
 
-      final result = await container.read(needsAttentionProvider.future);
+      // Wait for itemsProvider to resolve
+      await container.read(itemsProvider.future);
 
-      expect(result, hasLength(2));
-      verify(mockRepository.getNeedsAttention()).called(1);
+      final result = container.read(needsAttentionProvider);
+
+      expect(result.value, hasLength(2));
     });
   });
 
@@ -524,32 +534,41 @@ void main() {
   });
 
   group('activeItemCountProvider', () {
-    test('returns count from repository', () async {
-      when(mockRepository.getItemsWithStatus()).thenAnswer((_) async => []);
-      when(mockRepository.countActiveItems()).thenAnswer((_) async => 42);
+    test('returns count derived from itemsProvider', () async {
+      final testItems = TestHelpers.createTestItems(count: 3);
+      when(mockRepository.getItemsWithStatus())
+          .thenAnswer((_) async => testItems);
 
       container = createContainer();
 
-      final count = await container.read(activeItemCountProvider.future);
+      // Wait for itemsProvider to resolve
+      await container.read(itemsProvider.future);
 
-      expect(count, 42);
-      verify(mockRepository.countActiveItems()).called(1);
+      final countAsync = container.read(activeItemCountProvider);
+
+      expect(countAsync.value, 3);
     });
 
-    test('re-fetches when items change', () async {
-      when(mockRepository.getItemsWithStatus()).thenAnswer((_) async => []);
-      when(mockRepository.countActiveItems()).thenAnswer((_) async => 1);
+    test('updates when items change', () async {
+      when(mockRepository.getItemsWithStatus())
+          .thenAnswer((_) async => []);
 
       container = createContainer();
 
-      await container.read(activeItemCountProvider.future);
-      verify(mockRepository.countActiveItems()).called(1);
+      await container.read(itemsProvider.future);
 
-      // Invalidate items to trigger refetch
+      final countAsync = container.read(activeItemCountProvider);
+      expect(countAsync.value, 0);
+
+      // Change mock and invalidate to trigger refetch
+      final testItems = TestHelpers.createTestItems(count: 2);
+      when(mockRepository.getItemsWithStatus())
+          .thenAnswer((_) async => testItems);
       container.invalidate(itemsProvider);
-      await container.read(activeItemCountProvider.future);
+      await container.read(itemsProvider.future);
 
-      verify(mockRepository.countActiveItems()).called(2);
+      final updatedCountAsync = container.read(activeItemCountProvider);
+      expect(updatedCountAsync.value, 2);
     });
   });
 
@@ -557,45 +576,55 @@ void main() {
     test('returns false when user is premium', () async {
       final premiumUser = TestHelpers.createTestUser(plan: UserPlan.premium);
 
-      when(mockRepository.getItemsWithStatus()).thenAnswer((_) async => []);
-      when(mockRepository.countActiveItems()).thenAnswer((_) async => 100);
+      // Premium users with many items should not be at limit
+      final manyItems = TestHelpers.createTestItems(count: 5);
+      when(mockRepository.getItemsWithStatus())
+          .thenAnswer((_) async => manyItems);
 
       container = ProviderContainer(
         overrides: [
           itemsRepositoryProvider.overrideWithValue(mockRepository),
           currentUserProvider.overrideWith(
-            (ref) => AsyncValue.data(premiumUser),
+            () => _TestCurrentUserNotifier(premiumUser),
           ),
         ],
       );
 
-      final atLimit = await container.read(isAtItemLimitProvider.future);
+      // Wait for itemsProvider to resolve
+      await container.read(itemsProvider.future);
 
-      expect(atLimit, isFalse);
+      final atLimitAsync = container.read(isAtItemLimitProvider);
+
+      expect(atLimitAsync.value, isFalse);
     });
 
     test('returns true when free user at limit', () async {
-      when(mockRepository.getItemsWithStatus()).thenAnswer((_) async => []);
-      when(mockRepository.countActiveItems())
-          .thenAnswer((_) async => kFreePlanItemLimit);
+      // Create exactly kFreePlanItemLimit items
+      final items = TestHelpers.createTestItems(count: kFreePlanItemLimit);
+      when(mockRepository.getItemsWithStatus())
+          .thenAnswer((_) async => items);
 
       container = createContainer();
 
-      final atLimit = await container.read(isAtItemLimitProvider.future);
+      await container.read(itemsProvider.future);
 
-      expect(atLimit, isTrue);
+      final atLimitAsync = container.read(isAtItemLimitProvider);
+
+      expect(atLimitAsync.value, isTrue);
     });
 
     test('returns false when free user below limit', () async {
-      when(mockRepository.getItemsWithStatus()).thenAnswer((_) async => []);
-      when(mockRepository.countActiveItems())
-          .thenAnswer((_) async => kFreePlanItemLimit - 1);
+      final items = TestHelpers.createTestItems(count: kFreePlanItemLimit - 1);
+      when(mockRepository.getItemsWithStatus())
+          .thenAnswer((_) async => items);
 
       container = createContainer();
 
-      final atLimit = await container.read(isAtItemLimitProvider.future);
+      await container.read(itemsProvider.future);
 
-      expect(atLimit, isFalse);
+      final atLimitAsync = container.read(isAtItemLimitProvider);
+
+      expect(atLimitAsync.value, isFalse);
     });
   });
 

@@ -148,7 +148,7 @@ class OfflineSyncService {
     try {
       // Remove stale entries older than _kMaxQueueEntryAgeDays days
       final staleCutoff = DateTime.now().subtract(
-        Duration(days: _kMaxQueueEntryAgeDays),
+        const Duration(days: _kMaxQueueEntryAgeDays),
       );
       await _db.removeEntriesOlderThan(staleCutoff);
 

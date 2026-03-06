@@ -5,16 +5,11 @@ import 'app_exceptions.dart';
 /// Base exception for file storage operations.
 class StorageException extends AppException {
   StorageException(
-    String message, {
-    String? code,
-    dynamic originalError,
-    StackTrace? stackTrace,
-  }) : super(
-          message,
-          code: code ?? 'STORAGE_ERROR',
-          originalError: originalError,
-          stackTrace: stackTrace,
-        );
+    super.message, {
+    super.code = 'STORAGE_ERROR',
+    super.originalError,
+    super.stackTrace,
+  });
 
   @override
   String get userMessage => 'Storage error occurred. Please try again.';
@@ -80,16 +75,11 @@ enum FileUploadFailureReason {
 /// Exception thrown when file download fails.
 class FileDownloadException extends StorageException {
   FileDownloadException(
-    String message, {
-    String? code,
-    dynamic originalError,
-    StackTrace? stackTrace,
-  }) : super(
-          message,
-          code: code ?? 'FILE_DOWNLOAD_FAILED',
-          originalError: originalError,
-          stackTrace: stackTrace,
-        );
+    super.message, {
+    super.code = 'FILE_DOWNLOAD_FAILED',
+    super.originalError,
+    super.stackTrace,
+  });
 
   @override
   String get userMessage => 'Failed to download file. Please try again.';
@@ -98,16 +88,11 @@ class FileDownloadException extends StorageException {
 /// Exception thrown when file deletion fails.
 class FileDeletionException extends StorageException {
   FileDeletionException(
-    String message, {
-    String? code,
-    dynamic originalError,
-    StackTrace? stackTrace,
-  }) : super(
-          message,
-          code: code ?? 'FILE_DELETION_FAILED',
-          originalError: originalError,
-          stackTrace: stackTrace,
-        );
+    super.message, {
+    super.code = 'FILE_DELETION_FAILED',
+    super.originalError,
+    super.stackTrace,
+  });
 
   @override
   String get userMessage => 'Failed to delete file. Please try again.';

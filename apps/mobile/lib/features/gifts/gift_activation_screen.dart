@@ -12,9 +12,9 @@ class GiftActivationScreen extends ConsumerStatefulWidget {
   final String giftId;
 
   const GiftActivationScreen({
-    Key? key,
+    super.key,
     required this.giftId,
-  }) : super(key: key);
+  });
 
   @override
   ConsumerState<GiftActivationScreen> createState() => _GiftActivationScreenState();

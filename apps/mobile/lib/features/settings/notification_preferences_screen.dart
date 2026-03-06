@@ -164,10 +164,10 @@ class _NotificationPreferencesScreenState
       ),
       body: prefsAsync.when(
         data: (_) => _buildForm(),
-        loading: () => Padding(
-          padding: const EdgeInsets.all(HavenSpacing.md),
+        loading: () => const Padding(
+          padding: EdgeInsets.all(HavenSpacing.md),
           child: Column(
-            children: const [
+            children: [
               SkeletonLine(height: 56),
               SizedBox(height: HavenSpacing.md),
               SkeletonLine(height: 56),
@@ -184,7 +184,7 @@ class _NotificationPreferencesScreenState
               margin: const EdgeInsets.fromLTRB(HavenSpacing.md, HavenSpacing.md, HavenSpacing.md, 0),
               padding: const EdgeInsets.all(HavenSpacing.md),
               decoration: BoxDecoration(
-                color: HavenColors.expiring.withOpacity(0.1),
+                color: HavenColors.expiring.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(HavenRadius.card),
               ),
               child: const Row(
@@ -429,7 +429,7 @@ class _NotificationPreferencesScreenState
             Switch.adaptive(
               value: value,
               onChanged: onChanged,
-              activeColor: HavenColors.primary,
+              activeTrackColor: HavenColors.primary,
             ),
           ],
         ),

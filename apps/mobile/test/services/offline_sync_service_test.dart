@@ -7,10 +7,12 @@ import 'package:havenkeep_mobile/core/services/items_repository.dart';
 import 'package:havenkeep_mobile/core/database/database.dart';
 import 'package:havenkeep_mobile/core/providers/items_provider.dart';
 import 'package:shared_models/shared_models.dart';
-import 'package:drift/drift.dart';
-
 import '../helpers/test_helpers.dart';
 import 'offline_sync_service_test.mocks.dart';
+
+/// A provider used solely to capture a [Ref] for constructing the
+/// [OfflineSyncService] in tests.
+final _testRefProvider = Provider<Ref>((ref) => ref);
 
 @GenerateMocks([HavenDatabase, ItemsRepository])
 void main() {
@@ -30,7 +32,8 @@ void main() {
       ],
     );
 
-    service = OfflineSyncService(mockDb, container);
+    final ref = container.read(_testRefProvider);
+    service = OfflineSyncService(mockDb, ref);
   });
 
   tearDown(() {

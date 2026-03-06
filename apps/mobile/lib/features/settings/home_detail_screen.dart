@@ -226,7 +226,7 @@ class _HomeDetailScreenState extends ConsumerState<HomeDetailScreen> {
 
                   // Home type
                   DropdownButtonFormField<HomeType>(
-                    value: _homeType,
+                    initialValue: _homeType,
                     dropdownColor: HavenColors.elevated,
                     style: const TextStyle(color: HavenColors.textPrimary),
                     decoration: const InputDecoration(labelText: 'Home Type'),

@@ -102,7 +102,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       radius: 24,
                       backgroundColor: HavenColors.primary,
                       backgroundImage: u?.avatarUrl != null && u!.avatarUrl!.isNotEmpty
-                          ? NetworkImage(u!.avatarUrl!)
+                          ? NetworkImage(u.avatarUrl!)
                           : null,
                       onBackgroundImageError: u?.avatarUrl != null
                           ? (error, __) {
@@ -219,7 +219,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               } catch (e) {
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Export failed. Please try again.')),
+                    const SnackBar(content: Text('Export failed. Please try again.')),
                   );
                 }
               }
@@ -267,7 +267,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           vertical: HavenSpacing.xs,
                         ),
                         decoration: BoxDecoration(
-                          color: HavenColors.primary.withOpacity(0.2),
+                          color: HavenColors.primary.withValues(alpha: 0.2),
                           borderRadius:
                               BorderRadius.circular(HavenRadius.chip),
                         ),
@@ -350,7 +350,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     ),
                   ),
                   value: _biometricEnabled,
-                  activeColor: HavenColors.primary,
+                  activeThumbColor: HavenColors.primary,
                   onChanged: (value) async {
                     if (value) {
                       // Require biometric verification before enabling
@@ -616,12 +616,12 @@ class _PendingChangesSection extends ConsumerWidget {
           padding: const EdgeInsets.all(HavenSpacing.md),
           decoration: BoxDecoration(
             color: failedCount > 0
-                ? HavenColors.expired.withOpacity(0.08)
+                ? HavenColors.expired.withValues(alpha: 0.08)
                 : HavenColors.surface,
             borderRadius: BorderRadius.circular(HavenRadius.card),
             border: Border.all(
               color: failedCount > 0
-                  ? HavenColors.expired.withOpacity(0.3)
+                  ? HavenColors.expired.withValues(alpha: 0.3)
                   : HavenColors.border,
             ),
           ),

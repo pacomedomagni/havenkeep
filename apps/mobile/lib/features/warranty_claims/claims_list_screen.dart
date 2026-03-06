@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -40,16 +39,16 @@ class ClaimsListScreen extends ConsumerWidget {
         ),
         data: (claims) {
           if (claims.isEmpty) {
-            return Center(
+            return const Center(
               child: Padding(
-                padding: const EdgeInsets.all(HavenSpacing.xl),
+                padding: EdgeInsets.all(HavenSpacing.xl),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.receipt_long_outlined,
+                    Icon(Icons.receipt_long_outlined,
                         size: 64, color: HavenColors.textTertiary),
-                    const SizedBox(height: HavenSpacing.md),
-                    const Text(
+                    SizedBox(height: HavenSpacing.md),
+                    Text(
                       'No warranty claims yet',
                       style: TextStyle(
                         fontSize: 18,
@@ -57,8 +56,8 @@ class ClaimsListScreen extends ConsumerWidget {
                         color: HavenColors.textPrimary,
                       ),
                     ),
-                    const SizedBox(height: HavenSpacing.sm),
-                    const Text(
+                    SizedBox(height: HavenSpacing.sm),
+                    Text(
                       'When you file a warranty claim,\nit will appear here.',
                       textAlign: TextAlign.center,
                       style: TextStyle(
@@ -175,9 +174,12 @@ class _ClaimCard extends ConsumerWidget {
 
   Color _statusColor(ClaimStatus status) => switch (status) {
         ClaimStatus.pending => HavenColors.expiring,
-        ClaimStatus.in_progress => HavenColors.primary,
+        ClaimStatus.submitted => HavenColors.expiring,
+        ClaimStatus.inReview => HavenColors.primary,
+        ClaimStatus.approved => HavenColors.active,
         ClaimStatus.completed => HavenColors.active,
         ClaimStatus.denied => HavenColors.expired,
+        ClaimStatus.cancelled => HavenColors.expired,
       };
 
   @override
@@ -243,7 +245,7 @@ class _ClaimCard extends ConsumerWidget {
                       vertical: 2,
                     ),
                     decoration: BoxDecoration(
-                      color: color.withOpacity(0.15),
+                      color: color.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(HavenRadius.chip),
                     ),
                     child: Text(
@@ -329,7 +331,7 @@ class _SavingsFeedEntry extends StatelessWidget {
             width: 36,
             height: 36,
             decoration: BoxDecoration(
-              color: HavenColors.active.withOpacity(0.12),
+              color: HavenColors.active.withValues(alpha: 0.12),
               shape: BoxShape.circle,
             ),
             child: const Icon(

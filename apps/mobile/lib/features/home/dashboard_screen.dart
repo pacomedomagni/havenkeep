@@ -60,7 +60,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     final needsAttention = ref.watch(needsAttentionProvider);
     final items = ref.watch(itemsProvider);
     final firstName =
-        user.value?.fullName?.split(' ').first ?? 'there';
+        user.value?.fullName.split(' ').first ?? 'there';
 
     final hasItems =
         items.valueOrNull?.isNotEmpty ?? false;
@@ -391,7 +391,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
   Widget _buildAttentionCard(Item item) {
     final status = item.computedWarrantyStatus;
-    final days = item.computedDaysRemaining ?? 0;
+    final days = item.computedDaysRemaining;
     final isExpired = status == WarrantyStatus.expired;
     final color = isExpired ? HavenColors.expired : HavenColors.expiring;
 
@@ -480,11 +480,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         children: [
           const Text('💡', style: TextStyle(fontSize: 20)),
           const SizedBox(width: HavenSpacing.sm),
-          Expanded(
+          const Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
+                Text(
                   'TIP',
                   style: TextStyle(
                     fontSize: 10,
@@ -493,8 +493,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     letterSpacing: 1,
                   ),
                 ),
-                const SizedBox(height: HavenSpacing.xs),
-                const Text(
+                SizedBox(height: HavenSpacing.xs),
+                Text(
                   'Add receipts to your items so you have proof of purchase ready for claims.',
                   style: TextStyle(
                     fontSize: 13,
@@ -562,7 +562,7 @@ class _MaintenanceCard extends ConsumerWidget {
                     color: (summary.totalOverdue > 0
                             ? HavenColors.expired
                             : HavenColors.expiring)
-                        .withOpacity(0.15),
+                        .withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(HavenRadius.card),
                   ),
                   child: Icon(
@@ -729,7 +729,7 @@ class _SavingsEntry extends StatelessWidget {
             width: 32,
             height: 32,
             decoration: BoxDecoration(
-              color: HavenColors.active.withOpacity(0.12),
+              color: HavenColors.active.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(8),
             ),
             child: const Icon(

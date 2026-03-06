@@ -57,16 +57,16 @@ class MaintenanceScreen extends ConsumerWidget {
         ),
         data: (summary) {
           if (summary.items.isEmpty) {
-            return Center(
+            return const Center(
               child: Padding(
-                padding: const EdgeInsets.all(HavenSpacing.xl),
+                padding: EdgeInsets.all(HavenSpacing.xl),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.build_outlined,
+                    Icon(Icons.build_outlined,
                         size: 64, color: HavenColors.textTertiary),
-                    const SizedBox(height: HavenSpacing.md),
-                    const Text(
+                    SizedBox(height: HavenSpacing.md),
+                    Text(
                       'No maintenance tasks',
                       style: TextStyle(
                         fontSize: 18,
@@ -74,8 +74,8 @@ class MaintenanceScreen extends ConsumerWidget {
                         color: HavenColors.textPrimary,
                       ),
                     ),
-                    const SizedBox(height: HavenSpacing.sm),
-                    const Text(
+                    SizedBox(height: HavenSpacing.sm),
+                    Text(
                       'Maintenance schedules will appear\nhere based on your items.',
                       textAlign: TextAlign.center,
                       style: TextStyle(
@@ -258,7 +258,7 @@ class _MaintenanceItemCard extends StatelessWidget {
                       vertical: 2,
                     ),
                     decoration: BoxDecoration(
-                      color: HavenColors.expired.withOpacity(0.15),
+                      color: HavenColors.expired.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(HavenRadius.chip),
                     ),
                     child: Text(
@@ -327,7 +327,7 @@ class _MaintenanceItemCard extends StatelessWidget {
                                     vertical: 2,
                                   ),
                                   decoration: BoxDecoration(
-                                    color: HavenColors.primary.withOpacity(0.15),
+                                    color: HavenColors.primary.withValues(alpha: 0.15),
                                     borderRadius: BorderRadius.circular(4),
                                   ),
                                   child: const Text(

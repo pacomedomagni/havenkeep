@@ -4,7 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_ui/shared_ui.dart';
 
 import '../../core/providers/auth_provider.dart';
-import '../../core/utils/error_handler.dart';
 
 /// Forgot password screen — request a password reset email.
 class ForgotPasswordScreen extends ConsumerStatefulWidget {

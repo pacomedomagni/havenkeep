@@ -1,7 +1,7 @@
-/// Environment configuration for HavenKeep mobile app.
-///
-/// Defines the three environments (development, staging, production) and
-/// provides type-safe access to environment-specific settings.
+// Environment configuration for HavenKeep mobile app.
+//
+// Defines the three environments (development, staging, production) and
+// provides type-safe access to environment-specific settings.
 
 enum Environment {
   development,

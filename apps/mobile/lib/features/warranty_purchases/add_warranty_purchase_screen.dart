@@ -124,7 +124,7 @@ class _AddWarrantyPurchaseScreenState
 
   Widget _buildItemPicker(List<Item> items) {
     return DropdownButtonFormField<String>(
-      value: _selectedItemId,
+      initialValue: _selectedItemId,
       decoration: const InputDecoration(
         labelText: 'Item',
       ),

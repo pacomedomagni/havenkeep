@@ -37,7 +37,6 @@ class EmailScansNotifier extends AsyncNotifier<List<EmailScan>> {
     return scans;
   }
 
-  @override
   void dispose() {
     for (final timer in _pollingTimers.values) {
       timer.cancel();

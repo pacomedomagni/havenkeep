@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:ui';
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
@@ -14,7 +13,6 @@ import 'core/config/environment.dart';
 import 'core/config/environment_config.dart';
 import 'core/config/firebase_options.dart';
 import 'core/router/router.dart';
-import 'core/database/database.dart';
 import 'core/services/logging_service.dart';
 import 'core/services/offline_sync_service.dart';
 import 'core/services/push_notification_service.dart';
@@ -70,7 +68,6 @@ Future<void> main() async {
 
       // Initialize API client
       final apiClient = ApiClient(baseUrl: config.apiBaseUrl);
-      setGlobalApiClient(apiClient);
       try {
         await apiClient.restoreSession();
       } catch (e) {
