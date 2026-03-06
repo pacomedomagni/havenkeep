@@ -2,9 +2,6 @@ import { Request, Response, NextFunction } from 'express';
 import { logger } from '../utils/logger';
 import { AppError } from '../utils/errors';
 
-// Re-export AppError so existing imports from this file continue to work
-export { AppError } from '../utils/errors';
-
 export function errorHandler(
   err: Error,
   req: Request,

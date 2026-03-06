@@ -4,13 +4,10 @@ export type CommissionStatus = 'pending' | 'approved' | 'paid' | 'cancelled';
 
 export interface Referral {
   id: string;
-  partnerId?: string;
   code?: string;
   referredEmail?: string;
   referredName?: string;
-  referredUserId?: string;
   plan?: string;
-  itemCount?: number;
   status: ReferralStatus;
   convertedAt?: string;
   createdAt: string;

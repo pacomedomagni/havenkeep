@@ -72,10 +72,6 @@ class RedisStore {
     return { totalHits, resetTime };
   }
 
-  async decrement(key: string): Promise<void> {
-    // Optional: implement if needed
-  }
-
   async resetKey(key: string): Promise<void> {
     const redisKey = this.prefix + key;
     await this.client.del(redisKey);

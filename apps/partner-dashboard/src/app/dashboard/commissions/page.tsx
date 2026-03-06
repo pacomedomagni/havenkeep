@@ -5,13 +5,7 @@ import CommissionTable from '@/components/commission-table';
 import { CurrencyDollarIcon, ClockIcon } from '@heroicons/react/24/outline';
 import type { Commission, CommissionStatus } from '@/lib/types';
 import { apiClient } from '@/lib/api';
-
-function formatDollar(amount: number): string {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-  }).format(amount);
-}
+import { formatCurrency } from '@/lib/utils';
 
 export default function CommissionsPage() {
   const [commissions, setCommissions] = useState<Commission[]>([]);
@@ -89,14 +83,14 @@ export default function CommissionsPage() {
             <ClockIcon className="w-5 h-5 text-haven-warning" />
             <span className="text-sm text-haven-text-secondary">Pending Commissions</span>
           </div>
-          <p className="text-2xl font-bold text-haven-warning">{formatDollar(pendingTotal)}</p>
+          <p className="text-2xl font-bold text-haven-warning">{formatCurrency(pendingTotal)}</p>
         </div>
         <div className="card">
           <div className="flex items-center gap-3 mb-2">
             <CurrencyDollarIcon className="w-5 h-5 text-haven-active" />
             <span className="text-sm text-haven-text-secondary">Total Paid</span>
           </div>
-          <p className="text-2xl font-bold text-haven-active">{formatDollar(paidTotal)}</p>
+          <p className="text-2xl font-bold text-haven-active">{formatCurrency(paidTotal)}</p>
         </div>
       </div>
 

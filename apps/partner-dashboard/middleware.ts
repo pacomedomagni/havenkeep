@@ -1,9 +1,17 @@
 import { NextResponse, type NextRequest } from 'next/server'
 
 const API_URL = process.env.API_URL || 'http://localhost:3000' // Must match lib/config.ts
+
+// NOTE: ACCESS_TOKEN_COOKIE and REFRESH_TOKEN_COOKIE are also defined in src/lib/auth.ts.
+// We cannot import from @/lib/auth here because auth.ts imports server-only modules
+// (cookies from next/headers, redirect from next/navigation) at the top level,
+// which are not available in the Edge runtime used by middleware.
 const ACCESS_TOKEN_COOKIE = 'hk_access_token'
 const REFRESH_TOKEN_COOKIE = 'hk_refresh_token'
 
+// NOTE: decodeJwtPayload is also defined in src/lib/auth.ts with a narrower return type.
+// We cannot import it here for the same Edge runtime reason described above.
+// This version includes isAdmin/isPartner fields needed for role-based routing.
 // Decodes JWT payload WITHOUT signature verification.
 // This is intentional — Edge middleware cannot use Node.js crypto for signature verification.
 // Security is enforced server-side: all API calls go through the Express authenticate middleware

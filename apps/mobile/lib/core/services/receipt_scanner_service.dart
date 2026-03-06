@@ -27,7 +27,7 @@ class ReceiptScannerService {
         body: {'image': base64Image},
       );
 
-      final data = response['data'] as Map<String, dynamic>? ?? response;
+      final data = response['data'] as Map<String, dynamic>;
       return ReceiptScanResult.fromJson(data);
     } catch (e) {
       debugPrint('[ReceiptScanner] Scan failed: $e');

@@ -1,6 +1,7 @@
 'use client';
 
 import type { Commission, CommissionStatus } from '@/lib/types';
+import { formatCurrency } from '@/lib/utils';
 
 interface CommissionTableProps {
   commissions: Commission[];
@@ -15,13 +16,6 @@ function StatusBadge({ status }: { status: CommissionStatus }) {
       : 'badge-cancelled';
 
   return <span className={badgeClass}>{status.charAt(0).toUpperCase() + status.slice(1)}</span>;
-}
-
-function formatDollar(amount: number): string {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-  }).format(amount);
 }
 
 export default function CommissionTable({ commissions }: CommissionTableProps) {
@@ -57,7 +51,7 @@ export default function CommissionTable({ commissions }: CommissionTableProps) {
                 {commission.partnerId}
               </td>
               <td className="py-3 px-4 text-sm text-white font-medium text-right">
-                {formatDollar(commission.amount)}
+                {formatCurrency(commission.amount)}
               </td>
               <td className="py-3 px-4">
                 <StatusBadge status={commission.status} />

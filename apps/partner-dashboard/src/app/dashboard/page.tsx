@@ -9,6 +9,7 @@ import {
   CurrencyDollarIcon,
 } from '@heroicons/react/24/outline';
 import { apiClient } from '@/lib/api';
+import { formatCurrency } from '@/lib/utils';
 
 interface Analytics {
   total_gifts: number;
@@ -52,13 +53,6 @@ export default function DashboardPage() {
       </div>
     );
   }
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-    }).format(amount);
-  };
 
   return (
     <div className="space-y-6">

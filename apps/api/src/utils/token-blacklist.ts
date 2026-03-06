@@ -66,25 +66,16 @@ function getTokenRemainingTtl(token: string): number {
 }
 
 /**
- * Blacklist a JWT access token. The token will be rejected by authenticate()
- * until its natural expiration (TTL is set to token's remaining lifetime).
+ * Blacklist a token using its embedded exp claim to calculate TTL.
+ * The token will be rejected by authenticate() until its natural expiration.
  *
  * Throws on failure so callers can decide how to handle it.
- */
-export async function blacklistToken(token: string, expiresInSeconds: number): Promise<void> {
-  const client = await getClient();
-  const ttl = Math.max(expiresInSeconds, 1);
-  await client.set(`${BLACKLIST_PREFIX}${token}`, '1', { EX: ttl });
-}
-
-/**
- * Blacklist a token using its embedded exp claim to calculate TTL.
- * This is the preferred method — avoids hardcoded TTL values.
  */
 export async function blacklistTokenAuto(token: string): Promise<void> {
   const ttl = getTokenRemainingTtl(token);
   if (ttl <= 0) return; // Already expired, no need to blacklist
-  await blacklistToken(token, ttl);
+  const client = await getClient();
+  await client.set(`${BLACKLIST_PREFIX}${token}`, '1', { EX: ttl });
 }
 
 /**

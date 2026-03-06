@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { API_URL } from '@/lib/config';
-
-const ACCESS_TOKEN_COOKIE = 'hk_access_token';
+import { ACCESS_TOKEN_COOKIE } from '@/lib/auth';
 
 async function proxyRequest(request: NextRequest, pathParts: string[]) {
   const url = new URL(request.url);

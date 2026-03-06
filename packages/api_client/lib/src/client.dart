@@ -476,31 +476,3 @@ final apiClientProvider = Provider<ApiClient>((ref) {
     'apiClientProvider must be overridden in main() ProviderScope',
   );
 });
-
-/// Returns the current authenticated user's ID, or null if not logged in.
-@Deprecated('Use ref.read(apiClientProvider).currentUserId instead')
-String? getCurrentUserId() {
-  // This is accessed via the global ApiClient instance
-  // For backward compatibility, we provide this as a standalone function
-  return _globalApiClient?.currentUserId;
-}
-
-/// Returns the current authenticated user's ID.
-/// Throws [StateError] if not logged in.
-@Deprecated('Use ref.read(apiClientProvider).currentUserId instead')
-String requireCurrentUserId() {
-  final id = getCurrentUserId();
-  if (id == null) {
-    throw StateError('User is not authenticated');
-  }
-  return id;
-}
-
-/// Internal reference to the global ApiClient for the standalone functions.
-ApiClient? _globalApiClient;
-
-/// Set the global ApiClient reference (called from main.dart).
-@Deprecated('Use apiClientProvider override in ProviderScope instead')
-void setGlobalApiClient(ApiClient client) {
-  _globalApiClient = client;
-}

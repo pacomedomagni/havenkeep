@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import ConversionFunnel from '@/components/charts/conversion-funnel';
 import EarningsChart from '@/components/charts/earnings-chart';
 import { apiClient } from '@/lib/api';
+import { formatCurrency } from '@/lib/utils';
 
 interface AnalyticsData {
   total_gifts: number;
@@ -71,13 +72,6 @@ export default function AnalyticsPage() {
       </div>
     );
   }
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-    }).format(amount);
-  };
 
   return (
     <div className="space-y-6">

@@ -34,9 +34,7 @@ export default function ReferralsPage() {
           id: r.id,
           referredEmail: r.email_masked,
           referredName: r.full_name,
-          referredUserId: r.id,
           plan: r.plan,
-          itemCount: r.item_count,
           status: r.plan !== 'free'
             ? ('converted' as ReferralStatus)
             : ('pending' as ReferralStatus),

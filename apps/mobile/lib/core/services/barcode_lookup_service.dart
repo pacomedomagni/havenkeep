@@ -22,7 +22,7 @@ class BarcodeLookupService {
       );
 
       return BarcodeLookupResult.fromJson(
-          data['data'] as Map<String, dynamic>? ?? data);
+          data['data'] as Map<String, dynamic>);
     } catch (e) {
       debugPrint('[BarcodeLookup] Lookup failed: $e');
       // Return empty result instead of throwing

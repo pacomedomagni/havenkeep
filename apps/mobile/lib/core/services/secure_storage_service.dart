@@ -21,83 +21,9 @@ class SecureStorageService {
   );
 
   // Storage keys
-  static const _keyRefreshToken = 'refresh_token';
-  static const _keyAccessToken = 'access_token';
   static const _keyDeviceId = 'device_id';
   static const _keyPushToken = 'push_token';
   static const _keyBiometricEnabled = 'biometric_enabled';
-
-  /// Save refresh token securely.
-  ///
-  /// Called after successful authentication.
-  @Deprecated('Auth tokens are managed by ApiClient. Use ApiClient.saveTokens/clearTokens instead.')
-  static Future<void> saveRefreshToken(String token) async {
-    try {
-      await _storage.write(key: _keyRefreshToken, value: token);
-      LoggingService.debug('Refresh token saved to secure storage');
-    } catch (e, stack) {
-      LoggingService.error('Failed to save refresh token', e, stack);
-      rethrow;
-    }
-  }
-
-  /// Retrieve refresh token.
-  ///
-  /// Returns null if not found or error occurs.
-  @Deprecated('Auth tokens are managed by ApiClient. Use ApiClient.saveTokens/clearTokens instead.')
-  static Future<String?> getRefreshToken() async {
-    try {
-      return await _storage.read(key: _keyRefreshToken);
-    } catch (e, stack) {
-      LoggingService.error('Failed to read refresh token', e, stack);
-      return null;
-    }
-  }
-
-  /// Delete refresh token.
-  ///
-  /// Called on sign out.
-  @Deprecated('Auth tokens are managed by ApiClient. Use ApiClient.saveTokens/clearTokens instead.')
-  static Future<void> deleteRefreshToken() async {
-    try {
-      await _storage.delete(key: _keyRefreshToken);
-      LoggingService.debug('Refresh token deleted from secure storage');
-    } catch (e, stack) {
-      LoggingService.error('Failed to delete refresh token', e, stack);
-    }
-  }
-
-  /// Save access token securely.
-  @Deprecated('Auth tokens are managed by ApiClient. Use ApiClient.saveTokens/clearTokens instead.')
-  static Future<void> saveAccessToken(String token) async {
-    try {
-      await _storage.write(key: _keyAccessToken, value: token);
-    } catch (e, stack) {
-      LoggingService.error('Failed to save access token', e, stack);
-      rethrow;
-    }
-  }
-
-  /// Retrieve access token.
-  @Deprecated('Auth tokens are managed by ApiClient. Use ApiClient.saveTokens/clearTokens instead.')
-  static Future<String?> getAccessToken() async {
-    try {
-      return await _storage.read(key: _keyAccessToken);
-    } catch (e, stack) {
-      LoggingService.error('Failed to read access token', e, stack);
-      return null;
-    }
-  }
-
-  /// Delete access token.
-  @Deprecated('Auth tokens are managed by ApiClient. Use ApiClient.saveTokens/clearTokens instead.')
-  static Future<void> deleteAccessToken() async {
-    try {
-      await _storage.delete(key: _keyAccessToken);
-    } catch (e, stack) {
-      LoggingService.error('Failed to delete access token', e, stack);
-    }
-  }
 
   /// Save device ID for push notifications.
   ///
