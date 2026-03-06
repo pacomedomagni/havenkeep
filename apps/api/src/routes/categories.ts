@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { query } from '../db';
 import { authenticate } from '../middleware/auth';
 import { asyncHandler } from '../utils/async-handler';
+import { sendSuccess } from '../utils/response';
 
 const router = Router();
 
@@ -20,10 +21,7 @@ router.get(
       `SELECT * FROM category_defaults ORDER BY category ASC`
     );
 
-    res.json({
-      success: true,
-      data: result.rows,
-    });
+    sendSuccess(res, result.rows);
   })
 );
 
@@ -42,10 +40,7 @@ router.get(
       [category]
     );
 
-    res.json({
-      success: true,
-      data: result.rows,
-    });
+    sendSuccess(res, result.rows);
   })
 );
 

@@ -16,7 +16,7 @@ class HomesRepository {
   Future<List<Home>> getHomes() async {
     try {
       final data = await _client.get('/api/v1/homes');
-      final homes = data['homes'] as List;
+      final homes = data['data'] as List;
       return homes
           .map((json) => Home.fromJson(json as Map<String, dynamic>))
           .toList();
@@ -30,7 +30,7 @@ class HomesRepository {
   Future<Home> getHomeById(String id) async {
     try {
       final data = await _client.get('/api/v1/homes/$id');
-      return Home.fromJson(data['home'] as Map<String, dynamic>);
+      return Home.fromJson(data['data'] as Map<String, dynamic>);
     } catch (e) {
       debugPrint('[HomesRepository] getHomeById failed: $e');
       rethrow;
@@ -59,7 +59,7 @@ class HomesRepository {
       json.remove('id');
 
       final data = await _client.post('/api/v1/homes', body: json);
-      return Home.fromJson(data['home'] as Map<String, dynamic>);
+      return Home.fromJson(data['data'] as Map<String, dynamic>);
     } catch (e) {
       debugPrint('[HomesRepository] createHome failed: $e');
       rethrow;
@@ -78,7 +78,7 @@ class HomesRepository {
       json.remove('id');
 
       final data = await _client.put('/api/v1/homes/${home.id}', body: json);
-      return Home.fromJson(data['home'] as Map<String, dynamic>);
+      return Home.fromJson(data['data'] as Map<String, dynamic>);
     } catch (e) {
       debugPrint('[HomesRepository] updateHome failed: $e');
       rethrow;

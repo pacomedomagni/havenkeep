@@ -8,6 +8,7 @@ import { AppError } from '../utils/errors';
 import { AuditService } from '../services/audit.service';
 import { getRedisClient } from '../utils/redis';
 import { logger } from '../utils/logger';
+import { sendSuccess, sendMessage } from '../utils/response';
 
 const ADMIN_STATS_TTL = 60; // 60 seconds
 
@@ -16,14 +17,12 @@ router.use(authenticate);
 
 // Current user info (accessible to admins AND partners)
 router.get('/me', (req, res) => {
-  res.json({
-    user: {
-      id: req.user!.id,
-      email: req.user!.email,
-      plan: req.user!.plan,
-      isAdmin: req.user!.isAdmin,
-      isPartner: req.user!.isPartner,
-    },
+  sendSuccess(res, {
+    id: req.user!.id,
+    email: req.user!.email,
+    plan: req.user!.plan,
+    is_admin: req.user!.isAdmin,
+    is_partner: req.user!.isPartner,
   });
 });
 
@@ -38,7 +37,7 @@ router.get('/stats', async (req, res, next) => {
       const redis = await getRedisClient();
       const cached = await redis.get('admin:stats');
       if (cached) {
-        return res.json({ stats: JSON.parse(cached) });
+        return sendSuccess(res, JSON.parse(cached));
       }
     } catch (err) {
       logger.warn({ err }, 'Redis cache read failed for admin:stats, falling back to DB');
@@ -63,7 +62,7 @@ router.get('/stats', async (req, res, next) => {
       logger.warn({ err }, 'Redis cache write failed for admin:stats');
     }
 
-    res.json({ stats: stats.rows[0] });
+    sendSuccess(res, stats.rows[0]);
   } catch (error) {
     next(error);
   }
@@ -77,7 +76,7 @@ router.get('/stats/full', async (req, res, next) => {
       const redis = await getRedisClient();
       const cached = await redis.get('admin:stats:full');
       if (cached) {
-        return res.json({ stats: JSON.parse(cached) });
+        return sendSuccess(res, JSON.parse(cached));
       }
     } catch (err) {
       logger.warn({ err }, 'Redis cache read failed for admin:stats:full, falling back to DB');
@@ -106,7 +105,7 @@ router.get('/stats/full', async (req, res, next) => {
       logger.warn({ err }, 'Redis cache write failed for admin:stats:full');
     }
 
-    res.json({ stats: stats.rows[0] });
+    sendSuccess(res, stats.rows[0]);
   } catch (error) {
     next(error);
   }
@@ -125,7 +124,7 @@ router.get('/stats/daily-signups', validate(dateRangeQuerySchema, 'query'), asyn
       GROUP BY DATE(created_at)
       ORDER BY date ASC
     `, [days]);
-    res.json({ data: result.rows });
+    sendSuccess(res, result.rows);
   } catch (error) {
     next(error);
   }
@@ -144,7 +143,7 @@ router.get('/stats/daily-items', validate(dateRangeQuerySchema, 'query'), async 
       GROUP BY DATE(created_at)
       ORDER BY date ASC
     `, [days]);
-    res.json({ data: result.rows });
+    sendSuccess(res, result.rows);
   } catch (error) {
     next(error);
   }
@@ -169,7 +168,7 @@ router.get('/users/activity', async (req, res, next) => {
       ORDER BY u.created_at DESC
       LIMIT 500
     `);
-    res.json({ users: result.rows });
+    sendSuccess(res, result.rows);
   } catch (error) {
     next(error);
   }
@@ -195,13 +194,12 @@ router.get('/users', validate(paginationSchema, 'query'), async (req, res, next)
 
     const total = parseInt(countResult.rows[0].count, 10);
 
-    res.json({
-      users: result.rows,
+    sendSuccess(res, result.rows, {
       pagination: {
         page: pageNum,
         limit: limitNum,
         total,
-        totalPages: Math.ceil(total / limitNum),
+        total_pages: Math.ceil(total / limitNum),
       },
     });
   } catch (error) {
@@ -243,7 +241,7 @@ router.put('/users/:id/suspend', validate(userIdParamSchema, 'params'), async (r
       description: `Admin suspended user: ${targetUser.rows[0].email}`,
     });
 
-    res.json({ success: true, message: 'User suspended', user: { id, email: targetUser.rows[0].email } });
+    sendSuccess(res, { id, email: targetUser.rows[0].email }, { message: 'User suspended' });
   } catch (error) {
     next(error);
   }
@@ -275,7 +273,7 @@ router.put('/users/:id/unsuspend', validate(userIdParamSchema, 'params'), async 
       description: `Admin unsuspended user: ${result.rows[0].email}`,
     });
 
-    res.json({ success: true, message: 'User unsuspended', user: result.rows[0] });
+    sendSuccess(res, result.rows[0], { message: 'User unsuspended' });
   } catch (error) {
     next(error);
   }
@@ -314,7 +312,7 @@ router.delete('/users/:id', validate(userIdParamSchema, 'params'), async (req, r
       description: `Admin deleted user: ${result.rows[0].email}`,
     });
 
-    res.json({ success: true, message: 'User deleted', user: result.rows[0] });
+    sendSuccess(res, result.rows[0], { message: 'User deleted' });
   } catch (error) {
     next(error);
   }
@@ -333,11 +331,7 @@ router.get('/partners/pending', async (req, res, next) => {
        ORDER BY p.created_at DESC`
     );
 
-    res.json({
-      success: true,
-      data: result.rows,
-      total: result.rows.length,
-    });
+    sendSuccess(res, result.rows);
   } catch (error) {
     next(error);
   }
@@ -366,11 +360,7 @@ router.put('/partners/:id/approve', validate(userIdParamSchema, 'params'), async
       description: `Admin approved partner: ${result.rows[0].company_name || id}`,
     });
 
-    res.json({
-      success: true,
-      data: result.rows[0],
-      message: 'Partner approved',
-    });
+    sendSuccess(res, result.rows[0], { message: 'Partner approved' });
   } catch (error) {
     next(error);
   }
@@ -399,11 +389,7 @@ router.put('/partners/:id/reject', validate(userIdParamSchema, 'params'), async 
       description: `Admin rejected partner: ${result.rows[0].company_name || id}`,
     });
 
-    res.json({
-      success: true,
-      data: result.rows[0],
-      message: 'Partner rejected',
-    });
+    sendSuccess(res, result.rows[0], { message: 'Partner rejected' });
   } catch (error) {
     next(error);
   }
@@ -476,13 +462,12 @@ router.get('/partners', validate(paginationSchema, 'query'), async (req, res, ne
 
     const total = parseInt(countResult.rows[0].count, 10);
 
-    res.json({
-      partners: result.rows,
+    sendSuccess(res, result.rows, {
       pagination: {
         page,
         limit,
         total,
-        totalPages: Math.ceil(total / limit),
+        total_pages: Math.ceil(total / limit),
       },
     });
   } catch (error) {
@@ -531,7 +516,7 @@ router.get('/partners/:id', validate(userIdParamSchema, 'params'), async (req, r
       throw new AppError('Partner not found', 404);
     }
 
-    res.json({ partner: result.rows[0] });
+    sendSuccess(res, result.rows[0]);
   } catch (error) {
     next(error);
   }
@@ -595,13 +580,12 @@ router.get('/commissions', validate(paginationSchema, 'query'), async (req, res,
 
     const total = parseInt(countResult.rows[0].count, 10);
 
-    res.json({
-      commissions: result.rows,
+    sendSuccess(res, result.rows, {
       pagination: {
         page,
         limit,
         total,
-        totalPages: Math.ceil(total / limit),
+        total_pages: Math.ceil(total / limit),
       },
     });
   } catch (error) {
@@ -625,7 +609,7 @@ router.get('/commissions/stats', async (req, res, next) => {
       FROM partner_commissions
     `);
 
-    res.json(result.rows[0]);
+    sendSuccess(res, result.rows[0]);
   } catch (error) {
     next(error);
   }

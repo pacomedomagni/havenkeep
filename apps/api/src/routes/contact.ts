@@ -6,6 +6,7 @@ import { validate } from '../middleware/validate';
 import { asyncHandler } from '../utils/async-handler';
 import { EmailService } from '../services/email.service';
 import { contactRateLimiter } from '../middleware/rateLimiter';
+import { sendMessage } from '../utils/response';
 
 const router = Router();
 
@@ -78,10 +79,7 @@ router.post(
 
     logger.info({ email, subject }, 'Contact form submission received');
 
-    return res.status(200).json({
-      success: true,
-      message: 'Message sent successfully. We will get back to you within 24 hours.',
-    });
+    return sendMessage(res, 'Message sent successfully. We will get back to you within 24 hours.');
   })
 );
 

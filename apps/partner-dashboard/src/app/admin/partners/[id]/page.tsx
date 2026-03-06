@@ -6,7 +6,7 @@ import { GiftIcon, UserGroupIcon, CurrencyDollarIcon } from '@heroicons/react/24
 
 async function getPartner(id: string) {
   try {
-    const { partner } = await serverApiClient<{ partner: any }>(`/api/v1/admin/partners/${id}`)
+    const { data: partner } = await serverApiClient<{ data: any }>(`/api/v1/admin/partners/${id}`)
     return partner
   } catch {
     return null

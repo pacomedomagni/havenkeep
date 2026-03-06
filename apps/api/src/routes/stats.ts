@@ -5,6 +5,7 @@ import { asyncHandler } from '../utils/async-handler';
 import { validate } from '../middleware/validate';
 import { writeRateLimiter } from '../middleware/rateLimiter';
 import { trackEngagementSchema, trackFeatureSchema } from '../validators';
+import { sendSuccess, sendMessage } from '../utils/response';
 
 const router = Router();
 
@@ -22,10 +23,7 @@ router.get(
     const userId = req.user!.id;
     const stats = await StatsService.getDashboardStats(userId);
 
-    res.json({
-      success: true,
-      data: stats,
-    });
+    sendSuccess(res, stats);
   })
 );
 
@@ -40,10 +38,7 @@ router.get(
     const userId = req.user!.id;
     const breakdown = await StatsService.getHealthScoreBreakdown(userId);
 
-    res.json({
-      success: true,
-      data: breakdown,
-    });
+    sendSuccess(res, breakdown);
   })
 );
 
@@ -58,11 +53,7 @@ router.post(
     const userId = req.user!.id;
     const score = await StatsService.calculateHealthScore(userId);
 
-    res.json({
-      success: true,
-      data: { score },
-      message: 'Health score recalculated',
-    });
+    sendSuccess(res, { score }, { message: 'Health score recalculated' });
   })
 );
 
@@ -77,10 +68,7 @@ router.get(
     const userId = req.user!.id;
     const analytics = await StatsService.getUserAnalytics(userId);
 
-    res.json({
-      success: true,
-      data: analytics,
-    });
+    sendSuccess(res, analytics);
   })
 );
 
@@ -95,10 +83,7 @@ router.get(
     const userId = req.user!.id;
     const items = await StatsService.getItemsNeedingAttention(userId);
 
-    res.json({
-      success: true,
-      data: items,
-    });
+    sendSuccess(res, items);
   })
 );
 
@@ -120,10 +105,7 @@ router.post(
       sessionDuration: session_duration,
     });
 
-    res.json({
-      success: true,
-      message: 'Engagement tracked',
-    });
+    sendMessage(res, 'Engagement tracked');
   })
 );
 
@@ -142,10 +124,7 @@ router.post(
 
     await StatsService.trackFeatureUsage(userId, feature);
 
-    res.json({
-      success: true,
-      message: 'Feature usage tracked',
-    });
+    sendMessage(res, 'Feature usage tracked');
   })
 );
 

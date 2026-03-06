@@ -20,7 +20,7 @@ class DocumentsRepository {
       final data = await _client.get('/api/v1/documents',
           queryParams: {'item_id': itemId});
 
-      final docs = data['documents'] as List;
+      final docs = data['data'] as List;
       return docs
           .map((json) => Document.fromJson(json as Map<String, dynamic>))
           .toList();
@@ -34,7 +34,7 @@ class DocumentsRepository {
   Future<List<Document>> getAllDocuments() async {
     try {
       final data = await _client.get('/api/v1/documents');
-      final docs = data['documents'] as List;
+      final docs = data['data'] as List;
       return docs
           .map((json) => Document.fromJson(json as Map<String, dynamic>))
           .toList();
@@ -70,7 +70,7 @@ class DocumentsRepository {
         },
       );
 
-      return Document.fromJson(data['document'] as Map<String, dynamic>);
+      return Document.fromJson(data['data'] as Map<String, dynamic>);
     } catch (e) {
       debugPrint('[DocumentsRepository] uploadDocument failed: $e');
       rethrow;

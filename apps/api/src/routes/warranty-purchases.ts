@@ -13,6 +13,7 @@ import { asyncHandler } from '../utils/async-handler';
 import { query } from '../db';
 import { AppError } from '../utils/errors';
 import { writeRateLimiter } from '../middleware/rateLimiter';
+import { sendSuccess, sendMessage } from '../utils/response';
 
 const router = Router();
 
@@ -29,27 +30,26 @@ router.get(
   validate(getPurchasesQuerySchema, 'query'),
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
-    const { limit, offset, item_id, status } = req.query;
+    const { item_id, status } = req.query;
 
     // BE-1/2/3: Explicitly convert and clamp pagination params to safe integers
-    const limitNum = Math.min(100, Math.max(1, parseInt(limit as string, 10) || 50));
-    const offsetNum = Math.max(0, parseInt(offset as string, 10) || 0);
+    const page = Math.max(1, parseInt(req.query.page as string, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string, 10) || 50));
+    const offset = (page - 1) * limit;
 
     const result = await WarrantyPurchasesService.getUserPurchases(userId, {
-      limit: limitNum,
-      offset: offsetNum,
+      limit,
+      offset,
       itemId: item_id as string,
       status: status as string,
     });
 
-    res.json({
-      success: true,
-      data: result.purchases,
+    sendSuccess(res, result.purchases, {
       pagination: {
+        page,
+        limit,
         total: result.total,
-        limit: limitNum,
-        offset: offsetNum,
-        has_more: (offsetNum + result.purchases.length) < result.total,
+        total_pages: Math.ceil(result.total / limit),
       },
     });
   })
@@ -66,10 +66,7 @@ router.get(
     const userId = req.user!.id;
     const coverage = await WarrantyPurchasesService.getActiveCoverage(userId);
 
-    res.json({
-      success: true,
-      data: coverage,
-    });
+    sendSuccess(res, coverage);
   })
 );
 
@@ -86,10 +83,7 @@ router.get(
     const days = Number(req.query.days) || 30;
     const warranties = await WarrantyPurchasesService.getExpiringWarranties(userId, days);
 
-    res.json({
-      success: true,
-      data: warranties,
-    });
+    sendSuccess(res, warranties);
   })
 );
 
@@ -144,16 +138,13 @@ router.get(
       plans = plans.filter((p) => p.duration_months === 12);
     }
 
-    res.json({
-      success: true,
-      data: {
-        quotes: plans,
-        item: {
-          id: item.id,
-          name: item.name,
-          category: item.category,
-          price: itemPrice,
-        },
+    sendSuccess(res, {
+      quotes: plans,
+      item: {
+        id: item.id,
+        name: item.name,
+        category: item.category,
+        price: itemPrice,
       },
     });
   })
@@ -171,10 +162,7 @@ router.get(
     const userId = req.user!.id;
     const purchase = await WarrantyPurchasesService.getPurchaseById(req.params.id, userId);
 
-    res.json({
-      success: true,
-      data: purchase,
-    });
+    sendSuccess(res, purchase);
   })
 );
 
@@ -191,11 +179,7 @@ router.post(
     const userId = req.user!.id;
     const purchase = await WarrantyPurchasesService.createPurchase(userId, req.body);
 
-    res.status(201).json({
-      success: true,
-      data: purchase,
-      message: 'Warranty purchase created successfully',
-    });
+    sendSuccess(res, purchase, { status: 201, message: 'Warranty purchase created successfully' });
   })
 );
 
@@ -217,11 +201,7 @@ router.post(
       req.body.reason
     );
 
-    res.json({
-      success: true,
-      data: purchase,
-      message: 'Warranty purchase cancelled successfully',
-    });
+    sendSuccess(res, purchase, { message: 'Warranty purchase cancelled successfully' });
   })
 );
 

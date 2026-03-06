@@ -9,6 +9,7 @@ import { logger } from '../utils/logger';
 import { query } from '../db';
 import { asyncHandler } from '../utils/async-handler';
 import { validateMagicBytes } from '../utils/file-validation';
+import { sendSuccess } from '../utils/response';
 
 const router = Router();
 router.use(authenticate);
@@ -91,12 +92,7 @@ router.post(
 
     logger.info({ userId, url: publicUrl }, 'Avatar uploaded');
 
-    // Return url at the top level — the mobile client reads `data['url']`
-    // from the parsed response body (no nested `data` wrapper).
-    res.json({
-      success: true,
-      url: publicUrl,
-    });
+    sendSuccess(res, { url: publicUrl });
   })
 );
 
@@ -170,12 +166,7 @@ router.post(
 
     logger.info({ userId: req.user!.id, itemId, url: publicUrl }, 'Item image uploaded');
 
-    // Return url at the top level — the mobile client reads `data['url']`
-    // from the parsed response body (no nested `data` wrapper).
-    res.json({
-      success: true,
-      url: publicUrl,
-    });
+    sendSuccess(res, { url: publicUrl });
   })
 );
 

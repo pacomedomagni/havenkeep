@@ -22,6 +22,7 @@ class _MaintenanceHistoryScreenState
 
   final ScrollController _scrollController = ScrollController();
   final List<MaintenanceHistory> _items = [];
+  int _currentPage = 1;
   bool _isLoading = false;
   bool _isInitialLoad = true;
   bool _hasMore = true;
@@ -62,11 +63,12 @@ class _MaintenanceHistoryScreenState
       final repo = ref.read(maintenanceRepositoryProvider);
       final newItems = await repo.getHistoryPaginated(
         limit: _pageSize,
-        offset: _items.length,
+        page: _currentPage,
       );
 
       setState(() {
         _items.addAll(newItems);
+        _currentPage++;
         _hasMore = newItems.length >= _pageSize;
         _isInitialLoad = false;
         _isLoading = false;
@@ -83,6 +85,7 @@ class _MaintenanceHistoryScreenState
   Future<void> _refresh() async {
     setState(() {
       _items.clear();
+      _currentPage = 1;
       _hasMore = true;
       _isInitialLoad = true;
       _error = null;

@@ -19,6 +19,7 @@ final notificationsProvider =
 
 class NotificationsNotifier extends AsyncNotifier<List<AppNotification>> {
   static const _pageSize = 30;
+  int _currentPage = 1;
   bool _hasMore = true;
   bool _isLoadingMore = false;
 
@@ -36,9 +37,11 @@ class NotificationsNotifier extends AsyncNotifier<List<AppNotification>> {
     if (user == null) return [];
 
     _hasMore = true;
+    _currentPage = 1;
     final page = await ref
         .read(notificationsRepositoryProvider)
-        .getNotifications(limit: _pageSize, offset: 0);
+        .getNotifications(limit: _pageSize, page: _currentPage);
+    _currentPage++;
     _hasMore = page.length == _pageSize;
     return page;
   }
@@ -52,7 +55,8 @@ class NotificationsNotifier extends AsyncNotifier<List<AppNotification>> {
       final current = state.value ?? [];
       final page = await ref
           .read(notificationsRepositoryProvider)
-          .getNotifications(limit: _pageSize, offset: current.length);
+          .getNotifications(limit: _pageSize, page: _currentPage);
+      _currentPage++;
       _hasMore = page.length == _pageSize;
       state = AsyncValue.data([...current, ...page]);
     } finally {
@@ -62,13 +66,15 @@ class NotificationsNotifier extends AsyncNotifier<List<AppNotification>> {
 
   /// Refresh notifications from the server.
   Future<void> refresh() async {
+    _currentPage = 1;
     _hasMore = true;
     _isLoadingMore = false;
     state = const AsyncValue.loading();
     state = await AsyncValue.guard(() async {
       final page = await ref
           .read(notificationsRepositoryProvider)
-          .getNotifications(limit: _pageSize, offset: 0);
+          .getNotifications(limit: _pageSize, page: _currentPage);
+      _currentPage++;
       _hasMore = page.length == _pageSize;
       return page;
     });

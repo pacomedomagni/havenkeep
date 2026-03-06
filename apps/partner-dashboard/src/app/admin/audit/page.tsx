@@ -1,32 +1,39 @@
 import Header from '@/components/Header'
 import StatsCard from '@/components/StatsCard'
 import AuditLogTable from '@/components/audit-log-table'
+import Pagination from '@/components/Pagination'
 import { serverApiClient, requireAdmin } from '@/lib/auth'
 import { ShieldCheckIcon, ExclamationTriangleIcon, InformationCircleIcon } from '@heroicons/react/24/outline'
 
-async function getAuditLogs() {
+async function getAuditLogs(page: number = 1) {
   try {
-    const { logs } = await serverApiClient<{ logs: any[] }>('/api/v1/audit/logs?limit=50')
-    return logs || []
+    const result = await serverApiClient<{ data: any[]; pagination: any }>(`/api/v1/audit/logs?page=${page}&limit=50`)
+    return { logs: result.data || [], pagination: result.pagination }
   } catch {
-    return []
+    return { logs: [], pagination: null }
   }
 }
 
 async function getAuditStats() {
   try {
-    const { stats } = await serverApiClient<{ stats: any }>('/api/v1/audit/stats')
+    const { data: stats } = await serverApiClient<{ data: any }>('/api/v1/audit/stats')
     return stats || { total: 0, by_severity: { info: 0, warning: 0, error: 0, critical: 0 }, failed_actions: 0 }
   } catch {
     return { total: 0, by_severity: { info: 0, warning: 0, error: 0, critical: 0 }, failed_actions: 0 }
   }
 }
 
-export default async function AuditPage() {
+export default async function AuditPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ page?: string }>
+}) {
   await requireAdmin()
+  const params = await searchParams
+  const page = Math.max(1, parseInt(params.page || '1', 10))
 
-  const [logs, stats] = await Promise.all([
-    getAuditLogs(),
+  const [{ logs, pagination }, stats] = await Promise.all([
+    getAuditLogs(page),
     getAuditStats(),
   ])
 
@@ -78,6 +85,13 @@ export default async function AuditPage() {
         </div>
 
         <AuditLogTable initialLogs={logs} />
+        {pagination && (
+          <Pagination
+            page={pagination.page}
+            totalPages={pagination.total_pages}
+            total={pagination.total}
+          />
+        )}
       </div>
     </>
   )

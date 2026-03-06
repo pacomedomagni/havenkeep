@@ -51,7 +51,7 @@ class MaintenanceRepository {
     try {
       final params = <String, String>{
         'limit': '100',
-        'offset': '0',
+        'page': '1',
       };
       if (itemId != null) params['item_id'] = itemId;
 
@@ -68,13 +68,13 @@ class MaintenanceRepository {
   /// Get paginated maintenance history.
   Future<List<MaintenanceHistory>> getHistoryPaginated({
     required int limit,
-    required int offset,
+    required int page,
     String? itemId,
   }) async {
     try {
       final params = <String, String>{
         'limit': limit.toString(),
-        'offset': offset.toString(),
+        'page': page.toString(),
       };
       if (itemId != null) params['item_id'] = itemId;
 

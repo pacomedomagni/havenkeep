@@ -7,6 +7,7 @@ import { createHomeSchema, updateHomeSchema, uuidParamSchema } from '../validato
 import { AuditService } from '../services/audit.service';
 import { writeRateLimiter } from '../middleware/rateLimiter';
 import { asyncHandler } from '../utils/async-handler';
+import { sendSuccess, sendMessage } from '../utils/response';
 
 const router = Router();
 router.use(authenticate);
@@ -17,7 +18,7 @@ router.get('/', asyncHandler(async (req, res) => {
     `SELECT * FROM homes WHERE user_id = $1 ORDER BY created_at DESC`,
     [req.user!.id]
   );
-  res.json({ homes: result.rows });
+  sendSuccess(res, result.rows);
 }));
 
 // Get single home by ID
@@ -31,7 +32,7 @@ router.get('/:id', validate(uuidParamSchema, 'params'), asyncHandler(async (req,
     throw new AppError('Home not found', 404);
   }
 
-  res.json({ home: result.rows[0] });
+  sendSuccess(res, result.rows[0]);
 }));
 
 // Create new home
@@ -49,7 +50,7 @@ router.post('/', writeRateLimiter, validate(createHomeSchema), asyncHandler(asyn
     resourceId: home.id,
     description: `Created home: ${home.name}`,
   });
-  res.status(201).json({ home });
+  sendSuccess(res, home, { status: 201 });
 }));
 
 // Update home
@@ -117,7 +118,7 @@ router.put('/:id', writeRateLimiter, validate(uuidParamSchema, 'params'), valida
     },
   });
 
-  res.json({ home });
+  sendSuccess(res, home);
 }));
 
 // Delete home
@@ -169,7 +170,7 @@ router.delete('/:id', writeRateLimiter, validate(uuidParamSchema, 'params'), asy
       },
     });
 
-    res.json({ message: 'Home deleted successfully' });
+    sendMessage(res, 'Home deleted successfully');
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;

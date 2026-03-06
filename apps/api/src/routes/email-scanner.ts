@@ -5,6 +5,7 @@ import { asyncHandler } from '../utils/async-handler';
 import Joi from 'joi';
 import { validate } from '../middleware/validate';
 import { uuidParamSchema } from '../validators';
+import { sendSuccess } from '../utils/response';
 
 const router = Router();
 
@@ -36,11 +37,7 @@ router.post(
       dateRangeEnd: date_range_end,
     });
 
-    res.status(202).json({
-      success: true,
-      data: scan,
-      message: 'Email scan initiated. This may take a few minutes.',
-    });
+    sendSuccess(res, scan, { status: 202, message: 'Email scan initiated. This may take a few minutes.' });
   })
 );
 
@@ -56,10 +53,7 @@ router.get(
     const userId = req.user!.id;
     const scan = await EmailScannerService.getScanStatus(req.params.id, userId);
 
-    res.json({
-      success: true,
-      data: scan,
-    });
+    sendSuccess(res, scan);
   })
 );
 
@@ -74,10 +68,7 @@ router.get(
     const userId = req.user!.id;
     const scans = await EmailScannerService.getUserScans(userId);
 
-    res.json({
-      success: true,
-      data: scans,
-    });
+    sendSuccess(res, scans);
   })
 );
 

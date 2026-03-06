@@ -13,7 +13,7 @@ class WarrantyClaimsRepository {
     try {
       final params = <String, String>{
         'limit': '100',
-        'offset': '0',
+        'page': '1',
       };
       if (itemId != null) params['item_id'] = itemId;
 

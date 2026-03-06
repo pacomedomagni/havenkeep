@@ -15,6 +15,7 @@ import { AuditService } from '../services/audit.service';
 import { EmailService } from '../services/email.service';
 import { verifyPremiumRateLimiter, passwordChangeRateLimiter, writeRateLimiter } from '../middleware/rateLimiter';
 import { asyncHandler } from '../utils/async-handler';
+import { sendSuccess, sendMessage } from '../utils/response';
 
 const router = Router();
 router.use(authenticate);
@@ -33,7 +34,7 @@ router.get('/me', asyncHandler(async (req, res) => {
     throw new AppError('User not found', 404);
   }
 
-  res.json({ user: result.rows[0] });
+  sendSuccess(res, result.rows[0]);
 }));
 
 // Update user profile
@@ -74,7 +75,7 @@ router.put('/me', writeRateLimiter, validate(updateUserSchema), asyncHandler(asy
     throw new AppError('User not found', 404);
   }
 
-  res.json({ user: result.rows[0] });
+  sendSuccess(res, result.rows[0]);
 }));
 
 // Register push notification token
@@ -89,7 +90,7 @@ router.post('/push-token', writeRateLimiter, validate(pushTokenSchema), asyncHan
     [req.user!.id, fcmToken, platform || 'unknown']
   );
 
-  res.json({ message: 'Push token registered' });
+  sendMessage(res, 'Push token registered');
 }));
 
 // Verify premium subscription via RevenueCat
@@ -291,7 +292,7 @@ router.post('/me/change-email', writeRateLimiter, validate(changeEmailSchema), a
     'Email change verification sent'
   );
 
-  res.json({ message: 'Verification email sent to your new address. Please check your inbox.' });
+  sendMessage(res, 'Verification email sent to your new address. Please check your inbox.');
 }));
 
 // Change password
@@ -351,7 +352,7 @@ router.put('/me/password', passwordChangeRateLimiter, validate(changePasswordSch
     description: 'Password changed',
   });
 
-  res.json({ message: 'Password changed successfully' });
+  sendMessage(res, 'Password changed successfully');
 }));
 
 // Delete account (soft-delete with 30-day cooling-off period)
@@ -438,10 +439,7 @@ router.delete('/me', validate(deleteAccountSchema), asyncHandler(async (req, res
     description: 'User scheduled account for deletion (30-day cooling-off)',
   });
 
-  res.json({
-    message:
-      'Account scheduled for deletion in 30 days. You can recover it by logging in before then.',
-  });
+  sendMessage(res, 'Account scheduled for deletion in 30 days. You can recover it by logging in before then.');
 }));
 
 // Recover a soft-deleted account during the cooling-off period
@@ -478,7 +476,7 @@ router.post('/me/recover', asyncHandler(async (req, res) => {
     description: 'User recovered account from scheduled deletion',
   });
 
-  res.json({ message: 'Account recovered successfully. Your plan has been set to free.' });
+  sendMessage(res, 'Account recovered successfully. Your plan has been set to free.');
 }));
 
 export default router;

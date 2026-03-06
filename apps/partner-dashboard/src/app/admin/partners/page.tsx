@@ -1,22 +1,29 @@
 import Header from '@/components/Header'
 import StatsCard from '@/components/StatsCard'
 import PartnerTable from '@/components/partner-table'
+import Pagination from '@/components/Pagination'
 import { serverApiClient, requireAdmin } from '@/lib/auth'
 import { UsersIcon, ClockIcon, CheckCircleIcon } from '@heroicons/react/24/outline'
 
-async function getPartners() {
+async function getPartners(page: number = 1) {
   try {
-    const { partners } = await serverApiClient<{ partners: any[] }>('/api/v1/admin/partners?limit=100')
-    return partners || []
+    const result = await serverApiClient<{ data: any[]; pagination: any }>(`/api/v1/admin/partners?page=${page}&limit=20`)
+    return { partners: result.data || [], pagination: result.pagination }
   } catch {
-    return []
+    return { partners: [], pagination: null }
   }
 }
 
-export default async function PartnersPage() {
+export default async function PartnersPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ page?: string }>
+}) {
   await requireAdmin()
+  const params = await searchParams
+  const page = Math.max(1, parseInt(params.page || '1', 10))
 
-  const partners = await getPartners()
+  const { partners, pagination } = await getPartners(page)
 
   const totalPartners = partners.length
   const pendingPartners = partners.filter((p: any) => !p.is_active).length
@@ -60,6 +67,13 @@ export default async function PartnersPage() {
         </div>
 
         <PartnerTable partners={partners} />
+        {pagination && (
+          <Pagination
+            page={pagination.page}
+            totalPages={pagination.total_pages}
+            total={pagination.total}
+          />
+        )}
       </div>
     </>
   )

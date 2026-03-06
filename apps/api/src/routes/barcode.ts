@@ -5,6 +5,7 @@ import { barcodeLookupSchema } from '../validators/barcode';
 import { logger } from '../utils/logger';
 import { getRedisClient } from '../utils/redis';
 import { asyncHandler } from '../utils/async-handler';
+import { sendSuccess } from '../utils/response';
 
 const router = Router();
 router.use(authenticate);
@@ -24,7 +25,7 @@ router.post('/lookup', validate(barcodeLookupSchema), asyncHandler(async (req: A
     const cached = await redis.get(cacheKey);
     if (cached) {
       logger.info({ barcode }, 'Barcode served from Redis cache');
-      return res.json(JSON.parse(cached));
+      return sendSuccess(res, JSON.parse(cached));
     }
   } catch (err) {
     logger.warn({ err, barcode }, 'Redis cache read failed for barcode, proceeding with API call');
@@ -57,14 +58,14 @@ router.post('/lookup', validate(barcodeLookupSchema), asyncHandler(async (req: A
 
     if (statusCode === 404) {
       // API explicitly says not found — return 200 with null product data
-      const notFoundResult = { barcode, brand: null, productName: null, description: null, imageUrl: null };
+      const notFoundResult = { barcode, brand: null, product_name: null, description: null, image_url: null };
       try {
         const redis = await getRedisClient();
         await redis.set(cacheKey, JSON.stringify(notFoundResult), { EX: BARCODE_CACHE_TTL });
       } catch (err) {
         logger.warn({ err, barcode }, 'Redis cache write failed for barcode');
       }
-      return res.json(notFoundResult);
+      return sendSuccess(res, notFoundResult);
     }
 
     // Upstream server error or rate limit — return 502 Bad Gateway
@@ -81,9 +82,9 @@ router.post('/lookup', validate(barcodeLookupSchema), asyncHandler(async (req: A
     const result = {
       barcode,
       brand: typeof product.brand === 'string' ? product.brand : null,
-      productName: typeof product.title === 'string' ? product.title : null,
+      product_name: typeof product.title === 'string' ? product.title : null,
       category: typeof product.category === 'string' ? product.category : 'other',
-      imageUrl: Array.isArray(product.images) && product.images.length > 0 ? product.images[0] : null,
+      image_url: Array.isArray(product.images) && product.images.length > 0 ? product.images[0] : null,
       description: typeof product.description === 'string' && product.description.length > 0 ? product.description : null,
     };
     try {
@@ -92,19 +93,19 @@ router.post('/lookup', validate(barcodeLookupSchema), asyncHandler(async (req: A
     } catch (err) {
       logger.warn({ err, barcode }, 'Redis cache write failed for barcode');
     }
-    return res.json(result);
+    return sendSuccess(res, result);
   }
 
   // API returned 200 but no items — product genuinely not found
   logger.info({ barcode, found: false }, 'Barcode not found');
-  const emptyResult = { barcode, brand: null, productName: null, description: null, imageUrl: null };
+  const emptyResult = { barcode, brand: null, product_name: null, description: null, image_url: null };
   try {
     const redis = await getRedisClient();
     await redis.set(cacheKey, JSON.stringify(emptyResult), { EX: BARCODE_CACHE_TTL });
   } catch (err) {
     logger.warn({ err, barcode }, 'Redis cache write failed for barcode');
   }
-  res.json(emptyResult);
+  sendSuccess(res, emptyResult);
 }));
 
 export default router;

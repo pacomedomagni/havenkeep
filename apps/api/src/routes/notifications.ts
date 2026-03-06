@@ -11,6 +11,7 @@ import {
 import { asyncHandler } from '../utils/async-handler';
 import { writeRateLimiter } from '../middleware/rateLimiter';
 import { pool } from '../db';
+import { sendSuccess, sendMessage } from '../utils/response';
 
 const router = Router();
 
@@ -27,7 +28,7 @@ router.get(
   validate(getNotificationsQuerySchema, 'query'),
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
-    const { limit, offset, type, unread } = req.query;
+    const { type, unread } = req.query;
     const unreadFilter =
       typeof unread === 'boolean'
         ? unread
@@ -35,9 +36,13 @@ router.get(
         ? unread === 'true'
         : undefined;
 
+    const page = Math.max(1, parseInt(req.query.page as string, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string, 10) || 50));
+    const offset = (page - 1) * limit;
+
     const result = await NotificationsService.getUserNotifications(userId, {
-      limit: Number(limit),
-      offset: Number(offset),
+      limit,
+      offset,
       type: type as any,
       unread: unreadFilter,
     });
@@ -59,14 +64,12 @@ router.get(
       };
     });
 
-    res.json({
-      success: true,
-      data: notifications,
+    sendSuccess(res, notifications, {
       pagination: {
+        page,
+        limit,
         total: result.total,
-        limit: Number(limit),
-        offset: Number(offset),
-        has_more: result.total > Number(offset) + result.notifications.length,
+        total_pages: Math.ceil(result.total / limit),
       },
     });
   })
@@ -83,10 +86,7 @@ router.get(
     const userId = req.user!.id;
     const count = await NotificationsService.getUnreadCount(userId);
 
-    res.json({
-      success: true,
-      data: { count },
-    });
+    sendSuccess(res, { count });
   })
 );
 
@@ -195,10 +195,7 @@ router.get(
       category = 'general';
     }
 
-    res.json({
-      success: true,
-      data: { tip, category },
-    });
+    sendSuccess(res, { tip, category });
   })
 );
 
@@ -213,11 +210,7 @@ router.put(
     const userId = req.user!.id;
     const count = await NotificationsService.markAllAsRead(userId);
 
-    res.json({
-      success: true,
-      data: { updated: count },
-      message: `${count} notification(s) marked as read`,
-    });
+    sendSuccess(res, { updated: count }, { message: `${count} notification(s) marked as read` });
   })
 );
 
@@ -233,11 +226,7 @@ router.put(
     const userId = req.user!.id;
     const notification = await NotificationsService.markAsRead(req.params.id, userId);
 
-    res.json({
-      success: true,
-      data: notification,
-      message: 'Notification marked as read',
-    });
+    sendSuccess(res, notification, { message: 'Notification marked as read' });
   })
 );
 
@@ -255,11 +244,7 @@ router.post(
     const { action } = req.body;
     const notification = await NotificationsService.recordAction(req.params.id, userId, action);
 
-    res.json({
-      success: true,
-      data: notification,
-      message: 'Action recorded successfully',
-    });
+    sendSuccess(res, notification, { message: 'Action recorded successfully' });
   })
 );
 
@@ -274,10 +259,7 @@ router.get(
     const userId = req.user!.id;
     const result = await NotificationsService.getPreferences(userId);
 
-    res.json({
-      success: true,
-      data: result,
-    });
+    sendSuccess(res, result);
   })
 );
 
@@ -295,10 +277,7 @@ router.put(
     const prefs = { ...req.body, user_id: userId };
     const result = await NotificationsService.upsertPreferences(userId, prefs);
 
-    res.json({
-      success: true,
-      data: result,
-    });
+    sendSuccess(res, result);
   })
 );
 
@@ -314,10 +293,7 @@ router.delete(
     const userId = req.user!.id;
     await NotificationsService.deleteNotification(req.params.id, userId);
 
-    res.json({
-      success: true,
-      message: 'Notification deleted successfully',
-    });
+    sendMessage(res, 'Notification deleted successfully');
   })
 );
 

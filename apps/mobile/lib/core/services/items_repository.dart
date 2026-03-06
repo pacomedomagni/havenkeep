@@ -33,7 +33,7 @@ class ItemsRepository {
         if (!includeArchived) params['archived'] = 'false';
 
         final data = await _client.get('/api/v1/items', queryParams: params);
-        final items = (data['items'] as List)
+        final items = (data['data'] as List)
             .map((json) => Item.fromJson(json as Map<String, dynamic>))
             .toList();
         allItems.addAll(items);
@@ -61,7 +61,7 @@ class ItemsRepository {
   Future<Item> getItemById(String id) async {
     try {
       final data = await _client.get('/api/v1/items/$id');
-      return Item.fromJson(data['item'] as Map<String, dynamic>);
+      return Item.fromJson(data['data'] as Map<String, dynamic>);
     } catch (e) {
       debugPrint('[ItemsRepository] getItemById failed: $e');
       rethrow;
@@ -84,7 +84,7 @@ class ItemsRepository {
         if (homeId != null) params['home_id'] = homeId;
 
         final data = await _client.get('/api/v1/items', queryParams: params);
-        final items = (data['items'] as List)
+        final items = (data['data'] as List)
             .map((json) => Item.fromJson(json as Map<String, dynamic>))
             .toList();
         allItems.addAll(items);
@@ -147,7 +147,7 @@ class ItemsRepository {
   Future<int> countActiveItems() async {
     try {
       final data = await _client.get('/api/v1/items/count');
-      return data['count'] as int? ?? 0;
+      return (data['data'] as Map<String, dynamic>)['count'] as int? ?? 0;
     } catch (e) {
       debugPrint('[ItemsRepository] countActiveItems failed: $e');
       rethrow;
@@ -162,7 +162,7 @@ class ItemsRepository {
   Future<Item> createItem(Item item) async {
     try {
       final data = await _client.post('/api/v1/items', body: item.toInsertJson());
-      return Item.fromJson(data['item'] as Map<String, dynamic>);
+      return Item.fromJson(data['data'] as Map<String, dynamic>);
     } catch (e) {
       debugPrint('[ItemsRepository] createItem failed: $e');
       rethrow;
@@ -185,7 +185,7 @@ class ItemsRepository {
       json.remove('user_id');
 
       final data = await _client.put('/api/v1/items/${item.id}', body: json);
-      return Item.fromJson(data['item'] as Map<String, dynamic>);
+      return Item.fromJson(data['data'] as Map<String, dynamic>);
     } catch (e) {
       debugPrint('[ItemsRepository] updateItem failed: $e');
       rethrow;

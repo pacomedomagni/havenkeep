@@ -10,6 +10,7 @@ import {
 } from '../validators/warranty-claims.validator';
 import { asyncHandler } from '../utils/async-handler';
 import { writeRateLimiter } from '../middleware/rateLimiter';
+import { sendSuccess, sendMessage } from '../utils/response';
 
 const router = Router();
 
@@ -29,11 +30,7 @@ router.post(
     const userId = req.user!.id;
     const claim = await WarrantyClaimsService.createClaim(userId, req.body);
 
-    res.status(201).json({
-      success: true,
-      data: claim,
-      message: 'Warranty claim created successfully',
-    });
+    sendSuccess(res, claim, { status: 201, message: 'Warranty claim created successfully' });
   })
 );
 
@@ -47,26 +44,25 @@ router.get(
   validate(getClaimsQuerySchema, 'query'),
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
-    const { limit, offset, item_id } = req.query;
+    const { item_id } = req.query;
 
     // BE-1/2/3: Explicitly convert and clamp pagination params to safe integers
-    const limitNum = Math.min(100, Math.max(1, parseInt(limit as string, 10) || 50));
-    const offsetNum = Math.max(0, parseInt(offset as string, 10) || 0);
+    const page = Math.max(1, parseInt(req.query.page as string, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string, 10) || 50));
+    const offset = (page - 1) * limit;
 
     const result = await WarrantyClaimsService.getUserClaims(userId, {
-      limit: limitNum,
-      offset: offsetNum,
+      limit,
+      offset,
       itemId: item_id as string,
     });
 
-    res.json({
-      success: true,
-      data: result.claims,
+    sendSuccess(res, result.claims, {
       pagination: {
+        page,
+        limit,
         total: result.total,
-        limit: limitNum,
-        offset: offsetNum,
-        has_more: (offsetNum + result.claims.length) < result.total,
+        total_pages: Math.ceil(result.total / limit),
       },
     });
   })
@@ -83,10 +79,7 @@ router.get(
     const userId = req.user!.id;
     const savings = await WarrantyClaimsService.getTotalSavings(userId);
 
-    res.json({
-      success: true,
-      data: savings,
-    });
+    sendSuccess(res, savings);
   })
 );
 
@@ -101,10 +94,7 @@ router.get(
     const limit = Math.min(Number(req.query.limit) || 20, 50);
     const feed = await WarrantyClaimsService.getSavingsFeed(limit);
 
-    res.json({
-      success: true,
-      data: feed,
-    });
+    sendSuccess(res, feed);
   })
 );
 
@@ -120,10 +110,7 @@ router.get(
     const userId = req.user!.id;
     const claim = await WarrantyClaimsService.getClaimById(req.params.id, userId);
 
-    res.json({
-      success: true,
-      data: claim,
-    });
+    sendSuccess(res, claim);
   })
 );
 
@@ -145,11 +132,7 @@ router.put(
       req.body
     );
 
-    res.json({
-      success: true,
-      data: claim,
-      message: 'Warranty claim updated successfully',
-    });
+    sendSuccess(res, claim, { message: 'Warranty claim updated successfully' });
   })
 );
 
@@ -166,10 +149,7 @@ router.delete(
     const userId = req.user!.id;
     await WarrantyClaimsService.deleteClaim(req.params.id, userId);
 
-    res.json({
-      success: true,
-      message: 'Warranty claim deleted successfully',
-    });
+    sendMessage(res, 'Warranty claim deleted successfully');
   })
 );
 

@@ -70,6 +70,9 @@ export const createItemSchema = Joi.object({
   addedVia: Joi.string()
     .valid('manual', 'email', 'barcode', 'barcode_scan', 'receipt_scan', 'quick_add', 'bulk_setup')
     .default('manual'),
+  installationDate: Joi.date().min('1970-01-01').max('now').allow(null),
+  lastMaintenanceDate: Joi.date().min('1970-01-01').max('now').allow(null),
+  nextMaintenanceDue: Joi.date().min('1970-01-01').allow(null),
 })
   // Accept snake_case from mobile clients
   .rename('home_id', 'homeId', { ignoreUndefined: true, override: false })
@@ -80,7 +83,10 @@ export const createItemSchema = Joi.object({
   .rename('warranty_type', 'warrantyType', { ignoreUndefined: true, override: false })
   .rename('warranty_provider', 'warrantyProvider', { ignoreUndefined: true, override: false })
   .rename('product_image_url', 'productImageUrl', { ignoreUndefined: true, override: false })
-  .rename('added_via', 'addedVia', { ignoreUndefined: true, override: false });
+  .rename('added_via', 'addedVia', { ignoreUndefined: true, override: false })
+  .rename('installation_date', 'installationDate', { ignoreUndefined: true, override: false })
+  .rename('last_maintenance_date', 'lastMaintenanceDate', { ignoreUndefined: true, override: false })
+  .rename('next_maintenance_due', 'nextMaintenanceDue', { ignoreUndefined: true, override: false });
 
 export const updateItemSchema = Joi.object({
   homeId: Joi.string().uuid(),
@@ -120,6 +126,9 @@ export const updateItemSchema = Joi.object({
   productImageUrl: Joi.string().uri().max(500).allow(null, ''),
   barcode: Joi.string().max(100).allow(null, ''),
   // addedVia intentionally excluded — it is a write-once audit field set at creation
+  installationDate: Joi.date().min('1970-01-01').max('now').allow(null),
+  lastMaintenanceDate: Joi.date().min('1970-01-01').max('now').allow(null),
+  nextMaintenanceDue: Joi.date().min('1970-01-01').allow(null),
 }).min(1) // At least one field must be provided
   // Accept snake_case from mobile clients
   .rename('home_id', 'homeId', { ignoreUndefined: true, override: false })
@@ -130,7 +139,10 @@ export const updateItemSchema = Joi.object({
   .rename('warranty_type', 'warrantyType', { ignoreUndefined: true, override: false })
   .rename('warranty_provider', 'warrantyProvider', { ignoreUndefined: true, override: false })
   .rename('is_archived', 'isArchived', { ignoreUndefined: true, override: false })
-  .rename('product_image_url', 'productImageUrl', { ignoreUndefined: true, override: false });
+  .rename('product_image_url', 'productImageUrl', { ignoreUndefined: true, override: false })
+  .rename('installation_date', 'installationDate', { ignoreUndefined: true, override: false })
+  .rename('last_maintenance_date', 'lastMaintenanceDate', { ignoreUndefined: true, override: false })
+  .rename('next_maintenance_due', 'nextMaintenanceDue', { ignoreUndefined: true, override: false });
 
 // Home Validators
 export const createHomeSchema = Joi.object({

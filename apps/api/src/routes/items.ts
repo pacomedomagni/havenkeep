@@ -8,6 +8,7 @@ import { AuditService } from '../services/audit.service';
 import { config } from '../config';
 import { writeRateLimiter } from '../middleware/rateLimiter';
 import { asyncHandler } from '../utils/async-handler';
+import { sendSuccess, sendMessage } from '../utils/response';
 
 const router = Router();
 
@@ -36,7 +37,7 @@ const ALLOWED_UPDATE_FIELDS = new Set([
   'name', 'brand', 'model_number', 'serial_number', 'category', 'room',
   'purchase_date', 'store', 'price', 'warranty_months', 'warranty_type',
   'warranty_provider', 'notes', 'is_archived', 'product_image_url', 'barcode',
-  'home_id',
+  'home_id', 'installation_date', 'last_maintenance_date', 'next_maintenance_due',
 ]);
 
 // Export all items as CSV (streaming — avoids buffering all rows in memory)
@@ -143,9 +144,7 @@ router.get('/count', asyncHandler(async (req: AuthRequest, res) => {
     [req.user!.id]
   );
 
-  res.json({
-    count: parseInt(result.rows[0].count, 10),
-  });
+  sendSuccess(res, { count: parseInt(result.rows[0].count, 10) });
 }));
 
 // Get all items for user (with pagination)
@@ -207,13 +206,12 @@ router.get('/', validate(paginationSchema, 'query'), asyncHandler(async (req: Au
   const total = parseInt(countResult.rows[0].count, 10);
 
   // BE-10: Division by zero is safe here because limitNum >= 1 (clamped above)
-  res.json({
-    items: result.rows,
+  sendSuccess(res, result.rows, {
     pagination: {
       page: pageNum,
       limit: limitNum,
       total,
-      totalPages: Math.ceil(total / limitNum),
+      total_pages: Math.ceil(total / limitNum),
     },
   });
 }));
@@ -260,12 +258,10 @@ router.get('/:id', validate(uuidParamSchema, 'params'), asyncHandler(async (req:
     lifespanPercentage = Math.min(100, Math.round((yearsSincePurchase / expectedLifespan) * 100));
   }
 
-  res.json({
-    item: {
-      ...item,
-      expected_lifespan_years: expectedLifespan,
-      lifespan_percentage: lifespanPercentage,
-    },
+  sendSuccess(res, {
+    ...item,
+    expected_lifespan_years: expectedLifespan,
+    lifespan_percentage: lifespanPercentage,
   });
 }));
 
@@ -291,6 +287,9 @@ router.post('/', writeRateLimiter, validate(createItemSchema), asyncHandler(asyn
       productImageUrl,
       barcode,
       addedVia,
+      installationDate,
+      lastMaintenanceDate,
+      nextMaintenanceDue,
     } = req.body;
 
     await client.query('BEGIN');
@@ -331,14 +330,16 @@ router.post('/', writeRateLimiter, validate(createItemSchema), asyncHandler(asyn
         user_id, home_id, name, brand, model_number, serial_number,
         category, room, purchase_date, store, price,
         warranty_months, warranty_end_date, warranty_type, warranty_provider, notes,
-        product_image_url, barcode, added_via
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+        product_image_url, barcode, added_via,
+        installation_date, last_maintenance_date, next_maintenance_due
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
       RETURNING *`,
       [
         req.user!.id, homeId, name, brand, modelNumber, serialNumber,
         category, room, purchaseDate, store, price,
         warrantyMonths, warrantyEndDate, warrantyType,
-        warrantyProvider, notes, productImageUrl, barcode, addedVia || 'manual'
+        warrantyProvider, notes, productImageUrl, barcode, addedVia || 'manual',
+        installationDate || null, lastMaintenanceDate || null, nextMaintenanceDue || null
       ]
     );
 
@@ -365,7 +366,7 @@ router.post('/', writeRateLimiter, validate(createItemSchema), asyncHandler(asyn
       },
     });
 
-    res.status(201).json({ item });
+    sendSuccess(res, item, { status: 201 });
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;
@@ -403,6 +404,9 @@ router.put('/:id', writeRateLimiter, validate(uuidParamSchema, 'params'), valida
     isArchived: 'is_archived',
     productImageUrl: 'product_image_url',
     barcode: 'barcode',
+    installationDate: 'installation_date',
+    lastMaintenanceDate: 'last_maintenance_date',
+    nextMaintenanceDue: 'next_maintenance_due',
     // addedVia intentionally excluded — write-once audit field
   };
 
@@ -520,7 +524,7 @@ router.put('/:id', writeRateLimiter, validate(uuidParamSchema, 'params'), valida
     },
   });
 
-  res.json({ item });
+  sendSuccess(res, item);
 }));
 
 // Delete item
@@ -564,7 +568,7 @@ router.delete('/:id', writeRateLimiter, validate(uuidParamSchema, 'params'), asy
       metadata: { category: item.category },
     }).catch(() => {});
 
-    res.json({ message: 'Item deleted successfully' });
+    sendMessage(res, 'Item deleted successfully');
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;

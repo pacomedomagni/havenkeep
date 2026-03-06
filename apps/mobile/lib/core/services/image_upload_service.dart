@@ -50,7 +50,7 @@ class ImageUploadService {
       fieldName: 'file',
     );
 
-    final publicUrl = data['url'] as String;
+    final publicUrl = (data['data'] as Map<String, dynamic>)['url'] as String;
 
     LoggingService.info('Profile photo uploaded successfully', {
       'userId': userId,
@@ -94,7 +94,7 @@ class ImageUploadService {
       fields: {'itemId': itemId},
     );
 
-    final publicUrl = data['url'] as String;
+    final publicUrl = (data['data'] as Map<String, dynamic>)['url'] as String;
 
     LoggingService.info('Item image uploaded successfully', {
       'itemId': itemId,

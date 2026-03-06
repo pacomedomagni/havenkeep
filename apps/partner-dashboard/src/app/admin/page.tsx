@@ -5,7 +5,7 @@ import { UsersIcon, CubeIcon, CurrencyDollarIcon, ChartBarIcon } from '@heroicon
 
 async function getAdminStats() {
   try {
-    const { stats } = await serverApiClient<{ stats: any }>('/api/v1/admin/stats/full')
+    const { data: stats } = await serverApiClient<{ data: any }>('/api/v1/admin/stats/full')
     return stats
   } catch {
     return {
@@ -26,7 +26,7 @@ async function getAdminStats() {
 
 async function getRecentUsers() {
   try {
-    const { users } = await serverApiClient<{ users: any[] }>('/api/v1/admin/users?page=1&limit=5')
+    const { data: users } = await serverApiClient<{ data: any[] }>('/api/v1/admin/users?page=1&limit=5')
     return users || []
   } catch {
     return []

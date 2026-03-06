@@ -4,7 +4,7 @@ import { serverApiClient, requireAdmin } from '@/lib/auth'
 
 async function getUsers() {
   try {
-    const { users } = await serverApiClient<{ users: any[] }>('/api/v1/admin/users/activity')
+    const { data: users } = await serverApiClient<{ data: any[] }>('/api/v1/admin/users/activity')
     return users || []
   } catch {
     return []

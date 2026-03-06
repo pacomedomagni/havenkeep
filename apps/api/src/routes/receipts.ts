@@ -5,6 +5,7 @@ import { asyncHandler } from '../utils/async-handler';
 import { logger } from '../utils/logger';
 import { config } from '../config';
 import { receiptScanRateLimiter } from '../middleware/rateLimiter';
+import { sendSuccess } from '../utils/response';
 
 const router = Router();
 router.use(authenticate);
@@ -118,10 +119,7 @@ If you cannot extract a field, use null.`,
       categoryGuess: typeof extracted.categoryGuess === 'string' ? extracted.categoryGuess.slice(0, 50) : null,
     };
 
-    res.json({
-      success: true,
-      data: sanitized,
-    });
+    sendSuccess(res, sanitized);
   })
 );
 

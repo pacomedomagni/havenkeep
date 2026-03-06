@@ -50,6 +50,33 @@ export async function apiClient<T = any>(
   }
   clearTimeout(timeout);
 
+  if (response.status === 401) {
+    // Try refreshing the token via server-side route
+    const refreshResponse = await fetch('/api/auth/refresh', {
+      method: 'POST',
+      credentials: 'include',
+    });
+
+    if (refreshResponse.ok) {
+      // Retry the original request with the new cookie
+      const retryResponse = await fetch(url, fetchOptions);
+      if (!retryResponse.ok) {
+        const errorData = await retryResponse.json().catch(() => ({}));
+        throw new ApiError(
+          errorData.message || errorData.error || `Request failed with status ${retryResponse.status}`,
+          retryResponse.status
+        );
+      }
+      return retryResponse.json();
+    }
+
+    // Refresh failed — redirect to login
+    if (typeof window !== 'undefined') {
+      window.location.href = '/login';
+    }
+    throw new ApiError('Session expired. Please sign in again.', 401);
+  }
+
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
     throw new ApiError(

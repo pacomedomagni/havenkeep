@@ -17,6 +17,7 @@ import { asyncHandler } from '../utils/async-handler';
 import { activationCodeRateLimiter, writeRateLimiter, giftResendRateLimiter } from '../middleware/rateLimiter';
 import { AuditService } from '../services/audit.service';
 import { AppError } from '../utils/errors';
+import { sendSuccess, sendMessage } from '../utils/response';
 
 const stripe = new Stripe(config.stripe.secretKey, {
   apiVersion: '2023-10-16',
@@ -44,10 +45,7 @@ router.get(
   asyncHandler(async (req, res) => {
     const gift = await PartnersService.getPublicGiftDetails(req.params.id);
 
-    res.json({
-      success: true,
-      data: gift,
-    });
+    sendSuccess(res, gift);
   })
 );
 
@@ -79,10 +77,7 @@ router.post(
 
     const result = await PartnersService.verifyActivationCode(activation_code);
 
-    res.json({
-      success: true,
-      data: result,
-    });
+    sendSuccess(res, result);
   })
 );
 
@@ -136,7 +131,7 @@ router.post(
     if (result.rows.length === 0) {
       throw new AppError('Gift not found', 404);
     }
-    res.json({ success: true });
+    sendMessage(res, 'App download tracked');
   })
 );
 
@@ -155,10 +150,7 @@ router.post(
     const userId = req.user!.id;
     const referralCode = await PartnersService.getOrCreateReferralCode(userId);
 
-    res.json({
-      success: true,
-      data: { referral_code: referralCode },
-    });
+    sendSuccess(res, { referral_code: referralCode });
   })
 );
 
@@ -176,14 +168,12 @@ router.get(
     const limit = Math.min(50, Math.max(1, parseInt(req.query.limit as string, 10) || 20));
     const { referrals, total } = await PartnersService.getReferrals(userId, { page, limit });
 
-    res.json({
-      success: true,
-      data: referrals,
+    sendSuccess(res, referrals, {
       pagination: {
         page,
         limit,
         total,
-        totalPages: Math.ceil(total / limit),
+        total_pages: Math.ceil(total / limit),
       },
     });
   })
@@ -202,11 +192,7 @@ router.post(
     const userId = req.user!.id;
     const partner = await PartnersService.registerPartner(userId, req.body);
 
-    res.status(201).json({
-      success: true,
-      data: partner,
-      message: 'Partner registration successful',
-    });
+    sendSuccess(res, partner, { status: 201, message: 'Partner registration successful' });
   })
 );
 
@@ -221,10 +207,7 @@ router.get(
     const userId = req.user!.id;
     const partner = await PartnersService.getPartner(userId);
 
-    res.json({
-      success: true,
-      data: partner,
-    });
+    sendSuccess(res, partner);
   })
 );
 
@@ -241,11 +224,7 @@ router.put(
     const userId = req.user!.id;
     const partner = await PartnersService.updatePartner(userId, req.body);
 
-    res.json({
-      success: true,
-      data: partner,
-      message: 'Partner profile updated',
-    });
+    sendSuccess(res, partner, { message: 'Partner profile updated' });
   })
 );
 
@@ -272,11 +251,7 @@ router.post(
       },
     });
 
-    res.status(201).json({
-      success: true,
-      data: gift,
-      message: 'Gift created successfully. Homebuyer will receive an email.',
-    });
+    sendSuccess(res, gift, { status: 201, message: 'Gift created successfully. Homebuyer will receive an email.' });
   })
 );
 
@@ -291,22 +266,24 @@ router.get(
   validate(getGiftsQuerySchema, 'query'),
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
-    const { limit, offset, status } = req.query;
+    const { status } = req.query;
+
+    const page = Math.max(1, parseInt(req.query.page as string, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string, 10) || 50));
+    const offset = (page - 1) * limit;
 
     const result = await PartnersService.getPartnerGifts(userId, {
-      limit: Number(limit),
-      offset: Number(offset),
+      limit,
+      offset,
       status: status as string,
     });
 
-    res.json({
-      success: true,
-      data: result.gifts,
+    sendSuccess(res, result.gifts, {
       pagination: {
+        page,
+        limit,
         total: result.total,
-        limit: Number(limit),
-        offset: Number(offset),
-        has_more: result.total > Number(offset) + result.gifts.length,
+        total_pages: Math.ceil(result.total / limit),
       },
     });
   })
@@ -325,10 +302,7 @@ router.get(
     const userId = req.user!.id;
     const gift = await PartnersService.getGift(req.params.id, userId);
 
-    res.json({
-      success: true,
-      data: gift,
-    });
+    sendSuccess(res, gift);
   })
 );
 
@@ -352,10 +326,7 @@ router.post(
       description: 'Resent gift activation email',
     });
 
-    res.json({
-      success: true,
-      message: 'Gift email resent successfully',
-    });
+    sendMessage(res, 'Gift email resent successfully');
   })
 );
 
@@ -383,10 +354,7 @@ router.get(
 
     const analytics = await PartnersService.getPartnerAnalytics(userId, { startDate, endDate });
 
-    res.json({
-      success: true,
-      data: analytics,
-    });
+    sendSuccess(res, analytics);
   })
 );
 
@@ -409,10 +377,7 @@ router.get(
 
     const earningsHistory = await PartnersService.getEarningsHistory(partnerResult.rows[0].id);
 
-    res.json({
-      success: true,
-      data: earningsHistory,
-    });
+    sendSuccess(res, earningsHistory);
   })
 );
 
@@ -427,21 +392,22 @@ router.get(
   validate(getCommissionsQuerySchema, 'query'),
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
-    const { limit, offset } = req.query;
+
+    const page = Math.max(1, parseInt(req.query.page as string, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string, 10) || 50));
+    const offset = (page - 1) * limit;
 
     const result = await PartnersService.getCommissions(userId, {
-      limit: Number(limit),
-      offset: Number(offset),
+      limit,
+      offset,
     });
 
-    res.json({
-      success: true,
-      data: result.commissions,
+    sendSuccess(res, result.commissions, {
       pagination: {
+        page,
+        limit,
         total: result.total,
-        limit: Number(limit),
-        offset: Number(offset),
-        has_more: result.total > Number(offset) + result.commissions.length,
+        total_pages: Math.ceil(result.total / limit),
       },
     });
   })
@@ -466,7 +432,7 @@ router.post(
     if (result.rows.length === 0) {
       throw new AppError('Gift not found', 404);
     }
-    res.json({ success: true });
+    sendMessage(res, 'First item tracked');
   })
 );
 
@@ -492,11 +458,7 @@ router.post(
       },
     });
 
-    res.json({
-      success: true,
-      data: gift,
-      message: `Premium activated! You have ${gift.premium_months} months of HavenKeep Premium.`,
-    });
+    sendSuccess(res, gift, { message: `Premium activated! You have ${gift.premium_months} months of HavenKeep Premium.` });
   })
 );
 
@@ -537,10 +499,7 @@ const PARTNER_TIERS = [
 router.get(
   '/tiers',
   asyncHandler(async (_req, res) => {
-    res.json({
-      success: true,
-      data: PARTNER_TIERS,
-    });
+    sendSuccess(res, PARTNER_TIERS);
   })
 );
 
@@ -585,10 +544,7 @@ router.post(
       type: 'account_onboarding',
     });
 
-    res.json({
-      success: true,
-      data: { url: accountLink.url },
-    });
+    sendSuccess(res, { url: accountLink.url });
   })
 );
 
@@ -605,14 +561,11 @@ router.get(
     const partner = await PartnersService.getPartner(userId);
 
     if (!partner.stripe_account_id) {
-      return res.json({
-        success: true,
-        data: {
-          connected: false,
-          charges_enabled: false,
-          payouts_enabled: false,
-          onboarded: false,
-        },
+      return sendSuccess(res, {
+        connected: false,
+        charges_enabled: false,
+        payouts_enabled: false,
+        onboarded: false,
       });
     }
 
@@ -630,14 +583,11 @@ router.get(
       );
     }
 
-    res.json({
-      success: true,
-      data: {
-        connected: true,
-        charges_enabled: chargesEnabled,
-        payouts_enabled: payoutsEnabled,
-        onboarded: (chargesEnabled && payoutsEnabled) || partner.stripe_onboarded,
-      },
+    sendSuccess(res, {
+      connected: true,
+      charges_enabled: chargesEnabled,
+      payouts_enabled: payoutsEnabled,
+      onboarded: (chargesEnabled && payoutsEnabled) || partner.stripe_onboarded,
     });
   })
 );
@@ -680,11 +630,7 @@ router.put(
       [id]
     );
 
-    res.json({
-      success: true,
-      data: result.rows[0],
-      message: 'Commission approved',
-    });
+    sendSuccess(res, result.rows[0], { message: 'Commission approved' });
   })
 );
 
@@ -724,11 +670,7 @@ router.put(
       [id]
     );
 
-    res.json({
-      success: true,
-      data: result.rows[0],
-      message: 'Commission marked as paid',
-    });
+    sendSuccess(res, result.rows[0], { message: 'Commission marked as paid' });
   })
 );
 
@@ -768,11 +710,7 @@ router.put(
       [id]
     );
 
-    res.json({
-      success: true,
-      data: result.rows[0],
-      message: 'Commission cancelled',
-    });
+    sendSuccess(res, result.rows[0], { message: 'Commission cancelled' });
   })
 );
 

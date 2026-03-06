@@ -3,6 +3,7 @@ import { authenticate } from '../middleware/auth';
 import { AuditService, AuditAction, AuditSeverity } from '../services/audit.service';
 import { AppError } from '../utils/errors';
 import { asyncHandler } from '../utils/async-handler';
+import { sendSuccess, sendMessage } from '../utils/response';
 
 const router = Router();
 
@@ -45,13 +46,12 @@ router.get('/logs', asyncHandler(async (req: Request, res: Response) => {
 
   const result = await AuditService.query(filters);
 
-  res.json({
-    logs: result.logs,
+  sendSuccess(res, result.logs, {
     pagination: {
-      total: result.total,
+      page: Math.floor(filters.offset / filters.limit) + 1,
       limit: filters.limit,
-      offset: filters.offset,
-      hasMore: result.total > filters.offset + filters.limit,
+      total: result.total,
+      total_pages: Math.ceil(result.total / filters.limit),
     },
   });
 }));
@@ -64,19 +64,21 @@ router.get('/logs/me', asyncHandler(async (req: Request, res: Response) => {
   const user = req.user!;
   const { limit = '50', offset = '0' } = req.query;
 
+  const limitVal = Math.min(parseInt(limit as string, 10), 100);
+  const offsetVal = parseInt(offset as string, 10);
+
   const result = await AuditService.getUserLogs(
     user.id,
-    Math.min(parseInt(limit as string, 10), 100),
-    parseInt(offset as string, 10)
+    limitVal,
+    offsetVal
   );
 
-  res.json({
-    logs: result.logs,
+  sendSuccess(res, result.logs, {
     pagination: {
+      page: Math.floor(offsetVal / limitVal) + 1,
+      limit: limitVal,
       total: result.total,
-      limit: parseInt(limit as string, 10),
-      offset: parseInt(offset as string, 10),
-      hasMore: result.total > parseInt(offset as string, 10) + parseInt(limit as string, 10),
+      total_pages: Math.ceil(result.total / limitVal),
     },
   });
 }));
@@ -89,30 +91,31 @@ router.get('/logs/resource/:resourceType/:resourceId', asyncHandler(async (req: 
   const user = req.user!;
   const { resourceType, resourceId } = req.params;
   const { limit = '50', offset = '0' } = req.query;
+  const limitVal = Math.min(parseInt(limit as string, 10), 100);
+  const offsetVal = parseInt(offset as string, 10);
 
   // Non-admins can only see their own logs — pass userId filter to the query
   const result = user.isAdmin
     ? await AuditService.getResourceLogs(
         resourceType,
         resourceId,
-        Math.min(parseInt(limit as string, 10), 100),
-        parseInt(offset as string, 10)
+        limitVal,
+        offsetVal
       )
     : await AuditService.query({
         userId: user.id,
         resourceType,
         resourceId,
-        limit: Math.min(parseInt(limit as string, 10), 100),
-        offset: parseInt(offset as string, 10),
+        limit: limitVal,
+        offset: offsetVal,
       });
 
-  res.json({
-    logs: result.logs,
+  sendSuccess(res, result.logs, {
     pagination: {
+      page: Math.floor(offsetVal / limitVal) + 1,
+      limit: limitVal,
       total: result.total,
-      limit: parseInt(limit as string, 10),
-      offset: parseInt(offset as string, 10),
-      hasMore: result.total > parseInt(offset as string, 10) + parseInt(limit as string, 10),
+      total_pages: Math.ceil(result.total / limitVal),
     },
   });
 }));
@@ -134,7 +137,7 @@ router.get('/security', asyncHandler(async (req: Request, res: Response) => {
     Math.min(parseInt(limit as string, 10), 500)
   );
 
-  res.json({ events });
+  sendSuccess(res, events);
 }));
 
 /**
@@ -155,7 +158,7 @@ router.get('/stats', asyncHandler(async (req: Request, res: Response) => {
     endDate ? new Date(endDate as string) : undefined
   );
 
-  res.json({ stats });
+  sendSuccess(res, stats);
 }));
 
 /**
@@ -173,7 +176,7 @@ router.get('/activity-summary', asyncHandler(async (req: Request, res: Response)
 
   const summary = await AuditService.getUserActivitySummary(userId as string | undefined);
 
-  res.json({ summary });
+  sendSuccess(res, summary);
 }));
 
 /**
@@ -194,10 +197,7 @@ router.post('/cleanup', asyncHandler(async (req: Request, res: Response) => {
     description: 'Audit log cleanup triggered manually',
   });
 
-  res.json({
-    success: true,
-    message: 'Audit log cleanup completed',
-  });
+  sendMessage(res, 'Audit log cleanup completed');
 }));
 
 export default router;

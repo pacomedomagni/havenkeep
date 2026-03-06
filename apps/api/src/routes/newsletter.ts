@@ -3,6 +3,7 @@ import { pool } from '../db';
 import { logger } from '../utils/logger';
 import { asyncHandler } from '../utils/async-handler';
 import { newsletterRateLimiter } from '../middleware/rateLimiter';
+import { sendMessage } from '../utils/response';
 
 const router = Router();
 
@@ -50,10 +51,7 @@ router.post(
 
       logger.info({ email: trimmedEmail }, 'Newsletter subscription');
 
-      return res.status(200).json({
-        success: true,
-        message: 'Successfully subscribed to the newsletter',
-      });
+      return sendMessage(res, 'Successfully subscribed to the newsletter');
     } catch (error) {
       logger.error({ error, email: trimmedEmail }, 'Newsletter subscription failed');
       return res.status(500).json({

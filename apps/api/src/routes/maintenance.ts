@@ -11,6 +11,7 @@ import {
 } from '../validators/maintenance.validator';
 import { asyncHandler } from '../utils/async-handler';
 import { writeRateLimiter } from '../middleware/rateLimiter';
+import { sendSuccess, sendMessage } from '../utils/response';
 
 const router = Router();
 
@@ -30,10 +31,7 @@ router.get(
       req.params.category as any
     );
 
-    res.json({
-      success: true,
-      data: schedules,
-    });
+    sendSuccess(res, schedules);
   })
 );
 
@@ -48,10 +46,7 @@ router.get(
     const userId = req.user!.id;
     const summary = await MaintenanceService.getUserMaintenanceSummary(userId);
 
-    res.json({
-      success: true,
-      data: summary,
-    });
+    sendSuccess(res, summary);
   })
 );
 
@@ -70,10 +65,7 @@ router.get(
       req.params.itemId
     );
 
-    res.json({
-      success: true,
-      data: result,
-    });
+    sendSuccess(res, result);
   })
 );
 
@@ -90,11 +82,7 @@ router.post(
     const userId = req.user!.id;
     const entry = await MaintenanceService.logMaintenance(userId, req.body);
 
-    res.status(201).json({
-      success: true,
-      data: entry,
-      message: 'Maintenance task logged successfully',
-    });
+    sendSuccess(res, entry, { status: 201, message: 'Maintenance task logged successfully' });
   })
 );
 
@@ -108,22 +96,24 @@ router.get(
   validate(getHistoryQuerySchema, 'query'),
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
-    const { limit, offset, item_id } = req.query;
+    const { item_id } = req.query;
+
+    const page = Math.max(1, parseInt(req.query.page as string, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string, 10) || 50));
+    const offset = (page - 1) * limit;
 
     const result = await MaintenanceService.getMaintenanceHistory(userId, {
-      limit: Number(limit),
-      offset: Number(offset),
+      limit,
+      offset,
       itemId: item_id as string,
     });
 
-    res.json({
-      success: true,
-      data: result.history,
+    sendSuccess(res, result.history, {
       pagination: {
+        page,
+        limit,
         total: result.total,
-        limit: Number(limit),
-        offset: Number(offset),
-        has_more: (Number(offset) + result.history.length) < result.total,
+        total_pages: Math.ceil(result.total / limit),
       },
     });
   })
@@ -142,10 +132,7 @@ router.delete(
     const userId = req.user!.id;
     await MaintenanceService.deleteMaintenanceLog(req.params.id, userId);
 
-    res.json({
-      success: true,
-      message: 'Maintenance log entry deleted successfully',
-    });
+    sendMessage(res, 'Maintenance log entry deleted successfully');
   })
 );
 
@@ -160,10 +147,7 @@ router.get(
     const userId = req.user!.id;
     const savings = await MaintenanceService.getPreventiveSavings(userId);
 
-    res.json({
-      success: true,
-      data: savings,
-    });
+    sendSuccess(res, savings);
   })
 );
 

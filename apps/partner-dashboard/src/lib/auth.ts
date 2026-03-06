@@ -65,11 +65,11 @@ export async function getUser(): Promise<AuthUser | null> {
     if (response.ok) {
       const data = await response.json();
       return {
-        id: data.user.id,
-        email: data.user.email,
-        plan: data.user.plan,
-        isAdmin: data.user.isAdmin,
-        isPartner: data.user.isPartner ?? false,
+        id: data.data.id,
+        email: data.data.email,
+        plan: data.data.plan,
+        isAdmin: data.data.is_admin,
+        isPartner: data.data.is_partner ?? false,
       };
     }
   } catch {

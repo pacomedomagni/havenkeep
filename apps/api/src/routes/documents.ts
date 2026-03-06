@@ -12,6 +12,7 @@ import { logger } from '../utils/logger';
 import { AuditService } from '../services/audit.service';
 import { validateMagicBytes } from '../utils/file-validation';
 import { asyncHandler } from '../utils/async-handler';
+import { sendSuccess, sendMessage } from '../utils/response';
 
 // Extract MinIO object key from the full URL.
 // Handles both path-style (host/<bucket>/<key>) and virtual-hosted-style (bucket.host/<key>).
@@ -76,7 +77,7 @@ router.get('/', asyncHandler(async (req: AuthRequest, res) => {
       [req.user!.id, itemId]
     );
 
-    res.json({ documents: result.rows });
+    sendSuccess(res, result.rows);
   } else {
     // Return all documents for the user
     const result = await query(
@@ -84,7 +85,7 @@ router.get('/', asyncHandler(async (req: AuthRequest, res) => {
       [req.user!.id]
     );
 
-    res.json({ documents: result.rows });
+    sendSuccess(res, result.rows);
   }
 }));
 
@@ -99,7 +100,7 @@ router.get('/:id', validate(uuidParamSchema, 'params'), asyncHandler(async (req:
     throw new AppError('Document not found', 404);
   }
 
-  res.json({ document: result.rows[0] });
+  sendSuccess(res, result.rows[0]);
 }));
 
 // Upload documents
@@ -255,12 +256,11 @@ router.post(
       });
     }
 
-    res.status(201).json({
+    sendSuccess(res, uploadedDocuments.length === 1 ? uploadedDocuments[0] : uploadedDocuments, {
+      status: 201,
       message: uploadedDocuments.length === 1
         ? 'Document uploaded successfully'
         : 'Documents uploaded successfully',
-      document: uploadedDocuments[0],
-      documents: uploadedDocuments,
     });
   })
 );
@@ -313,7 +313,7 @@ router.delete('/:id', validate(uuidParamSchema, 'params'), asyncHandler(async (r
     },
   });
 
-  res.json({ message: 'Document deleted successfully' });
+  sendMessage(res, 'Document deleted successfully');
 }));
 
 export default router;

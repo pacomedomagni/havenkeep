@@ -141,7 +141,7 @@ class AuthRepository {
 
     try {
       final data = await _client.get('/api/v1/users/me');
-      final userJson = data['user'];
+      final userJson = data['data'];
       if (userJson is! Map<String, dynamic>) return null;
       return models.User.fromJson(userJson);
     } on ApiException catch (e) {
@@ -160,7 +160,7 @@ class AuthRepository {
     if (avatarUrl != null) updates['avatarUrl'] = avatarUrl;
 
     final data = await _client.put('/api/v1/users/me', body: updates);
-    final userJson = data['user'];
+    final userJson = data['data'];
     if (userJson is! Map<String, dynamic>) {
       throw ApiException(500, 'Invalid response format');
     }
