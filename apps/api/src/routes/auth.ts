@@ -226,7 +226,7 @@ router.post('/register', authRateLimiter, validate(registerSchema), async (req, 
         referred_by: user.referred_by || null,
         referral_code: user.referral_code || null,
         is_admin: user.is_admin || false,
-        is_partner: false,
+        is_partner: false, // Newly registered users are never partners yet
         created_at: user.created_at,
         updated_at: user.updated_at,
       },

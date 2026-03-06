@@ -394,13 +394,13 @@ class _CreateClaimScreenState extends ConsumerState<CreateClaimScreen> {
           borderSide: const BorderSide(color: HavenColors.border),
         ),
       ),
-      validator: required
-          ? (v) {
-              if (v == null || v.trim().isEmpty) return 'Required';
-              if (double.tryParse(v) == null) return 'Invalid number';
-              return null;
-            }
-          : null,
+      validator: (v) {
+        if (required && (v == null || v.trim().isEmpty)) return 'Required';
+        if (v != null && v.trim().isNotEmpty && double.tryParse(v) == null) {
+          return 'Invalid number';
+        }
+        return null;
+      },
     );
   }
 }

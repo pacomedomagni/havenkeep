@@ -566,7 +566,10 @@ router.delete('/:id', writeRateLimiter, validate(uuidParamSchema, 'params'), asy
       resourceId: item.id,
       description: `Deleted item: ${item.name}`,
       metadata: { category: item.category },
-    }).catch(() => {});
+    }).catch((err) => {
+      // Log but don't throw — audit failure should not affect the user response
+      console.error('Failed to log item.delete audit event:', err);
+    });
 
     sendMessage(res, 'Item deleted successfully');
   } catch (error) {

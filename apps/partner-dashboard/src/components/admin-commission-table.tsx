@@ -37,15 +37,17 @@ export default function AdminCommissionTable({ commissions: initialCommissions }
     if (!confirm('Are you sure you want to approve this commission?')) return
 
     setLoadingAction(commissionId)
+    const previous = commissions
     try {
-      await apiClient(`/api/v1/partners/admin/commissions/${commissionId}/approve`, {
-        method: 'PUT',
-      })
       setCommissions(commissions.map(c =>
         c.id === commissionId ? { ...c, status: 'approved' } : c
       ))
+      await apiClient(`/api/v1/partners/admin/commissions/${commissionId}/approve`, {
+        method: 'PUT',
+      })
       setToast({ message: 'Commission approved successfully', type: 'success' })
     } catch {
+      setCommissions(previous)
       setToast({ message: 'Failed to approve commission. Please try again.', type: 'error' })
     } finally {
       setLoadingAction(null)
@@ -56,15 +58,17 @@ export default function AdminCommissionTable({ commissions: initialCommissions }
     if (!confirm('Are you sure you want to mark this commission as paid?')) return
 
     setLoadingAction(commissionId)
+    const previous = commissions
     try {
-      await apiClient(`/api/v1/partners/admin/commissions/${commissionId}/pay`, {
-        method: 'PUT',
-      })
       setCommissions(commissions.map(c =>
         c.id === commissionId ? { ...c, status: 'paid' } : c
       ))
+      await apiClient(`/api/v1/partners/admin/commissions/${commissionId}/pay`, {
+        method: 'PUT',
+      })
       setToast({ message: 'Commission marked as paid', type: 'success' })
     } catch {
+      setCommissions(previous)
       setToast({ message: 'Failed to mark commission as paid. Please try again.', type: 'error' })
     } finally {
       setLoadingAction(null)
@@ -75,15 +79,17 @@ export default function AdminCommissionTable({ commissions: initialCommissions }
     if (!confirm('Are you sure you want to cancel this commission?')) return
 
     setLoadingAction(commissionId)
+    const previous = commissions
     try {
-      await apiClient(`/api/v1/partners/admin/commissions/${commissionId}/cancel`, {
-        method: 'PUT',
-      })
       setCommissions(commissions.map(c =>
         c.id === commissionId ? { ...c, status: 'cancelled' } : c
       ))
+      await apiClient(`/api/v1/partners/admin/commissions/${commissionId}/cancel`, {
+        method: 'PUT',
+      })
       setToast({ message: 'Commission cancelled', type: 'success' })
     } catch {
+      setCommissions(previous)
       setToast({ message: 'Failed to cancel commission. Please try again.', type: 'error' })
     } finally {
       setLoadingAction(null)

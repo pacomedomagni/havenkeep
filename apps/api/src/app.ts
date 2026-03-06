@@ -6,7 +6,7 @@ import cookieParser from 'cookie-parser';
 import { config } from './config';
 import { errorHandler } from './middleware/errorHandler';
 import { requestLogger } from './middleware/requestLogger';
-import { setCsrfToken } from './middleware/csrf';
+import { setCsrfToken, validateCsrfToken } from './middleware/csrf';
 
 // Routes
 import authRoutes from './routes/auth';
@@ -90,8 +90,9 @@ export function createApp(options: CreateAppOptions = {}) {
   // Request logging
   app.use(requestLogger);
 
-  // CSRF token generation
+  // CSRF token generation & validation
   app.use(setCsrfToken);
+  app.use(validateCsrfToken);
 
   // Rate limiter (optional — skipped in tests)
   if (options.rateLimiter) {

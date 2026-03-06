@@ -72,7 +72,16 @@ export default function SettingsPage() {
       });
       const data = result.data as any;
       if (data?.url) {
-        window.location.href = data.url;
+        // Validate that the redirect URL points to Stripe
+        try {
+          const redirectUrl = new URL(data.url);
+          if (!redirectUrl.hostname.endsWith('.stripe.com')) {
+            throw new Error('Invalid redirect URL');
+          }
+          window.location.href = data.url;
+        } catch {
+          setStripeError('Received an invalid onboarding URL. Please try again.');
+        }
       }
     } catch (err: any) {
       setStripeError(err.message || 'Failed to start Stripe onboarding');

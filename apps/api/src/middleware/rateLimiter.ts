@@ -177,7 +177,9 @@ async function initializeEndpointRedis() {
 
 // Eagerly attempt to connect (non-blocking).
 // The limiters will use in-memory until this resolves.
-initializeEndpointRedis().catch(() => {});
+initializeEndpointRedis().catch((err) => {
+  logger.error('Failed to initialize endpoint Redis (non-fatal):', err);
+});
 
 /**
  * Close the Redis client(s) used by the rate limiter.

@@ -37,6 +37,7 @@ export default function GiftDetailPage() {
   const [showResendModal, setShowResendModal] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState(false);
+  const [resending, setResending] = useState(false);
 
   useEffect(() => {
     fetchGift();
@@ -58,6 +59,7 @@ export default function GiftDetailPage() {
   };
 
   const handleResendEmail = async () => {
+    setResending(true);
     try {
       const data = await apiClient(`/api/v1/partners/gifts/${giftId}/resend`, {
         method: 'POST',
@@ -69,6 +71,8 @@ export default function GiftDetailPage() {
       }
     } catch (err: any) {
       setError(err.message || 'An error occurred. Please try again.');
+    } finally {
+      setResending(false);
     }
   };
 
@@ -400,11 +404,11 @@ export default function GiftDetailPage() {
               <strong className="text-white">{gift.homebuyer_email}</strong>?
             </p>
             <div className="flex gap-3">
-              <button onClick={() => setShowResendModal(false)} className="btn-secondary flex-1">
+              <button onClick={() => setShowResendModal(false)} className="btn-secondary flex-1" disabled={resending}>
                 Cancel
               </button>
-              <button onClick={handleResendEmail} className="btn-primary flex-1">
-                Resend Email
+              <button onClick={handleResendEmail} className="btn-primary flex-1" disabled={resending}>
+                {resending ? 'Sending...' : 'Resend Email'}
               </button>
             </div>
           </div>

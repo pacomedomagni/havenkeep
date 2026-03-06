@@ -33,7 +33,7 @@ class NotificationsNotifier extends AsyncNotifier<List<AppNotification>> {
   Future<List<AppNotification>> build() async {
     ref.watch(currentUserProvider);
 
-    final user = ref.read(currentUserProvider).value;
+    final user = ref.read(currentUserProvider).valueOrNull;
     if (user == null) return [];
 
     _hasMore = true;
@@ -104,7 +104,7 @@ class NotificationsNotifier extends AsyncNotifier<List<AppNotification>> {
 /// Count of unread notifications (fetched from the server).
 final unreadNotificationCountProvider = FutureProvider<int>((ref) async {
   ref.watch(currentUserProvider);
-  final user = ref.read(currentUserProvider).value;
+  final user = ref.read(currentUserProvider).valueOrNull;
   if (user == null) return 0;
   return ref.read(notificationsRepositoryProvider).getUnreadCount();
 });
@@ -114,7 +114,7 @@ final notificationPreferencesProvider =
     FutureProvider<NotificationPreferences?>((ref) async {
   ref.watch(currentUserProvider);
 
-  final user = ref.read(currentUserProvider).value;
+  final user = ref.read(currentUserProvider).valueOrNull;
   if (user == null) return null;
 
   return ref.read(notificationsRepositoryProvider).getPreferences();

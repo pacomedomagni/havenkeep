@@ -59,6 +59,8 @@ class Home {
       'zip': zip,
       'home_type': homeType.toJson(),
       'move_in_date': moveInDate?.toIso8601String().split('T').first,
+      'created_at': createdAt.toIso8601String(),
+      'updated_at': updatedAt.toIso8601String(),
     };
   }
 

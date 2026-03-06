@@ -71,11 +71,12 @@ class _WizardStep2WarrantyState extends State<WizardStep2Warranty> {
   /// Add months safely, clamping the day to avoid overflow
   /// (e.g., Jan 31 + 1 month = Feb 28, not Mar 3).
   DateTime _addMonthsSafe(DateTime date, int months) {
-    final targetMonth = date.month + months;
-    final result = DateTime(date.year, targetMonth, date.day);
+    final targetYear = date.year + (date.month + months - 1) ~/ 12;
+    final targetMonth = (date.month + months - 1) % 12 + 1;
+    final result = DateTime(targetYear, targetMonth, date.day);
     // If the day overflowed into the next month, clamp to last day of target month
-    if (result.month != ((targetMonth - 1) % 12) + 1) {
-      return DateTime(date.year, targetMonth + 1, 0);
+    if (result.month != targetMonth) {
+      return DateTime(targetYear, targetMonth + 1, 0);
     }
     return result;
   }
