@@ -1,152 +1,19 @@
-import express from 'express';
-import cors from 'cors';
-import helmet from 'helmet';
-import compression from 'compression';
-import cookieParser from 'cookie-parser';
 import { config } from './config';
 import { validateEnvironment } from './config/validator';
 import { logger } from './utils/logger';
-import { errorHandler } from './middleware/errorHandler';
-import { requestLogger } from './middleware/requestLogger';
 import { initializeRateLimiter, closeRateLimiterRedis } from './middleware/rateLimiter';
 import { initializeTokenBlacklist, closeTokenBlacklist } from './utils/token-blacklist';
 import { closeRedisClient } from './utils/redis';
-import { setCsrfToken } from './middleware/csrf';
 import { NotificationsService } from './services/notifications.service';
 import { WarrantyPurchasesService } from './services/warranty-purchases.service';
 import { ReconciliationService } from './services/reconciliation.service';
 import { pool } from './db';
-
-// Routes
-import authRoutes from './routes/auth';
-import usersRoutes from './routes/users';
-import homesRoutes from './routes/homes';
-import itemsRoutes from './routes/items';
-import documentsRoutes from './routes/documents';
-import barcodeRoutes from './routes/barcode';
-import adminRoutes from './routes/admin';
-import healthRoutes from './routes/health';
-import warrantyClaimsRoutes from './routes/warranty-claims';
-import statsRoutes from './routes/stats';
-import emailScannerRoutes from './routes/email-scanner';
-import partnersRoutes from './routes/partners';
-import maintenanceRoutes from './routes/maintenance';
-import notificationsRoutes from './routes/notifications';
-import warrantyPurchasesRoutes from './routes/warranty-purchases';
-import categoriesRoutes from './routes/categories';
-import uploadsRoutes from './routes/uploads';
-import receiptsRoutes from './routes/receipts';
-import auditRoutes from './routes/audit';
-import webhooksRoutes from './routes/webhooks';
-import newsletterRoutes from './routes/newsletter';
-import contactRoutes from './routes/contact';
+import { createApp } from './app';
 
 // Validate environment before starting
 validateEnvironment();
 
-const app = express();
-
-// Trust the first proxy (nginx) so X-Forwarded-For is used correctly
-// by express-rate-limit and other middleware
-app.set('trust proxy', 1);
-
-// Security middleware
-app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      scriptSrc: ["'self'"],
-      imgSrc: ["'self'", "data:", "https:"],
-    },
-  },
-  hsts: {
-    maxAge: 31536000,
-    includeSubDomains: true,
-    preload: true
-  }
-}));
-
-// CORS
-app.use(cors({
-  origin: config.cors.origins,
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-csrf-token']
-}));
-
-// Compression
-app.use(compression());
-
-// Stripe webhooks — mounted BEFORE body parsing because Stripe
-// signature verification requires the raw (unparsed) request body.
-// Only the /stripe sub-path needs raw body; RevenueCat uses Bearer token auth.
-app.use(
-  '/api/v1/webhooks/stripe',
-  express.raw({ type: 'application/json' })
-);
-
-// Body parsing
-app.use(express.json({ limit: '1mb' }));
-app.use(express.urlencoded({ extended: true, limit: '1mb' }));
-
-// Webhooks — mounted AFTER body parsing so RevenueCat gets parsed JSON.
-// Stripe's raw body was already handled above, and express.json won't overwrite it.
-app.use('/api/v1/webhooks', webhooksRoutes);
-
-// Cookie parser for CSRF
-app.use(cookieParser());
-
-// Request logging
-app.use(requestLogger);
-
-// CSRF token generation (for non-API routes)
-app.use(setCsrfToken);
-
-function registerRoutes(appInstance: express.Express) {
-  // Health checks (no versioning, no auth required)
-  appInstance.use('/', healthRoutes);
-
-  // API v1 routes
-  const apiV1 = express.Router();
-
-  apiV1.use('/auth', authRoutes);
-  apiV1.use('/users', usersRoutes);
-  apiV1.use('/homes', homesRoutes);
-  apiV1.use('/items', itemsRoutes);
-  apiV1.use('/documents', documentsRoutes);
-  apiV1.use('/barcode', barcodeRoutes);
-  apiV1.use('/admin', adminRoutes);
-  apiV1.use('/warranty-claims', warrantyClaimsRoutes);
-  apiV1.use('/stats', statsRoutes);
-  apiV1.use('/email-scanner', emailScannerRoutes);
-  apiV1.use('/partners', partnersRoutes);
-  apiV1.use('/maintenance', maintenanceRoutes);
-  apiV1.use('/notifications', notificationsRoutes);
-  apiV1.use('/warranty-purchases', warrantyPurchasesRoutes);
-  apiV1.use('/categories', categoriesRoutes);
-  apiV1.use('/uploads', uploadsRoutes);
-  apiV1.use('/receipts', receiptsRoutes);
-  apiV1.use('/audit', auditRoutes);
-  apiV1.use('/newsletter', newsletterRoutes);
-  apiV1.use('/contact', contactRoutes);
-
-  appInstance.use('/api/v1', apiV1);
-
-  // 404 handler
-  appInstance.use((req, res) => {
-    res.status(404).json({
-      error: 'Not found',
-      suggestion: 'Check API documentation for available endpoints'
-    });
-  });
-
-  // Error handler (must be last)
-  appInstance.use(errorHandler);
-}
-
-// Start server (async to initialize rate limiter)
-let server: ReturnType<typeof app.listen>;
+let server: ReturnType<typeof import('http').createServer>;
 const PORT = config.port;
 const NOTIFICATION_JOB_LOCK = 93422874;
 const MAINTENANCE_JOB_LOCK = 93422875;
@@ -285,9 +152,8 @@ function scheduleExpirationNotifications() {
 async function start() {
   const rateLimiter = await initializeRateLimiter();
   await initializeTokenBlacklist();
-  // Insert rate limiter before routes (after requestLogger)
-  app.use(rateLimiter);
-  registerRoutes(app);
+
+  const app = createApp({ rateLimiter });
 
   server = app.listen(PORT, () => {
     logger.info(`🚀 HavenKeep API running on port ${PORT}`);
@@ -359,4 +225,4 @@ process.on('uncaughtException', (error) => {
   gracefulShutdown('UNCAUGHT_EXCEPTION');
 });
 
-export default app;
+export { createApp } from './app';

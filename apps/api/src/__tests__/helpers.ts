@@ -1,0 +1,71 @@
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
+import { pool } from '../db';
+import { config } from '../config';
+import { createApp } from '../app';
+
+export function getTestApp() {
+  return createApp();
+}
+
+export function getAuthToken(userId: string, extra: Record<string, any> = {}) {
+  return jwt.sign(
+    { userId, email: `user-${userId}@test.com`, isAdmin: false, isPartner: false, ...extra },
+    config.jwt.secret,
+    { expiresIn: '1h' }
+  );
+}
+
+export function getAdminToken(userId: string) {
+  return getAuthToken(userId, { isAdmin: true });
+}
+
+export async function createTestUser(overrides: Record<string, any> = {}) {
+  const email = (overrides.email || `test-${crypto.randomUUID()}@test.com`).toLowerCase();
+  const passwordHash = await bcrypt.hash(overrides.password || 'TestPassword123!', 4); // low rounds for speed
+  const fullName = overrides.fullName || 'Test User';
+  const isAdmin = overrides.isAdmin || false;
+  const plan = overrides.plan || 'free';
+
+  const result = await pool.query(
+    `INSERT INTO users (email, password_hash, full_name, is_admin, plan, referral_code)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     RETURNING *`,
+    [email, passwordHash, fullName, isAdmin, plan, crypto.randomUUID().slice(0, 8)]
+  );
+
+  const user = result.rows[0];
+  const token = getAuthToken(user.id, { email: user.email, isAdmin: user.is_admin });
+
+  return { user, token };
+}
+
+export async function createTestHome(userId: string, overrides: Record<string, any> = {}) {
+  const name = overrides.name || 'Test Home';
+  const result = await pool.query(
+    `INSERT INTO homes (user_id, name, address, city, state, zip)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     RETURNING *`,
+    [userId, name, overrides.address || '123 Test St', overrides.city || 'Testville', overrides.state || 'TS', overrides.zip || '12345']
+  );
+  return result.rows[0];
+}
+
+export async function createTestItem(userId: string, homeId: string, overrides: Record<string, any> = {}) {
+  const name = overrides.name || 'Test Item';
+  const purchaseDate = overrides.purchaseDate || '2024-01-01';
+  const warrantyMonths = overrides.warrantyMonths || 12;
+  // Calculate warranty_end_date from purchase_date + warranty_months
+  const purchaseDateObj = new Date(purchaseDate);
+  purchaseDateObj.setMonth(purchaseDateObj.getMonth() + warrantyMonths);
+  const warrantyEndDate = overrides.warrantyEndDate || purchaseDateObj.toISOString().split('T')[0];
+
+  const result = await pool.query(
+    `INSERT INTO items (user_id, home_id, name, category, room, price, purchase_date, warranty_months, warranty_end_date)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+     RETURNING *`,
+    [userId, homeId, name, overrides.category || 'other', overrides.room || 'living_room', overrides.price || 99.99, purchaseDate, warrantyMonths, warrantyEndDate]
+  );
+  return result.rows[0];
+}

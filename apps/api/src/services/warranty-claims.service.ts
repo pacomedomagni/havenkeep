@@ -82,8 +82,8 @@ export class WarrantyClaimsService {
 
         await client.query(
           `INSERT INTO savings_feed (user_city, user_state, amount_saved, item_category, claim_type, display_text)
-           SELECT $1, $2, $3, i.category, 'Warranty claim',
-                  $4 || ' just saved $' || $3 || ' on a ' || i.category || ' repair'
+           SELECT $1, $2, $3::numeric, i.category, 'Warranty claim',
+                  $4 || ' just saved $' || $3::text || ' on a ' || i.category || ' repair'
            FROM items i
            WHERE i.id = $5`,
           [city, state, data.amount_saved, city, data.item_id]
