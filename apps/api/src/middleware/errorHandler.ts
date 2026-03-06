@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import { JsonWebTokenError, TokenExpiredError, NotBeforeError } from 'jsonwebtoken';
 import { logger } from '../utils/logger';
 import { AppError } from '../utils/errors';
 
@@ -25,6 +26,21 @@ export function errorHandler(
     return res.status(err.statusCode).json({
       error: err.message,
       statusCode: err.statusCode,
+    });
+  }
+
+  // JWT errors — malformed, expired, or invalid tokens
+  if (err instanceof JsonWebTokenError || err instanceof TokenExpiredError || err instanceof NotBeforeError) {
+    logger.warn({
+      error: err.message,
+      path: req.path,
+      method: req.method,
+    }, 'JWT authentication error');
+
+    const message = err instanceof TokenExpiredError ? 'Token expired' : 'Invalid token';
+    return res.status(401).json({
+      error: message,
+      statusCode: 401,
     });
   }
 

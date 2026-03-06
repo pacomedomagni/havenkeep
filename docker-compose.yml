@@ -85,6 +85,10 @@ services:
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
       MINIO_BUCKET: ${MINIO_BUCKET:-havenkeep}
       CORS_ORIGINS: http://localhost:3001,http://localhost:4321
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3001}
+      SENDGRID_API_KEY: ${SENDGRID_API_KEY:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      APPLE_BUNDLE_ID: ${APPLE_BUNDLE_ID:-com.flokou.havenkeep}
     ports:
       - "3000:3000"
     volumes:

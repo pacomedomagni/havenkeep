@@ -78,9 +78,9 @@ class RedisStore {
   }
 }
 
-// Initialize rate limiter with Redis in production
+// Initialize rate limiter with Redis in production and staging
 const initializeRateLimiter = async () => {
-  if (config.env === 'production') {
+  if (config.env !== 'development' && config.env !== 'test') {
     try {
       const client = await getRedisClient();
       const store = new RedisStore(client, config.rateLimit.windowMs);
@@ -166,7 +166,7 @@ function createEndpointRateLimiter(options: {
 // Initialize the shared Redis client for endpoint-specific limiters.
 // Called after initializeRateLimiter resolves.
 async function initializeEndpointRedis() {
-  if (config.env === 'production') {
+  if (config.env !== 'development' && config.env !== 'test') {
     try {
       sharedRedisClient = await getRedisClient();
     } catch (error) {
