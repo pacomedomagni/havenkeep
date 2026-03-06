@@ -237,7 +237,7 @@ services:
       DB_NAME: ${POSTGRES_DB}
       DB_USER: ${POSTGRES_USER}
       DB_PASSWORD: ${POSTGRES_PASSWORD}
-    command: ["npx", "tsx", "src/db/migrations/run-migration.ts"]
+    command: ["node", "dist/db/migrations/run-migration.js"]
     depends_on:
       postgres:
         condition: service_healthy

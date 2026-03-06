@@ -34,6 +34,9 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/package.json ./
 COPY --from=builder /app/src/db ./src/db
+# Copy SQL migration files alongside compiled JS so `node dist/db/migrations/run-migration.js` works
+COPY --from=builder /app/src/db/schema.sql ./dist/db/schema.sql
+COPY --from=builder /app/src/db/migrations/*.sql ./dist/db/migrations/
 
 EXPOSE 3000
 
