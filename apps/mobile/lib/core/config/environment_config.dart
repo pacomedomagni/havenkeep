@@ -39,6 +39,36 @@ class EnvironmentConfig {
   /// Outlook OAuth redirect URI (optional).
   final String outlookRedirectUri;
 
+  /// Firebase Android API key (optional — Firebase is skipped if empty).
+  final String firebaseAndroidApiKey;
+
+  /// Firebase iOS API key (optional — Firebase is skipped if empty).
+  final String firebaseIosApiKey;
+
+  /// Firebase project ID (optional).
+  final String firebaseProjectId;
+
+  /// Firebase Android app ID (optional).
+  final String firebaseAndroidAppId;
+
+  /// Firebase iOS app ID (optional).
+  final String firebaseIosAppId;
+
+  /// Firebase Cloud Messaging sender ID (optional).
+  final String firebaseMessagingSenderId;
+
+  /// Firebase Storage bucket (optional).
+  final String firebaseStorageBucket;
+
+  /// Firebase iOS bundle ID (optional).
+  final String firebaseIosBundleId;
+
+  /// Base URL for the app's public website.
+  final String appUrl;
+
+  /// Support email address.
+  final String supportEmail;
+
   /// Whether this is the production environment.
   bool get isProduction => environment.isProduction;
 
@@ -57,6 +87,16 @@ class EnvironmentConfig {
     required this.outlookClientId,
     required this.outlookTenant,
     required this.outlookRedirectUri,
+    required this.firebaseAndroidApiKey,
+    required this.firebaseIosApiKey,
+    required this.firebaseProjectId,
+    required this.firebaseAndroidAppId,
+    required this.firebaseIosAppId,
+    required this.firebaseMessagingSenderId,
+    required this.firebaseStorageBucket,
+    required this.firebaseIosBundleId,
+    required this.appUrl,
+    required this.supportEmail,
   }) {
     // Validate API base URL is present
     if (apiBaseUrl.isEmpty) {
@@ -115,6 +155,50 @@ class EnvironmentConfig {
       fallback: '',
     );
 
+    // Firebase configuration (optional — Firebase is skipped when keys are empty)
+    final firebaseAndroidApiKey = dotenv.get(
+      'FIREBASE_ANDROID_API_KEY',
+      fallback: '',
+    );
+    final firebaseIosApiKey = dotenv.get(
+      'FIREBASE_IOS_API_KEY',
+      fallback: '',
+    );
+    final firebaseProjectId = dotenv.get(
+      'FIREBASE_PROJECT_ID',
+      fallback: '',
+    );
+    final firebaseAndroidAppId = dotenv.get(
+      'FIREBASE_ANDROID_APP_ID',
+      fallback: '',
+    );
+    final firebaseIosAppId = dotenv.get(
+      'FIREBASE_IOS_APP_ID',
+      fallback: '',
+    );
+    final firebaseMessagingSenderId = dotenv.get(
+      'FIREBASE_MESSAGING_SENDER_ID',
+      fallback: '',
+    );
+    final firebaseStorageBucket = dotenv.get(
+      'FIREBASE_STORAGE_BUCKET',
+      fallback: '',
+    );
+    final firebaseIosBundleId = dotenv.get(
+      'FIREBASE_IOS_BUNDLE_ID',
+      fallback: 'com.flokou.havenkeep',
+    );
+
+    // App URL and support email
+    final appUrl = dotenv.get(
+      'APP_URL',
+      fallback: 'https://havenkeep.app',
+    );
+    final supportEmail = dotenv.get(
+      'SUPPORT_EMAIL',
+      fallback: 'support@havenkeep.app',
+    );
+
     // Environment-specific defaults
     final enableAnalytics = env.isProduction;
     final enableCrashReporting = !env.isDevelopment;
@@ -131,6 +215,16 @@ class EnvironmentConfig {
       outlookClientId: outlookClientId,
       outlookTenant: outlookTenant,
       outlookRedirectUri: outlookRedirectUri,
+      firebaseAndroidApiKey: firebaseAndroidApiKey,
+      firebaseIosApiKey: firebaseIosApiKey,
+      firebaseProjectId: firebaseProjectId,
+      firebaseAndroidAppId: firebaseAndroidAppId,
+      firebaseIosAppId: firebaseIosAppId,
+      firebaseMessagingSenderId: firebaseMessagingSenderId,
+      firebaseStorageBucket: firebaseStorageBucket,
+      firebaseIosBundleId: firebaseIosBundleId,
+      appUrl: appUrl,
+      supportEmail: supportEmail,
     );
   }
 
@@ -145,7 +239,10 @@ class EnvironmentConfig {
         'revenueCatApiKey: ${revenueCatApiKey.isNotEmpty ? "***" : "(empty)"}, '
         'outlookClientId: ${outlookClientId.isNotEmpty ? "***" : "(empty)"}, '
         'outlookTenant: $outlookTenant, '
-        'outlookRedirectUri: ${outlookRedirectUri.isNotEmpty ? outlookRedirectUri : "(empty)"}'
+        'outlookRedirectUri: ${outlookRedirectUri.isNotEmpty ? outlookRedirectUri : "(empty)"}, '
+        'firebaseProjectId: ${firebaseProjectId.isNotEmpty ? firebaseProjectId : "(empty)"}, '
+        'appUrl: $appUrl, '
+        'supportEmail: $supportEmail'
         ')';
   }
 }

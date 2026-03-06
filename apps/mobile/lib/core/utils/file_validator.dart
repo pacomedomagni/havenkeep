@@ -13,7 +13,7 @@ import 'mime_type_detector.dart';
 class FileValidator {
   // Maximum file sizes (in bytes)
   static const int maxImageSizeBytes = 10 * 1024 * 1024; // 10MB
-  static const int maxDocumentSizeBytes = 10 * 1024 * 1024; // 10MB
+  static const int maxDocumentSizeBytes = 20 * 1024 * 1024; // 20MB
 
   // Allowed MIME types
   static const List<String> allowedImageTypes = [

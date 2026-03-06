@@ -8,18 +8,18 @@ import { ShieldCheckIcon, ExclamationTriangleIcon, InformationCircleIcon } from 
 async function getAuditLogs(page: number = 1) {
   try {
     const result = await serverApiClient<{ data: any[]; pagination: any }>(`/api/v1/audit/logs?page=${page}&limit=50`)
-    return { logs: result.data || [], pagination: result.pagination }
+    return { data: { logs: result.data || [], pagination: result.pagination }, error: false }
   } catch {
-    return { logs: [], pagination: null }
+    return { data: { logs: [], pagination: null }, error: true }
   }
 }
 
 async function getAuditStats() {
   try {
     const { data: stats } = await serverApiClient<{ data: any }>('/api/v1/audit/stats')
-    return stats || { total: 0, by_severity: { info: 0, warning: 0, error: 0, critical: 0 }, failed_actions: 0 }
+    return { data: stats || { total: 0, by_severity: { info: 0, warning: 0, error: 0, critical: 0 }, failed_actions: 0 }, error: false }
   } catch {
-    return { total: 0, by_severity: { info: 0, warning: 0, error: 0, critical: 0 }, failed_actions: 0 }
+    return { data: { total: 0, by_severity: { info: 0, warning: 0, error: 0, critical: 0 }, failed_actions: 0 }, error: true }
   }
 }
 
@@ -32,10 +32,14 @@ export default async function AuditPage({
   const params = await searchParams
   const page = Math.max(1, parseInt(params.page || '1', 10))
 
-  const [{ logs, pagination }, stats] = await Promise.all([
+  const [logsResult, statsResult] = await Promise.all([
     getAuditLogs(page),
     getAuditStats(),
   ])
+
+  const { logs, pagination } = logsResult.data
+  const stats = statsResult.data
+  const fetchError = logsResult.error || statsResult.error
 
   return (
     <>
@@ -45,6 +49,14 @@ export default async function AuditPage({
       />
 
       <div className="p-8">
+        {fetchError && (
+          <div className="mb-6 rounded-lg border border-red-500/30 bg-red-500/10 p-4">
+            <p className="text-sm text-red-400">
+              Failed to load data from the API. The values shown below may be inaccurate.
+            </p>
+          </div>
+        )}
+
         {/* Stats Grid */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
           <StatsCard

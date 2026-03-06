@@ -14,33 +14,39 @@ async function getAnalyticsData() {
     ])
 
     return {
-      stats: statsResult.data || {
-        total_users: 0,
-        premium_users: 0,
-        total_items: 0,
-        signups_last_7d: 0,
-        signups_last_30d: 0,
-        dau: 0,
-        wau: 0,
-        mau: 0,
+      data: {
+        stats: statsResult.data || {
+          total_users: 0,
+          premium_users: 0,
+          total_items: 0,
+          signups_last_7d: 0,
+          signups_last_30d: 0,
+          dau: 0,
+          wau: 0,
+          mau: 0,
+        },
+        signups: signupsResult.data || [],
+        items: itemsResult.data || [],
       },
-      signups: signupsResult.data || [],
-      items: itemsResult.data || [],
+      error: false,
     }
   } catch {
     return {
-      stats: {
-        total_users: 0,
-        premium_users: 0,
-        total_items: 0,
-        signups_last_7d: 0,
-        signups_last_30d: 0,
-        dau: 0,
-        wau: 0,
-        mau: 0,
+      data: {
+        stats: {
+          total_users: 0,
+          premium_users: 0,
+          total_items: 0,
+          signups_last_7d: 0,
+          signups_last_30d: 0,
+          dau: 0,
+          wau: 0,
+          mau: 0,
+        },
+        signups: [],
+        items: [],
       },
-      signups: [],
-      items: [],
+      error: true,
     }
   }
 }
@@ -48,7 +54,8 @@ async function getAnalyticsData() {
 export default async function AnalyticsPage() {
   await requireAdmin()
 
-  const { stats, signups, items } = await getAnalyticsData()
+  const { data: analyticsData, error: fetchError } = await getAnalyticsData()
+  const { stats, signups, items } = analyticsData
 
   const growthRate = Number(stats.signups_last_7d) > 0 && Number(stats.signups_last_30d) > 0
     ? ((Number(stats.signups_last_7d) / (Number(stats.signups_last_30d) / 4)) * 100 - 100).toFixed(1)
@@ -66,6 +73,14 @@ export default async function AnalyticsPage() {
       />
 
       <div className="p-8">
+        {fetchError && (
+          <div className="mb-6 rounded-lg border border-red-500/30 bg-red-500/10 p-4">
+            <p className="text-sm text-red-400">
+              Failed to load data from the API. The values shown below may be inaccurate.
+            </p>
+          </div>
+        )}
+
         {/* Key Metrics */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <StatsCard

@@ -619,15 +619,6 @@ class _MaintenanceCard extends ConsumerWidget {
 class _CommunitySavingsCard extends ConsumerWidget {
   const _CommunitySavingsCard();
 
-  /// Hardcoded fallback entries shown when the API feed is empty or fails.
-  static const _fallbackEntries = [
-    {'item_name': 'refrigerator', 'amount': 1800},
-    {'item_name': 'HVAC system', 'amount': 3200},
-    {'item_name': 'dishwasher', 'amount': 650},
-    {'item_name': 'washer', 'amount': 1100},
-    {'item_name': 'water heater', 'amount': 2400},
-  ];
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final feedAsync = ref.watch(savingsFeedProvider);
@@ -667,8 +658,21 @@ class _CommunitySavingsCard extends ConsumerWidget {
           ),
           child: feedAsync.when(
             data: (feed) {
-              final entries = feed.isNotEmpty ? feed.take(5).toList() : _fallbackEntries;
-              return _buildEntries(entries);
+              if (feed.isEmpty) {
+                return const Padding(
+                  padding: EdgeInsets.all(HavenSpacing.lg),
+                  child: Center(
+                    child: Text(
+                      'No community savings data yet',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: HavenColors.textTertiary,
+                      ),
+                    ),
+                  ),
+                );
+              }
+              return _buildEntries(feed.take(5).toList());
             },
             loading: () => const Padding(
               padding: EdgeInsets.all(HavenSpacing.lg),
@@ -680,7 +684,18 @@ class _CommunitySavingsCard extends ConsumerWidget {
                 ),
               ),
             ),
-            error: (_, __) => _buildEntries(_fallbackEntries),
+            error: (_, __) => const Padding(
+              padding: EdgeInsets.all(HavenSpacing.lg),
+              child: Center(
+                child: Text(
+                  'Unable to load community savings',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: HavenColors.textTertiary,
+                  ),
+                ),
+              ),
+            ),
           ),
         ),
       ],

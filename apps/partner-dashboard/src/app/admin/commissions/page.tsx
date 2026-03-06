@@ -8,18 +8,18 @@ import { ClockIcon, CheckBadgeIcon, BanknotesIcon } from '@heroicons/react/24/ou
 async function getCommissions(page: number = 1) {
   try {
     const result = await serverApiClient<{ data: any[]; pagination: any }>(`/api/v1/admin/commissions?page=${page}&limit=20`)
-    return { commissions: result.data || [], pagination: result.pagination }
+    return { data: { commissions: result.data || [], pagination: result.pagination }, error: false }
   } catch {
-    return { commissions: [], pagination: null }
+    return { data: { commissions: [], pagination: null }, error: true }
   }
 }
 
 async function getCommissionStats() {
   try {
     const { data: stats } = await serverApiClient<{ data: any }>('/api/v1/admin/commissions/stats')
-    return stats || { total_pending_amount: 0, total_approved_amount: 0, total_paid_amount: 0 }
+    return { data: stats || { total_pending_amount: 0, total_approved_amount: 0, total_paid_amount: 0 }, error: false }
   } catch {
-    return { total_pending_amount: 0, total_approved_amount: 0, total_paid_amount: 0 }
+    return { data: { total_pending_amount: 0, total_approved_amount: 0, total_paid_amount: 0 }, error: true }
   }
 }
 
@@ -32,10 +32,14 @@ export default async function CommissionsPage({
   const params = await searchParams
   const page = Math.max(1, parseInt(params.page || '1', 10))
 
-  const [{ commissions, pagination }, stats] = await Promise.all([
+  const [commissionsResult, statsResult] = await Promise.all([
     getCommissions(page),
     getCommissionStats(),
   ])
+
+  const { commissions, pagination } = commissionsResult.data
+  const stats = statsResult.data
+  const fetchError = commissionsResult.error || statsResult.error
 
   return (
     <>
@@ -45,6 +49,14 @@ export default async function CommissionsPage({
       />
 
       <div className="p-8">
+        {fetchError && (
+          <div className="mb-6 rounded-lg border border-red-500/30 bg-red-500/10 p-4">
+            <p className="text-sm text-red-400">
+              Failed to load data from the API. The values shown below may be inaccurate.
+            </p>
+          </div>
+        )}
+
         {/* Stats Grid */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <StatsCard

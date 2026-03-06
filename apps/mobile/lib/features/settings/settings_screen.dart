@@ -16,6 +16,7 @@ import '../../core/services/biometric_service.dart';
 import '../../core/services/csv_export_service.dart';
 import '../../core/services/offline_sync_service.dart';
 import '../../core/services/secure_storage_service.dart';
+import '../../main.dart';
 
 /// Reads the app version + build number from the package metadata.
 final appVersionProvider = FutureProvider<String>((ref) async {
@@ -77,6 +78,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final archivedAsync = ref.watch(archivedItemsProvider);
     final itemCountAsync = ref.watch(activeItemCountProvider);
     final appVersion = ref.watch(appVersionProvider).valueOrNull ?? '—';
+    final config = ref.watch(environmentConfigProvider);
 
     return Scaffold(
       backgroundColor: HavenColors.background,
@@ -385,7 +387,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             title: 'Help Center',
             subtitle: 'FAQs and guides',
             onTap: () async {
-              final uri = Uri.parse('https://havenkeep.app/help');
+              final uri = Uri.parse('${config.appUrl}/help');
               if (await canLaunchUrl(uri)) {
                 await launchUrl(uri, mode: LaunchMode.externalApplication);
               }
@@ -395,11 +397,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           _SettingsTile(
             icon: Icons.email_outlined,
             title: 'Contact Support',
-            subtitle: 'support@havenkeep.app',
+            subtitle: config.supportEmail,
             onTap: () async {
               final uri = Uri(
                 scheme: 'mailto',
-                path: 'support@havenkeep.app',
+                path: config.supportEmail,
                 queryParameters: {'subject': 'HavenKeep Support Request'},
               );
               if (await canLaunchUrl(uri)) {
@@ -459,7 +461,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             icon: Icons.privacy_tip_outlined,
             title: 'Privacy Policy',
             onTap: () async {
-              final uri = Uri.parse('https://havenkeep.app/privacy');
+              final uri = Uri.parse('${config.appUrl}/privacy');
               if (await canLaunchUrl(uri)) {
                 await launchUrl(uri, mode: LaunchMode.externalApplication);
               }
@@ -470,7 +472,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             icon: Icons.description_outlined,
             title: 'Terms of Service',
             onTap: () async {
-              final uri = Uri.parse('https://havenkeep.app/terms');
+              final uri = Uri.parse('${config.appUrl}/terms');
               if (await canLaunchUrl(uri)) {
                 await launchUrl(uri, mode: LaunchMode.externalApplication);
               }

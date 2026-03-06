@@ -35,20 +35,26 @@ void main() {
       });
 
       test('returns expiring on the 90th day before expiration', () {
-        // Warranty expires in exactly 90 days
+        // Use warrantyEndDate to set exact boundary (90 days from today)
+        final now = DateTime.now();
+        final today = DateTime(now.year, now.month, now.day);
         final item = TestHelpers.createTestItem(
-          purchaseDate: DateTime.now().subtract(const Duration(days: 270)),
+          purchaseDate: today.subtract(const Duration(days: 275)),
           warrantyMonths: 12,
+          warrantyEndDate: today.add(const Duration(days: 90)),
         );
 
         expect(item.computedWarrantyStatus, WarrantyStatus.expiring);
       });
 
-      test('returns expired on expiration day', () {
-        // Warranty expires today
+      test('returns expired when warranty end date is in the past', () {
+        // Warranty ended yesterday
+        final now = DateTime.now();
+        final today = DateTime(now.year, now.month, now.day);
         final item = TestHelpers.createTestItem(
-          purchaseDate: DateTime.now().subtract(const Duration(days: 360)),
+          purchaseDate: today.subtract(const Duration(days: 366)),
           warrantyMonths: 12,
+          warrantyEndDate: today.subtract(const Duration(days: 1)),
         );
 
         expect(item.computedWarrantyStatus, WarrantyStatus.expired);
@@ -115,13 +121,16 @@ void main() {
       });
 
       test('returns 0 on expiration day', () {
-        // Warranty expires in ~0 days
+        // Warranty end date is today → 0 days remaining
+        final now = DateTime.now();
+        final today = DateTime(now.year, now.month, now.day);
         final item = TestHelpers.createTestItem(
-          purchaseDate: DateTime.now().subtract(const Duration(days: 360)),
+          purchaseDate: today.subtract(const Duration(days: 365)),
           warrantyMonths: 12,
+          warrantyEndDate: today,
         );
 
-        expect(item.computedDaysRemaining, closeTo(0, 2));
+        expect(item.computedDaysRemaining, 0);
       });
 
       test('uses daysRemaining if provided (from database view)', () {

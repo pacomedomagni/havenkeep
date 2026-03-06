@@ -65,13 +65,16 @@ class Validators {
       return null; // Allow empty if not required
     }
 
+    // Try parsing the raw value first to detect negatives
+    final rawParsed = double.tryParse(value);
+    if (rawParsed != null && rawParsed < 0) {
+      return 'Price cannot be negative';
+    }
+
+    // Strip currency symbols and other non-numeric characters
     final parsed = double.tryParse(value.replaceAll(RegExp(r'[^\d.]'), ''));
     if (parsed == null) {
       return 'Please enter a valid price';
-    }
-
-    if (parsed < 0) {
-      return 'Price cannot be negative';
     }
 
     if (parsed > 10000000) {
@@ -120,7 +123,7 @@ class Validators {
     }
 
     if (!RegExp(r'^[A-Z0-9\-]+$', caseSensitive: false).hasMatch(value)) {
-      return 'Serial number can only contain letters, numbers, and hyphens';
+      return 'Serial number contains invalid characters';
     }
 
     return null;

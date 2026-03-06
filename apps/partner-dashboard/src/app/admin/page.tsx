@@ -6,20 +6,23 @@ import { UsersIcon, CubeIcon, CurrencyDollarIcon, ChartBarIcon } from '@heroicon
 async function getAdminStats() {
   try {
     const { data: stats } = await serverApiClient<{ data: any }>('/api/v1/admin/stats/full')
-    return stats
+    return { data: stats, error: false }
   } catch {
     return {
-      total_users: 0,
-      premium_users: 0,
-      total_items: 0,
-      items_last_24h: 0,
-      signups_last_24h: 0,
-      signups_last_7d: 0,
-      signups_last_30d: 0,
-      total_value_protected: 0,
-      dau: 0,
-      wau: 0,
-      mau: 0,
+      data: {
+        total_users: 0,
+        premium_users: 0,
+        total_items: 0,
+        items_last_24h: 0,
+        signups_last_24h: 0,
+        signups_last_7d: 0,
+        signups_last_30d: 0,
+        total_value_protected: 0,
+        dau: 0,
+        wau: 0,
+        mau: 0,
+      },
+      error: true,
     }
   }
 }
@@ -27,19 +30,24 @@ async function getAdminStats() {
 async function getRecentUsers() {
   try {
     const { data: users } = await serverApiClient<{ data: any[] }>('/api/v1/admin/users?page=1&limit=5')
-    return users || []
+    return { data: users || [], error: false }
   } catch {
-    return []
+    return { data: [], error: true }
   }
 }
 
 export default async function DashboardPage() {
   await requireAdmin()
 
-  const [stats, recentUsers] = await Promise.all([
+  const [statsResult, usersResult] = await Promise.all([
     getAdminStats(),
     getRecentUsers(),
   ])
+
+  const stats = statsResult.data
+  const statsError = statsResult.error
+  const recentUsers = usersResult.data
+  const usersError = usersResult.error
 
   const premiumPercentage = Number(stats.total_users) > 0
     ? ((Number(stats.premium_users) / Number(stats.total_users)) * 100).toFixed(1)
@@ -53,6 +61,14 @@ export default async function DashboardPage() {
       />
 
       <div className="p-8">
+        {(statsError || usersError) && (
+          <div className="mb-6 rounded-lg border border-red-500/30 bg-red-500/10 p-4">
+            <p className="text-sm text-red-400">
+              Failed to load data from the API. The values shown below may be inaccurate.
+            </p>
+          </div>
+        )}
+
         {/* Stats Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           <StatsCard

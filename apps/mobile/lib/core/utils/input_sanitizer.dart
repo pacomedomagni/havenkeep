@@ -42,6 +42,12 @@ class InputSanitizer {
   /// Extracts only digits and decimal point.
   /// Returns null if unable to parse as valid number.
   static double? sanitizePrice(String input) {
+    // Check for negative values before stripping non-numeric characters
+    final rawParsed = double.tryParse(input.trim());
+    if (rawParsed != null && rawParsed < 0) {
+      return null; // Reject negative prices
+    }
+
     // Remove everything except digits and decimal point
     final cleaned = input.replaceAll(RegExp(r'[^\d.]'), '');
 
@@ -53,7 +59,7 @@ class InputSanitizer {
     final value = double.tryParse(cleaned);
 
     // Validate range
-    if (value == null || value < 0 || value > 10000000) {
+    if (value == null || value > 10000000) {
       return null; // Unreasonable price
     }
 

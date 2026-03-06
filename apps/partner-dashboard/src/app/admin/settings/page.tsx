@@ -32,45 +32,6 @@ export default async function SettingsPage() {
             </div>
           </div>
 
-          {/* Platform Settings */}
-          <div className="card">
-            <h3 className="text-lg font-semibold text-white mb-4">Platform Settings</h3>
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium text-white">Email Notifications</p>
-                  <p className="text-sm text-haven-text-secondary">Receive alerts about platform activity</p>
-                </div>
-                <input
-                  type="checkbox"
-                  defaultChecked
-                  className="h-4 w-4 text-haven-primary focus:ring-haven-primary border-haven-border rounded bg-haven-elevated"
-                />
-              </div>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium text-white">Daily Reports</p>
-                  <p className="text-sm text-haven-text-secondary">Send daily summary emails</p>
-                </div>
-                <input
-                  type="checkbox"
-                  defaultChecked
-                  className="h-4 w-4 text-haven-primary focus:ring-haven-primary border-haven-border rounded bg-haven-elevated"
-                />
-              </div>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium text-white">Critical Alerts</p>
-                  <p className="text-sm text-haven-text-secondary">Notify on system issues</p>
-                </div>
-                <input
-                  type="checkbox"
-                  defaultChecked
-                  className="h-4 w-4 text-haven-primary focus:ring-haven-primary border-haven-border rounded bg-haven-elevated"
-                />
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     </>

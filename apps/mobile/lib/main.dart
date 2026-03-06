@@ -79,8 +79,8 @@ Future<void> main() async {
       // Initialize Firebase for push notifications and analytics
       // Skip if using placeholder keys (causes native crash in FirebaseInstallations)
       final firebaseOptions = DefaultFirebaseOptions.currentPlatform;
-      if (firebaseOptions.apiKey.startsWith('YOUR_')) {
-        LoggingService.warn('Firebase skipped — placeholder API key detected', {});
+      if (firebaseOptions.apiKey.isEmpty) {
+        LoggingService.warn('Firebase skipped — no API key configured in .env', {});
       } else {
         try {
           await Firebase.initializeApp(options: firebaseOptions);
