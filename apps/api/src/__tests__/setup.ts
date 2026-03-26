@@ -35,6 +35,7 @@ async function flushRedis() {
 
 // Tables to truncate between test suites (order matters for FK constraints)
 const TABLES = [
+  'webhook_events',
   'audit_logs',
   'user_push_tokens',
   'email_verification_tokens',

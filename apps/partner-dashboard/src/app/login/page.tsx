@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useFormState, useFormStatus } from 'react-dom';
 import { signIn } from './actions';
 
@@ -77,7 +78,20 @@ export default function LoginPage() {
             />
           </div>
 
+          <div className="flex justify-end">
+            <Link href="/forgot-password" className="text-sm text-primary-500 hover:text-primary-400">
+              Forgot password?
+            </Link>
+          </div>
+
           <SubmitButton />
+
+          <p className="text-center text-sm text-gray-600">
+            Don&apos;t have an account?{' '}
+            <Link href="/signup" className="text-primary-500 hover:text-primary-400">
+              Sign up
+            </Link>
+          </p>
         </form>
       </div>
     </div>

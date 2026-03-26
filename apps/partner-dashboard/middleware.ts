@@ -71,6 +71,8 @@ export async function middleware(request: NextRequest) {
   const isPublicRoute =
     pathname === '/login' ||
     pathname === '/signup' ||
+    pathname === '/forgot-password' ||
+    pathname === '/reset-password' ||
     pathname === '/unauthorized'
 
   const accessToken = request.cookies.get(ACCESS_TOKEN_COOKIE)?.value

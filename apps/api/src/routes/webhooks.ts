@@ -5,6 +5,27 @@ import { config } from '../config';
 import { pool, query } from '../db';
 import { logger } from '../utils/logger';
 
+/**
+ * Record a webhook event to prevent duplicate processing.
+ * Returns true if the event is new and was recorded, false if already processed.
+ */
+async function recordWebhookEvent(eventId: string, source: string, eventType: string): Promise<boolean> {
+  try {
+    await query(
+      `INSERT INTO webhook_events (event_id, source, event_type)
+       VALUES ($1, $2, $3)`,
+      [eventId, source, eventType]
+    );
+    return true;
+  } catch (err: any) {
+    // Unique constraint violation means this event was already processed
+    if (err.code === '23505') {
+      return false;
+    }
+    throw err;
+  }
+}
+
 const router = Router();
 
 const stripe = new Stripe(config.stripe.secretKey, {
@@ -41,6 +62,13 @@ router.post(
     }
 
     logger.info({ eventId: event.id, eventType: event.type }, 'Stripe webhook event received');
+
+    // Idempotency check: skip if this event was already processed
+    const isNew = await recordWebhookEvent(event.id, 'stripe', event.type);
+    if (!isNew) {
+      logger.info({ eventId: event.id, eventType: event.type }, 'Stripe webhook event already processed — skipping');
+      return res.status(200).json({ received: true, duplicate: true });
+    }
 
     try {
       switch (event.type) {
@@ -388,6 +416,13 @@ router.post('/revenuecat', validateRevenueCatWebhookAuth, async (req: Request, r
     if (event.type === 'TEST') {
       logger.info('RevenueCat webhook test event received');
       return res.status(200).json({ success: true });
+    }
+
+    // Idempotency check: skip if this event was already processed
+    const isNew = await recordWebhookEvent(event.id, 'revenuecat', event.type);
+    if (!isNew) {
+      logger.info({ eventId: event.id, eventType: event.type }, 'RevenueCat webhook event already processed — skipping');
+      return res.status(200).json({ success: true, duplicate: true });
     }
 
     // Find the HavenKeep user

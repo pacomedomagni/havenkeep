@@ -139,6 +139,16 @@ function scheduleExpirationNotifications() {
         } catch (error) {
           logger.error({ error }, 'Weekly analytics reconciliation failed');
         }
+
+        // Clean up old webhook event records (older than 7 days)
+        try {
+          const result = await pool.query(
+            `DELETE FROM webhook_events WHERE processed_at < NOW() - INTERVAL '7 days'`
+          );
+          logger.info({ deleted: result.rowCount }, 'Weekly webhook events cleanup completed');
+        } catch (error) {
+          logger.error({ error }, 'Weekly webhook events cleanup failed');
+        }
       }
 
       // Always schedule next, even if current run failed
