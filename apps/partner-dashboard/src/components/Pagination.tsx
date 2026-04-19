@@ -23,26 +23,26 @@ export default function Pagination({ page, totalPages, total }: PaginationProps)
   }
 
   return (
-    <div className="flex items-center justify-between border-t border-gray-200 px-4 py-3 sm:px-6 mt-4">
-      <div className="text-sm text-gray-700">
+    <div className="flex items-center justify-between border-t border-haven-border px-4 py-3 sm:px-6 mt-4">
+      <div className="text-sm text-haven-text-secondary">
         {total} total results
       </div>
       <div className="flex items-center gap-2">
         <button
           onClick={() => goToPage(page - 1)}
           disabled={page <= 1}
-          className="inline-flex items-center rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="inline-flex items-center rounded-md border border-haven-border bg-haven-surface px-3 py-2 text-sm font-medium text-haven-text-secondary hover:bg-haven-elevated disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <ChevronLeftIcon className="h-4 w-4 mr-1" />
           Previous
         </button>
-        <span className="text-sm text-gray-700">
+        <span className="text-sm text-haven-text-secondary">
           Page {page} of {totalPages}
         </span>
         <button
           onClick={() => goToPage(page + 1)}
           disabled={page >= totalPages}
-          className="inline-flex items-center rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="inline-flex items-center rounded-md border border-haven-border bg-haven-surface px-3 py-2 text-sm font-medium text-haven-text-secondary hover:bg-haven-elevated disabled:opacity-50 disabled:cursor-not-allowed"
         >
           Next
           <ChevronRightIcon className="h-4 w-4 ml-1" />

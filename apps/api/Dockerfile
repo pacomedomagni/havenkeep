@@ -6,7 +6,8 @@ FROM base AS development
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
-RUN npm install
+# Use npm ci so local images match the lockfile, matching the builder stage.
+RUN npm ci
 
 COPY . .
 

@@ -58,6 +58,7 @@ export default function GiftDetailPage() {
     }
   };
 
+  const [resendSuccess, setResendSuccess] = useState<string | null>(null);
   const handleResendEmail = async () => {
     setResending(true);
     try {
@@ -66,6 +67,8 @@ export default function GiftDetailPage() {
       });
       if (data.success) {
         setShowResendModal(false);
+        setResendSuccess(`Gift email re-sent to ${gift?.homebuyer_email ?? 'recipient'}.`);
+        window.setTimeout(() => setResendSuccess(null), 4000);
       } else {
         setError(data.message || 'Failed to resend email');
       }
@@ -139,6 +142,14 @@ export default function GiftDetailPage() {
 
   return (
     <div className="space-y-6 max-w-5xl">
+      {resendSuccess && (
+        <div
+          role="status"
+          className="fixed top-4 right-4 z-50 rounded-lg bg-haven-active/20 border border-haven-active/40 px-4 py-3 text-sm text-haven-active"
+        >
+          {resendSuccess}
+        </div>
+      )}
       {/* Header */}
       <div>
         <button
@@ -217,20 +228,25 @@ export default function GiftDetailPage() {
           </div>
 
           {/* Activation Status */}
-          {gift.is_activated && gift.activated_at && (
-            <div className="bg-haven-active/10 border border-haven-active/30 rounded-xl p-6">
-              <div className="flex items-center gap-3 mb-2">
-                <svg className="w-6 h-6 text-haven-active" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <h3 className="text-lg font-semibold text-haven-active">Gift Activated!</h3>
+          {gift.is_activated && gift.activated_at && (() => {
+            const activatedDate = new Date(gift.activated_at);
+            const isValid = !Number.isNaN(activatedDate.getTime());
+            return (
+              <div className="bg-haven-active/10 border border-haven-active/30 rounded-xl p-6">
+                <div className="flex items-center gap-3 mb-2">
+                  <svg className="w-6 h-6 text-haven-active" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <h3 className="text-lg font-semibold text-haven-active">Gift Activated!</h3>
+                </div>
+                <p className="text-haven-text-secondary">
+                  {isValid
+                    ? `This gift was activated on ${activatedDate.toLocaleDateString()} at ${activatedDate.toLocaleTimeString()}`
+                    : 'This gift has been activated.'}
+                </p>
               </div>
-              <p className="text-haven-text-secondary">
-                This gift was activated on {new Date(gift.activated_at).toLocaleDateString()} at{' '}
-                {new Date(gift.activated_at).toLocaleTimeString()}
-              </p>
-            </div>
-          )}
+            );
+          })()}
         </div>
 
         {/* Sidebar */}

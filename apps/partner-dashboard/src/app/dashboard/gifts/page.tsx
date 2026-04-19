@@ -56,11 +56,14 @@ export default function GiftsPage() {
     const classes: Record<string, string> = {
       created: 'badge-approved',
       sent: 'badge-pending',
+      activated: 'badge-converted',
       expired: 'badge-expired',
+      pending_payment: 'badge-pending',
+      cancelled: 'badge-cancelled',
     };
     return (
       <span className={classes[status] || 'badge-pending'}>
-        {status.charAt(0).toUpperCase() + status.slice(1)}
+        {status.charAt(0).toUpperCase() + status.slice(1).replace(/_/g, ' ')}
       </span>
     );
   };
@@ -253,6 +256,8 @@ function CreateGiftModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    // Double-click guard: ignore re-entry while a submit is already in flight.
+    if (loading) return;
     setLoading(true);
     setError('');
 

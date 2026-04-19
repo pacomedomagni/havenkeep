@@ -90,7 +90,10 @@ class MaintenanceScreen extends ConsumerWidget {
           }
 
           return RefreshIndicator(
-            onRefresh: () async => ref.invalidate(maintenanceDueProvider),
+            onRefresh: () async {
+              ref.invalidate(maintenanceDueProvider);
+              await ref.read(maintenanceDueProvider.future);
+            },
             color: HavenColors.primary,
             child: ListView(
               padding: const EdgeInsets.all(HavenSpacing.md),

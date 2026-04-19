@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { getClient, query, pool } from '../db';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { AppError } from '../utils/errors';
+import { logger } from '../utils/logger';
+import { addMonthsSafe } from '../utils/dates';
 import { validate } from '../middleware/validate';
 import { createItemSchema, updateItemSchema, paginationSchema, uuidParamSchema } from '../validators';
 import { AuditService } from '../services/audit.service';
@@ -11,22 +13,6 @@ import { asyncHandler } from '../utils/async-handler';
 import { sendSuccess, sendMessage } from '../utils/response';
 
 const router = Router();
-
-/**
- * Safely add months to a date, handling day overflow.
- * e.g., Jan 31 + 1 month = Feb 28 (not Mar 3)
- */
-function addMonthsSafe(date: Date, months: number): Date {
-  const result = new Date(date);
-  const targetMonth = result.getMonth() + months;
-  result.setMonth(targetMonth);
-  // If the day overflowed (e.g. 31 -> next month), go back to last day of target month
-  const expectedMonth = ((date.getMonth() + months) % 12 + 12) % 12;
-  if (result.getMonth() !== expectedMonth) {
-    result.setDate(0); // Last day of previous month
-  }
-  return result;
-}
 
 // All routes require authentication
 router.use(authenticate);
@@ -567,8 +553,7 @@ router.delete('/:id', writeRateLimiter, validate(uuidParamSchema, 'params'), asy
       description: `Deleted item: ${item.name}`,
       metadata: { category: item.category },
     }).catch((err) => {
-      // Log but don't throw — audit failure should not affect the user response
-      console.error('Failed to log item.delete audit event:', err);
+      logger.error({ err }, 'Failed to log item.delete audit event');
     });
 
     sendMessage(res, 'Item deleted successfully');

@@ -21,6 +21,8 @@ export interface Commission {
   status: CommissionStatus;
   paidAt?: string;
   createdAt: string;
+  referredUserName?: string | null;
+  referredUserEmail?: string | null;
 }
 
 export interface AdminCommission {

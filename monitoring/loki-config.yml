@@ -36,13 +36,16 @@ schema_config:
 ruler:
   alertmanager_url: http://localhost:9093
 
-# Retention configuration
+# Retention configuration. 90 days gives us enough runway for incident
+# forensics and aligns with SOC 2 Type II reasonable-retention expectations.
+# If storage pressure becomes a problem, ship older logs to S3-compatible
+# cold storage instead of shortening this window.
 limits_config:
-  retention_period: 744h  # 31 days
+  retention_period: 2160h  # 90 days
   max_query_series: 100000
   max_query_parallelism: 32
 
 # Table manager for retention
 table_manager:
   retention_deletes_enabled: true
-  retention_period: 744h
+  retention_period: 2160h

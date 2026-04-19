@@ -7,9 +7,12 @@ let redisClient: ReturnType<typeof createClient> | null = null;
 let redisReady = false;
 
 // Circuit breaker state: after CIRCUIT_BREAKER_THRESHOLD consecutive Redis
-// failures, we stop calling Redis for CIRCUIT_BREAKER_RESET_MS and allow
-// requests through (fail-open) to avoid cascading latency.  After the
-// cooldown we retry Redis; a single success resets the counter.
+// failures we stop hammering Redis for CIRCUIT_BREAKER_RESET_MS. Behavior
+// while the circuit is open:
+//   - development: fail-open (accept token) to keep local dev workable.
+//   - production:  fail-closed (reject token) — we cannot verify revocation,
+//                  so a revoked token must not slip through.
+// After cooldown, a single Redis call is attempted; success closes the circuit.
 const CIRCUIT_BREAKER_THRESHOLD = 5;
 const CIRCUIT_BREAKER_RESET_MS = 60_000; // 60 seconds
 let consecutiveFailures = 0;
@@ -88,13 +91,16 @@ export async function blacklistTokenAuto(token: string): Promise<void> {
  * period a single Redis call is attempted; on success the circuit closes.
  */
 export async function isTokenBlacklisted(token: string): Promise<boolean> {
-  // If the circuit is open, allow requests through until the cooldown expires
-  if (consecutiveFailures >= CIRCUIT_BREAKER_THRESHOLD) {
-    if (Date.now() < circuitOpenUntil) {
-      // Circuit is still open — skip Redis entirely
-      return false;
+  // Circuit is already open — skip Redis until cooldown elapses.
+  if (consecutiveFailures >= CIRCUIT_BREAKER_THRESHOLD && Date.now() < circuitOpenUntil) {
+    if (config.env === 'production') {
+      // Fail-closed: cannot verify revocation, reject.
+      return true;
     }
-    // Cooldown expired — attempt a single Redis call to see if it recovered
+    return false;
+  }
+
+  if (consecutiveFailures >= CIRCUIT_BREAKER_THRESHOLD) {
     logger.info('Token blacklist circuit breaker cooldown expired, retrying Redis');
   }
 
@@ -102,7 +108,6 @@ export async function isTokenBlacklisted(token: string): Promise<boolean> {
     const client = await getClient();
     const result = await client.get(`${BLACKLIST_PREFIX}${token}`);
 
-    // Success — reset the circuit breaker
     if (consecutiveFailures > 0) {
       logger.info('Token blacklist Redis recovered, resetting circuit breaker');
     }
@@ -118,21 +123,15 @@ export async function isTokenBlacklisted(token: string): Promise<boolean> {
       circuitOpenUntil = Date.now() + CIRCUIT_BREAKER_RESET_MS;
       logger.fatal(
         { consecutiveFailures, circuitOpenUntilISO: new Date(circuitOpenUntil).toISOString() },
-        'CRITICAL: Token blacklist circuit breaker OPEN — allowing all requests through for 60s'
+        'CRITICAL: Token blacklist circuit breaker OPEN — fail-closed in production, fail-open in dev'
       );
     }
 
-    // Fail-open in development, fail-closed in production (unless circuit is open)
+    // Dev: fail-open to keep local iteration fast.
     if (config.env !== 'production') {
-      logger.warn('Token blacklist check failed — fail-open in development (token accepted)');
       return false;
     }
-
-    // In production, if the circuit just opened, fail-open
-    if (consecutiveFailures >= CIRCUIT_BREAKER_THRESHOLD) {
-      return false;
-    }
-
+    // Production: fail-closed. We cannot verify token revocation, so reject.
     return true;
   }
 }

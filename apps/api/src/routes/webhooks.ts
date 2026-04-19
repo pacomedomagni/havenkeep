@@ -6,24 +6,60 @@ import { pool, query } from '../db';
 import { logger } from '../utils/logger';
 
 /**
- * Record a webhook event to prevent duplicate processing.
- * Returns true if the event is new and was recorded, false if already processed.
+ * Claim an event for processing. Returns one of:
+ *  - 'claimed'    : first time we've seen this event, safe to process
+ *  - 'retry'      : a prior attempt recorded it as pending/failed; we re-claim
+ *  - 'processed'  : already processed, skip
+ *
+ * Uses INSERT ... ON CONFLICT DO UPDATE so the check is atomic under
+ * concurrent deliveries. Only when the row transitions to `status='pending'`
+ * does the caller hold the right to process it.
  */
-async function recordWebhookEvent(eventId: string, source: string, eventType: string): Promise<boolean> {
-  try {
-    await query(
-      `INSERT INTO webhook_events (event_id, source, event_type)
-       VALUES ($1, $2, $3)`,
-      [eventId, source, eventType]
-    );
-    return true;
-  } catch (err: any) {
-    // Unique constraint violation means this event was already processed
-    if (err.code === '23505') {
-      return false;
-    }
-    throw err;
-  }
+async function claimWebhookEvent(
+  eventId: string,
+  source: string,
+  eventType: string,
+): Promise<'claimed' | 'retry' | 'processed'> {
+  const result = await query(
+    `INSERT INTO webhook_events (event_id, source, event_type, status, claimed_at)
+     VALUES ($1, $2, $3, 'pending', NOW())
+     ON CONFLICT (source, event_id) DO UPDATE
+       SET status = CASE
+                      WHEN webhook_events.status = 'processed' THEN 'processed'
+                      ELSE 'pending'
+                    END,
+           claimed_at = CASE
+                          WHEN webhook_events.status = 'processed' THEN webhook_events.claimed_at
+                          ELSE NOW()
+                        END
+     RETURNING status, (xmax = 0) AS inserted`,
+    [eventId, source, eventType],
+  );
+  const row = result.rows[0];
+  if (row.status === 'processed') return 'processed';
+  return row.inserted ? 'claimed' : 'retry';
+}
+
+async function markWebhookProcessed(eventId: string, source: string): Promise<void> {
+  await query(
+    `UPDATE webhook_events
+        SET status = 'processed',
+            processed_at = NOW(),
+            last_error = NULL
+      WHERE source = $1 AND event_id = $2`,
+    [source, eventId],
+  );
+}
+
+async function markWebhookFailed(eventId: string, source: string, err: unknown): Promise<void> {
+  const message = err instanceof Error ? err.message : String(err);
+  await query(
+    `UPDATE webhook_events
+        SET status = 'failed',
+            last_error = $3
+      WHERE source = $1 AND event_id = $2`,
+    [source, eventId, message.slice(0, 1000)],
+  );
 }
 
 const router = Router();
@@ -63,11 +99,32 @@ router.post(
 
     logger.info({ eventId: event.id, eventType: event.type }, 'Stripe webhook event received');
 
-    // Idempotency check: skip if this event was already processed
-    const isNew = await recordWebhookEvent(event.id, 'stripe', event.type);
-    if (!isNew) {
-      logger.info({ eventId: event.id, eventType: event.type }, 'Stripe webhook event already processed — skipping');
+    // Timestamp freshness: Stripe's signature check covers replay integrity,
+    // but also reject events whose `created` is older than STRIPE_MAX_AGE_SEC
+    // to limit replay windows if signing secret were ever leaked.
+    const STRIPE_MAX_AGE_SEC = 5 * 60;
+    const ageSec = Math.floor(Date.now() / 1000) - event.created;
+    if (ageSec > STRIPE_MAX_AGE_SEC) {
+      logger.warn(
+        { eventId: event.id, eventType: event.type, ageSec },
+        'Stripe webhook event too old — rejecting as potential replay',
+      );
+      return res.status(400).json({ error: 'Event too old' });
+    }
+
+    const claim = await claimWebhookEvent(event.id, 'stripe', event.type);
+    if (claim === 'processed') {
+      logger.info(
+        { eventId: event.id, eventType: event.type },
+        'Stripe webhook event already processed — skipping',
+      );
       return res.status(200).json({ received: true, duplicate: true });
+    }
+    if (claim === 'retry') {
+      logger.warn(
+        { eventId: event.id, eventType: event.type },
+        'Stripe webhook event re-claimed after prior failure',
+      );
     }
 
     try {
@@ -87,16 +144,16 @@ router.post(
         default:
           logger.info({ eventType: event.type }, 'Unhandled Stripe webhook event type — ignoring');
       }
+      await markWebhookProcessed(event.id, 'stripe');
     } catch (err) {
+      await markWebhookFailed(event.id, 'stripe', err);
       logger.error(
         { error: err, eventId: event.id, eventType: event.type },
         'Error processing Stripe webhook event'
       );
-      // Return 500 so Stripe retries the webhook
       return res.status(500).json({ error: 'Webhook processing failed' });
     }
 
-    // Acknowledge receipt — Stripe expects a 2xx within 20 seconds
     res.status(200).json({ received: true });
   }
 );
@@ -418,11 +475,13 @@ router.post('/revenuecat', validateRevenueCatWebhookAuth, async (req: Request, r
       return res.status(200).json({ success: true });
     }
 
-    // Idempotency check: skip if this event was already processed
-    const isNew = await recordWebhookEvent(event.id, 'revenuecat', event.type);
-    if (!isNew) {
+    const claim = await claimWebhookEvent(event.id, 'revenuecat', event.type);
+    if (claim === 'processed') {
       logger.info({ eventId: event.id, eventType: event.type }, 'RevenueCat webhook event already processed — skipping');
       return res.status(200).json({ success: true, duplicate: true });
+    }
+    if (claim === 'retry') {
+      logger.warn({ eventId: event.id, eventType: event.type }, 'RevenueCat webhook event re-claimed after prior failure');
     }
 
     // Find the HavenKeep user
@@ -551,14 +610,17 @@ router.post('/revenuecat', validateRevenueCatWebhookAuth, async (req: Request, r
       }
     }
 
-    // Always return 200 to acknowledge — otherwise RevenueCat retries
+    await markWebhookProcessed(event.id, 'revenuecat');
     res.status(200).json({ success: true });
   } catch (err) {
-    logger.error(
-      { error: err },
-      'Error processing RevenueCat webhook event'
-    );
-    // Return 500 so RevenueCat retries
+    // Best-effort: mark failed so retries are permitted.
+    try {
+      const eventId = (req.body as RevenueCatWebhookPayload | undefined)?.event?.id;
+      if (eventId) await markWebhookFailed(eventId, 'revenuecat', err);
+    } catch {
+      /* ignore */
+    }
+    logger.error({ error: err }, 'Error processing RevenueCat webhook event');
     res.status(500).json({ error: 'Webhook processing failed' });
   }
 });

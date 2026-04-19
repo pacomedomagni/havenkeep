@@ -72,7 +72,8 @@ class PremiumService {
 
     await Purchases.configure(purchasesConfig);
 
-    // Listen for customer info changes (renewals, cancellations, etc.)
+    // Listen for customer info changes (renewals, cancellations, etc.).
+    // Removed in dispose() so provider rebuilds don't stack listeners.
     Purchases.addCustomerInfoUpdateListener(_onCustomerInfoUpdated);
 
     _initialized = true;
@@ -269,9 +270,28 @@ class PremiumService {
       debugPrint('[Premium] RevenueCat logout failed: $e');
     }
   }
+
+  /// Called when the owning provider is disposed. Detaches the RevenueCat
+  /// customer-info listener so it doesn't fire after the Ref is invalid
+  /// and so re-created services don't double-subscribe.
+  void dispose() {
+    if (!_initialized) return;
+    try {
+      Purchases.removeCustomerInfoUpdateListener(_onCustomerInfoUpdated);
+    } catch (e) {
+      debugPrint('[Premium] removeCustomerInfoUpdateListener failed: $e');
+    }
+  }
 }
 
-/// Riverpod provider for the premium service.
+/// Riverpod provider for the premium service. On dispose (e.g. sign-out
+/// rebuilds the auth-dependent providers) we must remove the RevenueCat
+/// listener; otherwise repeated sign-in/sign-out cycles accumulate
+/// duplicate listeners and wedge memory.
 final premiumServiceProvider = Provider<PremiumService>((ref) {
-  return PremiumService(ref);
+  final service = PremiumService(ref);
+  ref.onDispose(() {
+    service.dispose();
+  });
+  return service;
 });

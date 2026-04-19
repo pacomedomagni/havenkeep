@@ -22,6 +22,12 @@ node_modules/
 .pnpm-store/
 pnpm-lock.yaml
 
+# Compiled output / build artifacts
+**/dist/
+apps/partner-dashboard/.next/
+apps/partner-dashboard/tsconfig.tsbuildinfo
+apps/marketing/dist/
+
 # --- Environment ---
 .env
 .env.local

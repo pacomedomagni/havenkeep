@@ -1,71 +1,96 @@
 import dotenv from 'dotenv';
+import fs from 'fs';
 import type { SignOptions } from 'jsonwebtoken';
 import path from 'path';
 
 // Load environment variables
 dotenv.config({ path: path.join(__dirname, '../../.env') });
 
+// Resolve a secret from either `${name}` or `${name}_FILE` (Docker secrets pattern).
+// Precedence: the `_FILE` variant wins when present, since Docker secrets mount
+// files read-only at a deterministic path.
+function readSecret(name: string): string | undefined {
+  const filePath = process.env[`${name}_FILE`];
+  if (filePath && filePath.trim() !== '') {
+    try {
+      return fs.readFileSync(filePath, 'utf8').trim();
+    } catch (err) {
+      throw new Error(
+        `Failed to read secret file for ${name} at ${filePath}: ${(err as Error).message}`,
+      );
+    }
+  }
+  const direct = process.env[name];
+  return direct && direct.trim() !== '' ? direct : undefined;
+}
+
 export const config = {
   env: process.env.NODE_ENV || 'development',
   port: parseInt(process.env.PORT || '3000', 10),
 
   database: {
-    url: process.env.DATABASE_URL || '',
+    url: readSecret('DATABASE_URL') || '',
     host: process.env.DB_HOST || 'localhost',
     port: parseInt(process.env.DB_PORT || '5432', 10),
     name: process.env.DB_NAME || 'havenkeep',
     user: process.env.DB_USER || 'havenkeep',
-    password: process.env.DB_PASSWORD || '',
-    ssl: process.env.NODE_ENV === 'production',
+    password: readSecret('DB_PASSWORD') || readSecret('POSTGRES_PASSWORD') || '',
+    ssl: process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging',
   },
 
   jwt: {
     get secret(): string {
-      const secret = process.env.JWT_SECRET;
-      if (process.env.NODE_ENV === 'production' && (!secret || secret.trim() === '')) {
-        throw new Error('JWT_SECRET must be set and non-empty in production');
+      const secret = readSecret('JWT_SECRET');
+      if (process.env.NODE_ENV === 'production' && !secret) {
+        throw new Error('JWT_SECRET (or JWT_SECRET_FILE) must be set in production');
       }
-      if (process.env.NODE_ENV !== 'production') {
-        return secret || 'dev-only-secret-do-not-use-in-production';
+      if (!secret) {
+        if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test') {
+          return 'dev-only-secret-do-not-use-in-production';
+        }
+        throw new Error('JWT_SECRET must be set');
       }
-      return secret!;
+      return secret;
     },
     expiresIn: (process.env.JWT_EXPIRES_IN || '1h') as SignOptions['expiresIn'],
     get refreshSecret(): string {
-      const secret = process.env.REFRESH_TOKEN_SECRET;
-      if (process.env.NODE_ENV === 'production' && (!secret || secret.trim() === '')) {
-        throw new Error('REFRESH_TOKEN_SECRET must be set and non-empty in production');
+      const secret = readSecret('REFRESH_TOKEN_SECRET');
+      if (process.env.NODE_ENV === 'production' && !secret) {
+        throw new Error('REFRESH_TOKEN_SECRET (or REFRESH_TOKEN_SECRET_FILE) must be set in production');
       }
-      if (process.env.NODE_ENV !== 'production') {
-        return secret || 'dev-only-refresh-secret';
+      if (!secret) {
+        if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test') {
+          return 'dev-only-refresh-secret';
+        }
+        throw new Error('REFRESH_TOKEN_SECRET must be set');
       }
-      return secret!;
+      return secret;
     },
     refreshExpiresIn: (process.env.REFRESH_TOKEN_EXPIRES_IN || '7d') as SignOptions['expiresIn'],
   },
-  
+
   redis: {
-    url: process.env.REDIS_URL || 'redis://localhost:6379',
-    password: process.env.REDIS_PASSWORD,
+    url: readSecret('REDIS_URL') || 'redis://localhost:6379',
+    password: readSecret('REDIS_PASSWORD'),
   },
-  
+
   minio: {
     endpoint: process.env.MINIO_ENDPOINT || 'localhost',
     port: parseInt(process.env.MINIO_PORT || '9000', 10),
     useSSL: process.env.MINIO_USE_SSL === 'true',
-    accessKey: process.env.MINIO_ACCESS_KEY || 'minioadmin',
-    secretKey: process.env.MINIO_SECRET_KEY || 'minioadmin',
+    accessKey: readSecret('MINIO_ACCESS_KEY') || 'minioadmin',
+    secretKey: readSecret('MINIO_SECRET_KEY') || 'minioadmin',
     bucket: process.env.MINIO_BUCKET || 'havenkeep',
   },
-  
+
   stripe: {
-    secretKey: process.env.STRIPE_SECRET_KEY || '',
-    webhookSecret: process.env.STRIPE_WEBHOOK_SECRET || '',
+    secretKey: readSecret('STRIPE_SECRET_KEY') || '',
+    webhookSecret: readSecret('STRIPE_WEBHOOK_SECRET') || '',
     premiumPriceId: process.env.STRIPE_PRICE_ID_PREMIUM || '',
   },
 
   sendgrid: {
-    apiKey: process.env.SENDGRID_API_KEY || '',
+    apiKey: readSecret('SENDGRID_API_KEY') || '',
     fromEmail: process.env.SENDGRID_FROM_EMAIL || 'noreply@havenkeep.com',
     replyToEmail: process.env.SENDGRID_REPLY_TO_EMAIL || 'support@havenkeep.com',
   },
@@ -79,19 +104,19 @@ export const config = {
   },
 
   openai: {
-    apiKey: process.env.OPENAI_API_KEY || '',
+    apiKey: readSecret('OPENAI_API_KEY') || '',
   },
 
   revenuecat: {
     get apiKey(): string {
-      const key = process.env.REVENUECAT_SECRET_API_KEY;
+      const key = readSecret('REVENUECAT_SECRET_API_KEY');
       if (!key && process.env.NODE_ENV === 'production') {
         throw new Error('REVENUECAT_SECRET_API_KEY must be set in production');
       }
       return key || '';
     },
     get webhookSecret(): string {
-      const secret = process.env.REVENUECAT_WEBHOOK_SECRET;
+      const secret = readSecret('REVENUECAT_WEBHOOK_SECRET');
       if (!secret && process.env.NODE_ENV === 'production') {
         throw new Error('REVENUECAT_WEBHOOK_SECRET must be set in production');
       }
@@ -101,9 +126,9 @@ export const config = {
 
   firebase: {
     // JSON string of the Firebase service account credentials.
-    // Set FIREBASE_SERVICE_ACCOUNT_JSON in your environment.
+    // Set FIREBASE_SERVICE_ACCOUNT_JSON or FIREBASE_SERVICE_ACCOUNT_JSON_FILE.
     // If not set, FCM push delivery is silently disabled.
-    serviceAccountJson: process.env.FIREBASE_SERVICE_ACCOUNT_JSON || '',
+    serviceAccountJson: readSecret('FIREBASE_SERVICE_ACCOUNT_JSON') || '',
   },
 
   app: {
@@ -118,7 +143,10 @@ export const config = {
   },
 
   cors: {
-    origins: (process.env.CORS_ORIGINS || 'http://localhost:3000,http://localhost:3001').split(','),
+    origins: (process.env.CORS_ORIGINS || 'http://localhost:3000,http://localhost:3001')
+      .split(',')
+      .map((o) => o.trim())
+      .filter((o) => o.length > 0),
   },
 
   rateLimit: {

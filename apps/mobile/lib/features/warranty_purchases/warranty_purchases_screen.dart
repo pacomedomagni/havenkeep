@@ -174,15 +174,22 @@ class _PurchaseCard extends ConsumerWidget {
     );
     if (!confirmed) return;
 
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Cancelling warranty…')),
+      );
+    }
     try {
       await ref.read(warrantyPurchasesProvider.notifier).cancelPurchase(id);
       if (context.mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Warranty cancelled')),
         );
       }
     } catch (e) {
       if (context.mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(ErrorHandler.getUserMessage(e))),
         );

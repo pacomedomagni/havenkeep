@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import sharp from 'sharp';
-import { query } from '../db';
+import { query, getClient } from '../db';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { AppError } from '../utils/errors';
 import { uploadRateLimiter } from '../middleware/rateLimiter';
@@ -127,7 +127,15 @@ router.post(
       throw new AppError('Item not found', 404);
     }
 
-    const uploadedDocuments = [];
+    // Track every MinIO object we create so a failure mid-batch can
+    // compensate by deleting each successful upload. DB inserts run in
+    // a single transaction and roll back together. This avoids leaving
+    // "half a batch" behind that the UI treats as successful.
+    const uploadedDocuments: any[] = [];
+    const minioObjectsToCleanup: string[] = [];
+    const dbClient = await getClient();
+    try {
+      await dbClient.query('BEGIN');
 
     for (const file of files) {
       try {
@@ -179,7 +187,6 @@ router.post(
 
         const objectKey = generateObjectKey(req.user!.id, itemId, uploadFilename);
 
-        // Upload to MinIO
         await minioClient.putObject(
           BUCKET_NAME,
           objectKey,
@@ -191,42 +198,28 @@ router.post(
             'x-amz-meta-user-id': req.user!.id,
           }
         );
+        minioObjectsToCleanup.push(objectKey);
+        if (thumbnailKey) minioObjectsToCleanup.push(thumbnailKey);
 
         const fileUrl = getPublicUrl(objectKey);
         const thumbnailUrl = thumbnailKey ? getPublicUrl(thumbnailKey) : null;
 
-        // Save to database - if this fails, clean up the MinIO objects
-        let docResult;
-        try {
-          docResult = await query(
-            `INSERT INTO documents (
-              user_id, item_id, type, file_url, file_name, file_size, mime_type, thumbnail_url
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            RETURNING *`,
-            [
-              req.user!.id,
-              itemId,
-              type || 'other',
-              fileUrl,
-              uploadFilename,
-              fileBuffer.length,
-              contentType,
-              thumbnailUrl,
-            ]
-          );
-        } catch (dbError) {
-          // Clean up MinIO objects on DB failure
-          logger.warn({ objectKey, thumbnailKey }, 'DB insert failed, cleaning up MinIO objects');
-          try {
-            await minioClient.removeObject(BUCKET_NAME, objectKey);
-            if (thumbnailKey) {
-              await minioClient.removeObject(BUCKET_NAME, thumbnailKey);
-            }
-          } catch (cleanupError) {
-            logger.error({ cleanupError, objectKey }, 'Failed to clean up orphaned MinIO object');
-          }
-          throw dbError;
-        }
+        const docResult = await dbClient.query(
+          `INSERT INTO documents (
+            user_id, item_id, type, file_url, file_name, file_size, mime_type, thumbnail_url
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+          RETURNING *`,
+          [
+            req.user!.id,
+            itemId,
+            type || 'other',
+            fileUrl,
+            uploadFilename,
+            fileBuffer.length,
+            contentType,
+            thumbnailUrl,
+          ],
+        );
 
         uploadedDocuments.push(docResult.rows[0]);
 
@@ -242,7 +235,20 @@ router.post(
       }
     }
 
-    // Always return consistent format with both singular and plural keys
+      await dbClient.query('COMMIT');
+    } catch (batchErr) {
+      await dbClient.query('ROLLBACK').catch(() => {});
+      // Compensate: delete every MinIO object that was successfully uploaded.
+      for (const key of minioObjectsToCleanup) {
+        try { await minioClient.removeObject(BUCKET_NAME, key); } catch (cleanupErr) {
+          logger.error({ cleanupErr, key }, 'Failed to clean up orphaned MinIO object');
+        }
+      }
+      throw batchErr;
+    } finally {
+      dbClient.release();
+    }
+
     if (uploadedDocuments.length > 0) {
       await AuditService.logFromRequest(req, 'document.upload', {
         resourceType: 'document',

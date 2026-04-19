@@ -9,6 +9,7 @@ import '../../core/providers/auth_provider.dart';
 import '../../core/providers/homes_provider.dart';
 import '../../core/providers/items_provider.dart';
 import '../../core/utils/error_handler.dart';
+import '../../core/utils/price_parser.dart';
 import '../../core/widgets/celebration_overlay.dart';
 
 /// Full manual entry form for adding an item with all fields.
@@ -111,7 +112,7 @@ class _ManualEntryScreenState extends ConsumerState<ManualEntryScreen> {
       }
 
       final price = _priceController.text.isNotEmpty
-          ? double.tryParse(_priceController.text)
+          ? parsePriceInput(_priceController.text)
           : null;
 
       final item = Item(
@@ -387,7 +388,7 @@ class _ManualEntryScreenState extends ConsumerState<ManualEntryScreen> {
                       decimal: true),
                   validator: (value) {
                     if (value == null || value.isEmpty) return null;
-                    final parsed = double.tryParse(value);
+                    final parsed = parsePriceInput(value);
                     if (parsed == null) {
                       return 'Enter a valid number';
                     }

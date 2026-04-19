@@ -235,11 +235,16 @@ class AuthRepository {
     await _client.clearTokens();
   }
 
-  /// Safely extract tokens and user from auth response data.
-  Future<models.User?> _extractUserAndTokens(Map<String, dynamic> data) async {
-    final accessToken = data['accessToken'];
-    final refreshToken = data['refreshToken'];
-    final userRaw = data['user'];
+  /// Safely extract tokens and user from auth response body.
+  /// Accepts both the standardized envelope `{ success, data: { ... } }` and
+  /// the legacy flat shape for backwards compatibility during rollouts.
+  Future<models.User?> _extractUserAndTokens(Map<String, dynamic> body) async {
+    final inner = body['data'] is Map<String, dynamic>
+        ? body['data'] as Map<String, dynamic>
+        : body;
+    final accessToken = inner['accessToken'];
+    final refreshToken = inner['refreshToken'];
+    final userRaw = inner['user'];
 
     if (accessToken is! String || refreshToken is! String || userRaw is! Map<String, dynamic>) {
       throw ApiException(500, 'Invalid auth response format');

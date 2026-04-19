@@ -9,6 +9,25 @@ import '../services/category_repository.dart';
 import 'auth_provider.dart';
 import 'homes_provider.dart';
 
+/// Thrown by [ItemsNotifier.addItems] when a bulk add partially succeeds.
+/// The UI can use `failed` to offer a targeted retry without re-sending
+/// items that already made it.
+class BulkAddPartialFailure implements Exception {
+  BulkAddPartialFailure({
+    required this.succeeded,
+    required this.failed,
+    required this.reasons,
+  });
+
+  final List<Item> succeeded;
+  final List<Item> failed;
+  final List<String> reasons;
+
+  @override
+  String toString() =>
+      'Failed to create ${failed.length}/${succeeded.length + failed.length} items';
+}
+
 /// Provides the items repository instance.
 final itemsRepositoryProvider = Provider<ItemsRepository>((ref) {
   return ItemsRepository(ref.read(apiClientProvider));
@@ -117,11 +136,15 @@ class ItemsNotifier extends AsyncNotifier<List<Item>> {
   }
 
   /// Batch-add multiple items at once (used by bulk-add flow).
+  /// On partial failure throws [BulkAddPartialFailure] carrying the list
+  /// of inputs that didn't make it, so the caller can offer a targeted
+  /// "retry failed" instead of re-submitting the whole batch.
   Future<List<Item>> addItems(List<Item> items) async {
     final repo = ref.read(itemsRepositoryProvider);
     final currentItems = state.value ?? [];
     final createdItems = <Item>[];
-    final failedIndices = <int>[];
+    final failedItems = <Item>[];
+    final failureReasons = <String>[];
 
     for (int i = 0; i < items.length; i++) {
       try {
@@ -129,15 +152,19 @@ class ItemsNotifier extends AsyncNotifier<List<Item>> {
         createdItems.add(newItem);
       } catch (e) {
         debugPrint('[ItemsNotifier] Item ${i + 1}/${items.length} creation failed: $e');
-        failedIndices.add(i);
+        failedItems.add(items[i]);
+        failureReasons.add(e.toString());
       }
     }
 
-    // Update state with whatever succeeded
     state = AsyncValue.data([...createdItems, ...currentItems]);
 
-    if (failedIndices.isNotEmpty) {
-      throw StateError('Failed to create ${failedIndices.length}/${items.length} items');
+    if (failedItems.isNotEmpty) {
+      throw BulkAddPartialFailure(
+        succeeded: createdItems,
+        failed: failedItems,
+        reasons: failureReasons,
+      );
     }
 
     return createdItems;

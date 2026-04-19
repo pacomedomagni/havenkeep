@@ -223,6 +223,16 @@ router.put('/users/:id/suspend', validate(userIdParamSchema, 'params'), async (r
     }
 
     if (targetUser.rows[0].is_admin) {
+      // Attempting to suspend another admin is an anomalous event — log it
+      // as a security signal so a rogue admin doesn't fly under the radar.
+      await AuditService.logFromRequest(req, 'admin.settings_change', {
+        severity: 'warning',
+        resourceType: 'user',
+        resourceId: id,
+        description: `Admin attempted to suspend another admin: ${targetUser.rows[0].email}`,
+        success: false,
+        errorMessage: 'suspend_admin_blocked',
+      }).catch(() => {});
       throw new AppError('Cannot suspend an admin user', 400);
     }
 

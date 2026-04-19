@@ -25,23 +25,25 @@ class EmailScansNotifier extends AsyncNotifier<List<EmailScan>> {
 
   @override
   Future<List<EmailScan>> build() async {
+    // Ensure polling timers are cancelled when the provider is disposed
+    // (sign-out, hot reload, etc.). AsyncNotifier does not call a
+    // lifecycle dispose() by itself — onDispose on the ref does.
+    ref.onDispose(() {
+      for (final timer in _pollingTimers.values) {
+        timer.cancel();
+      }
+      _pollingTimers.clear();
+    });
+
     final userAsync = ref.watch(currentUserProvider);
     if (userAsync.valueOrNull == null) return [];
     final scans = await ref.read(emailScannerRepositoryProvider).getScans();
-    // Resume polling for any scans still in progress
     for (final scan in scans) {
       if (scan.status == EmailScanStatus.scanning) {
         _startPolling(scan.id);
       }
     }
     return scans;
-  }
-
-  void dispose() {
-    for (final timer in _pollingTimers.values) {
-      timer.cancel();
-    }
-    _pollingTimers.clear();
   }
 
   Future<void> refresh() async {
@@ -119,6 +121,12 @@ class EmailScansNotifier extends AsyncNotifier<List<EmailScan>> {
     });
 
     _pollingTimers[scanId] = timer;
+  }
+
+  /// Stop polling a scan locally. The backend scan may still complete
+  /// server-side; this only detaches the UI from its progress.
+  void cancelLocalPolling(String scanId) {
+    _pollingTimers.remove(scanId)?.cancel();
   }
 
   void _updateScanInState(EmailScan updated) {

@@ -1,9 +1,24 @@
+import crypto from 'crypto';
 import { Router } from 'express';
 import { pool } from '../db';
+import { config } from '../config';
 import { logger } from '../utils/logger';
 import { asyncHandler } from '../utils/async-handler';
 import { newsletterRateLimiter } from '../middleware/rateLimiter';
 import { sendMessage } from '../utils/response';
+
+function unsubscribeToken(email: string): string {
+  return crypto
+    .createHmac('sha256', config.jwt.refreshSecret)
+    .update(`newsletter:unsub:${email.toLowerCase()}`)
+    .digest('hex')
+    .slice(0, 32);
+}
+
+export function newsletterUnsubscribeUrl(email: string): string {
+  const base = config.app.apiUrl.replace(/\/$/, '');
+  return `${base}/api/v1/newsletter/unsubscribe?email=${encodeURIComponent(email)}&t=${unsubscribeToken(email)}`;
+}
 
 const router = Router();
 
@@ -119,13 +134,21 @@ router.post(
 router.get(
   '/unsubscribe',
   asyncHandler(async (req, res) => {
-    const { email } = req.query;
+    const { email, t } = req.query;
 
-    if (!email || typeof email !== 'string') {
+    if (!email || typeof email !== 'string' || !t || typeof t !== 'string') {
       return res.status(400).send('Invalid unsubscribe link');
     }
 
     const trimmedEmail = email.trim().toLowerCase();
+    const expected = unsubscribeToken(trimmedEmail);
+    // Timing-safe to avoid token-oracle attacks
+    const tokenBuf = Buffer.from(t, 'utf8');
+    const expectedBuf = Buffer.from(expected, 'utf8');
+    if (tokenBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(tokenBuf, expectedBuf)) {
+      logger.warn({ email: trimmedEmail }, 'Newsletter unsubscribe: invalid token');
+      return res.status(400).send('Invalid unsubscribe link');
+    }
 
     await pool.query(
       `UPDATE newsletter_subscribers

@@ -18,6 +18,51 @@ import { activationCodeRateLimiter, writeRateLimiter, giftResendRateLimiter } fr
 import { AuditService } from '../services/audit.service';
 import { AppError } from '../utils/errors';
 import { sendSuccess, sendMessage } from '../utils/response';
+import { getRedisClient } from '../utils/redis';
+import { logger } from '../utils/logger';
+
+const CODE_MAX_ATTEMPTS = 10;
+const CODE_LOCK_SEC = 15 * 60;
+const CODE_WINDOW_SEC = 60 * 60;
+
+async function assertCodeNotLocked(code: string): Promise<void> {
+  try {
+    const redis = await getRedisClient();
+    const ttl = await redis.ttl(`gift:code:lock:${code}`);
+    if (ttl > 0) {
+      throw new AppError(
+        `This activation code is temporarily locked. Try again in ${Math.ceil(ttl / 60)} minute(s).`,
+        429,
+      );
+    }
+  } catch (err) {
+    if (err instanceof AppError) throw err;
+    logger.error({ err, code }, 'Code lockout check failed; allowing through');
+  }
+}
+
+async function recordCodeAttempt(code: string): Promise<void> {
+  try {
+    const redis = await getRedisClient();
+    const n = await redis.incr(`gift:code:attempts:${code}`);
+    if (n === 1) await redis.expire(`gift:code:attempts:${code}`, CODE_WINDOW_SEC);
+    if (n >= CODE_MAX_ATTEMPTS) {
+      await redis.set(`gift:code:lock:${code}`, '1', { EX: CODE_LOCK_SEC });
+      logger.warn({ code, n }, 'Activation code locked due to too many failed attempts');
+    }
+  } catch (err) {
+    logger.error({ err, code }, 'Failed to record activation-code attempt');
+  }
+}
+
+async function clearCodeAttempts(code: string): Promise<void> {
+  try {
+    const redis = await getRedisClient();
+    await redis.del([`gift:code:attempts:${code}`, `gift:code:lock:${code}`]);
+  } catch {
+    /* ignore */
+  }
+}
 
 const stripe = new Stripe(config.stripe.secretKey, {
   apiVersion: '2023-10-16',
@@ -75,9 +120,20 @@ router.post(
       });
     }
 
-    const result = await PartnersService.verifyActivationCode(activation_code);
+    const normalized = activation_code.toUpperCase();
+    await assertCodeNotLocked(normalized);
 
-    sendSuccess(res, result);
+    try {
+      const result = await PartnersService.verifyActivationCode(activation_code);
+      await clearCodeAttempts(normalized);
+      sendSuccess(res, result);
+    } catch (err) {
+      // 404 => invalid code; count it as a failed attempt for per-code lockout.
+      if (err instanceof AppError && err.statusCode === 404) {
+        await recordCodeAttempt(normalized);
+      }
+      throw err;
+    }
   })
 );
 

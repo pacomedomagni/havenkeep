@@ -2,6 +2,7 @@ import { pool } from '../db';
 import { logger } from '../utils/logger';
 import { WarrantyPurchase } from '../types/database.types';
 import { AppError } from '../utils/errors';
+import { addMonthsSafe } from '../utils/dates';
 
 interface CreateWarrantyPurchaseData {
   itemId: string;
@@ -150,26 +151,23 @@ export class WarrantyPurchasesService {
         throw new AppError('An active extended warranty already exists for this item', 409);
       }
 
-      // Verify item belongs to user
+      // Verify item belongs to user and is not archived. Buying a warranty
+      // on an archived item creates orphaned policy records that UI can't
+      // render because the item is treated as historical.
       const itemCheck = await client.query(
-        'SELECT id FROM items WHERE id = $1 AND user_id = $2',
+        'SELECT id, is_archived FROM items WHERE id = $1 AND user_id = $2',
         [data.itemId, userId]
       );
 
       if (itemCheck.rows.length === 0) {
         throw new AppError('Item not found or does not belong to user', 404);
       }
-
-      // Calculate expires_at from startsAt + durationMonths
-      // Uses safe month addition to handle overflow (e.g., Jan 31 + 1 month = Feb 28)
-      const startsAt = new Date(data.startsAt);
-      const expiresAt = new Date(startsAt);
-      expiresAt.setMonth(expiresAt.getMonth() + data.durationMonths);
-      // Clamp day to avoid month overflow (e.g., Jan 31 + 1 month should be Feb 28, not Mar 3)
-      const expectedMonth = (startsAt.getMonth() + data.durationMonths) % 12;
-      if (expiresAt.getMonth() !== expectedMonth) {
-        expiresAt.setDate(0); // Roll back to the last day of the previous month
+      if (itemCheck.rows[0].is_archived) {
+        throw new AppError('Cannot purchase a warranty for an archived item. Restore the item first.', 400);
       }
+
+      const startsAt = new Date(data.startsAt);
+      const expiresAt = addMonthsSafe(startsAt, data.durationMonths);
 
       const result = await client.query(
         `INSERT INTO warranty_purchases (

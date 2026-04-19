@@ -25,10 +25,10 @@ export default function CommissionTable({ commissions }: CommissionTableProps) {
         <thead>
           <tr className="border-b border-haven-border">
             <th className="text-left py-3 px-4 text-xs font-medium text-haven-text-tertiary uppercase tracking-wider">
-              Referral Code
+              Referral
             </th>
             <th className="text-left py-3 px-4 text-xs font-medium text-haven-text-tertiary uppercase tracking-wider">
-              User
+              Referred User
             </th>
             <th className="text-right py-3 px-4 text-xs font-medium text-haven-text-tertiary uppercase tracking-wider">
               Amount
@@ -45,10 +45,10 @@ export default function CommissionTable({ commissions }: CommissionTableProps) {
           {commissions.map((commission) => (
             <tr key={commission.id} className="hover:bg-haven-elevated/50 transition-colors">
               <td className="py-3 px-4 text-sm font-mono text-haven-primary">
-                {commission.referralId}
+                {commission.referralId.slice(0, 8)}
               </td>
               <td className="py-3 px-4 text-sm text-haven-text-secondary">
-                {commission.partnerId}
+                {commission.referredUserName || commission.referredUserEmail || '—'}
               </td>
               <td className="py-3 px-4 text-sm text-white font-medium text-right">
                 {formatCurrency(commission.amount)}

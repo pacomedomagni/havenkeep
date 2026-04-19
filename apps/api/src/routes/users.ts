@@ -93,14 +93,25 @@ router.post('/push-token', writeRateLimiter, validate(pushTokenSchema), asyncHan
   sendMessage(res, 'Push token registered');
 }));
 
-// Verify premium subscription via RevenueCat
-// BE-12: Rate limited to prevent abuse of RevenueCat API calls
+// Verify premium subscription via RevenueCat.
+// Ownership rule: we ONLY verify the subscription attached to the
+// authenticated user's id. Clients are expected to set RevenueCat
+// `app_user_id` == HavenKeep user uuid at SDK init time (the same
+// assumption the RC webhook makes). This stops anyone from upgrading
+// their own account by passing a victim's RC id.
 router.post('/me/verify-premium', verifyPremiumRateLimiter, asyncHandler(async (req, res) => {
   const { revenueCatAppUserId } = req.body;
+  const authUserId = req.user!.id;
 
-  if (!revenueCatAppUserId || typeof revenueCatAppUserId !== 'string') {
-    throw new AppError('revenueCatAppUserId is required', 400);
+  if (revenueCatAppUserId && typeof revenueCatAppUserId === 'string' && revenueCatAppUserId !== authUserId) {
+    logger.warn(
+      { authUserId, providedRcId: revenueCatAppUserId },
+      'verify-premium: client-supplied RevenueCat id does not match authenticated user — rejecting',
+    );
+    throw new AppError('revenueCatAppUserId must match the authenticated user', 403);
   }
+
+  const subjectId = authUserId;
 
   const rcApiKey = config.revenuecat.apiKey;
   if (!rcApiKey) {
@@ -109,7 +120,7 @@ router.post('/me/verify-premium', verifyPremiumRateLimiter, asyncHandler(async (
 
   // Call RevenueCat REST API to get subscriber info
   const rcResponse = await fetch(
-    `https://api.revenuecat.com/v1/subscribers/${encodeURIComponent(revenueCatAppUserId)}`,
+    `https://api.revenuecat.com/v1/subscribers/${encodeURIComponent(subjectId)}`,
     {
       method: 'GET',
       headers: {

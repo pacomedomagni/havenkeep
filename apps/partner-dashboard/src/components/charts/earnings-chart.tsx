@@ -24,7 +24,14 @@ const emptyData = Array.from({ length: 12 }, (_, i) => {
 });
 
 export default function EarningsChart({ data }: EarningsChartProps) {
-  const chartData = data && data.length > 0 ? data : emptyData;
+  // Guard against malformed entries (null/NaN/undefined earnings values).
+  // Recharts silently drops rows where `earnings` isn't a finite number,
+  // which looked like an outage when the upstream feed returned partial data.
+  const sanitized = (data ?? []).map((d) => ({
+    month: d?.month ?? '',
+    earnings: Number.isFinite(d?.earnings) ? d.earnings : 0,
+  }));
+  const chartData = sanitized.length > 0 ? sanitized : emptyData;
 
   return (
     <ResponsiveContainer width="100%" height={300}>

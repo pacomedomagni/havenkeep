@@ -24,12 +24,16 @@ router.get('/logs', asyncHandler(async (req: Request, res: Response) => {
     startDate,
     endDate,
     success,
-    limit = '50',
-    offset = '0',
+    page: pageRaw = '1',
+    limit: limitRaw = '50',
   } = req.query;
 
   // Non-admins can only see their own logs
   const userId = user.isAdmin ? (req.query.userId as string) : user.id;
+
+  const page = Math.max(1, parseInt(pageRaw as string, 10) || 1);
+  const limit = Math.min(100, Math.max(1, parseInt(limitRaw as string, 10) || 50));
+  const offset = (page - 1) * limit;
 
   const filters = {
     userId,
@@ -40,18 +44,18 @@ router.get('/logs', asyncHandler(async (req: Request, res: Response) => {
     startDate: startDate ? new Date(startDate as string) : undefined,
     endDate: endDate ? new Date(endDate as string) : undefined,
     success: success !== undefined ? success === 'true' : undefined,
-    limit: Math.min(parseInt(limit as string, 10), 100),
-    offset: parseInt(offset as string, 10),
+    limit,
+    offset,
   };
 
   const result = await AuditService.query(filters);
 
   sendSuccess(res, result.logs, {
     pagination: {
-      page: Math.floor(filters.offset / filters.limit) + 1,
-      limit: filters.limit,
+      page,
+      limit,
       total: result.total,
-      total_pages: Math.ceil(result.total / filters.limit),
+      total_pages: Math.ceil(result.total / limit),
     },
   });
 }));
@@ -62,23 +66,19 @@ router.get('/logs', asyncHandler(async (req: Request, res: Response) => {
  */
 router.get('/logs/me', asyncHandler(async (req: Request, res: Response) => {
   const user = req.user!;
-  const { limit = '50', offset = '0' } = req.query;
+  const { page: pageRaw = '1', limit: limitRaw = '50' } = req.query;
+  const page = Math.max(1, parseInt(pageRaw as string, 10) || 1);
+  const limit = Math.min(100, Math.max(1, parseInt(limitRaw as string, 10) || 50));
+  const offset = (page - 1) * limit;
 
-  const limitVal = Math.min(parseInt(limit as string, 10), 100);
-  const offsetVal = parseInt(offset as string, 10);
-
-  const result = await AuditService.getUserLogs(
-    user.id,
-    limitVal,
-    offsetVal
-  );
+  const result = await AuditService.getUserLogs(user.id, limit, offset);
 
   sendSuccess(res, result.logs, {
     pagination: {
-      page: Math.floor(offsetVal / limitVal) + 1,
-      limit: limitVal,
+      page,
+      limit,
       total: result.total,
-      total_pages: Math.ceil(result.total / limitVal),
+      total_pages: Math.ceil(result.total / limit),
     },
   });
 }));
@@ -90,32 +90,27 @@ router.get('/logs/me', asyncHandler(async (req: Request, res: Response) => {
 router.get('/logs/resource/:resourceType/:resourceId', asyncHandler(async (req: Request, res: Response) => {
   const user = req.user!;
   const { resourceType, resourceId } = req.params;
-  const { limit = '50', offset = '0' } = req.query;
-  const limitVal = Math.min(parseInt(limit as string, 10), 100);
-  const offsetVal = parseInt(offset as string, 10);
+  const { page: pageRaw = '1', limit: limitRaw = '50' } = req.query;
+  const page = Math.max(1, parseInt(pageRaw as string, 10) || 1);
+  const limit = Math.min(100, Math.max(1, parseInt(limitRaw as string, 10) || 50));
+  const offset = (page - 1) * limit;
 
-  // Non-admins can only see their own logs — pass userId filter to the query
   const result = user.isAdmin
-    ? await AuditService.getResourceLogs(
-        resourceType,
-        resourceId,
-        limitVal,
-        offsetVal
-      )
+    ? await AuditService.getResourceLogs(resourceType, resourceId, limit, offset)
     : await AuditService.query({
         userId: user.id,
         resourceType,
         resourceId,
-        limit: limitVal,
-        offset: offsetVal,
+        limit,
+        offset,
       });
 
   sendSuccess(res, result.logs, {
     pagination: {
-      page: Math.floor(offsetVal / limitVal) + 1,
-      limit: limitVal,
+      page,
+      limit,
       total: result.total,
-      total_pages: Math.ceil(result.total / limitVal),
+      total_pages: Math.ceil(result.total / limit),
     },
   });
 }));

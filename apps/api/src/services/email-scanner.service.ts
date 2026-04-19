@@ -73,12 +73,15 @@ export class EmailScannerService {
       dateRangeEnd?: string;
     } = {}
   ): Promise<EmailScan> {
+    // Ownership check: confirm the OAuth token belongs to the authenticated
+    // user's email. Stops a malicious/accidental cross-account scan.
+    await this.assertOAuthTokenOwnership(userId, provider, accessToken);
+
     const client = await pool.connect();
 
     try {
       await client.query('BEGIN');
 
-      // Create scan record
       const scanResult = await client.query(
         `INSERT INTO email_scans (user_id, provider, status, date_range_start, date_range_end)
          VALUES ($1, $2, 'pending', $3, $4)
@@ -124,6 +127,55 @@ export class EmailScannerService {
       throw error;
     } finally {
       client.release();
+    }
+  }
+
+  /**
+   * Verify that the provided OAuth access token belongs to the authenticated
+   * HavenKeep user by comparing the authenticated user's email with the
+   * email attached to the token at the provider. Prevents a user from
+   * submitting someone else's OAuth token to scan that person's inbox.
+   */
+  private static async assertOAuthTokenOwnership(
+    userId: string,
+    provider: 'gmail' | 'outlook',
+    accessToken: string,
+  ): Promise<void> {
+    const userRes = await pool.query('SELECT email FROM users WHERE id = $1', [userId]);
+    const havenkeepEmail = userRes.rows[0]?.email?.toLowerCase();
+    if (!havenkeepEmail) {
+      throw new AppError('User not found', 404);
+    }
+
+    let tokenEmail: string | null = null;
+    try {
+      if (provider === 'gmail') {
+        const resp = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (!resp.ok) throw new AppError('Unable to verify Google access token', 401);
+        const info = (await resp.json()) as { email?: string };
+        tokenEmail = info.email?.toLowerCase() ?? null;
+      } else {
+        const resp = await fetch('https://graph.microsoft.com/v1.0/me', {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (!resp.ok) throw new AppError('Unable to verify Microsoft access token', 401);
+        const info = (await resp.json()) as { mail?: string; userPrincipalName?: string };
+        tokenEmail = (info.mail || info.userPrincipalName || '').toLowerCase() || null;
+      }
+    } catch (err) {
+      if (err instanceof AppError) throw err;
+      logger.error({ err, userId, provider }, 'Email scanner: provider userinfo failed');
+      throw new AppError('Unable to verify OAuth token', 502);
+    }
+
+    if (!tokenEmail || tokenEmail !== havenkeepEmail) {
+      logger.warn(
+        { userId, provider, havenkeepEmail, tokenEmail },
+        'Email scanner: OAuth token email does not match authenticated user',
+      );
+      throw new AppError('The OAuth token does not belong to this account', 403);
     }
   }
 

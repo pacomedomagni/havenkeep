@@ -3,6 +3,34 @@ import { logger } from '../utils/logger';
 import { WarrantyClaim, CreateWarrantyClaimDto, SavingsFeedEntry } from '../types/database.types';
 import { AppError } from '../utils/errors';
 
+const SERIALIZATION_FAILURE = '40001';
+const DEADLOCK_DETECTED = '40P01';
+
+async function runWithSerializableRetry<T>(
+  fn: () => Promise<T>,
+  label: string,
+  maxAttempts = 3,
+): Promise<T> {
+  let attempt = 0;
+  let lastErr: unknown;
+  while (attempt < maxAttempts) {
+    attempt++;
+    try {
+      return await fn();
+    } catch (err: any) {
+      if (err?.code === SERIALIZATION_FAILURE || err?.code === DEADLOCK_DETECTED) {
+        lastErr = err;
+        const backoffMs = 25 * Math.pow(2, attempt - 1);
+        logger.warn({ attempt, backoffMs, label }, 'Serialization conflict, retrying');
+        await new Promise((r) => setTimeout(r, backoffMs));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastErr;
+}
+
 export class WarrantyClaimsService {
   /**
    * Create a new warranty claim
@@ -11,14 +39,22 @@ export class WarrantyClaimsService {
     userId: string,
     data: CreateWarrantyClaimDto
   ): Promise<WarrantyClaim> {
+    if (data.amountSaved !== undefined && data.amountSaved < 0) {
+      throw new AppError('amountSaved cannot be negative', 400);
+    }
+    return runWithSerializableRetry(
+      () => this._createClaimOnce(userId, data),
+      'createClaim',
+    );
+  }
+
+  private static async _createClaimOnce(
+    userId: string,
+    data: CreateWarrantyClaimDto,
+  ): Promise<WarrantyClaim> {
     const client = await pool.connect();
 
     try {
-      // BE-17: Validate amountSaved is non-negative
-      if (data.amountSaved !== undefined && data.amountSaved < 0) {
-        throw new AppError('amountSaved cannot be negative', 400);
-      }
-
       await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
       // Verify item belongs to user and is not archived
@@ -56,15 +92,16 @@ export class WarrantyClaimsService {
 
       const claim = result.rows[0];
 
-      // Upsert user analytics
+      // Upsert user analytics. COALESCE guards against NULL from a prior
+      // row that was created without these aggregate columns populated.
       await client.query(
         `INSERT INTO user_analytics (user_id, total_warranty_savings, total_claims_filed, has_filed_claim)
-         VALUES ($2, $1, 1, TRUE)
+         VALUES ($2, COALESCE($1::numeric, 0), 1, TRUE)
          ON CONFLICT (user_id)
-         DO UPDATE SET total_warranty_savings = user_analytics.total_warranty_savings + $1,
-                       total_claims_filed = user_analytics.total_claims_filed + 1,
-                       has_filed_claim = TRUE,
-                       updated_at = NOW()`,
+         DO UPDATE SET total_warranty_savings = COALESCE(user_analytics.total_warranty_savings, 0) + COALESCE($1::numeric, 0),
+                       total_claims_filed    = COALESCE(user_analytics.total_claims_filed, 0) + 1,
+                       has_filed_claim       = TRUE,
+                       updated_at            = NOW()`,
         [data.amountSaved, userId]
       );
 
@@ -192,14 +229,23 @@ export class WarrantyClaimsService {
     userId: string,
     data: Partial<CreateWarrantyClaimDto>
   ): Promise<WarrantyClaim> {
+    if (data.amountSaved !== undefined && data.amountSaved < 0) {
+      throw new AppError('amountSaved cannot be negative', 400);
+    }
+    return runWithSerializableRetry(
+      () => this._updateClaimOnce(claimId, userId, data),
+      'updateClaim',
+    );
+  }
+
+  private static async _updateClaimOnce(
+    claimId: string,
+    userId: string,
+    data: Partial<CreateWarrantyClaimDto>,
+  ): Promise<WarrantyClaim> {
     const client = await pool.connect();
 
     try {
-      // BE-17: Validate amountSaved is non-negative
-      if (data.amountSaved !== undefined && data.amountSaved < 0) {
-        throw new AppError('amountSaved cannot be negative', 400);
-      }
-
       await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
       // Verify claim belongs to user
@@ -274,14 +320,16 @@ export class WarrantyClaimsService {
         values
       );
 
-      // Upsert user analytics if amountSaved changed
+      // Upsert user analytics if amountSaved changed. COALESCE handles
+      // the case where the row exists but total_warranty_savings was
+      // never populated; GREATEST keeps the aggregate non-negative.
       if (data.amountSaved !== undefined && data.amountSaved !== oldAmountSaved) {
         const diff = data.amountSaved - oldAmountSaved;
         await client.query(
           `INSERT INTO user_analytics (user_id, total_warranty_savings)
-           VALUES ($2, GREATEST(0, $1))
+           VALUES ($2, GREATEST(0, $1::numeric))
            ON CONFLICT (user_id)
-           DO UPDATE SET total_warranty_savings = user_analytics.total_warranty_savings + $1,
+           DO UPDATE SET total_warranty_savings = GREATEST(0, COALESCE(user_analytics.total_warranty_savings, 0) + $1::numeric),
                          updated_at = NOW()`,
           [diff, userId]
         );
@@ -328,13 +376,13 @@ export class WarrantyClaimsService {
         [claimId, userId]
       );
 
-      // Upsert user analytics
+      // Upsert user analytics — COALESCE against NULL columns.
       await client.query(
         `INSERT INTO user_analytics (user_id, total_warranty_savings, total_claims_filed)
          VALUES ($2, 0, 0)
          ON CONFLICT (user_id)
-         DO UPDATE SET total_warranty_savings = GREATEST(0, user_analytics.total_warranty_savings - $1),
-                       total_claims_filed = GREATEST(0, user_analytics.total_claims_filed - 1),
+         DO UPDATE SET total_warranty_savings = GREATEST(0, COALESCE(user_analytics.total_warranty_savings, 0) - $1::numeric),
+                       total_claims_filed = GREATEST(0, COALESCE(user_analytics.total_claims_filed, 0) - 1),
                        updated_at = NOW()`,
         [amountSaved, userId]
       );

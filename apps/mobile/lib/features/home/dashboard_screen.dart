@@ -92,6 +92,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       body: RefreshIndicator(
         onRefresh: () async {
           ref.invalidate(itemsProvider);
+          // Await the new future so the spinner stays visible until data
+          // is actually loaded; otherwise RefreshIndicator resolves immediately.
+          await ref.read(itemsProvider.future);
         },
         color: HavenColors.primary,
         child: ListView(

@@ -36,11 +36,16 @@ function parseExpiryToMs(expiry: string | number): number {
 
 const REFRESH_TOKEN_EXPIRY_MS = parseExpiryToMs(config.jwt.refreshExpiresIn as string | number);
 
-// Hash refresh tokens with SHA-256 before storing in the database.
-// This prevents token theft from a DB dump — the raw token is only sent to the client.
-function hashRefreshToken(token: string): string {
+// Hash opaque-bearer tokens with SHA-256 before storing in the database.
+// Used for refresh tokens, email verification tokens, and password reset
+// tokens — all are server-generated, single-purpose opaque strings, so a
+// single deterministic hash is safe. Raw tokens are only sent to the client;
+// a DB dump leaks only the hashes.
+function hashToken(token: string): string {
   return crypto.createHash('sha256').update(token).digest('hex');
 }
+// Backwards-compat alias kept until all callers migrate.
+const hashRefreshToken = hashToken;
 
 // Helper to get IP address
 const getIpAddress = (req: any): string => {
@@ -69,14 +74,33 @@ async function resolveReferredBy(referralCode?: string): Promise<string | null> 
  * N most recent. This prevents unbounded token accumulation.
  */
 async function capRefreshTokens(userId: string, maxTokens: number = 10): Promise<void> {
-  await query(
-    `DELETE FROM refresh_tokens
-     WHERE user_id = $1 AND id NOT IN (
-       SELECT id FROM refresh_tokens WHERE user_id = $1
-       ORDER BY created_at DESC LIMIT $2
-     )`,
-    [userId, maxTokens]
-  );
+  // Two concurrent logins from the same user were racing: each SELECT saw
+  // a different "latest N" set, and the two DELETEs together removed rows
+  // the other needed to keep. Serialize via a per-user advisory lock held
+  // for the duration of the SELECT+DELETE so the operation is atomic.
+  const client = await getClient();
+  try {
+    await client.query('BEGIN');
+    // hashtext returns a stable int4 per-user lock key. Two locks per
+    // namespace would also work (pg_advisory_xact_lock(key1, key2)).
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [userId]);
+    await client.query(
+      `DELETE FROM refresh_tokens
+         WHERE user_id = $1 AND id NOT IN (
+           SELECT id FROM refresh_tokens
+           WHERE user_id = $1
+           ORDER BY created_at DESC
+           LIMIT $2
+         )`,
+      [userId, maxTokens],
+    );
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 /**
@@ -215,23 +239,26 @@ router.post('/register', authRateLimiter, validate(registerSchema), async (req, 
     });
 
     res.status(201).json({
-      user: {
-        id: user.id,
-        email: user.email,
-        full_name: user.full_name,
-        avatar_url: user.avatar_url || null,
-        auth_provider: user.auth_provider || 'email',
-        plan: user.plan,
-        plan_expires_at: user.plan_expires_at || null,
-        referred_by: user.referred_by || null,
-        referral_code: user.referral_code || null,
-        is_admin: user.is_admin || false,
-        is_partner: false, // Newly registered users are never partners yet
-        created_at: user.created_at,
-        updated_at: user.updated_at,
+      success: true,
+      data: {
+        user: {
+          id: user.id,
+          email: user.email,
+          full_name: user.full_name,
+          avatar_url: user.avatar_url || null,
+          auth_provider: user.auth_provider || 'email',
+          plan: user.plan,
+          plan_expires_at: user.plan_expires_at || null,
+          referred_by: user.referred_by || null,
+          referral_code: user.referral_code || null,
+          is_admin: user.is_admin || false,
+          is_partner: false,
+          created_at: user.created_at,
+          updated_at: user.updated_at,
+        },
+        accessToken,
+        refreshToken,
       },
-      accessToken,
-      refreshToken,
     });
   } catch (error) {
     await client.query('ROLLBACK');
@@ -313,23 +340,26 @@ router.post('/login', authRateLimiter, validate(loginSchema), async (req, res, n
     });
 
     res.json({
-      user: {
-        id: user.id,
-        email: user.email,
-        full_name: user.full_name,
-        avatar_url: user.avatar_url || null,
-        auth_provider: user.auth_provider || 'email',
-        plan: user.plan,
-        plan_expires_at: user.plan_expires_at || null,
-        referred_by: user.referred_by || null,
-        referral_code: user.referral_code || null,
-        is_admin: user.is_admin,
-        is_partner: user.is_partner,
-        created_at: user.created_at,
-        updated_at: user.updated_at,
+      success: true,
+      data: {
+        user: {
+          id: user.id,
+          email: user.email,
+          full_name: user.full_name,
+          avatar_url: user.avatar_url || null,
+          auth_provider: user.auth_provider || 'email',
+          plan: user.plan,
+          plan_expires_at: user.plan_expires_at || null,
+          referred_by: user.referred_by || null,
+          referral_code: user.referral_code || null,
+          is_admin: user.is_admin,
+          is_partner: user.is_partner,
+          created_at: user.created_at,
+          updated_at: user.updated_at,
+        },
+        accessToken,
+        refreshToken,
       },
-      accessToken,
-      refreshToken,
     });
   } catch (error) {
     // Audit log: failed login (user not found or other error) — skip if already logged
@@ -417,7 +447,7 @@ router.post('/refresh', refreshRateLimiter, validate(refreshTokenSchema), async 
       user.id, user.email, user.is_admin || false, user.is_partner || false
     );
 
-    res.json({ accessToken, refreshToken: newRefreshToken });
+    res.json({ success: true, data: { accessToken, refreshToken: newRefreshToken } });
   } catch (error) {
     next(error);
   }
@@ -483,7 +513,7 @@ router.post('/logout', refreshRateLimiter, validate(logoutSchema), async (req, r
       });
     }
 
-    res.json({ message: 'Logged out successfully' });
+    res.json({ success: true, message: 'Logged out successfully' });
   } catch (error) {
     next(error);
   }
@@ -523,7 +553,7 @@ router.post('/logout-all', authenticate, async (req, res, next) => {
       success: true,
     });
 
-    res.json({ message: 'All sessions logged out successfully' });
+    res.json({ success: true, message: 'All sessions logged out successfully' });
   } catch (error) {
     next(error);
   }
@@ -541,7 +571,7 @@ router.post('/forgot-password', passwordResetRateLimiter, validate(forgotPasswor
 
     // Always return success to prevent email enumeration
     if (result.rows.length === 0) {
-      res.json({ message: 'If an account exists with that email, a reset link has been sent.' });
+      res.json({ success: true, message: 'If an account exists with that email, a reset link has been sent.' });
       return;
     }
 
@@ -588,7 +618,7 @@ router.post('/forgot-password', passwordResetRateLimiter, validate(forgotPasswor
       success: true,
     });
 
-    res.json({ message: 'If an account exists with that email, a reset link has been sent.' });
+    res.json({ success: true, message: 'If an account exists with that email, a reset link has been sent.' });
   } catch (error) {
     next(error);
   }
@@ -602,36 +632,45 @@ router.post('/reset-password', authRateLimiter, validate(resetPasswordSchema), a
     // Hash the token for lookup (reset tokens are stored as SHA-256 hashes)
     const tokenHash = hashRefreshToken(token);
 
-    // Atomically find and mark the reset token as used in a single query
-    // to prevent race conditions with concurrent reset requests
-    const tokenResult = await query(
-      `UPDATE password_reset_tokens
-       SET used = TRUE
-       WHERE token = $1 AND expires_at > NOW() AND used = FALSE
-       RETURNING user_id`,
-      [tokenHash]
-    );
-
-    if (tokenResult.rows.length === 0) {
-      throw new AppError('Invalid or expired reset token', 400);
-    }
-
-    const userId = tokenResult.rows[0].user_id;
-
-    // Hash new password
+    // Hash new password *before* the transaction so bcrypt work doesn't
+    // hold a DB connection open.
     const passwordHash = await bcrypt.hash(newPassword, 12);
 
-    // Update password
-    await query(
-      `UPDATE users SET password_hash = $1 WHERE id = $2`,
-      [passwordHash, userId]
-    );
+    // Atomically: validate+consume token, update password, invalidate all
+    // sessions. If any step fails the token stays unused so the user can
+    // retry instead of being permanently locked out.
+    const client = await getClient();
+    let userId: string;
+    try {
+      await client.query('BEGIN');
+      const tokenResult = await client.query(
+        `UPDATE password_reset_tokens
+            SET used = TRUE
+          WHERE token = $1 AND expires_at > NOW() AND used = FALSE
+         RETURNING user_id`,
+        [tokenHash],
+      );
+      if (tokenResult.rows.length === 0) {
+        await client.query('ROLLBACK');
+        throw new AppError('Invalid or expired reset token', 400);
+      }
+      userId = tokenResult.rows[0].user_id;
 
-    // Invalidate all refresh tokens
-    await query(
-      `DELETE FROM refresh_tokens WHERE user_id = $1`,
-      [userId]
-    );
+      await client.query(
+        `UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2`,
+        [passwordHash, userId],
+      );
+      await client.query(
+        `DELETE FROM refresh_tokens WHERE user_id = $1`,
+        [userId],
+      );
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw err;
+    } finally {
+      client.release();
+    }
 
     // Blacklist the caller's access token if present
     const authHeader = req.headers.authorization;
@@ -652,7 +691,7 @@ router.post('/reset-password', authRateLimiter, validate(resetPasswordSchema), a
       success: true,
     });
 
-    res.json({ message: 'Password has been reset successfully' });
+    res.json({ success: true, message: 'Password has been reset successfully' });
   } catch (error) {
     next(error);
   }
@@ -693,7 +732,7 @@ router.post('/verify-email', authRateLimiter, validate(verifyEmailSchema), async
       success: true,
     });
 
-    res.json({ message: 'Email verified successfully' });
+    res.json({ success: true, message: 'Email verified successfully' });
   } catch (error) {
     next(error);
   }
@@ -805,23 +844,26 @@ router.post('/google', authRateLimiter, validate(googleOAuthSchema), async (req,
     });
 
     res.json({
-      user: {
-        id: user.id,
-        email: user.email,
-        full_name: user.full_name,
-        avatar_url: user.avatar_url || null,
-        auth_provider: user.auth_provider || 'google',
-        plan: user.plan,
-        plan_expires_at: user.plan_expires_at || null,
-        referred_by: user.referred_by || null,
-        referral_code: user.referral_code || null,
-        is_admin: user.is_admin,
-        is_partner: user.is_partner ?? false,
-        created_at: user.created_at,
-        updated_at: user.updated_at,
+      success: true,
+      data: {
+        user: {
+          id: user.id,
+          email: user.email,
+          full_name: user.full_name,
+          avatar_url: user.avatar_url || null,
+          auth_provider: user.auth_provider || 'google',
+          plan: user.plan,
+          plan_expires_at: user.plan_expires_at || null,
+          referred_by: user.referred_by || null,
+          referral_code: user.referral_code || null,
+          is_admin: user.is_admin,
+          is_partner: user.is_partner ?? false,
+          created_at: user.created_at,
+          updated_at: user.updated_at,
+        },
+        accessToken,
+        refreshToken,
       },
-      accessToken,
-      refreshToken,
     });
   } catch (error) {
     next(error);
@@ -984,23 +1026,26 @@ router.post('/apple', authRateLimiter, validate(appleOAuthSchema), async (req, r
     });
 
     res.json({
-      user: {
-        id: user.id,
-        email: user.email,
-        full_name: user.full_name,
-        avatar_url: user.avatar_url || null,
-        auth_provider: user.auth_provider || 'apple',
-        plan: user.plan,
-        plan_expires_at: user.plan_expires_at || null,
-        referred_by: user.referred_by || null,
-        referral_code: user.referral_code || null,
-        is_admin: user.is_admin,
-        is_partner: user.is_partner ?? false,
-        created_at: user.created_at,
-        updated_at: user.updated_at,
+      success: true,
+      data: {
+        user: {
+          id: user.id,
+          email: user.email,
+          full_name: user.full_name,
+          avatar_url: user.avatar_url || null,
+          auth_provider: user.auth_provider || 'apple',
+          plan: user.plan,
+          plan_expires_at: user.plan_expires_at || null,
+          referred_by: user.referred_by || null,
+          referral_code: user.referral_code || null,
+          is_admin: user.is_admin,
+          is_partner: user.is_partner ?? false,
+          created_at: user.created_at,
+          updated_at: user.updated_at,
+        },
+        accessToken,
+        refreshToken,
       },
-      accessToken,
-      refreshToken,
     });
   } catch (error) {
     next(error);

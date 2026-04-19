@@ -26,6 +26,12 @@ export default function SettingsPage() {
   useEffect(() => {
     loadProfile();
     loadStripeStatus();
+    // Stripe Connect onboarding opens in a new tab; when the partner comes
+    // back (window regains focus) re-fetch the status so "Connect" doesn't
+    // keep pretending the account isn't linked.
+    const refetch = () => loadStripeStatus();
+    window.addEventListener('focus', refetch);
+    return () => window.removeEventListener('focus', refetch);
   }, []);
 
   async function loadProfile() {
@@ -44,6 +50,7 @@ export default function SettingsPage() {
       }
     } catch (err) {
       console.error('Error loading profile:', err);
+      setError('Could not load your partner profile. Refresh to try again.');
     } finally {
       setInitialLoading(false);
     }
@@ -72,10 +79,17 @@ export default function SettingsPage() {
       });
       const data = result.data as any;
       if (data?.url) {
-        // Validate that the redirect URL points to Stripe
+        // Validate host is an exact Stripe-owned hostname. `endsWith('.stripe.com')`
+        // was unsafe: `stripe.com.attacker.com` matched.
+        const STRIPE_HOSTS = new Set([
+          'stripe.com',
+          'connect.stripe.com',
+          'dashboard.stripe.com',
+          'checkout.stripe.com',
+        ]);
         try {
           const redirectUrl = new URL(data.url);
-          if (!redirectUrl.hostname.endsWith('.stripe.com')) {
+          if (redirectUrl.protocol !== 'https:' || !STRIPE_HOSTS.has(redirectUrl.hostname)) {
             throw new Error('Invalid redirect URL');
           }
           window.location.href = data.url;

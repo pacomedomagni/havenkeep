@@ -1,28 +1,13 @@
 import { pool } from '../db';
 import { logger } from '../utils/logger';
 import { AppError } from '../utils/errors';
+import { addMonthsSafe } from '../utils/dates';
 import {
   MaintenanceSchedule,
   MaintenanceHistory,
   CreateMaintenanceHistoryDto,
   ItemCategory,
 } from '../types/database.types';
-
-/**
- * Safely add months to a date, handling day overflow.
- * e.g., Jan 31 + 1 month = Feb 28 (not Mar 3)
- */
-function addMonthsSafe(date: Date, months: number): Date {
-  const result = new Date(date);
-  const targetMonth = result.getMonth() + months;
-  result.setMonth(targetMonth);
-  // If the day overflowed (e.g. 31 -> next month), go back to last day of target month
-  const expectedMonth = ((date.getMonth() + months) % 12 + 12) % 12;
-  if (result.getMonth() !== expectedMonth) {
-    result.setDate(0); // Last day of previous month
-  }
-  return result;
-}
 
 export class MaintenanceService {
   /**

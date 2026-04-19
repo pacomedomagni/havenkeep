@@ -42,21 +42,34 @@ export function createApp(options: CreateAppOptions = {}) {
   // Trust the first proxy (nginx) so X-Forwarded-For is used correctly
   app.set('trust proxy', 1);
 
-  // Security middleware
+  // Security middleware. CSP is tightened to only the origins this API
+  // actually talks to — Stripe (payments) and RevenueCat (entitlements) —
+  // so an XSS in an error page can't exfiltrate to arbitrary hosts.
   app.use(helmet({
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
         styleSrc: ["'self'", "'unsafe-inline'"],
         scriptSrc: ["'self'"],
-        imgSrc: ["'self'", "data:", "https:"],
+        imgSrc: ["'self'", 'data:', 'https:'],
+        connectSrc: [
+          "'self'",
+          'https://api.stripe.com',
+          'https://api.revenuecat.com',
+        ],
+        frameAncestors: ["'none'"],
+        objectSrc: ["'none'"],
+        baseUri: ["'self'"],
+        formAction: ["'self'"],
       },
     },
     hsts: {
       maxAge: 31536000,
       includeSubDomains: true,
-      preload: true
-    }
+      preload: true,
+    },
+    referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+    crossOriginOpenerPolicy: { policy: 'same-origin' },
   }));
 
   // CORS

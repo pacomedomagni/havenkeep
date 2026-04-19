@@ -33,9 +33,14 @@ export default function AnalyticsPage() {
   const fetchAnalytics = useCallback(async () => {
     try {
       setError(null);
+      // Surface an explicit error when the range is inverted, instead of
+      // sending a doomed request and showing a generic "Failed to load".
+      if (startDate && endDate && new Date(startDate) > new Date(endDate)) {
+        setError('End date must be on or after the start date.');
+        return;
+      }
       setLoading(true);
 
-      // Build query string for date range
       const params = new URLSearchParams();
       if (startDate) params.set('startDate', startDate);
       if (endDate) params.set('endDate', endDate);

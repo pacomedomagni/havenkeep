@@ -47,8 +47,8 @@ export const updateWarrantyClaimSchema = Joi.object({
   .rename('claim_number', 'claimNumber', { ignoreUndefined: true, override: false });
 
 export const getClaimsQuerySchema = Joi.object({
+  page: Joi.number().integer().min(1).optional().default(1),
   limit: Joi.number().integer().min(1).max(100).optional().default(50),
-  offset: Joi.number().integer().min(0).optional().default(0),
   itemId: Joi.string().uuid().optional(),
 })
   .rename('item_id', 'itemId', { ignoreUndefined: true, override: false });

@@ -225,7 +225,12 @@ class ApiClient {
       ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        final body = jsonDecode(response.body) as Map<String, dynamic>;
+        // Standard envelope `{ success, data: { accessToken, refreshToken } }`
+        // with legacy flat fallback.
+        final data = body['data'] is Map<String, dynamic>
+            ? body['data'] as Map<String, dynamic>
+            : body;
         final accessToken = data['accessToken'] as String?;
         if (accessToken == null) {
           throw ApiException(
@@ -235,7 +240,6 @@ class ApiClient {
         }
         _accessToken = accessToken;
         await _storage.write(key: _keyAccessToken, value: _accessToken!);
-        // Save the rotated refresh token from the server
         final newRefreshToken = data['refreshToken'] as String?;
         if (newRefreshToken != null) {
           await _storage.write(key: _keyRefreshToken, value: newRefreshToken);

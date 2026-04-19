@@ -130,33 +130,46 @@ export class AuditService {
       errorMessage,
     } = params;
 
-    const result = await pool.query<AuditLogEntry>(
-      `INSERT INTO audit_logs (
-        user_id, user_email, action, severity,
-        resource_type, resource_id, description, metadata,
-        ip_address, user_agent, endpoint, http_method,
-        success, error_message
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-      RETURNING *`,
-      [
-        userId || null,
-        userEmail || null,
-        action,
-        severity,
-        resourceType || null,
-        resourceId || null,
-        description || null,
-        metadata ? JSON.stringify(metadata) : null,
-        ipAddress || null,
-        userAgent || null,
-        endpoint || null,
-        httpMethod || null,
-        success,
-        errorMessage || null,
-      ]
-    );
+    const values = [
+      userId || null,
+      userEmail || null,
+      action,
+      severity,
+      resourceType || null,
+      resourceId || null,
+      description || null,
+      metadata ? JSON.stringify(metadata) : null,
+      ipAddress || null,
+      userAgent || null,
+      endpoint || null,
+      httpMethod || null,
+      success,
+      errorMessage || null,
+    ];
 
-    return result.rows[0];
+    // Retry a few times on transient failure so a fire-and-forget audit
+    // call from auth/registration doesn't silently drop the trail when
+    // Postgres is briefly unreachable.
+    let lastErr: unknown;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const result = await pool.query<AuditLogEntry>(
+          `INSERT INTO audit_logs (
+            user_id, user_email, action, severity,
+            resource_type, resource_id, description, metadata,
+            ip_address, user_agent, endpoint, http_method,
+            success, error_message
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+          RETURNING *`,
+          values,
+        );
+        return result.rows[0];
+      } catch (err) {
+        lastErr = err;
+        await new Promise((r) => setTimeout(r, 50 * Math.pow(2, attempt)));
+      }
+    }
+    throw lastErr;
   }
 
   /**
