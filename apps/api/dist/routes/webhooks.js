@@ -5,9 +5,28 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const stripe_1 = __importDefault(require("stripe"));
+const crypto_1 = __importDefault(require("crypto"));
 const config_1 = require("../config");
 const db_1 = require("../db");
 const logger_1 = require("../utils/logger");
+/**
+ * Record a webhook event to prevent duplicate processing.
+ * Returns true if the event is new and was recorded, false if already processed.
+ */
+async function recordWebhookEvent(eventId, source, eventType) {
+    try {
+        await (0, db_1.query)(`INSERT INTO webhook_events (event_id, source, event_type)
+       VALUES ($1, $2, $3)`, [eventId, source, eventType]);
+        return true;
+    }
+    catch (err) {
+        // Unique constraint violation means this event was already processed
+        if (err.code === '23505') {
+            return false;
+        }
+        throw err;
+    }
+}
 const router = (0, express_1.Router)();
 const stripe = new stripe_1.default(config_1.config.stripe.secretKey, {
     apiVersion: '2023-10-16',
@@ -34,6 +53,12 @@ router.post('/stripe', async (req, res) => {
         return res.status(400).json({ error: 'Webhook signature verification failed' });
     }
     logger_1.logger.info({ eventId: event.id, eventType: event.type }, 'Stripe webhook event received');
+    // Idempotency check: skip if this event was already processed
+    const isNew = await recordWebhookEvent(event.id, 'stripe', event.type);
+    if (!isNew) {
+        logger_1.logger.info({ eventId: event.id, eventType: event.type }, 'Stripe webhook event already processed — skipping');
+        return res.status(200).json({ received: true, duplicate: true });
+    }
     try {
         switch (event.type) {
             case 'charge.succeeded':
@@ -109,27 +134,59 @@ async function handleChargeFailed(charge) {
 async function handleChargeRefunded(charge) {
     const chargeId = charge.id;
     const partnerId = charge.metadata?.partner_id;
-    const result = await db_1.pool.query(`UPDATE partner_gifts
-     SET status = 'expired', updated_at = NOW()
-     WHERE stripe_charge_id = $1 AND status IN ('created', 'sent', 'activated', 'expired')
-     RETURNING id, partner_id, homebuyer_email, is_activated`, [chargeId]);
-    if (result.rows.length === 0) {
-        logger_1.logger.warn({ chargeId, partnerId }, 'charge.refunded: no matching partner_gift found for refund');
-        return;
+    // Use a transaction since refunds touch multiple tables (gifts, commissions, users)
+    const client = await db_1.pool.connect();
+    try {
+        await client.query('BEGIN');
+        // Capture the pre-update is_activated value via CTE, then set is_activated = FALSE
+        // to satisfy chk_partner_gifts_activation_consistency (is_activated=TRUE requires status 'active'|'redeemed')
+        const result = await client.query(`WITH old AS (
+         SELECT id, partner_id, homebuyer_email, is_activated AS was_activated, activated_user_id
+         FROM partner_gifts
+         WHERE stripe_charge_id = $1 AND status IN ('created', 'sent', 'activated', 'expired')
+       )
+       UPDATE partner_gifts pg
+       SET status = 'expired', is_activated = FALSE, updated_at = NOW()
+       FROM old
+       WHERE pg.id = old.id
+       RETURNING old.id, old.partner_id, old.homebuyer_email, old.was_activated, old.activated_user_id`, [chargeId]);
+        if (result.rows.length === 0) {
+            await client.query('ROLLBACK');
+            logger_1.logger.warn({ chargeId, partnerId }, 'charge.refunded: no matching partner_gift found for refund');
+            return;
+        }
+        const gift = result.rows[0];
+        // Mark the commission as cancelled
+        await client.query(`UPDATE partner_commissions
+       SET status = 'cancelled', updated_at = NOW()
+       WHERE reference_id = $1 AND reference_type = 'partner_gift'`, [gift.id]);
+        // If the gift was already activated, revoke the premium upgrade
+        if (gift.was_activated) {
+            // Revoke the premium plan from the activated user
+            if (gift.activated_user_id) {
+                // Only downgrade if the user has no other active, non-expired gifts
+                const otherGifts = await client.query(`SELECT id FROM partner_gifts
+           WHERE activated_user_id = $1 AND id != $2
+             AND is_activated = TRUE AND status != 'expired'`, [gift.activated_user_id, gift.id]);
+                if (otherGifts.rows.length === 0) {
+                    await client.query(`UPDATE users SET plan = 'free', plan_expires_at = NULL, updated_at = NOW() WHERE id = $1`, [gift.activated_user_id]);
+                }
+                else {
+                    logger_1.logger.info({ userId: gift.activated_user_id, otherActiveGifts: otherGifts.rows.length }, 'charge.refunded: user has other active gifts, keeping premium');
+                }
+            }
+            logger_1.logger.warn({ giftId: gift.id, partnerId: gift.partner_id }, 'charge.refunded: refunded an already-activated gift — premium revoked from activated user');
+        }
+        await client.query('COMMIT');
+        logger_1.logger.info({ chargeId, giftId: gift.id, partnerId: gift.partner_id, homebuyer: gift.homebuyer_email }, 'charge.refunded: partner gift payment refunded');
     }
-    const gift = result.rows[0];
-    // Mark the commission as cancelled
-    await db_1.pool.query(`UPDATE partner_commissions
-     SET status = 'cancelled', updated_at = NOW()
-     WHERE reference_id = $1 AND reference_type = 'partner_gift'`, [gift.id]);
-    // If the gift was already activated, revoke the premium upgrade
-    if (gift.is_activated) {
-        await db_1.pool.query(`UPDATE partner_gifts
-       SET is_activated = FALSE, status = 'expired', updated_at = NOW()
-       WHERE id = $1`, [gift.id]);
-        logger_1.logger.warn({ giftId: gift.id, partnerId: gift.partner_id }, 'charge.refunded: refunded an already-activated gift — premium may need manual review');
+    catch (error) {
+        await client.query('ROLLBACK');
+        throw error;
     }
-    logger_1.logger.info({ chargeId, giftId: gift.id, partnerId: gift.partner_id, homebuyer: gift.homebuyer_email }, 'charge.refunded: partner gift payment refunded');
+    finally {
+        client.release();
+    }
 }
 /**
  * Validate the RevenueCat webhook authorization header.
@@ -148,7 +205,9 @@ function validateRevenueCatWebhookAuth(req, res, next) {
         return res.status(401).json({ error: 'Unauthorized' });
     }
     const token = authHeader.substring(7);
-    if (token !== webhookSecret) {
+    const tokenHash = crypto_1.default.createHash('sha256').update(token).digest();
+    const secretHash = crypto_1.default.createHash('sha256').update(webhookSecret).digest();
+    if (!crypto_1.default.timingSafeEqual(tokenHash, secretHash)) {
         logger_1.logger.warn({ ip: req.ip }, 'RevenueCat webhook: invalid authorization token');
         return res.status(401).json({ error: 'Unauthorized' });
     }
@@ -211,6 +270,12 @@ router.post('/revenuecat', validateRevenueCatWebhookAuth, async (req, res) => {
         if (event.type === 'TEST') {
             logger_1.logger.info('RevenueCat webhook test event received');
             return res.status(200).json({ success: true });
+        }
+        // Idempotency check: skip if this event was already processed
+        const isNew = await recordWebhookEvent(event.id, 'revenuecat', event.type);
+        if (!isNew) {
+            logger_1.logger.info({ eventId: event.id, eventType: event.type }, 'RevenueCat webhook event already processed — skipping');
+            return res.status(200).json({ success: true, duplicate: true });
         }
         // Find the HavenKeep user
         const userId = await findUserByRevenueCatId(event.app_user_id, event.aliases || []);

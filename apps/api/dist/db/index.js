@@ -12,24 +12,31 @@ exports.pool = new pg_1.Pool({
     database: config_1.config.database.name,
     user: config_1.config.database.user,
     password: config_1.config.database.password,
-    ssl: config_1.config.database.ssl ? { rejectUnauthorized: true } : false,
+    ssl: config_1.config.env === 'production'
+        ? { rejectUnauthorized: true }
+        : config_1.config.database.ssl
+            ? { rejectUnauthorized: true }
+            : false,
     max: parseInt(process.env.DB_POOL_MAX || '20', 10),
     idleTimeoutMillis: parseInt(process.env.DB_POOL_IDLE_TIMEOUT || '30000', 10),
-    connectionTimeoutMillis: parseInt(process.env.DB_POOL_CONNECTION_TIMEOUT || '2000', 10),
+    connectionTimeoutMillis: parseInt(process.env.DB_POOL_CONNECTION_TIMEOUT || '5000', 10),
+    statement_timeout: parseInt(process.env.DB_STATEMENT_TIMEOUT || '30000', 10), // 30 seconds
 });
 exports.pool.on('connect', () => {
     logger_1.logger.info('✅ Database connected');
 });
 exports.pool.on('error', (err) => {
-    logger_1.logger.error('❌ Unexpected database error', err);
-    process.exit(-1);
+    // Log but do NOT exit — idle client errors are recoverable and the pool
+    // will automatically replace the dead connection on the next checkout.
+    logger_1.logger.error({ err }, 'Unexpected idle client error on database pool');
 });
 async function query(text, params) {
     const start = Date.now();
     try {
         const res = await exports.pool.query(text, params);
         const duration = Date.now() - start;
-        logger_1.logger.debug({ text, duration, rows: res.rowCount }, 'Query executed');
+        // Log query text but never parameters (may contain sensitive data like emails, tokens)
+        logger_1.logger.debug({ query: text.slice(0, 200), duration, rows: res.rowCount }, 'Query executed');
         return res;
     }
     catch (error) {

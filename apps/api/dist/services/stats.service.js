@@ -71,9 +71,15 @@ class StatsService {
            WHERE user_id = $1`, [userId]);
             }
             else if (event.type === 'session_end' && event.sessionDuration) {
+                // Running average calculation: we use (total_sessions - 1) to get the previous
+                // count of sessions (before the current one was incremented by session_start),
+                // then divide by total_sessions. GREATEST(total_sessions, 1) is a defensive
+                // guard against division by zero in case a session_end event arrives without
+                // a preceding session_start (e.g., due to a race condition or missed event).
+                // Under normal flow, total_sessions is always >= 1 after session_start increments it.
                 await db_1.pool.query(`UPDATE user_analytics
            SET avg_session_duration_seconds =
-               ((avg_session_duration_seconds * (total_sessions - 1)) + $2) / total_sessions,
+               ((avg_session_duration_seconds * (total_sessions - 1)) + $2) / GREATEST(total_sessions, 1),
                updated_at = NOW()
            WHERE user_id = $1`, [userId, event.sessionDuration]);
             }
@@ -113,25 +119,49 @@ class StatsService {
     }
     /**
      * Get health score breakdown/components
+     *
+     * NOTE: The overall `score` is the single source of truth and is computed by
+     * the DB function `calculate_health_score` (see migration 002_enhanced_features.sql).
+     * The `components` array below mirrors that function's logic for display purposes.
+     *
+     * IMPORTANT: If the scoring logic changes, update BOTH the DB function AND the
+     * component breakdown below to keep them consistent. The DB function is authoritative;
+     * the JS breakdown is derived from the same inputs to show users how their score
+     * breaks down.
+     *
+     * Current scoring formula (must match DB function):
+     *   Items Tracked:         min(total_items * 2, 30)               max 30 pts
+     *   Active Warranties:     min(active_warranties * 3, 25)         max 25 pts
+     *   Documentation:         min(floor(documented/total * 20), 20)  max 20 pts
+     *   Maintenance (6mo):     min(recent_maintenance_count, 15)      max 15 pts
+     *   Expired Penalty:       -min(expired_count * 2, 10)            max -10 pts
+     *   Final score clamped to [0, 100].
      */
     static async getHealthScoreBreakdown(userId) {
         try {
-            const analytics = await this.getUserAnalytics(userId);
             const score = await this.calculateHealthScore(userId);
-            // Get item counts for breakdown
+            // Get item counts for breakdown -- mirrors the queries used by
+            // the DB function calculate_health_score (migration 002).
             const itemStats = await db_1.pool.query(`SELECT
            COUNT(*) as total_items,
-           COUNT(*) FILTER (WHERE warranty_end_date > CURRENT_DATE) as active_warranties,
-           COUNT(*) FILTER (WHERE warranty_end_date <= CURRENT_DATE) as expired_warranties,
+           COUNT(*) FILTER (WHERE warranty_end_date >= CURRENT_DATE) as active_warranties,
+           COUNT(*) FILTER (WHERE warranty_end_date < CURRENT_DATE) as expired_warranties,
            COUNT(DISTINCT CASE WHEN d.id IS NOT NULL THEN i.id END) as documented_items
          FROM items i
          LEFT JOIN documents d ON d.item_id = i.id
          WHERE i.user_id = $1 AND i.is_archived = FALSE`, [userId]);
+            // Maintenance count: only tasks completed in the last 6 months,
+            // matching the DB function's WHERE completed_date >= CURRENT_DATE - INTERVAL '6 months'.
+            const maintenanceStats = await db_1.pool.query(`SELECT COUNT(*) as recent_maintenance_count
+         FROM maintenance_history
+         WHERE user_id = $1
+           AND completed_date >= CURRENT_DATE - INTERVAL '6 months'`, [userId]);
             const stats = itemStats.rows[0];
             const totalItems = parseInt(stats.total_items, 10);
             const activeWarranties = parseInt(stats.active_warranties, 10);
             const expiredWarranties = parseInt(stats.expired_warranties, 10);
             const documentedItems = parseInt(stats.documented_items, 10);
+            const recentMaintenanceCount = parseInt(maintenanceStats.rows[0].recent_maintenance_count, 10);
             const components = [
                 {
                     name: 'Items Tracked',
@@ -157,16 +187,16 @@ class StatsService {
                 },
                 {
                     name: 'Maintenance Completed',
-                    points: Math.min(analytics.total_maintenance_completed, 15),
+                    points: Math.min(recentMaintenanceCount, 15),
                     max_points: 15,
-                    status: analytics.total_maintenance_completed >= 10 ? 'good' :
-                        analytics.total_maintenance_completed >= 5 ? 'warning' : 'needs_improvement',
-                    suggestion: analytics.total_maintenance_completed < 10 ? 'Complete regular maintenance tasks' : undefined,
+                    status: recentMaintenanceCount >= 10 ? 'good' :
+                        recentMaintenanceCount >= 5 ? 'warning' : 'needs_improvement',
+                    suggestion: recentMaintenanceCount < 10 ? 'Complete regular maintenance tasks' : undefined,
                 },
                 {
                     name: 'Expired Warranties',
-                    points: Math.max(0, 10 - (expiredWarranties * 2)),
-                    max_points: 10,
+                    points: -Math.min(expiredWarranties * 2, 10),
+                    max_points: 0,
                     status: expiredWarranties === 0 ? 'good' : expiredWarranties <= 2 ? 'warning' : 'needs_improvement',
                     suggestion: expiredWarranties > 0 ? `${expiredWarranties} items have expired warranties. Consider extending or replacing.` : undefined,
                 },
@@ -201,13 +231,23 @@ class StatsService {
             };
             const field = fieldMap[feature];
             if (!field) {
-                logger_1.logger.warn({ feature }, 'Unknown feature for tracking');
-                return;
+                throw new Error(`Unknown feature for tracking: ${feature}`);
             }
-            await db_1.pool.query(`UPDATE user_analytics
-         SET ${field} = ${field} + 1,
-             updated_at = NOW()
-         WHERE user_id = $1`, [userId]);
+            // Use explicit column references instead of interpolation for safety
+            const updateQueries = {
+                email_scans_completed: `UPDATE user_analytics SET email_scans_completed = email_scans_completed + 1, updated_at = NOW() WHERE user_id = $1`,
+                items_added_manually: `UPDATE user_analytics SET items_added_manually = items_added_manually + 1, updated_at = NOW() WHERE user_id = $1`,
+                items_added_via_email: `UPDATE user_analytics SET items_added_via_email = items_added_via_email + 1, updated_at = NOW() WHERE user_id = $1`,
+                items_added_via_barcode: `UPDATE user_analytics SET items_added_via_barcode = items_added_via_barcode + 1, updated_at = NOW() WHERE user_id = $1`,
+                documents_uploaded: `UPDATE user_analytics SET documents_uploaded = documents_uploaded + 1, updated_at = NOW() WHERE user_id = $1`,
+                reports_generated: `UPDATE user_analytics SET reports_generated = reports_generated + 1, updated_at = NOW() WHERE user_id = $1`,
+                total_claims_filed: `UPDATE user_analytics SET total_claims_filed = total_claims_filed + 1, updated_at = NOW() WHERE user_id = $1`,
+            };
+            const updateSql = updateQueries[field];
+            if (!updateSql) {
+                throw new Error(`Unknown analytics field: ${field} (feature: ${feature})`);
+            }
+            await db_1.pool.query(updateSql, [userId]);
             // Update engagement flags
             if (feature === 'email_scan') {
                 await db_1.pool.query(`UPDATE user_analytics
@@ -218,7 +258,6 @@ class StatsService {
             else if (feature === 'claim_filed') {
                 await db_1.pool.query(`UPDATE user_analytics
            SET has_filed_claim = TRUE,
-               total_claims_filed = total_claims_filed + 1,
                updated_at = NOW()
            WHERE user_id = $1`, [userId]);
             }

@@ -4,6 +4,8 @@ const express_1 = require("express");
 const auth_1 = require("../middleware/auth");
 const audit_service_1 = require("../services/audit.service");
 const errors_1 = require("../utils/errors");
+const async_handler_1 = require("../utils/async-handler");
+const response_1 = require("../utils/response");
 const router = (0, express_1.Router)();
 // All audit routes require authentication
 router.use(auth_1.authenticate);
@@ -11,7 +13,7 @@ router.use(auth_1.authenticate);
  * GET /api/v1/audit/logs
  * Query audit logs with filters (admin or own logs)
  */
-router.get('/logs', async (req, res) => {
+router.get('/logs', (0, async_handler_1.asyncHandler)(async (req, res) => {
     const user = req.user;
     const { action, severity, resourceType, resourceId, startDate, endDate, success, limit = '50', offset = '0', } = req.query;
     // Non-admins can only see their own logs
@@ -29,101 +31,107 @@ router.get('/logs', async (req, res) => {
         offset: parseInt(offset, 10),
     };
     const result = await audit_service_1.AuditService.query(filters);
-    res.json({
-        logs: result.logs,
+    (0, response_1.sendSuccess)(res, result.logs, {
         pagination: {
-            total: result.total,
+            page: Math.floor(filters.offset / filters.limit) + 1,
             limit: filters.limit,
-            offset: filters.offset,
-            hasMore: result.total > filters.offset + filters.limit,
+            total: result.total,
+            total_pages: Math.ceil(result.total / filters.limit),
         },
     });
-});
+}));
 /**
  * GET /api/v1/audit/logs/me
  * Get current user's audit logs
  */
-router.get('/logs/me', async (req, res) => {
+router.get('/logs/me', (0, async_handler_1.asyncHandler)(async (req, res) => {
     const user = req.user;
     const { limit = '50', offset = '0' } = req.query;
-    const result = await audit_service_1.AuditService.getUserLogs(user.id, Math.min(parseInt(limit, 10), 100), parseInt(offset, 10));
-    res.json({
-        logs: result.logs,
+    const limitVal = Math.min(parseInt(limit, 10), 100);
+    const offsetVal = parseInt(offset, 10);
+    const result = await audit_service_1.AuditService.getUserLogs(user.id, limitVal, offsetVal);
+    (0, response_1.sendSuccess)(res, result.logs, {
         pagination: {
+            page: Math.floor(offsetVal / limitVal) + 1,
+            limit: limitVal,
             total: result.total,
-            limit: parseInt(limit, 10),
-            offset: parseInt(offset, 10),
-            hasMore: result.total > parseInt(offset, 10) + parseInt(limit, 10),
+            total_pages: Math.ceil(result.total / limitVal),
         },
     });
-});
+}));
 /**
  * GET /api/v1/audit/logs/resource/:resourceType/:resourceId
  * Get audit logs for a specific resource
  */
-router.get('/logs/resource/:resourceType/:resourceId', async (req, res) => {
+router.get('/logs/resource/:resourceType/:resourceId', (0, async_handler_1.asyncHandler)(async (req, res) => {
     const user = req.user;
     const { resourceType, resourceId } = req.params;
     const { limit = '50', offset = '0' } = req.query;
-    const result = await audit_service_1.AuditService.getResourceLogs(resourceType, resourceId, Math.min(parseInt(limit, 10), 100), parseInt(offset, 10));
-    // Non-admins can only see logs for resources they own
-    if (!user.isAdmin) {
-        result.logs = result.logs.filter(log => log.user_id === user.id);
-    }
-    res.json({
-        logs: result.logs,
+    const limitVal = Math.min(parseInt(limit, 10), 100);
+    const offsetVal = parseInt(offset, 10);
+    // Non-admins can only see their own logs — pass userId filter to the query
+    const result = user.isAdmin
+        ? await audit_service_1.AuditService.getResourceLogs(resourceType, resourceId, limitVal, offsetVal)
+        : await audit_service_1.AuditService.query({
+            userId: user.id,
+            resourceType,
+            resourceId,
+            limit: limitVal,
+            offset: offsetVal,
+        });
+    (0, response_1.sendSuccess)(res, result.logs, {
         pagination: {
+            page: Math.floor(offsetVal / limitVal) + 1,
+            limit: limitVal,
             total: result.total,
-            limit: parseInt(limit, 10),
-            offset: parseInt(offset, 10),
-            hasMore: result.total > parseInt(offset, 10) + parseInt(limit, 10),
+            total_pages: Math.ceil(result.total / limitVal),
         },
     });
-});
+}));
 /**
  * GET /api/v1/audit/security
  * Get recent security events (admin only)
  */
-router.get('/security', async (req, res) => {
+router.get('/security', (0, async_handler_1.asyncHandler)(async (req, res) => {
     const user = req.user;
     if (!user.isAdmin) {
         throw new errors_1.AppError('Unauthorized - Admin access required', 403);
     }
     const { limit = '100' } = req.query;
     const events = await audit_service_1.AuditService.getRecentSecurityEvents(Math.min(parseInt(limit, 10), 500));
-    res.json({ events });
-});
+    (0, response_1.sendSuccess)(res, events);
+}));
 /**
  * GET /api/v1/audit/stats
  * Get audit log statistics
  */
-router.get('/stats', async (req, res) => {
+router.get('/stats', (0, async_handler_1.asyncHandler)(async (req, res) => {
     const user = req.user;
     if (!user.isAdmin) {
         throw new errors_1.AppError('Unauthorized - Admin access required', 403);
     }
     const { startDate, endDate } = req.query;
     const stats = await audit_service_1.AuditService.getStats(startDate ? new Date(startDate) : undefined, endDate ? new Date(endDate) : undefined);
-    res.json({ stats });
-});
+    (0, response_1.sendSuccess)(res, stats);
+}));
 /**
  * GET /api/v1/audit/activity-summary
  * Get user activity summary (admin only)
  */
-router.get('/activity-summary', async (req, res) => {
+router.get('/activity-summary', (0, async_handler_1.asyncHandler)(async (req, res) => {
     const user = req.user;
     if (!user.isAdmin) {
         throw new errors_1.AppError('Unauthorized - Admin access required', 403);
     }
     const { userId } = req.query;
     const summary = await audit_service_1.AuditService.getUserActivitySummary(userId);
-    res.json({ summary });
-});
+    (0, response_1.sendSuccess)(res, summary);
+}));
 /**
  * POST /api/v1/audit/cleanup
  * Manually trigger audit log cleanup (admin only)
  */
-router.post('/cleanup', async (req, res) => {
+router.post('/cleanup', (0, async_handler_1.asyncHandler)(async (req, res) => {
     const user = req.user;
     if (!user.isAdmin) {
         throw new errors_1.AppError('Unauthorized - Admin access required', 403);
@@ -133,10 +141,7 @@ router.post('/cleanup', async (req, res) => {
     await audit_service_1.AuditService.logFromRequest(req, 'system.maintenance_start', {
         description: 'Audit log cleanup triggered manually',
     });
-    res.json({
-        success: true,
-        message: 'Audit log cleanup completed',
-    });
-});
+    (0, response_1.sendMessage)(res, 'Audit log cleanup completed');
+}));
 exports.default = router;
 //# sourceMappingURL=audit.js.map

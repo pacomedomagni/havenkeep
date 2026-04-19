@@ -41,6 +41,13 @@ function validateEnvironment() {
     if (index_1.config.jwt.secret.includes('change-this') || index_1.config.jwt.secret.includes('your-secret')) {
         errors.push('JWT_SECRET is using default value - must be changed for production');
     }
+    // Check refresh token secret strength
+    if (index_1.config.jwt.refreshSecret.length < 32) {
+        errors.push('REFRESH_TOKEN_SECRET must be at least 32 characters long');
+    }
+    if (index_1.config.jwt.refreshSecret.includes('change-this') || index_1.config.jwt.refreshSecret.includes('your-secret')) {
+        errors.push('REFRESH_TOKEN_SECRET is using default value - must be changed for production');
+    }
     // Production-specific validation
     if (index_1.config.env === 'production') {
         for (const varName of PRODUCTION_REQUIRED) {

@@ -10,6 +10,44 @@ const db_1 = require("../db");
 const logger_1 = require("../utils/logger");
 const errors_1 = require("../utils/errors");
 const config_1 = require("../config");
+/**
+ * Mask PII (credit cards, SSNs, phone numbers) before sending text to external APIs.
+ */
+function maskPII(text) {
+    return text
+        // Credit card numbers (13-19 digits, possibly with spaces/dashes)
+        .replace(/\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{1,7}\b/g, '[CARD REDACTED]')
+        // SSN
+        .replace(/\b\d{3}-\d{2}-\d{4}\b/g, '[SSN REDACTED]')
+        // Phone numbers
+        .replace(/\b(\+?1?[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b/g, '[PHONE REDACTED]');
+}
+/**
+ * Strip HTML tags from email body content, collapsing whitespace.
+ * Removes <style> and <script> blocks entirely before stripping tags
+ * so their content doesn't end up as garbled text in the AI prompt.
+ */
+function stripHtmlTags(html) {
+    return html
+        // Remove <style>...</style> and <script>...</script> blocks
+        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ')
+        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, ' ')
+        // Replace <br>, <p>, <div>, <tr> with newlines to preserve structure
+        .replace(/<(br|p|div|tr)[^>]*>/gi, '\n')
+        // Strip remaining tags
+        .replace(/<[^>]+>/g, ' ')
+        // Decode common HTML entities
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&nbsp;/g, ' ')
+        // Collapse excessive whitespace/newlines
+        .replace(/[ \t]{2,}/g, ' ')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+}
 class EmailScannerService {
     /**
      * Initiate email scan
@@ -29,9 +67,15 @@ class EmailScannerService {
             ]);
             const scan = scanResult.rows[0];
             await client.query('COMMIT');
-            // Start scan asynchronously with failure recovery
-            this.performScan(scan.id, userId, provider, accessToken, options).catch(async (error) => {
-                logger_1.logger.error({ error, scanId: scan.id }, 'Background email scan failed');
+            // Start scan with timeout and abort support
+            const abortController = new AbortController();
+            const scanPromise = this.performScan(scan.id, userId, provider, accessToken, options, abortController.signal);
+            const timeoutPromise = new Promise((_, reject) => setTimeout(() => {
+                abortController.abort();
+                reject(new Error('Email scan timed out after 5 minutes'));
+            }, 5 * 60 * 1000));
+            Promise.race([scanPromise, timeoutPromise]).catch(async (error) => {
+                logger_1.logger.error({ errorMessage: error.message, scanId: scan.id }, 'Background email scan failed');
                 try {
                     await db_1.pool.query(`UPDATE email_scans SET status = 'failed', error_message = $2, completed_at = NOW() WHERE id = $1 AND status != 'completed'`, [scan.id, error.message || 'Unknown error']);
                 }
@@ -53,7 +97,7 @@ class EmailScannerService {
     /**
      * Perform the actual email scanning (runs in background)
      */
-    static async performScan(scanId, userId, provider, accessToken, options) {
+    static async performScan(scanId, userId, provider, accessToken, options, signal) {
         try {
             if (!config_1.config.openai?.apiKey) {
                 await db_1.pool.query(`UPDATE email_scans
@@ -68,33 +112,45 @@ class EmailScannerService {
             await db_1.pool.query(`UPDATE email_scans SET status = 'scanning' WHERE id = $1`, [scanId]);
             let receipts = [];
             if (provider === 'gmail') {
-                receipts = await this.scanGmail(accessToken, options);
+                receipts = await this.scanGmail(accessToken, options, signal);
             }
             else if (provider === 'outlook') {
-                receipts = await this.scanOutlook(accessToken, options);
+                receipts = await this.scanOutlook(accessToken, options, signal);
             }
             logger_1.logger.info({ scanId, receiptsFound: receipts.length }, 'Email scan completed');
             // Filter for appliances and electronics
             const relevantReceipts = receipts.filter((r) => this.isRelevantPurchase(r.productName, r.category));
             // Import items
             let importedCount = 0;
+            let skippedDueToLimit = 0;
             for (const receipt of relevantReceipts) {
                 try {
-                    await this.createItemFromReceipt(userId, receipt, scanId);
-                    importedCount++;
+                    const created = await this.createItemFromReceipt(userId, receipt, scanId);
+                    if (created) {
+                        importedCount++;
+                    }
+                    else {
+                        skippedDueToLimit++;
+                    }
                 }
                 catch (error) {
                     logger_1.logger.warn({ error, receipt }, 'Failed to import receipt');
                 }
             }
+            // If items were silently dropped due to the free plan limit, surface a warning
+            // in the error_message column so the mobile UI can show it on the completed scan card.
+            const limitWarning = skippedDueToLimit > 0
+                ? `${skippedDueToLimit} item${skippedDueToLimit === 1 ? '' : 's'} skipped — free plan limit reached. Upgrade to Premium to import all items.`
+                : null;
             // Update scan record
             await db_1.pool.query(`UPDATE email_scans
          SET status = 'completed',
              emails_scanned = $2,
              receipts_found = $3,
              items_imported = $4,
+             error_message = $5,
              completed_at = NOW()
-         WHERE id = $1`, [scanId, receipts.length, relevantReceipts.length, importedCount]);
+         WHERE id = $1`, [scanId, receipts.length, relevantReceipts.length, importedCount, limitWarning]);
             // Update user analytics
             await db_1.pool.query(`UPDATE user_analytics
          SET email_scans_completed = email_scans_completed + 1,
@@ -116,7 +172,7 @@ class EmailScannerService {
     /**
      * Scan Gmail for receipts
      */
-    static async scanGmail(accessToken, options) {
+    static async scanGmail(accessToken, options, signal) {
         const oauth2Client = new googleapis_1.google.auth.OAuth2();
         oauth2Client.setCredentials({ access_token: accessToken });
         const gmail = googleapis_1.google.gmail({ version: 'v1', auth: oauth2Client });
@@ -145,6 +201,8 @@ class EmailScannerService {
             dateQuery += ` before:${endDate.getFullYear()}/${endDate.getMonth() + 1}/${endDate.getDate()}`;
         }
         for (const baseQuery of queries) {
+            if (signal?.aborted)
+                break;
             try {
                 const query = baseQuery + dateQuery;
                 const messagesResponse = await gmail.users.messages.list({
@@ -154,6 +212,8 @@ class EmailScannerService {
                 });
                 const messages = messagesResponse.data.messages || [];
                 for (const message of messages.slice(0, 50)) {
+                    if (signal?.aborted)
+                        break;
                     // Limit to 50 per query
                     try {
                         const messageData = await gmail.users.messages.get({
@@ -162,7 +222,7 @@ class EmailScannerService {
                             format: 'full',
                         });
                         const emailData = this.parseGmailMessage(messageData.data);
-                        const extracted = await this.extractReceiptData(emailData);
+                        const extracted = await this.extractReceiptData(emailData, signal);
                         if (extracted) {
                             receipts.push(extracted);
                         }
@@ -181,7 +241,7 @@ class EmailScannerService {
     /**
      * Scan Outlook for receipts
      */
-    static async scanOutlook(accessToken, options) {
+    static async scanOutlook(accessToken, options, signal) {
         const receipts = [];
         try {
             // Build filter query
@@ -201,9 +261,12 @@ class EmailScannerService {
                     $top: 100,
                     $select: 'subject,from,receivedDateTime,body',
                 },
+                signal,
             });
             const messages = response.data.value || [];
             for (const message of messages.slice(0, 50)) {
+                if (signal?.aborted)
+                    break;
                 try {
                     const emailData = {
                         subject: message.subject,
@@ -211,7 +274,7 @@ class EmailScannerService {
                         date: message.receivedDateTime,
                         body: message.body?.content || '',
                     };
-                    const extracted = await this.extractReceiptData(emailData);
+                    const extracted = await this.extractReceiptData(emailData, signal);
                     if (extracted) {
                         receipts.push(extracted);
                     }
@@ -250,8 +313,13 @@ class EmailScannerService {
     }
     /**
      * Extract receipt data using AI (OpenAI or Anthropic)
+     *
+     * PRIVACY NOTE: Email body content (up to 2000 chars) is sent to OpenAI for
+     * receipt extraction. Ensure users are informed of this in the app's privacy
+     * policy and terms of service. The access token is used only for email access
+     * and is not stored.
      */
-    static async extractReceiptData(emailData) {
+    static async extractReceiptData(emailData, signal) {
         try {
             // Use OpenAI (or Anthropic) to extract structured data
             const response = await axios_1.default.post('https://api.openai.com/v1/chat/completions', {
@@ -277,21 +345,22 @@ Return null if this is not a product purchase receipt.`,
                     },
                     {
                         role: 'user',
-                        content: `Subject: ${emailData.subject}
+                        content: `Subject: ${maskPII(emailData.subject)}
 From: ${emailData.from}
 Date: ${emailData.date}
 
-Body (first 2000 chars):
-${emailData.body.substring(0, 2000)}`,
+Body:
+${maskPII(stripHtmlTags(emailData.body).substring(0, 4000))}`,
                     },
                 ],
                 response_format: { type: 'json_object' },
                 temperature: 0,
             }, {
                 headers: {
-                    'Authorization': `Bearer ${config_1.config.openai?.apiKey || process.env.OPENAI_API_KEY}`,
+                    'Authorization': `Bearer ${config_1.config.openai?.apiKey}`,
                     'Content-Type': 'application/json',
                 },
+                signal,
             });
             let extracted;
             try {
@@ -311,7 +380,15 @@ ${emailData.body.substring(0, 2000)}`,
             };
         }
         catch (error) {
-            logger_1.logger.warn({ error, subject: emailData.subject }, 'Failed to extract receipt data with AI');
+            // CRIT-3: Never log the full error object from axios as it may contain
+            // request headers (including the OpenAI API key in the Authorization header).
+            // Only log the status code and message.
+            const safeError = {
+                message: error?.message,
+                statusCode: error?.response?.status,
+                responseMessage: error?.response?.data?.error?.message,
+            };
+            logger_1.logger.warn({ error: safeError, subject: emailData.subject }, 'Failed to extract receipt data with AI');
             return null;
         }
     }
@@ -362,12 +439,24 @@ ${emailData.body.substring(0, 2000)}`,
         return keywords.some((keyword) => lowerName.includes(keyword));
     }
     /**
-     * Create item from extracted receipt
+     * Create item from extracted receipt.
+     * Returns true if item was created, false if skipped due to free plan limit.
      */
     static async createItemFromReceipt(userId, receipt, scanId) {
         const client = await db_1.pool.connect();
         try {
             await client.query('BEGIN');
+            // Check free plan limit inside the transaction with row lock to prevent TOCTOU races
+            const userResult = await client.query('SELECT plan FROM users WHERE id = $1 FOR UPDATE', [userId]);
+            if (userResult.rows[0]?.plan === 'free') {
+                const countResult = await client.query('SELECT COUNT(*) FROM items WHERE user_id = $1 AND is_archived = FALSE', [userId]);
+                if (parseInt(countResult.rows[0].count, 10) >= 5) {
+                    await client.query('ROLLBACK');
+                    client.release();
+                    logger_1.logger.info({ userId, scanId }, 'Skipping item import: free plan limit reached');
+                    return false; // Signal to caller that this was skipped
+                }
+            }
             // Get user's default home
             const homeResult = await client.query('SELECT id FROM homes WHERE user_id = $1 ORDER BY created_at ASC LIMIT 1', [userId]);
             if (homeResult.rows.length === 0) {
@@ -409,6 +498,7 @@ ${emailData.body.substring(0, 2000)}`,
             ]);
             await client.query('COMMIT');
             logger_1.logger.info({ userId, scanId, productName: receipt.productName }, 'Item created from receipt');
+            return true;
         }
         catch (error) {
             await client.query('ROLLBACK');

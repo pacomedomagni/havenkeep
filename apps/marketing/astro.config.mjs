@@ -9,6 +9,14 @@ export default defineConfig({
     host: true,
     port: 4321,
   },
+  // Astro's `astro preview` uses Vite under the hood; Vite rejects unknown
+  // Host headers by default. Allow all hosts (behind Caddy which already
+  // validates the TLS hostname).
+  vite: {
+    preview: {
+      allowedHosts: true,
+    },
+  },
   build: {
     inlineStylesheets: 'auto',
   },

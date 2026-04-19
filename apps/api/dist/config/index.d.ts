@@ -52,11 +52,17 @@ export declare const config: {
         readonly apiKey: string;
         readonly webhookSecret: string;
     };
+    firebase: {
+        serviceAccountJson: string;
+    };
     app: {
         baseUrl: string;
         frontendUrl: string;
         dashboardUrl: string;
         apiUrl: string;
+    };
+    freeTier: {
+        itemLimit: number;
     };
     cors: {
         origins: string[];

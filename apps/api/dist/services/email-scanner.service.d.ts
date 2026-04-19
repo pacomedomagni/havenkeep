@@ -25,6 +25,11 @@ export declare class EmailScannerService {
     private static parseGmailMessage;
     /**
      * Extract receipt data using AI (OpenAI or Anthropic)
+     *
+     * PRIVACY NOTE: Email body content (up to 2000 chars) is sent to OpenAI for
+     * receipt extraction. Ensure users are informed of this in the app's privacy
+     * policy and terms of service. The access token is used only for email access
+     * and is not stored.
      */
     private static extractReceiptData;
     /**
@@ -32,7 +37,8 @@ export declare class EmailScannerService {
      */
     private static isRelevantPurchase;
     /**
-     * Create item from extracted receipt
+     * Create item from extracted receipt.
+     * Returns true if item was created, false if skipped due to free plan limit.
      */
     private static createItemFromReceipt;
     /**

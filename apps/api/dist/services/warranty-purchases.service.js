@@ -9,13 +9,17 @@ class WarrantyPurchasesService {
      * Get all warranty purchases for a user with pagination and optional filters
      */
     static async getUserPurchases(userId, options = {}) {
-        const { limit = 50, offset = 0, itemId, status } = options;
+        const { itemId, status } = options;
+        // MED-2: Clamp pagination params to safe bounds
+        const limit = Math.min(options.limit || 50, 100);
+        const offset = Math.max(options.offset || 0, 0);
         try {
             let query = `
         SELECT wp.*,
                i.name as item_name,
                i.category as item_category,
-               i.brand as item_brand
+               i.brand as item_brand,
+               i.model_number as item_model_number
         FROM warranty_purchases wp
         JOIN items i ON i.id = wp.item_id
         WHERE wp.user_id = $1
@@ -84,16 +88,34 @@ class WarrantyPurchasesService {
     static async createPurchase(userId, data) {
         const client = await db_1.pool.connect();
         try {
+            // BE-18/MED-12: Validate durationMonths is within acceptable range (1-240 months / 20 years)
+            if (data.durationMonths !== undefined) {
+                if (data.durationMonths < 1 || data.durationMonths > 240) {
+                    throw new errors_1.AppError('durationMonths must be between 1 and 240', 400);
+                }
+            }
             await client.query('BEGIN');
+            // Check for duplicate active warranty on the same item
+            const duplicateCheck = await client.query(`SELECT id FROM warranty_purchases
+         WHERE item_id = $1 AND user_id = $2 AND status = 'active' FOR UPDATE`, [data.itemId, userId]);
+            if (duplicateCheck.rows.length > 0) {
+                throw new errors_1.AppError('An active extended warranty already exists for this item', 409);
+            }
             // Verify item belongs to user
-            const itemCheck = await client.query('SELECT id FROM items WHERE id = $1 AND user_id = $2', [data.item_id, userId]);
+            const itemCheck = await client.query('SELECT id FROM items WHERE id = $1 AND user_id = $2', [data.itemId, userId]);
             if (itemCheck.rows.length === 0) {
                 throw new errors_1.AppError('Item not found or does not belong to user', 404);
             }
-            // Calculate expires_at from starts_at + duration_months
-            const startsAt = new Date(data.starts_at);
+            // Calculate expires_at from startsAt + durationMonths
+            // Uses safe month addition to handle overflow (e.g., Jan 31 + 1 month = Feb 28)
+            const startsAt = new Date(data.startsAt);
             const expiresAt = new Date(startsAt);
-            expiresAt.setMonth(expiresAt.getMonth() + data.duration_months);
+            expiresAt.setMonth(expiresAt.getMonth() + data.durationMonths);
+            // Clamp day to avoid month overflow (e.g., Jan 31 + 1 month should be Feb 28, not Mar 3)
+            const expectedMonth = (startsAt.getMonth() + data.durationMonths) % 12;
+            if (expiresAt.getMonth() !== expectedMonth) {
+                expiresAt.setDate(0); // Roll back to the last day of the previous month
+            }
             const result = await client.query(`INSERT INTO warranty_purchases (
           item_id, user_id, provider, plan_name, external_policy_id,
           duration_months, starts_at, expires_at, coverage_details,
@@ -101,26 +123,26 @@ class WarrantyPurchasesService {
           stripe_payment_intent_id, status
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
         RETURNING *`, [
-                data.item_id,
+                data.itemId,
                 userId,
                 data.provider,
-                data.plan_name,
-                data.external_policy_id || null,
-                data.duration_months,
+                data.planName,
+                data.externalPolicyId || null,
+                data.durationMonths,
                 startsAt,
                 expiresAt,
-                data.coverage_details ? JSON.stringify(data.coverage_details) : null,
+                data.coverageDetails ? JSON.stringify(data.coverageDetails) : null,
                 data.price,
                 data.deductible || 0,
-                data.claim_limit || null,
-                data.commission_amount || null,
-                data.commission_rate || null,
-                data.stripe_payment_intent_id || null,
+                data.claimLimit || null,
+                data.commissionAmount || null,
+                data.commissionRate || null,
+                data.stripePaymentIntentId || null,
                 'active',
             ]);
             const purchase = result.rows[0];
             await client.query('COMMIT');
-            logger_1.logger.info({ purchaseId: purchase.id, userId, itemId: data.item_id }, 'Warranty purchase created');
+            logger_1.logger.info({ purchaseId: purchase.id, userId, itemId: data.itemId }, 'Warranty purchase created');
             return purchase;
         }
         catch (error) {
@@ -230,22 +252,23 @@ class WarrantyPurchasesService {
         }
     }
     /**
-     * Update warranty purchase status (internal method, e.g., for auto-expiring)
+     * Expire all overdue active warranties in a single batch update.
+     * Designed to be called from a daily scheduled job.
      */
-    static async updatePurchaseStatus(purchaseId, status) {
+    static async expireOverdueWarranties() {
         try {
             const result = await db_1.pool.query(`UPDATE warranty_purchases
-         SET status = $2, updated_at = NOW()
-         WHERE id = $1
-         RETURNING *`, [purchaseId, status]);
-            if (result.rows.length === 0) {
-                throw new errors_1.AppError('Warranty purchase not found', 404);
+         SET status = 'expired', updated_at = NOW()
+         WHERE status = 'active' AND expires_at < CURRENT_DATE
+         RETURNING id`);
+            const count = result.rowCount ?? 0;
+            if (count > 0) {
+                logger_1.logger.info({ count }, 'Expired overdue warranty purchases');
             }
-            logger_1.logger.info({ purchaseId, status }, 'Warranty purchase status updated');
-            return result.rows[0];
+            return count;
         }
         catch (error) {
-            logger_1.logger.error({ error, purchaseId, status }, 'Error updating warranty purchase status');
+            logger_1.logger.error({ error }, 'Error expiring overdue warranty purchases');
             throw error;
         }
     }

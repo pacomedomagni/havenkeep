@@ -86,8 +86,41 @@ export declare class NotificationsService {
      * Checks for items expiring within each user's configured reminder window
      * and creates notifications for them. Skips items that already received
      * a notification in the last 24 hours to prevent duplicates.
+     *
+     * Idempotency: The 24-hour dedup window (nh.sent_at > NOW() - INTERVAL '1 day')
+     * ensures that re-running this method within the same day is safe and will not
+     * produce duplicate notifications for the same item.
+     *
+     * Individual notification failures are caught and logged so that one bad row
+     * does not prevent notifications for remaining items.
      */
     static checkAndNotifyExpirations(): Promise<number>;
+    /**
+     * Check for items with maintenance tasks due and create notifications.
+     *
+     * Scheduled daily alongside the warranty expiration job.
+     * For each active item with matching maintenance schedules, we find tasks
+     * where the last completion date + frequency is on or before today.
+     * Items that have never had a task logged are notified if the item's
+     * purchase_date + frequency is on or before today.
+     *
+     * Idempotency: The 7-day dedup window prevents re-sending the same
+     * maintenance_due notification for the same item+task within a week.
+     */
+    static checkAndNotifyMaintenanceDue(): Promise<number>;
+    /**
+     * Check for items with expired manufacturer warranties that qualify for
+     * extended warranty offers, and create claim_opportunity notifications.
+     *
+     * Scheduled daily alongside other notification jobs.
+     * Only targets items valued above $200 that do not already have an active
+     * extended warranty purchase, and limits to 3 notifications per batch per user
+     * to avoid overwhelming them.
+     *
+     * Idempotency: The 30-day dedup window prevents re-sending a claim_opportunity
+     * notification for the same item within that period.
+     */
+    static checkAndNotifyWarrantyOffers(): Promise<number>;
 }
 export {};
 //# sourceMappingURL=notifications.service.d.ts.map

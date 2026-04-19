@@ -4,6 +4,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.PartnersService = void 0;
+const crypto_1 = __importDefault(require("crypto"));
 const db_1 = require("../db");
 const logger_1 = require("../utils/logger");
 const errors_1 = require("../utils/errors");
@@ -14,6 +15,46 @@ const referral_code_1 = require("../utils/referral-code");
 const stripe = new stripe_1.default(config_1.config.stripe.secretKey, {
     apiVersion: '2023-10-16',
 });
+// Tier pricing in dollars — configurable via env or DB in the future
+const TIER_PRICING = JSON.parse(process.env.PARTNER_TIER_PRICING || '{"basic":99,"premium":149,"platinum":249}');
+/** Safely add months to a date, handling day overflow (e.g. Jan 31 + 1 month = Feb 28). */
+function addMonthsSafe(date, months) {
+    const result = new Date(date);
+    const targetMonth = result.getMonth() + months;
+    result.setMonth(targetMonth);
+    const expectedMonth = ((date.getMonth() + months) % 12 + 12) % 12;
+    if (result.getMonth() !== expectedMonth) {
+        result.setDate(0);
+    }
+    return result;
+}
+// MED-7: User-friendly messages for common Stripe decline codes
+const STRIPE_DECLINE_MESSAGES = {
+    card_declined: 'Your card was declined. Please try a different payment method.',
+    insufficient_funds: 'Your card has insufficient funds. Please try a different payment method.',
+    expired_card: 'Your card has expired. Please update your payment method.',
+    incorrect_cvc: 'The CVC code is incorrect. Please check and try again.',
+    processing_error: 'A processing error occurred. Please try again in a moment.',
+    lost_card: 'This card has been reported lost. Please use a different payment method.',
+    stolen_card: 'This card has been reported stolen. Please use a different payment method.',
+    do_not_honor: 'Your bank declined this charge. Please contact your bank or try a different card.',
+    generic_decline: 'Your card was declined. Please try a different payment method.',
+};
+// HIGH-7: In-memory tracking for gift activation brute-force protection.
+// Keyed by gift ID -> { attempts: number, lockedUntil: Date | null }
+const giftActivationAttempts = new Map();
+const GIFT_MAX_ACTIVATION_ATTEMPTS = 5;
+const GIFT_LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 minutes
+const GIFT_ATTEMPTS_MAX_ENTRIES = 10_000;
+// Periodically evict expired lockout entries to prevent unbounded memory growth
+setInterval(() => {
+    const now = new Date();
+    for (const [giftId, record] of giftActivationAttempts) {
+        if (record.lockedUntil && now >= record.lockedUntil) {
+            giftActivationAttempts.delete(giftId);
+        }
+    }
+}, 5 * 60 * 1000).unref();
 class PartnersService {
     /**
      * Get or create a referral code for a partner user
@@ -34,6 +75,47 @@ class PartnersService {
         return referralCode;
     }
     /**
+     * Get users who signed up using this partner's referral code.
+     * Returns paginated list with signup date, name, email (masked), and item count.
+     */
+    static async getReferrals(userId, options) {
+        // Verify partner exists
+        const partnerResult = await db_1.pool.query('SELECT id FROM partners WHERE user_id = $1', [userId]);
+        if (partnerResult.rows.length === 0) {
+            throw new errors_1.AppError('Partner not found', 404);
+        }
+        const offset = (options.page - 1) * options.limit;
+        const [rows, countResult] = await Promise.all([
+            db_1.pool.query(`SELECT
+           u.id,
+           u.full_name,
+           -- Mask email: show first 2 chars + domain for privacy
+           CONCAT(
+             LEFT(u.email, 2),
+             '***@',
+             SPLIT_PART(u.email, '@', 2)
+           ) AS email_masked,
+           u.plan,
+           u.created_at AS signed_up_at,
+           COALESCE(item_counts.cnt, 0)::integer AS item_count
+         FROM users u
+         LEFT JOIN (
+           SELECT user_id, COUNT(*) AS cnt
+           FROM items
+           WHERE is_archived = FALSE
+           GROUP BY user_id
+         ) item_counts ON item_counts.user_id = u.id
+         WHERE u.referred_by = $1
+         ORDER BY u.created_at DESC
+         LIMIT $2 OFFSET $3`, [userId, options.limit, offset]),
+            db_1.pool.query(`SELECT COUNT(*) FROM users WHERE referred_by = $1`, [userId]),
+        ]);
+        return {
+            referrals: rows.rows,
+            total: parseInt(countResult.rows[0].count, 10),
+        };
+    }
+    /**
      * Register as a partner (realtor/builder)
      */
     static async registerPartner(userId, data) {
@@ -48,39 +130,39 @@ class PartnersService {
             // Create partner
             const result = await client.query(`INSERT INTO partners (
           user_id, partner_type, company_name, phone, website,
-          brand_color, logo_url, default_message, service_areas, subscription_tier
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'basic')
+          brand_color, logo_url, default_message, service_areas, subscription_tier, license_number
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'basic', $10)
         RETURNING *`, [
                 userId,
-                data.partner_type,
-                data.company_name,
+                data.partnerType,
+                data.companyName,
                 data.phone,
                 data.website,
-                data.brand_color || '#3B82F6',
-                data.logo_url,
-                data.default_message ||
+                data.brandColor || '#3B82F6',
+                data.logoUrl,
+                data.defaultMessage ||
                     'Welcome to your new home! I\'m excited to share this tool to help you protect your appliances and warranties.',
-                data.service_areas || [],
+                data.serviceAreas || [],
+                data.licenseNumber || null,
             ]);
             const partner = result.rows[0];
             await client.query('COMMIT');
-            // Send welcome email to new partner
-            try {
-                // Get user email
-                const userResult = await client.query('SELECT email, full_name FROM users WHERE id = $1', [userId]);
+            // MED-11: Fire-and-forget welcome email AFTER transaction commits.
+            // Intentionally not awaited so email failure never blocks registration.
+            db_1.pool.query('SELECT email, full_name FROM users WHERE id = $1', [userId])
+                .then((userResult) => {
                 if (userResult.rows.length > 0) {
                     const user = userResult.rows[0];
-                    await email_service_1.EmailService.sendPartnerWelcomeEmail({
+                    return email_service_1.EmailService.sendPartnerWelcomeEmail({
                         to: user.email,
                         partner_name: user.full_name || 'Partner',
-                        company_name: data.company_name,
+                        company_name: data.companyName,
                     });
                 }
-            }
-            catch (emailError) {
-                // Log email error but don't fail partner registration
+            })
+                .catch((emailError) => {
                 logger_1.logger.error({ error: emailError, partnerId: partner.id }, 'Failed to send partner welcome email, but registration was successful');
-            }
+            });
             logger_1.logger.info({ partnerId: partner.id, userId }, 'Partner registered');
             return partner;
         }
@@ -122,13 +204,13 @@ class PartnersService {
             const updates = [];
             const values = [];
             let paramIndex = 1;
-            if (data.partner_type !== undefined) {
+            if (data.partnerType !== undefined) {
                 updates.push(`partner_type = $${paramIndex++}`);
-                values.push(data.partner_type);
+                values.push(data.partnerType);
             }
-            if (data.company_name !== undefined) {
+            if (data.companyName !== undefined) {
                 updates.push(`company_name = $${paramIndex++}`);
-                values.push(data.company_name);
+                values.push(data.companyName);
             }
             if (data.phone !== undefined) {
                 updates.push(`phone = $${paramIndex++}`);
@@ -138,25 +220,29 @@ class PartnersService {
                 updates.push(`website = $${paramIndex++}`);
                 values.push(data.website);
             }
-            if (data.brand_color !== undefined) {
+            if (data.brandColor !== undefined) {
                 updates.push(`brand_color = $${paramIndex++}`);
-                values.push(data.brand_color);
+                values.push(data.brandColor);
             }
-            if (data.logo_url !== undefined) {
+            if (data.logoUrl !== undefined) {
                 updates.push(`logo_url = $${paramIndex++}`);
-                values.push(data.logo_url);
+                values.push(data.logoUrl);
             }
-            if (data.default_message !== undefined) {
+            if (data.defaultMessage !== undefined) {
                 updates.push(`default_message = $${paramIndex++}`);
-                values.push(data.default_message);
+                values.push(data.defaultMessage);
             }
-            if (data.default_premium_months !== undefined) {
+            if (data.defaultPremiumMonths !== undefined) {
                 updates.push(`default_premium_months = $${paramIndex++}`);
-                values.push(data.default_premium_months);
+                values.push(data.defaultPremiumMonths);
             }
-            if (data.service_areas !== undefined) {
+            if (data.serviceAreas !== undefined) {
                 updates.push(`service_areas = $${paramIndex++}`);
-                values.push(data.service_areas);
+                values.push(data.serviceAreas);
+            }
+            if (data.licenseNumber !== undefined) {
+                updates.push(`license_number = $${paramIndex++}`);
+                values.push(data.licenseNumber || null);
             }
             if (updates.length === 0) {
                 throw new errors_1.AppError('No fields to update', 400);
@@ -184,6 +270,12 @@ class PartnersService {
     }
     /**
      * Create closing gift for homebuyer
+     *
+     * CRIT-2: Stripe charge is inside the transaction. The gift record is created
+     * with 'pending_payment' status first, then Stripe is charged with an
+     * idempotency key derived from the gift ID. If Stripe fails, the entire
+     * transaction rolls back. If Stripe succeeds, the status is updated to
+     * 'created' within the same transaction.
      */
     static async createGift(userId, data) {
         const client = await db_1.pool.connect();
@@ -195,85 +287,122 @@ class PartnersService {
                 throw new errors_1.AppError('Partner not found', 404);
             }
             const partner = partnerResult.rows[0];
-            // Determine pricing based on tier
-            const tierPricing = {
-                basic: 99,
-                premium: 149,
-                platinum: 249,
-            };
-            const amountCharged = tierPricing[partner.subscription_tier];
-            const premiumMonths = data.premium_months || partner.default_premium_months || 6;
-            // Charge partner via Stripe
-            const user = await client.query('SELECT stripe_customer_id FROM users WHERE id = $1', [
-                userId,
-            ]);
-            let stripeChargeId = null;
-            if (user.rows[0]?.stripe_customer_id) {
-                try {
-                    const charge = await stripe.charges.create({
-                        amount: amountCharged * 100, // Convert to cents
-                        currency: 'usd',
-                        customer: user.rows[0].stripe_customer_id,
-                        description: `Closing gift for ${data.homebuyer_name}`,
-                        metadata: {
-                            partner_id: partner.id,
-                            homebuyer_email: data.homebuyer_email,
-                        },
-                    });
-                    stripeChargeId = charge.id;
-                }
-                catch (stripeError) {
-                    throw new errors_1.AppError('Payment failed. Please check your payment method.', 402);
-                }
+            // Prevent partner from gifting premium to themselves
+            const partnerUser = await client.query('SELECT email FROM users WHERE id = $1', [userId]);
+            if (partnerUser.rows[0]?.email?.toLowerCase() === data.homebuyerEmail.toLowerCase()) {
+                throw new errors_1.AppError('Cannot send a gift to your own email address', 400);
             }
-            // Create gift
-            const expiresAt = new Date();
-            expiresAt.setMonth(expiresAt.getMonth() + 6); // Gift link expires in 6 months
+            // MED-8: Use extracted tier pricing constant
+            const amountCharged = TIER_PRICING[partner.subscription_tier];
+            if (amountCharged === undefined) {
+                throw new errors_1.AppError(`Unknown subscription tier: ${partner.subscription_tier}`, 400);
+            }
+            const premiumMonths = data.premiumMonths || partner.default_premium_months || 6;
+            // Create gift record with status 'pending_payment'
+            const expiresAt = addMonthsSafe(new Date(), 6); // Gift link expires in 6 months
+            // Generate a unique activation code (e.g. "A3F9-C12E")
+            const rawCode = crypto_1.default.randomBytes(4).toString('hex').toUpperCase();
+            const activationCode = `${rawCode.slice(0, 4)}-${rawCode.slice(4, 8)}`;
+            const activationUrl = `${config_1.config.app.frontendUrl}/gifts/activate?code=${activationCode}`;
             const giftResult = await client.query(`INSERT INTO partner_gifts (
           partner_id, homebuyer_email, homebuyer_name, homebuyer_phone,
           home_address, closing_date, premium_months, custom_message,
-          amount_charged, stripe_charge_id, expires_at, status
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'created')
+          amount_charged, stripe_charge_id, expires_at, status,
+          activation_code, activation_url
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL, $10, 'pending_payment', $11, $12)
         RETURNING *`, [
                 partner.id,
-                data.homebuyer_email.toLowerCase(),
-                data.homebuyer_name,
-                data.homebuyer_phone,
-                data.home_address,
-                data.closing_date,
+                data.homebuyerEmail.toLowerCase(),
+                data.homebuyerName,
+                data.homebuyerPhone,
+                data.homeAddress,
+                data.closingDate,
                 premiumMonths,
-                data.custom_message || partner.default_message,
+                data.customMessage || partner.default_message,
                 amountCharged,
-                stripeChargeId,
                 expiresAt,
+                activationCode,
+                activationUrl,
             ]);
             const gift = giftResult.rows[0];
-            // Create commission record
+            // Charge Stripe INSIDE the transaction so we can roll back if it fails
+            const userResult = await client.query('SELECT stripe_customer_id FROM users WHERE id = $1', [userId]);
+            let stripeChargeId = null;
+            if (userResult.rows[0]?.stripe_customer_id) {
+                try {
+                    // MED-9: Idempotency key prevents duplicate charges on retries
+                    const paymentIntent = await stripe.paymentIntents.create({
+                        amount: amountCharged * 100,
+                        currency: 'usd',
+                        customer: userResult.rows[0].stripe_customer_id,
+                        description: `Closing gift for ${data.homebuyerName}`,
+                        confirm: true,
+                        off_session: true,
+                        metadata: {
+                            partner_id: partner.id,
+                            gift_id: gift.id,
+                            homebuyer_email: data.homebuyerEmail,
+                        },
+                    }, {
+                        idempotencyKey: `gift-${gift.id}`,
+                    });
+                    stripeChargeId = paymentIntent.id;
+                }
+                catch (stripeError) {
+                    // MED-7: Extract Stripe decline reason and return user-friendly message
+                    const declineCode = stripeError?.code ||
+                        stripeError?.raw?.decline_code ||
+                        stripeError?.decline_code ||
+                        'generic_decline';
+                    const stripeMessage = stripeError?.message || 'Unknown Stripe error';
+                    logger_1.logger.error({
+                        error: stripeMessage,
+                        declineCode,
+                        giftId: gift.id,
+                        userId,
+                    }, 'Stripe payment failed for gift');
+                    // Transaction will roll back, removing the pending_payment gift record
+                    const userFriendlyMessage = STRIPE_DECLINE_MESSAGES[declineCode] ||
+                        'Payment failed. Please check your payment method and try again.';
+                    throw new errors_1.AppError(userFriendlyMessage, 402);
+                }
+            }
+            else {
+                throw new errors_1.AppError('Payment method required. Please add a payment method in your settings before creating gifts.', 402);
+            }
+            // Stripe succeeded — update gift status to 'created' within the same transaction
+            await client.query(`UPDATE partner_gifts
+         SET status = 'created', stripe_charge_id = $1, updated_at = NOW()
+         WHERE id = $2`, [stripeChargeId, gift.id]);
+            // Create commission record within the transaction
+            // commission_rate is stored as a decimal (0-1), default 0.15 (15%)
+            const commissionRate = 0.15;
+            const commissionAmount = Math.round(amountCharged * commissionRate * 100) / 100;
             await client.query(`INSERT INTO partner_commissions (
-          partner_id, type, amount, status, reference_id, reference_type
-        ) VALUES ($1, 'gift', $2, 'pending', $3, 'partner_gift')`, [partner.id, amountCharged, gift.id]);
+          partner_id, type, amount, commission_rate, status, reference_id, reference_type
+        ) VALUES ($1, 'gift', $2, $3, 'pending', $4, 'partner_gift')`, [partner.id, commissionAmount, commissionRate, gift.id]);
             await client.query('COMMIT');
-            // Send email to homebuyer with gift activation link
-            try {
-                await email_service_1.EmailService.sendGiftActivationEmail({
-                    to: gift.homebuyer_email,
-                    homebuyer_name: gift.homebuyer_name,
-                    partner_name: partner.company_name || `Partner ${partner.id.slice(0, 8)}`,
-                    partner_company: partner.company_name,
-                    premium_months: gift.premium_months,
-                    activation_url: gift.activation_url,
-                    activation_code: gift.activation_code,
-                    custom_message: gift.custom_message,
-                    brand_color: partner.brand_color,
-                    logo_url: partner.logo_url,
-                });
-            }
-            catch (emailError) {
-                // Log email error but don't fail the gift creation
-                logger_1.logger.error({ error: emailError, giftId: gift.id, homebuyer: data.homebuyer_email }, 'Failed to send gift activation email, but gift was created successfully');
-            }
-            logger_1.logger.info({ giftId: gift.id, partnerId: partner.id, homebuyer: data.homebuyer_email }, 'Gift created');
-            return gift;
+            // Re-fetch the updated gift after commit
+            const updatedGift = await db_1.pool.query('SELECT * FROM partner_gifts WHERE id = $1', [gift.id]);
+            const finalGift = updatedGift.rows[0];
+            // Send email to homebuyer with gift activation link (fire-and-forget)
+            email_service_1.EmailService.sendGiftActivationEmail({
+                to: finalGift.homebuyer_email,
+                homebuyer_name: finalGift.homebuyer_name,
+                partner_name: partner.company_name || `Partner ${partner.id.slice(0, 8)}`,
+                partner_company: partner.company_name,
+                premium_months: finalGift.premium_months,
+                activation_url: finalGift.activation_url,
+                activation_code: finalGift.activation_code,
+                custom_message: finalGift.custom_message,
+                brand_color: partner.brand_color,
+                logo_url: partner.logo_url,
+                gift_id: finalGift.id,
+            }).catch((emailError) => {
+                logger_1.logger.error({ error: emailError, giftId: finalGift.id, homebuyer: data.homebuyerEmail }, 'Failed to send gift activation email, but gift was created successfully');
+            });
+            logger_1.logger.info({ giftId: finalGift.id, partnerId: partner.id, homebuyer: data.homebuyerEmail }, 'Gift created');
+            return finalGift;
         }
         catch (error) {
             await client.query('ROLLBACK');
@@ -396,23 +525,46 @@ class PartnersService {
     }
     /**
      * Activate gift (when homebuyer signs up)
+     *
+     * BE-20: Uses SELECT ... FOR UPDATE to prevent concurrent activations.
+     * BE-26: Verifies user email matches homebuyer_email on the gift.
+     * HIGH-7: Per-gift rate limiting to prevent brute-force activation attempts.
      */
     static async activateGift(giftId, newUserId, userEmail) {
+        // HIGH-7: Check per-gift rate limiting before doing any DB work
+        const attemptRecord = giftActivationAttempts.get(giftId);
+        if (attemptRecord) {
+            if (attemptRecord.lockedUntil && new Date() < attemptRecord.lockedUntil) {
+                const remainingMs = attemptRecord.lockedUntil.getTime() - Date.now();
+                const remainingMin = Math.ceil(remainingMs / 60000);
+                throw new errors_1.AppError(`This gift is temporarily locked due to too many failed attempts. Try again in ${remainingMin} minute(s).`, 429);
+            }
+            // Lock period expired — reset
+            if (attemptRecord.lockedUntil && new Date() >= attemptRecord.lockedUntil) {
+                giftActivationAttempts.delete(giftId);
+            }
+        }
         const client = await db_1.pool.connect();
         try {
             await client.query('BEGIN');
-            // Get gift
-            const giftResult = await client.query('SELECT * FROM partner_gifts WHERE id = $1', [giftId]);
+            // BE-20: SELECT ... FOR UPDATE to prevent concurrent activations
+            const giftResult = await client.query('SELECT * FROM partner_gifts WHERE id = $1 FOR UPDATE', [giftId]);
             if (giftResult.rows.length === 0) {
                 throw new errors_1.AppError('Gift not found', 404);
             }
             const gift = giftResult.rows[0];
-            // Verify the calling user is the intended homebuyer
+            // BE-26: Verify the calling user's email matches the intended homebuyer
             if (gift.homebuyer_email.toLowerCase() !== userEmail.toLowerCase()) {
+                // HIGH-7: Track failed attempt
+                this.recordFailedActivationAttempt(giftId);
                 throw new errors_1.AppError('This gift was not issued to your email address', 403);
             }
-            if (gift.is_activated) {
-                throw new errors_1.AppError('Gift already activated', 400);
+            // BE-20: Only allow activation if gift status is exactly 'created' or 'sent'
+            if (gift.status !== 'created' && gift.status !== 'sent') {
+                if (gift.is_activated || gift.status === 'activated') {
+                    throw new errors_1.AppError('Gift already activated', 400);
+                }
+                throw new errors_1.AppError(`Gift cannot be activated (current status: ${gift.status})`, 400);
             }
             if (gift.expires_at && new Date() > new Date(gift.expires_at)) {
                 throw new errors_1.AppError('Gift has expired', 400);
@@ -426,10 +578,15 @@ class PartnersService {
          WHERE id = $1`, [giftId, newUserId]);
             // Upgrade user to premium
             const premiumExpiresAt = new Date();
-            premiumExpiresAt.setMonth(premiumExpiresAt.getMonth() + gift.premium_months);
+            const targetMonth = premiumExpiresAt.getMonth() + gift.premium_months;
+            premiumExpiresAt.setMonth(targetMonth);
+            // Clamp day overflow (e.g., Jan 31 + 1 month should be Feb 28, not Mar 3)
+            if (premiumExpiresAt.getMonth() !== ((targetMonth % 12) + 12) % 12) {
+                premiumExpiresAt.setDate(0); // Go to last day of previous month
+            }
             await client.query(`UPDATE users
          SET plan = 'premium',
-             plan_expires_at = $2
+             plan_expires_at = GREATEST(COALESCE(plan_expires_at, $2), $2)
          WHERE id = $1`, [newUserId, premiumExpiresAt]);
             // Update user analytics
             await client.query(`INSERT INTO user_analytics (user_id, has_activated_gift)
@@ -437,6 +594,8 @@ class PartnersService {
          ON CONFLICT (user_id)
          DO UPDATE SET has_activated_gift = TRUE`, [newUserId]);
             await client.query('COMMIT');
+            // Clear rate-limit tracking on successful activation
+            giftActivationAttempts.delete(giftId);
             logger_1.logger.info({ giftId, newUserId }, 'Gift activated');
             return (await db_1.pool.query('SELECT * FROM partner_gifts WHERE id = $1', [giftId])).rows[0];
         }
@@ -450,9 +609,29 @@ class PartnersService {
         }
     }
     /**
-     * Get partner analytics
+     * HIGH-7: Record a failed activation attempt for a gift.
+     * After GIFT_MAX_ACTIVATION_ATTEMPTS failures, the gift is locked for
+     * GIFT_LOCKOUT_DURATION_MS milliseconds.
      */
-    static async getPartnerAnalytics(userId) {
+    static recordFailedActivationAttempt(giftId) {
+        // Evict oldest entries if map exceeds max size
+        if (giftActivationAttempts.size >= GIFT_ATTEMPTS_MAX_ENTRIES) {
+            const firstKey = giftActivationAttempts.keys().next().value;
+            if (firstKey !== undefined)
+                giftActivationAttempts.delete(firstKey);
+        }
+        const record = giftActivationAttempts.get(giftId) || { attempts: 0, lockedUntil: null };
+        record.attempts += 1;
+        if (record.attempts >= GIFT_MAX_ACTIVATION_ATTEMPTS) {
+            record.lockedUntil = new Date(Date.now() + GIFT_LOCKOUT_DURATION_MS);
+            logger_1.logger.warn({ giftId, attempts: record.attempts, lockedUntil: record.lockedUntil }, 'Gift locked due to too many failed activation attempts');
+        }
+        giftActivationAttempts.set(giftId, record);
+    }
+    /**
+     * Get partner analytics, optionally filtered by date range
+     */
+    static async getPartnerAnalytics(userId, options) {
         try {
             // Get partner
             const partnerResult = await db_1.pool.query('SELECT id FROM partners WHERE user_id = $1', [
@@ -462,13 +641,30 @@ class PartnersService {
                 throw new errors_1.AppError('Partner not found', 404);
             }
             const partnerId = partnerResult.rows[0].id;
+            // Build date range conditions
+            const giftParams = [partnerId];
+            let giftDateFilter = '';
+            const commissionParams = [partnerId];
+            let commissionDateFilter = '';
+            if (options?.startDate) {
+                giftParams.push(options.startDate);
+                giftDateFilter += ` AND created_at >= $${giftParams.length}`;
+                commissionParams.push(options.startDate);
+                commissionDateFilter += ` AND created_at >= $${commissionParams.length}`;
+            }
+            if (options?.endDate) {
+                giftParams.push(options.endDate);
+                giftDateFilter += ` AND created_at <= $${giftParams.length}`;
+                commissionParams.push(options.endDate);
+                commissionDateFilter += ` AND created_at <= $${commissionParams.length}`;
+            }
             // Get gift stats
             const giftStats = await db_1.pool.query(`SELECT
            COUNT(*) as total_gifts,
            COUNT(*) FILTER (WHERE is_activated = TRUE) as activated_gifts,
            COUNT(*) FILTER (WHERE is_activated = FALSE AND status != 'expired') as pending_gifts
          FROM partner_gifts
-         WHERE partner_id = $1`, [partnerId]);
+         WHERE partner_id = $1${giftDateFilter}`, giftParams);
             const stats = giftStats.rows[0];
             const activationRate = parseInt(stats.total_gifts) > 0
                 ? (parseInt(stats.activated_gifts) / parseInt(stats.total_gifts)) * 100
@@ -479,9 +675,9 @@ class PartnersService {
            SUM(amount) FILTER (WHERE status = 'paid') as paid_commissions,
            SUM(amount) as total_commissions
          FROM partner_commissions
-         WHERE partner_id = $1`, [partnerId]);
+         WHERE partner_id = $1${commissionDateFilter}`, commissionParams);
             const commissions = commissionStats.rows[0];
-            // Get recent activity
+            // Get recent activity (always show latest, no date filter)
             const recentActivity = await db_1.pool.query(`SELECT
            'gift_created' as type,
            g.id,
@@ -505,6 +701,28 @@ class PartnersService {
         }
         catch (error) {
             logger_1.logger.error({ error, userId }, 'Error fetching partner analytics');
+            throw error;
+        }
+    }
+    /**
+     * Get monthly earnings history for the last 12 months
+     */
+    static async getEarningsHistory(partnerId) {
+        try {
+            const result = await db_1.pool.query(`SELECT
+           date_trunc('month', created_at) as month,
+           SUM(amount) as earnings
+         FROM partner_commissions
+         WHERE partner_id = $1 AND status IN ('approved', 'paid') AND created_at >= NOW() - INTERVAL '12 months'
+         GROUP BY date_trunc('month', created_at)
+         ORDER BY month ASC`, [partnerId]);
+            return result.rows.map((row) => ({
+                month: new Date(row.month).toLocaleString('en-US', { month: 'short' }),
+                earnings: parseFloat(row.earnings) || 0,
+            }));
+        }
+        catch (error) {
+            logger_1.logger.error({ error, partnerId }, 'Error fetching earnings history');
             throw error;
         }
     }
@@ -571,6 +789,7 @@ class PartnersService {
                 custom_message: gift.custom_message ?? undefined,
                 brand_color: partner.brand_color ?? undefined,
                 logo_url: partner.logo_url ?? undefined,
+                gift_id: gift.id,
             });
             // Update gift status to 'sent' if it was 'created'
             if (gift.status === 'created') {

@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.verifyEmailSchema = exports.resetPasswordSchema = exports.forgotPasswordSchema = void 0;
+exports.changeEmailSchema = exports.verifyEmailSchema = exports.resetPasswordSchema = exports.forgotPasswordSchema = void 0;
 const joi_1 = __importDefault(require("joi"));
 exports.forgotPasswordSchema = joi_1.default.object({
     email: joi_1.default.string().email().required(),
@@ -23,4 +23,9 @@ exports.resetPasswordSchema = joi_1.default.object({
 exports.verifyEmailSchema = joi_1.default.object({
     token: joi_1.default.string().required(),
 });
+exports.changeEmailSchema = joi_1.default.object({
+    newEmail: joi_1.default.string().email().required().max(255),
+    password: joi_1.default.string().required(),
+})
+    .rename('new_email', 'newEmail', { ignoreUndefined: true, override: false });
 //# sourceMappingURL=auth.validator.js.map

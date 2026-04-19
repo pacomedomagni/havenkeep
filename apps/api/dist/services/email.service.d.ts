@@ -13,6 +13,7 @@ export declare class EmailService {
         custom_message?: string;
         brand_color?: string;
         logo_url?: string;
+        gift_id?: string;
     }): Promise<void>;
     /**
      * Send welcome email to new partner
@@ -35,12 +36,55 @@ export declare class EmailService {
         item_id: string;
     }): Promise<void>;
     /**
+     * Send maintenance due reminder email
+     */
+    static sendMaintenanceDueEmail(data: {
+        to: string;
+        user_name: string;
+        item_name: string;
+        task_name: string;
+        item_url: string;
+    }): Promise<void>;
+    /**
+     * Send email verification email
+     */
+    static sendEmailVerificationEmail(data: {
+        to: string;
+        user_name: string;
+        verify_url: string;
+    }): Promise<void>;
+    /**
+     * Send email change verification email to the new address
+     */
+    static sendEmailChangeVerificationEmail(data: {
+        to: string;
+        user_name: string;
+        verify_url: string;
+        new_email: string;
+    }): Promise<void>;
+    /**
+     * Send account deletion confirmation email
+     */
+    static sendAccountDeletionEmail(data: {
+        to: string;
+        user_name: string;
+    }): Promise<void>;
+    /**
      * Send password reset email
      */
     static sendPasswordResetEmail(data: {
         to: string;
         user_name: string;
         reset_url: string;
+    }): Promise<void>;
+    /**
+     * Send contact form notification email to the support team
+     */
+    static sendContactNotificationEmail(data: {
+        name: string;
+        email: string;
+        subject: string;
+        message: string;
     }): Promise<void>;
 }
 //# sourceMappingURL=email.service.d.ts.map

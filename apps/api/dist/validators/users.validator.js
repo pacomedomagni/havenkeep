@@ -18,6 +18,9 @@ exports.changePasswordSchema = joi_1.default.object({
     }),
 });
 exports.deleteAccountSchema = joi_1.default.object({
-    password: joi_1.default.string().required(),
-});
+    password: joi_1.default.string().optional(),
+    confirmDelete: joi_1.default.boolean().optional(),
+})
+    // Accept snake_case from clients
+    .rename('confirm_delete', 'confirmDelete', { ignoreUndefined: true, override: false });
 //# sourceMappingURL=users.validator.js.map

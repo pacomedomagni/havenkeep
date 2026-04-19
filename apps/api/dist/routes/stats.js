@@ -5,7 +5,9 @@ const auth_1 = require("../middleware/auth");
 const stats_service_1 = require("../services/stats.service");
 const async_handler_1 = require("../utils/async-handler");
 const validate_1 = require("../middleware/validate");
+const rateLimiter_1 = require("../middleware/rateLimiter");
 const validators_1 = require("../validators");
+const response_1 = require("../utils/response");
 const router = (0, express_1.Router)();
 // All routes require authentication
 router.use(auth_1.authenticate);
@@ -17,10 +19,7 @@ router.use(auth_1.authenticate);
 router.get('/dashboard', (0, async_handler_1.asyncHandler)(async (req, res) => {
     const userId = req.user.id;
     const stats = await stats_service_1.StatsService.getDashboardStats(userId);
-    res.json({
-        success: true,
-        data: stats,
-    });
+    (0, response_1.sendSuccess)(res, stats);
 }));
 /**
  * @route   GET /api/v1/stats/health-score
@@ -30,10 +29,7 @@ router.get('/dashboard', (0, async_handler_1.asyncHandler)(async (req, res) => {
 router.get('/health-score', (0, async_handler_1.asyncHandler)(async (req, res) => {
     const userId = req.user.id;
     const breakdown = await stats_service_1.StatsService.getHealthScoreBreakdown(userId);
-    res.json({
-        success: true,
-        data: breakdown,
-    });
+    (0, response_1.sendSuccess)(res, breakdown);
 }));
 /**
  * @route   POST /api/v1/stats/health-score/calculate
@@ -43,11 +39,7 @@ router.get('/health-score', (0, async_handler_1.asyncHandler)(async (req, res) =
 router.post('/health-score/calculate', (0, async_handler_1.asyncHandler)(async (req, res) => {
     const userId = req.user.id;
     const score = await stats_service_1.StatsService.calculateHealthScore(userId);
-    res.json({
-        success: true,
-        data: { score },
-        message: 'Health score recalculated',
-    });
+    (0, response_1.sendSuccess)(res, { score }, { message: 'Health score recalculated' });
 }));
 /**
  * @route   GET /api/v1/stats/analytics
@@ -57,10 +49,7 @@ router.post('/health-score/calculate', (0, async_handler_1.asyncHandler)(async (
 router.get('/analytics', (0, async_handler_1.asyncHandler)(async (req, res) => {
     const userId = req.user.id;
     const analytics = await stats_service_1.StatsService.getUserAnalytics(userId);
-    res.json({
-        success: true,
-        data: analytics,
-    });
+    (0, response_1.sendSuccess)(res, analytics);
 }));
 /**
  * @route   GET /api/v1/stats/items-needing-attention
@@ -70,41 +59,32 @@ router.get('/analytics', (0, async_handler_1.asyncHandler)(async (req, res) => {
 router.get('/items-needing-attention', (0, async_handler_1.asyncHandler)(async (req, res) => {
     const userId = req.user.id;
     const items = await stats_service_1.StatsService.getItemsNeedingAttention(userId);
-    res.json({
-        success: true,
-        data: items,
-    });
+    (0, response_1.sendSuccess)(res, items);
 }));
 /**
  * @route   POST /api/v1/stats/track-engagement
  * @desc    Track user engagement event
  * @access  Private
  */
-router.post('/track-engagement', (0, validate_1.validate)(validators_1.trackEngagementSchema), (0, async_handler_1.asyncHandler)(async (req, res) => {
+router.post('/track-engagement', rateLimiter_1.writeRateLimiter, (0, validate_1.validate)(validators_1.trackEngagementSchema), (0, async_handler_1.asyncHandler)(async (req, res) => {
     const userId = req.user.id;
-    const { type, session_duration } = req.body;
+    const { type, sessionDuration } = req.body;
     await stats_service_1.StatsService.trackEngagement(userId, {
         type,
-        sessionDuration: session_duration,
+        sessionDuration,
     });
-    res.json({
-        success: true,
-        message: 'Engagement tracked',
-    });
+    (0, response_1.sendMessage)(res, 'Engagement tracked');
 }));
 /**
  * @route   POST /api/v1/stats/track-feature
  * @desc    Track feature usage
  * @access  Private
  */
-router.post('/track-feature', (0, validate_1.validate)(validators_1.trackFeatureSchema), (0, async_handler_1.asyncHandler)(async (req, res) => {
+router.post('/track-feature', rateLimiter_1.writeRateLimiter, (0, validate_1.validate)(validators_1.trackFeatureSchema), (0, async_handler_1.asyncHandler)(async (req, res) => {
     const userId = req.user.id;
     const { feature } = req.body;
     await stats_service_1.StatsService.trackFeatureUsage(userId, feature);
-    res.json({
-        success: true,
-        message: 'Feature usage tracked',
-    });
+    (0, response_1.sendMessage)(res, 'Feature usage tracked');
 }));
 exports.default = router;
 //# sourceMappingURL=stats.js.map

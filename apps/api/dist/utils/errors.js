@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.NotFoundError = exports.AuthorizationError = exports.AuthenticationError = exports.ValidationError = exports.AppError = void 0;
+exports.ValidationError = exports.AppError = void 0;
 class AppError extends Error {
     message;
     statusCode;
@@ -24,25 +24,4 @@ class ValidationError extends AppError {
     }
 }
 exports.ValidationError = ValidationError;
-class AuthenticationError extends AppError {
-    constructor(message = 'Authentication required') {
-        super(message, 401, 'AUTHENTICATION_ERROR');
-        this.name = 'AuthenticationError';
-    }
-}
-exports.AuthenticationError = AuthenticationError;
-class AuthorizationError extends AppError {
-    constructor(message = 'Insufficient permissions') {
-        super(message, 403, 'AUTHORIZATION_ERROR');
-        this.name = 'AuthorizationError';
-    }
-}
-exports.AuthorizationError = AuthorizationError;
-class NotFoundError extends AppError {
-    constructor(message = 'Resource not found') {
-        super(message, 404, 'NOT_FOUND');
-        this.name = 'NotFoundError';
-    }
-}
-exports.NotFoundError = NotFoundError;
 //# sourceMappingURL=errors.js.map

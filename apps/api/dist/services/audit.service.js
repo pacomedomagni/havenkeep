@@ -151,14 +151,18 @@ class AuditService {
             params.push(success);
         }
         const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-        // Get total count
+        // Get total count — uses only the filter params ($1..$N)
         const countResult = await db_1.pool.query(`SELECT COUNT(*) as count FROM audit_logs ${whereClause}`, params);
         const total = parseInt(countResult.rows[0].count, 10);
-        // Get paginated results
+        // Get paginated results — extends the filter params with LIMIT and OFFSET.
+        // paramIndex is currently N+1 (where N = number of filter params), so LIMIT
+        // becomes $N+1 and OFFSET becomes $N+2, matching the spread [...params, limit, offset].
+        const limitIndex = paramIndex++;
+        const offsetIndex = paramIndex++;
         const logsResult = await db_1.pool.query(`SELECT * FROM audit_logs
        ${whereClause}
        ORDER BY created_at DESC
-       LIMIT $${paramIndex++} OFFSET $${paramIndex++}`, [...params, limit, offset]);
+       LIMIT $${limitIndex} OFFSET $${offsetIndex}`, [...params, limit, offset]);
         return {
             logs: logsResult.rows,
             total,
@@ -218,25 +222,24 @@ class AuditService {
             params.push(endDate);
         }
         const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-        const result = await db_1.pool.query(`SELECT
+        // Use two separate queries to avoid cartesian join
+        const summaryResult = await db_1.pool.query(`SELECT
         COUNT(*) as total,
         COUNT(*) FILTER (WHERE severity = 'info') as severity_info,
         COUNT(*) FILTER (WHERE severity = 'warning') as severity_warning,
         COUNT(*) FILTER (WHERE severity = 'error') as severity_error,
         COUNT(*) FILTER (WHERE severity = 'critical') as severity_critical,
-        COUNT(*) FILTER (WHERE success = FALSE) as failed_actions,
-        jsonb_object_agg(action, action_count) as actions_breakdown
+        COUNT(*) FILTER (WHERE success = FALSE) as failed_actions
+       FROM audit_logs
+       ${whereClause}`, params);
+        const breakdownResult = await db_1.pool.query(`SELECT jsonb_object_agg(action, action_count) as actions_breakdown
        FROM (
-         SELECT
-           action,
-           COUNT(*) as action_count
+         SELECT action, COUNT(*) as action_count
          FROM audit_logs
          ${whereClause}
          GROUP BY action
-       ) action_counts,
-       audit_logs
-       ${whereClause}`, params);
-        const row = result.rows[0];
+       ) action_counts`, params);
+        const row = summaryResult.rows[0];
         return {
             total: parseInt(row.total, 10),
             by_severity: {
@@ -245,7 +248,7 @@ class AuditService {
                 error: parseInt(row.severity_error, 10),
                 critical: parseInt(row.severity_critical, 10),
             },
-            by_action: row.actions_breakdown || {},
+            by_action: breakdownResult.rows[0]?.actions_breakdown || {},
             failed_actions: parseInt(row.failed_actions, 10),
         };
     }

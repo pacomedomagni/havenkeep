@@ -4,6 +4,9 @@ exports.validate = validate;
 const errors_1 = require("../utils/errors");
 function validate(schema, property = 'body') {
     return (req, res, next) => {
+        // NOTE: stripUnknown silently removes unrecognized fields, which can mask client bugs
+        // (e.g., sending 'fullname' instead of 'fullName'). Consider setting allowUnknown: false
+        // in development/staging to surface these issues early.
         const { error, value } = schema.validate(req[property], {
             abortEarly: false,
             stripUnknown: true,

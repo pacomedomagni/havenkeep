@@ -41,6 +41,10 @@ export declare class MaintenanceService {
                 is_overdue: boolean;
                 days_until_due: number;
                 priority: number;
+                is_required_for_warranty: boolean;
+                how_to_url: string | null;
+                video_url: string | null;
+                frequency_label: string | null;
             }>;
         }>;
     }>;

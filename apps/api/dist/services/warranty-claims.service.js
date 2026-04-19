@@ -11,11 +11,15 @@ class WarrantyClaimsService {
     static async createClaim(userId, data) {
         const client = await db_1.pool.connect();
         try {
-            await client.query('BEGIN');
-            // Verify item belongs to user
-            const itemCheck = await client.query('SELECT id FROM items WHERE id = $1 AND user_id = $2', [data.item_id, userId]);
+            // BE-17: Validate amountSaved is non-negative
+            if (data.amountSaved !== undefined && data.amountSaved < 0) {
+                throw new errors_1.AppError('amountSaved cannot be negative', 400);
+            }
+            await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+            // Verify item belongs to user and is not archived
+            const itemCheck = await client.query('SELECT id FROM items WHERE id = $1 AND user_id = $2 AND is_archived = FALSE', [data.itemId, userId]);
             if (itemCheck.rows.length === 0) {
-                throw new errors_1.AppError('Item not found or does not belong to user', 404);
+                throw new errors_1.AppError('Item not found or is archived', 404);
             }
             // Create claim
             const result = await client.query(`INSERT INTO warranty_claims (
@@ -23,39 +27,40 @@ class WarrantyClaimsService {
           repair_cost, amount_saved, out_of_pocket, status, filed_with, claim_number, notes
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         RETURNING *`, [
-                data.item_id,
+                data.itemId,
                 userId,
-                data.claim_date || new Date(),
-                data.issue_description,
-                data.repair_description,
-                data.repair_cost,
-                data.amount_saved,
-                data.out_of_pocket || 0,
+                data.claimDate || new Date(),
+                data.issueDescription,
+                data.repairDescription,
+                data.repairCost,
+                data.amountSaved,
+                data.outOfPocket || 0,
                 data.status || 'completed',
-                data.filed_with,
-                data.claim_number,
+                data.filedWith,
+                data.claimNumber,
                 data.notes,
             ]);
             const claim = result.rows[0];
-            // Update user analytics
-            await client.query(`UPDATE user_analytics
-         SET total_warranty_savings = total_warranty_savings + $1,
-             total_claims_filed = total_claims_filed + 1,
-             has_filed_claim = TRUE,
-             updated_at = NOW()
-         WHERE user_id = $2`, [data.amount_saved, userId]);
+            // Upsert user analytics
+            await client.query(`INSERT INTO user_analytics (user_id, total_warranty_savings, total_claims_filed, has_filed_claim)
+         VALUES ($2, $1, 1, TRUE)
+         ON CONFLICT (user_id)
+         DO UPDATE SET total_warranty_savings = user_analytics.total_warranty_savings + $1,
+                       total_claims_filed = user_analytics.total_claims_filed + 1,
+                       has_filed_claim = TRUE,
+                       updated_at = NOW()`, [data.amountSaved, userId]);
             // Add to savings feed (anonymized)
             const userLocation = await client.query(`SELECT h.city, h.state
          FROM items i
          JOIN homes h ON h.id = i.home_id
-         WHERE i.id = $1`, [data.item_id]);
+         WHERE i.id = $1`, [data.itemId]);
             if (userLocation.rows.length > 0) {
                 const { city, state } = userLocation.rows[0];
                 await client.query(`INSERT INTO savings_feed (user_city, user_state, amount_saved, item_category, claim_type, display_text)
-           SELECT $1, $2, $3, i.category, 'Warranty claim',
-                  $4 || ' just saved $' || $3 || ' on a ' || i.category || ' repair'
+           SELECT $1, $2, $3::numeric, i.category, 'Warranty claim',
+                  $4 || ' just saved $' || $3::text || ' on a ' || i.category || ' repair'
            FROM items i
-           WHERE i.id = $5`, [city, state, data.amount_saved, city, data.item_id]);
+           WHERE i.id = $5`, [city, state, data.amountSaved, city, data.itemId]);
             }
             await client.query('COMMIT');
             logger_1.logger.info({ claimId: claim.id, userId }, 'Warranty claim created');
@@ -138,7 +143,11 @@ class WarrantyClaimsService {
     static async updateClaim(claimId, userId, data) {
         const client = await db_1.pool.connect();
         try {
-            await client.query('BEGIN');
+            // BE-17: Validate amountSaved is non-negative
+            if (data.amountSaved !== undefined && data.amountSaved < 0) {
+                throw new errors_1.AppError('amountSaved cannot be negative', 400);
+            }
+            await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
             // Verify claim belongs to user
             const claimCheck = await client.query('SELECT id, amount_saved FROM warranty_claims WHERE id = $1 AND user_id = $2', [claimId, userId]);
             if (claimCheck.rows.length === 0) {
@@ -149,41 +158,41 @@ class WarrantyClaimsService {
             const updates = [];
             const values = [];
             let paramIndex = 1;
-            if (data.claim_date !== undefined) {
+            if (data.claimDate !== undefined) {
                 updates.push(`claim_date = $${paramIndex++}`);
-                values.push(data.claim_date);
+                values.push(data.claimDate);
             }
-            if (data.issue_description !== undefined) {
+            if (data.issueDescription !== undefined) {
                 updates.push(`issue_description = $${paramIndex++}`);
-                values.push(data.issue_description);
+                values.push(data.issueDescription);
             }
-            if (data.repair_description !== undefined) {
+            if (data.repairDescription !== undefined) {
                 updates.push(`repair_description = $${paramIndex++}`);
-                values.push(data.repair_description);
+                values.push(data.repairDescription);
             }
-            if (data.repair_cost !== undefined) {
+            if (data.repairCost !== undefined) {
                 updates.push(`repair_cost = $${paramIndex++}`);
-                values.push(data.repair_cost);
+                values.push(data.repairCost);
             }
-            if (data.amount_saved !== undefined) {
+            if (data.amountSaved !== undefined) {
                 updates.push(`amount_saved = $${paramIndex++}`);
-                values.push(data.amount_saved);
+                values.push(data.amountSaved);
             }
-            if (data.out_of_pocket !== undefined) {
+            if (data.outOfPocket !== undefined) {
                 updates.push(`out_of_pocket = $${paramIndex++}`);
-                values.push(data.out_of_pocket);
+                values.push(data.outOfPocket);
             }
             if (data.status !== undefined) {
                 updates.push(`status = $${paramIndex++}`);
                 values.push(data.status);
             }
-            if (data.filed_with !== undefined) {
+            if (data.filedWith !== undefined) {
                 updates.push(`filed_with = $${paramIndex++}`);
-                values.push(data.filed_with);
+                values.push(data.filedWith);
             }
-            if (data.claim_number !== undefined) {
+            if (data.claimNumber !== undefined) {
                 updates.push(`claim_number = $${paramIndex++}`);
-                values.push(data.claim_number);
+                values.push(data.claimNumber);
             }
             if (data.notes !== undefined) {
                 updates.push(`notes = $${paramIndex++}`);
@@ -197,13 +206,14 @@ class WarrantyClaimsService {
          SET ${updates.join(', ')}, updated_at = NOW()
          WHERE id = $${paramIndex++} AND user_id = $${paramIndex++}
          RETURNING *`, values);
-            // Update user analytics if amount_saved changed
-            if (data.amount_saved !== undefined && data.amount_saved !== oldAmountSaved) {
-                const diff = data.amount_saved - oldAmountSaved;
-                await client.query(`UPDATE user_analytics
-           SET total_warranty_savings = total_warranty_savings + $1,
-               updated_at = NOW()
-           WHERE user_id = $2`, [diff, userId]);
+            // Upsert user analytics if amountSaved changed
+            if (data.amountSaved !== undefined && data.amountSaved !== oldAmountSaved) {
+                const diff = data.amountSaved - oldAmountSaved;
+                await client.query(`INSERT INTO user_analytics (user_id, total_warranty_savings)
+           VALUES ($2, GREATEST(0, $1))
+           ON CONFLICT (user_id)
+           DO UPDATE SET total_warranty_savings = user_analytics.total_warranty_savings + $1,
+                         updated_at = NOW()`, [diff, userId]);
             }
             await client.query('COMMIT');
             logger_1.logger.info({ claimId, userId }, 'Warranty claim updated');
@@ -233,12 +243,13 @@ class WarrantyClaimsService {
             const amountSaved = parseFloat(result.rows[0].amount_saved);
             // Delete claim
             await client.query('DELETE FROM warranty_claims WHERE id = $1 AND user_id = $2', [claimId, userId]);
-            // Update user analytics
-            await client.query(`UPDATE user_analytics
-         SET total_warranty_savings = GREATEST(0, total_warranty_savings - $1),
-             total_claims_filed = GREATEST(0, total_claims_filed - 1),
-             updated_at = NOW()
-         WHERE user_id = $2`, [amountSaved, userId]);
+            // Upsert user analytics
+            await client.query(`INSERT INTO user_analytics (user_id, total_warranty_savings, total_claims_filed)
+         VALUES ($2, 0, 0)
+         ON CONFLICT (user_id)
+         DO UPDATE SET total_warranty_savings = GREATEST(0, user_analytics.total_warranty_savings - $1),
+                       total_claims_filed = GREATEST(0, user_analytics.total_claims_filed - 1),
+                       updated_at = NOW()`, [amountSaved, userId]);
             await client.query('COMMIT');
             logger_1.logger.info({ claimId, userId }, 'Warranty claim deleted');
         }
@@ -271,7 +282,13 @@ class WarrantyClaimsService {
                     total_claims: 0,
                 };
             }
-            return result.rows[0];
+            const row = result.rows[0];
+            return {
+                total_warranty_savings: parseFloat(row.total_warranty_savings) || 0,
+                total_preventive_savings: parseFloat(row.total_preventive_savings) || 0,
+                total_savings: parseFloat(row.total_savings) || 0,
+                total_claims: parseInt(row.total_claims, 10) || 0,
+            };
         }
         catch (error) {
             logger_1.logger.error({ error, userId }, 'Error fetching total savings');

@@ -3,8 +3,10 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.NotificationsService = void 0;
 const db_1 = require("../db");
 const logger_1 = require("../utils/logger");
+const config_1 = require("../config");
 const errors_1 = require("../utils/errors");
 const email_service_1 = require("./email.service");
+const fcm_service_1 = require("./fcm.service");
 class NotificationsService {
     /**
      * Get notifications for a user with pagination and optional filters
@@ -90,15 +92,22 @@ class NotificationsService {
                     throw new errors_1.AppError('Notification not found', 404);
                 }
                 // Already read, return existing record
+                // MED-5: Include user_id in the WHERE clause to enforce ownership
                 const existing = await db_1.pool.query(`SELECT nh.*, nt.name as template_name, i.name as item_name
            FROM notification_history nh
            LEFT JOIN notification_templates nt ON nt.id = nh.template_id
            LEFT JOIN items i ON i.id = nh.item_id
-           WHERE nh.id = $1`, [notificationId]);
+           WHERE nh.id = $1 AND nh.user_id = $2`, [notificationId, userId]);
                 return existing.rows[0];
             }
             logger_1.logger.info({ notificationId, userId }, 'Notification marked as read');
-            return result.rows[0];
+            // Re-fetch with JOINs for consistent response shape
+            const full = await db_1.pool.query(`SELECT nh.*, nt.name as template_name, i.name as item_name
+         FROM notification_history nh
+         LEFT JOIN notification_templates nt ON nt.id = nh.template_id
+         LEFT JOIN items i ON i.id = nh.item_id
+         WHERE nh.id = $1 AND nh.user_id = $2`, [notificationId, userId]);
+            return full.rows[0] || result.rows[0];
         }
         catch (error) {
             logger_1.logger.error({ error, notificationId, userId }, 'Error marking notification as read');
@@ -191,7 +200,24 @@ class NotificationsService {
             // Interpolate variables into title and body
             let title = template.title_template;
             let body = template.body_template;
+            // MED-10: Whitelist of allowed variable names to prevent template injection.
+            // Only these known variable names can be interpolated into templates.
+            const ALLOWED_TEMPLATE_VARS = new Set([
+                'userName', 'userEmail', 'fullName',
+                'itemName', 'itemBrand', 'itemCategory', 'itemModel',
+                'daysRemaining', 'expiryDate', 'warrantyEndDate',
+                'claimNumber', 'claimStatus', 'amountSaved',
+                'giftSenderName', 'giftMessage',
+                'partnerName', 'commissionAmount',
+                'planName', 'tipTitle', 'tipBody',
+                'item_id', 'gift_id',
+            ]);
             for (const [key, value] of Object.entries(vars)) {
+                // Only interpolate whitelisted variable names
+                if (!ALLOWED_TEMPLATE_VARS.has(key)) {
+                    logger_1.logger.warn({ key, templateName }, 'Skipping non-whitelisted template variable');
+                    continue;
+                }
                 // Sanitize value to prevent template injection
                 const safeValue = String(value).replace(/\{\{/g, '{ {').replace(/\}\}/g, '} }');
                 const placeholder = new RegExp(`\\{\\{${key}\\}\\}`, 'g');
@@ -245,7 +271,7 @@ class NotificationsService {
     static async upsertPreferences(userId, prefs) {
         try {
             const result = await db_1.pool.query(`INSERT INTO notification_preferences (user_id, reminders_enabled, first_reminder_days, reminder_time, warranty_offers_enabled, tips_enabled, push_enabled, email_enabled)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         VALUES ($1, COALESCE($2, TRUE), COALESCE($3, 30), COALESCE($4, '09:00'), COALESCE($5, TRUE), COALESCE($6, TRUE), COALESCE($7, TRUE), COALESCE($8, FALSE))
          ON CONFLICT (user_id)
          DO UPDATE SET
            reminders_enabled = COALESCE($2, notification_preferences.reminders_enabled),
@@ -257,13 +283,13 @@ class NotificationsService {
            email_enabled = COALESCE($8, notification_preferences.email_enabled)
          RETURNING *`, [
                 userId,
-                prefs.reminders_enabled ?? true,
-                prefs.first_reminder_days ?? 30,
-                prefs.reminder_time ?? '09:00',
-                prefs.warranty_offers_enabled ?? true,
-                prefs.tips_enabled ?? true,
-                prefs.push_enabled ?? true,
-                prefs.email_enabled ?? false,
+                prefs.remindersEnabled !== undefined ? prefs.remindersEnabled : null,
+                prefs.firstReminderDays !== undefined ? prefs.firstReminderDays : null,
+                prefs.reminderTime !== undefined ? prefs.reminderTime : null,
+                prefs.warrantyOffersEnabled !== undefined ? prefs.warrantyOffersEnabled : null,
+                prefs.tipsEnabled !== undefined ? prefs.tipsEnabled : null,
+                prefs.pushEnabled !== undefined ? prefs.pushEnabled : null,
+                prefs.emailEnabled !== undefined ? prefs.emailEnabled : null,
             ]);
             logger_1.logger.info({ userId }, 'Notification preferences updated');
             return result.rows[0];
@@ -297,6 +323,13 @@ class NotificationsService {
      * Checks for items expiring within each user's configured reminder window
      * and creates notifications for them. Skips items that already received
      * a notification in the last 24 hours to prevent duplicates.
+     *
+     * Idempotency: The 24-hour dedup window (nh.sent_at > NOW() - INTERVAL '1 day')
+     * ensures that re-running this method within the same day is safe and will not
+     * produce duplicate notifications for the same item.
+     *
+     * Individual notification failures are caught and logged so that one bad row
+     * does not prevent notifications for remaining items.
      */
     static async checkAndNotifyExpirations() {
         const client = await db_1.pool.connect();
@@ -308,17 +341,20 @@ class NotificationsService {
                i.warranty_end_date, i.user_id,
                u.email, u.full_name,
                COALESCE(np.first_reminder_days, 30) as reminder_days,
-               COALESCE(np.email_enabled, FALSE) as email_enabled
+               COALESCE(np.email_enabled, FALSE) as email_enabled,
+               COALESCE(np.push_enabled, TRUE) as push_enabled
         FROM items i
         JOIN users u ON u.id = i.user_id
         LEFT JOIN notification_preferences np ON np.user_id = u.id
-        LEFT JOIN notification_history nh ON nh.item_id = i.id
-          AND nh.type = 'warranty_expiring'
-          AND nh.sent_at > NOW() - INTERVAL '1 day'
         WHERE i.is_archived = FALSE
           AND i.warranty_end_date BETWEEN CURRENT_DATE
             AND CURRENT_DATE + make_interval(days => COALESCE(np.first_reminder_days, 30))
-          AND nh.id IS NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM notification_history nh
+            WHERE nh.item_id = i.id
+              AND nh.type = 'warranty_expiring'
+              AND nh.sent_at > NOW() - INTERVAL '1 day'
+          )
       `);
             let notifiedCount = 0;
             for (const row of result.rows) {
@@ -327,13 +363,29 @@ class NotificationsService {
                     // Format date in UTC to avoid timezone off-by-one from DB DATE column
                     const d = new Date(row.warranty_end_date);
                     const expiryDate = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
-                    await NotificationsService.createNotification({
+                    const notification = await NotificationsService.createNotification({
                         user_id: row.user_id,
                         item_id: row.item_id,
                         type: 'warranty_expiring',
                         title: 'Warranty Expiring Soon',
                         body: `Your warranty for ${itemLabel} expires on ${expiryDate}.`,
                     });
+                    // Send FCM push notification (only if user has push enabled)
+                    if (row.push_enabled !== false) {
+                        try {
+                            const sent = await fcm_service_1.FcmService.sendToUser(row.user_id, {
+                                title: 'Warranty Expiring Soon',
+                                body: `Your warranty for ${itemLabel} expires on ${expiryDate}.`,
+                                data: { type: 'warranty_expiring', item_id: row.item_id },
+                            });
+                            if (sent > 0) {
+                                await db_1.pool.query(`UPDATE notification_history SET delivered_at = NOW() WHERE id = $1`, [notification.id]);
+                            }
+                        }
+                        catch (fcmError) {
+                            logger_1.logger.error({ error: fcmError, userId: row.user_id }, 'FCM push failed (warranty_expiring)');
+                        }
+                    }
                     // Send email if user has email notifications enabled
                     if (row.email_enabled) {
                         try {
@@ -359,6 +411,236 @@ class NotificationsService {
                 }
             }
             logger_1.logger.info({ count: notifiedCount }, 'Expiration notifications sent');
+            return notifiedCount;
+        }
+        finally {
+            client.release();
+        }
+    }
+    /**
+     * Check for items with maintenance tasks due and create notifications.
+     *
+     * Scheduled daily alongside the warranty expiration job.
+     * For each active item with matching maintenance schedules, we find tasks
+     * where the last completion date + frequency is on or before today.
+     * Items that have never had a task logged are notified if the item's
+     * purchase_date + frequency is on or before today.
+     *
+     * Idempotency: The 7-day dedup window prevents re-sending the same
+     * maintenance_due notification for the same item+task within a week.
+     */
+    static async checkAndNotifyMaintenanceDue() {
+        const client = await db_1.pool.connect();
+        try {
+            // Find maintenance tasks that are due:
+            // - Join items → maintenance_schedules (by category)
+            // - Left join most-recent maintenance_history entry (per item+schedule)
+            // - Due when: last_completed + frequency_months <= today (or never done and purchase_date + frequency_months <= today)
+            // - Dedup: skip if a maintenance_due notification for this item was sent in the last 7 days
+            const result = await client.query(`
+        SELECT
+          i.id              AS item_id,
+          i.name            AS item_name,
+          i.brand,
+          i.user_id,
+          u.email,
+          u.full_name,
+          ms.id             AS schedule_id,
+          ms.task_name,
+          ms.frequency_months,
+          COALESCE(last_done.completed_date, i.purchase_date::DATE) AS reference_date,
+          COALESCE(np.push_enabled, TRUE) AS push_enabled,
+          COALESCE(np.email_enabled, FALSE) AS email_enabled
+        FROM items i
+        JOIN users u ON u.id = i.user_id
+        JOIN maintenance_schedules ms ON ms.category = i.category
+        LEFT JOIN LATERAL (
+          SELECT completed_date
+          FROM maintenance_history mh
+          WHERE mh.item_id = i.id
+            AND mh.schedule_id = ms.id
+            AND mh.user_id = i.user_id
+          ORDER BY completed_date DESC
+          LIMIT 1
+        ) last_done ON TRUE
+        LEFT JOIN notification_preferences np ON np.user_id = i.user_id
+        WHERE i.is_archived = FALSE
+          AND i.purchase_date IS NOT NULL
+          AND (COALESCE(last_done.completed_date, i.purchase_date::DATE) + make_interval(months => ms.frequency_months)) <= CURRENT_DATE
+          AND NOT EXISTS (
+            SELECT 1
+            FROM notification_history nh
+            WHERE nh.item_id = i.id
+              AND nh.type = 'maintenance_due'
+              AND (nh.data->>'schedule_id') = ms.id::text
+              AND nh.sent_at > NOW() - INTERVAL '7 days'
+          )
+        ORDER BY i.user_id, i.id
+      `);
+            let notifiedCount = 0;
+            for (const row of result.rows) {
+                try {
+                    const itemLabel = row.brand ? `${row.brand} ${row.item_name}` : row.item_name;
+                    const notification = await NotificationsService.createNotification({
+                        user_id: row.user_id,
+                        item_id: row.item_id,
+                        type: 'maintenance_due',
+                        title: 'Maintenance Due',
+                        body: `Time to: ${row.task_name} for your ${itemLabel}.`,
+                        data: { schedule_id: row.schedule_id, task_name: row.task_name },
+                    });
+                    // Send FCM push notification (only if user has push enabled)
+                    if (row.push_enabled !== false) {
+                        try {
+                            const sent = await fcm_service_1.FcmService.sendToUser(row.user_id, {
+                                title: 'Maintenance Due',
+                                body: `Time to: ${row.task_name} for your ${itemLabel}.`,
+                                data: { type: 'maintenance_due', item_id: row.item_id, schedule_id: row.schedule_id },
+                            });
+                            if (sent > 0) {
+                                await db_1.pool.query(`UPDATE notification_history SET delivered_at = NOW() WHERE id = $1`, [notification.id]);
+                            }
+                        }
+                        catch (fcmError) {
+                            logger_1.logger.error({ error: fcmError, userId: row.user_id }, 'FCM push failed (maintenance_due)');
+                        }
+                    }
+                    // Send email if user has email notifications enabled
+                    if (row.email_enabled) {
+                        try {
+                            const itemUrl = `${config_1.config.app.frontendUrl}/items/${row.item_id}`;
+                            await email_service_1.EmailService.sendMaintenanceDueEmail({
+                                to: row.email,
+                                user_name: row.full_name || 'there',
+                                item_name: itemLabel,
+                                task_name: row.task_name,
+                                item_url: itemUrl,
+                            });
+                        }
+                        catch (emailError) {
+                            logger_1.logger.error({ error: emailError, itemId: row.item_id, userId: row.user_id }, 'Failed to send maintenance due email (notification still created)');
+                        }
+                    }
+                    notifiedCount++;
+                }
+                catch (itemError) {
+                    logger_1.logger.error({ error: itemError, itemId: row.item_id, taskName: row.task_name }, 'Failed to send maintenance_due notification');
+                }
+            }
+            logger_1.logger.info({ count: notifiedCount }, 'Maintenance due notifications sent');
+            return notifiedCount;
+        }
+        finally {
+            client.release();
+        }
+    }
+    /**
+     * Check for items with expired manufacturer warranties that qualify for
+     * extended warranty offers, and create claim_opportunity notifications.
+     *
+     * Scheduled daily alongside other notification jobs.
+     * Only targets items valued above $200 that do not already have an active
+     * extended warranty purchase, and limits to 3 notifications per batch per user
+     * to avoid overwhelming them.
+     *
+     * Idempotency: The 30-day dedup window prevents re-sending a claim_opportunity
+     * notification for the same item within that period.
+     */
+    static async checkAndNotifyWarrantyOffers() {
+        const client = await db_1.pool.connect();
+        try {
+            // Find high-value items where manufacturer warranty has expired,
+            // no active extended warranty purchase exists, and no claim_opportunity
+            // notification was sent for this item in the last 30 days.
+            // Use ROW_NUMBER() to limit to 3 items per user per batch.
+            const result = await client.query(`
+        WITH eligible_items AS (
+          SELECT
+            i.id              AS item_id,
+            i.name            AS item_name,
+            i.brand,
+            i.price,
+            i.user_id,
+            u.email,
+            u.full_name,
+            COALESCE(np.push_enabled, TRUE) AS push_enabled,
+            COALESCE(np.email_enabled, FALSE) AS email_enabled,
+            COALESCE(np.warranty_offers_enabled, TRUE) AS warranty_offers_enabled,
+            ROW_NUMBER() OVER (PARTITION BY i.user_id ORDER BY i.price DESC) AS rn
+          FROM items i
+          JOIN users u ON u.id = i.user_id
+          LEFT JOIN notification_preferences np ON np.user_id = u.id
+          WHERE i.is_archived = FALSE
+            AND i.warranty_end_date < CURRENT_DATE
+            AND i.price > 200
+            AND NOT EXISTS (
+              SELECT 1 FROM warranty_purchases wp
+              WHERE wp.item_id = i.id
+                AND wp.status = 'active'
+            )
+            AND NOT EXISTS (
+              SELECT 1 FROM notification_history nh
+              WHERE nh.item_id = i.id
+                AND nh.type = 'claim_opportunity'
+                AND nh.sent_at > NOW() - INTERVAL '30 days'
+            )
+        )
+        SELECT * FROM eligible_items
+        WHERE rn <= 3
+          AND warranty_offers_enabled = TRUE
+        ORDER BY user_id, rn
+      `);
+            let notifiedCount = 0;
+            for (const row of result.rows) {
+                try {
+                    const notification = await NotificationsService.createNotification({
+                        user_id: row.user_id,
+                        item_id: row.item_id,
+                        type: 'claim_opportunity',
+                        title: `Protect your ${row.item_name}`,
+                        body: 'Your manufacturer warranty has expired. Consider extended protection.',
+                        data: { price: row.price, brand: row.brand },
+                    });
+                    // Send FCM push notification (only if user has push enabled)
+                    if (row.push_enabled !== false) {
+                        try {
+                            const sent = await fcm_service_1.FcmService.sendToUser(row.user_id, {
+                                title: `Protect your ${row.item_name}`,
+                                body: 'Your manufacturer warranty has expired. Consider extended protection.',
+                                data: { type: 'claim_opportunity', item_id: row.item_id },
+                            });
+                            if (sent > 0) {
+                                await db_1.pool.query(`UPDATE notification_history SET delivered_at = NOW() WHERE id = $1`, [notification.id]);
+                            }
+                        }
+                        catch (fcmError) {
+                            logger_1.logger.error({ error: fcmError, userId: row.user_id }, 'FCM push failed (claim_opportunity)');
+                        }
+                    }
+                    // Send email if user has email notifications enabled
+                    if (row.email_enabled === true && row.email) {
+                        try {
+                            await email_service_1.EmailService.sendWarrantyExpirationEmail({
+                                to: row.email,
+                                user_name: row.full_name,
+                                item_name: row.item_name,
+                                brand: row.brand,
+                                expiry_date: 'Expired',
+                                days_remaining: 0,
+                                item_id: row.item_id,
+                            });
+                        }
+                        catch (emailError) {
+                            logger_1.logger.error({ error: emailError, userId: row.user_id }, 'Email send failed (claim_opportunity)');
+                        }
+                    }
+                    notifiedCount++;
+                }
+                catch (itemError) {
+                    logger_1.logger.error({ error: itemError, itemId: row.item_id }, 'Failed to send claim_opportunity notification');
+                }
+            }
+            logger_1.logger.info({ count: notifiedCount }, 'Warranty offer notifications sent');
             return notifiedCount;
         }
         finally {

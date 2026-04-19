@@ -23,18 +23,24 @@ exports.config = {
     jwt: {
         get secret() {
             const secret = process.env.JWT_SECRET;
-            if (!secret && process.env.NODE_ENV === 'production') {
-                throw new Error('JWT_SECRET must be set in production');
+            if (process.env.NODE_ENV === 'production' && (!secret || secret.trim() === '')) {
+                throw new Error('JWT_SECRET must be set and non-empty in production');
             }
-            return secret || 'dev-only-secret-do-not-use-in-production';
+            if (process.env.NODE_ENV !== 'production') {
+                return secret || 'dev-only-secret-do-not-use-in-production';
+            }
+            return secret;
         },
         expiresIn: (process.env.JWT_EXPIRES_IN || '1h'),
         get refreshSecret() {
             const secret = process.env.REFRESH_TOKEN_SECRET;
-            if (!secret && process.env.NODE_ENV === 'production') {
-                throw new Error('REFRESH_TOKEN_SECRET must be set in production');
+            if (process.env.NODE_ENV === 'production' && (!secret || secret.trim() === '')) {
+                throw new Error('REFRESH_TOKEN_SECRET must be set and non-empty in production');
             }
-            return secret || 'dev-only-refresh-secret';
+            if (process.env.NODE_ENV !== 'production') {
+                return secret || 'dev-only-refresh-secret';
+            }
+            return secret;
         },
         refreshExpiresIn: (process.env.REFRESH_TOKEN_EXPIRES_IN || '7d'),
     },
@@ -85,11 +91,20 @@ exports.config = {
             return secret || '';
         },
     },
+    firebase: {
+        // JSON string of the Firebase service account credentials.
+        // Set FIREBASE_SERVICE_ACCOUNT_JSON in your environment.
+        // If not set, FCM push delivery is silently disabled.
+        serviceAccountJson: process.env.FIREBASE_SERVICE_ACCOUNT_JSON || '',
+    },
     app: {
         baseUrl: process.env.APP_BASE_URL || 'http://localhost:3000',
         frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3000',
         dashboardUrl: process.env.DASHBOARD_URL || 'http://localhost:3001',
         apiUrl: process.env.API_URL || 'http://localhost:3000',
+    },
+    freeTier: {
+        itemLimit: parseInt(process.env.FREE_TIER_ITEM_LIMIT || '5', 10),
     },
     cors: {
         origins: (process.env.CORS_ORIGINS || 'http://localhost:3000,http://localhost:3001').split(','),

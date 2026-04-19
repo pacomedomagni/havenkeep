@@ -6,63 +6,68 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.getCommissionsQuerySchema = exports.getGiftsQuerySchema = exports.createGiftSchema = exports.updatePartnerSchema = exports.registerPartnerSchema = void 0;
 const joi_1 = __importDefault(require("joi"));
 exports.registerPartnerSchema = joi_1.default.object({
-    partner_type: joi_1.default.string()
+    partnerType: joi_1.default.string()
         .valid('realtor', 'builder', 'contractor', 'property_manager', 'other')
         .required(),
-    company_name: joi_1.default.string().max(255).optional(),
+    companyName: joi_1.default.string().max(255).optional(),
     phone: joi_1.default.string().max(50).optional(),
     website: joi_1.default.string().uri().max(255).optional(),
-    brand_color: joi_1.default.string().pattern(/^#[0-9A-F]{6}$/i).optional(),
-    logo_url: joi_1.default.string().uri().optional(),
-    default_message: joi_1.default.string().max(1000).optional(),
-    service_areas: joi_1.default.array().items(joi_1.default.string().max(100)).optional(),
+    brandColor: joi_1.default.string().pattern(/^#[0-9A-F]{6}$/i).optional(),
+    logoUrl: joi_1.default.string().uri().optional(),
+    defaultMessage: joi_1.default.string().max(1000).optional(),
+    serviceAreas: joi_1.default.array().items(joi_1.default.string().max(100)).optional(),
+    licenseNumber: joi_1.default.string().max(100).allow(null, ''),
 })
-    // Accept camelCase from dashboard clients
-    .rename('partnerType', 'partner_type', { ignoreUndefined: true, override: false })
-    .rename('companyName', 'company_name', { ignoreUndefined: true, override: false })
-    .rename('brandColor', 'brand_color', { ignoreUndefined: true, override: false })
-    .rename('logoUrl', 'logo_url', { ignoreUndefined: true, override: false })
-    .rename('defaultMessage', 'default_message', { ignoreUndefined: true, override: false })
-    .rename('serviceAreas', 'service_areas', { ignoreUndefined: true, override: false });
+    // Accept snake_case from clients
+    .rename('partner_type', 'partnerType', { ignoreUndefined: true, override: false })
+    .rename('company_name', 'companyName', { ignoreUndefined: true, override: false })
+    .rename('brand_color', 'brandColor', { ignoreUndefined: true, override: false })
+    .rename('logo_url', 'logoUrl', { ignoreUndefined: true, override: false })
+    .rename('default_message', 'defaultMessage', { ignoreUndefined: true, override: false })
+    .rename('service_areas', 'serviceAreas', { ignoreUndefined: true, override: false })
+    .rename('license_number', 'licenseNumber', { ignoreUndefined: true, override: false });
 exports.updatePartnerSchema = joi_1.default.object({
-    partner_type: joi_1.default.string().valid('realtor', 'builder', 'contractor', 'property_manager', 'other'),
-    company_name: joi_1.default.string().max(255).optional(),
+    partnerType: joi_1.default.string().valid('realtor', 'builder', 'contractor', 'property_manager', 'other'),
+    companyName: joi_1.default.string().max(255).optional(),
     phone: joi_1.default.string().max(50).optional(),
     website: joi_1.default.string().uri().max(255).optional(),
-    brand_color: joi_1.default.string().pattern(/^#[0-9A-F]{6}$/i).optional(),
-    logo_url: joi_1.default.string().uri().optional(),
-    default_message: joi_1.default.string().max(1000).optional(),
-    default_premium_months: joi_1.default.number().integer().min(1).max(12).optional(),
-    service_areas: joi_1.default.array().items(joi_1.default.string().max(100)).optional(),
+    brandColor: joi_1.default.string().pattern(/^#[0-9A-F]{6}$/i).optional(),
+    logoUrl: joi_1.default.string().uri().optional(),
+    defaultMessage: joi_1.default.string().max(1000).optional(),
+    defaultPremiumMonths: joi_1.default.number().integer().min(1).max(12).optional(),
+    serviceAreas: joi_1.default.array().items(joi_1.default.string().max(100)).optional(),
+    licenseNumber: joi_1.default.string().max(100).allow(null, ''),
 }).min(1)
-    // Accept camelCase from dashboard clients
-    .rename('companyName', 'company_name', { ignoreUndefined: true, override: false })
-    .rename('brandColor', 'brand_color', { ignoreUndefined: true, override: false })
-    .rename('logoUrl', 'logo_url', { ignoreUndefined: true, override: false })
-    .rename('defaultMessage', 'default_message', { ignoreUndefined: true, override: false })
-    .rename('defaultPremiumMonths', 'default_premium_months', { ignoreUndefined: true, override: false })
-    .rename('serviceAreas', 'service_areas', { ignoreUndefined: true, override: false });
+    // Accept snake_case from clients
+    .rename('partner_type', 'partnerType', { ignoreUndefined: true, override: false })
+    .rename('company_name', 'companyName', { ignoreUndefined: true, override: false })
+    .rename('brand_color', 'brandColor', { ignoreUndefined: true, override: false })
+    .rename('logo_url', 'logoUrl', { ignoreUndefined: true, override: false })
+    .rename('default_message', 'defaultMessage', { ignoreUndefined: true, override: false })
+    .rename('default_premium_months', 'defaultPremiumMonths', { ignoreUndefined: true, override: false })
+    .rename('service_areas', 'serviceAreas', { ignoreUndefined: true, override: false })
+    .rename('license_number', 'licenseNumber', { ignoreUndefined: true, override: false });
 exports.createGiftSchema = joi_1.default.object({
-    homebuyer_email: joi_1.default.string().email().required(),
-    homebuyer_name: joi_1.default.string().max(255).required(),
-    homebuyer_phone: joi_1.default.string().max(50).optional(),
-    home_address: joi_1.default.string().max(500).optional(),
-    closing_date: joi_1.default.date().iso().optional(),
-    premium_months: joi_1.default.number().integer().min(1).max(12).optional(),
-    custom_message: joi_1.default.string().max(1000).optional(),
+    homebuyerEmail: joi_1.default.string().email().required(),
+    homebuyerName: joi_1.default.string().max(255).required(),
+    homebuyerPhone: joi_1.default.string().max(50).optional(),
+    homeAddress: joi_1.default.string().max(500).optional(),
+    closingDate: joi_1.default.date().iso().optional(),
+    premiumMonths: joi_1.default.number().integer().min(1).max(12).optional(),
+    customMessage: joi_1.default.string().max(1000).optional(),
 })
-    // Accept camelCase from dashboard clients
-    .rename('homebuyerEmail', 'homebuyer_email', { ignoreUndefined: true, override: false })
-    .rename('homebuyerName', 'homebuyer_name', { ignoreUndefined: true, override: false })
-    .rename('homebuyerPhone', 'homebuyer_phone', { ignoreUndefined: true, override: false })
-    .rename('homeAddress', 'home_address', { ignoreUndefined: true, override: false })
-    .rename('closingDate', 'closing_date', { ignoreUndefined: true, override: false })
-    .rename('premiumMonths', 'premium_months', { ignoreUndefined: true, override: false })
-    .rename('customMessage', 'custom_message', { ignoreUndefined: true, override: false });
+    // Accept snake_case from clients
+    .rename('homebuyer_email', 'homebuyerEmail', { ignoreUndefined: true, override: false })
+    .rename('homebuyer_name', 'homebuyerName', { ignoreUndefined: true, override: false })
+    .rename('homebuyer_phone', 'homebuyerPhone', { ignoreUndefined: true, override: false })
+    .rename('home_address', 'homeAddress', { ignoreUndefined: true, override: false })
+    .rename('closing_date', 'closingDate', { ignoreUndefined: true, override: false })
+    .rename('premium_months', 'premiumMonths', { ignoreUndefined: true, override: false })
+    .rename('custom_message', 'customMessage', { ignoreUndefined: true, override: false });
 exports.getGiftsQuerySchema = joi_1.default.object({
     limit: joi_1.default.number().integer().min(1).max(100).optional().default(50),
     offset: joi_1.default.number().integer().min(0).optional().default(0),
-    status: joi_1.default.string().valid('created', 'sent', 'activated', 'expired').optional(),
+    status: joi_1.default.string().valid('created', 'sent', 'activated', 'expired', 'pending_payment').optional(),
 });
 exports.getCommissionsQuerySchema = joi_1.default.object({
     limit: joi_1.default.number().integer().min(1).max(100).optional().default(50),

@@ -5,17 +5,36 @@ export declare class PartnersService {
      */
     static getOrCreateReferralCode(userId: string): Promise<string>;
     /**
+     * Get users who signed up using this partner's referral code.
+     * Returns paginated list with signup date, name, email (masked), and item count.
+     */
+    static getReferrals(userId: string, options: {
+        page: number;
+        limit: number;
+    }): Promise<{
+        referrals: Array<{
+            id: string;
+            full_name: string | null;
+            email_masked: string;
+            plan: string;
+            item_count: number;
+            signed_up_at: string;
+        }>;
+        total: number;
+    }>;
+    /**
      * Register as a partner (realtor/builder)
      */
     static registerPartner(userId: string, data: {
-        partner_type: 'realtor' | 'builder' | 'contractor' | 'property_manager' | 'other';
-        company_name?: string;
+        partnerType: 'realtor' | 'builder' | 'contractor' | 'property_manager' | 'other';
+        companyName?: string;
         phone?: string;
         website?: string;
-        brand_color?: string;
-        logo_url?: string;
-        default_message?: string;
-        service_areas?: string[];
+        brandColor?: string;
+        logoUrl?: string;
+        defaultMessage?: string;
+        serviceAreas?: string[];
+        licenseNumber?: string | null;
     }): Promise<Partner>;
     /**
      * Get partner profile
@@ -25,27 +44,34 @@ export declare class PartnersService {
      * Update partner profile
      */
     static updatePartner(userId: string, data: {
-        partner_type?: 'realtor' | 'builder' | 'contractor' | 'property_manager' | 'other';
-        company_name?: string;
+        partnerType?: 'realtor' | 'builder' | 'contractor' | 'property_manager' | 'other';
+        companyName?: string;
         phone?: string;
         website?: string;
-        brand_color?: string;
-        logo_url?: string;
-        default_message?: string;
-        default_premium_months?: number;
-        service_areas?: string[];
+        brandColor?: string;
+        logoUrl?: string;
+        defaultMessage?: string;
+        defaultPremiumMonths?: number;
+        serviceAreas?: string[];
+        licenseNumber?: string | null;
     }): Promise<Partner>;
     /**
      * Create closing gift for homebuyer
+     *
+     * CRIT-2: Stripe charge is inside the transaction. The gift record is created
+     * with 'pending_payment' status first, then Stripe is charged with an
+     * idempotency key derived from the gift ID. If Stripe fails, the entire
+     * transaction rolls back. If Stripe succeeds, the status is updated to
+     * 'created' within the same transaction.
      */
     static createGift(userId: string, data: {
-        homebuyer_email: string;
-        homebuyer_name: string;
-        homebuyer_phone?: string;
-        home_address?: string;
-        closing_date?: string;
-        premium_months?: number;
-        custom_message?: string;
+        homebuyerEmail: string;
+        homebuyerName: string;
+        homebuyerPhone?: string;
+        homeAddress?: string;
+        closingDate?: string;
+        premiumMonths?: number;
+        customMessage?: string;
     }): Promise<PartnerGift>;
     /**
      * Get partner's gifts
@@ -74,12 +100,25 @@ export declare class PartnersService {
     }>;
     /**
      * Activate gift (when homebuyer signs up)
+     *
+     * BE-20: Uses SELECT ... FOR UPDATE to prevent concurrent activations.
+     * BE-26: Verifies user email matches homebuyer_email on the gift.
+     * HIGH-7: Per-gift rate limiting to prevent brute-force activation attempts.
      */
     static activateGift(giftId: string, newUserId: string, userEmail: string): Promise<PartnerGift>;
     /**
-     * Get partner analytics
+     * HIGH-7: Record a failed activation attempt for a gift.
+     * After GIFT_MAX_ACTIVATION_ATTEMPTS failures, the gift is locked for
+     * GIFT_LOCKOUT_DURATION_MS milliseconds.
      */
-    static getPartnerAnalytics(userId: string): Promise<{
+    private static recordFailedActivationAttempt;
+    /**
+     * Get partner analytics, optionally filtered by date range
+     */
+    static getPartnerAnalytics(userId: string, options?: {
+        startDate?: string;
+        endDate?: string;
+    }): Promise<{
         total_gifts: number;
         activated_gifts: number;
         pending_gifts: number;
@@ -89,6 +128,13 @@ export declare class PartnersService {
         paid_commissions: number;
         recent_activity: any[];
     }>;
+    /**
+     * Get monthly earnings history for the last 12 months
+     */
+    static getEarningsHistory(partnerId: string): Promise<{
+        month: string;
+        earnings: number;
+    }[]>;
     /**
      * Get partner commissions
      */

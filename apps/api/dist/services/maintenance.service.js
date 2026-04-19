@@ -4,6 +4,21 @@ exports.MaintenanceService = void 0;
 const db_1 = require("../db");
 const logger_1 = require("../utils/logger");
 const errors_1 = require("../utils/errors");
+/**
+ * Safely add months to a date, handling day overflow.
+ * e.g., Jan 31 + 1 month = Feb 28 (not Mar 3)
+ */
+function addMonthsSafe(date, months) {
+    const result = new Date(date);
+    const targetMonth = result.getMonth() + months;
+    result.setMonth(targetMonth);
+    // If the day overflowed (e.g. 31 -> next month), go back to last day of target month
+    const expectedMonth = ((date.getMonth() + months) % 12 + 12) % 12;
+    if (result.getMonth() !== expectedMonth) {
+        result.setDate(0); // Last day of previous month
+    }
+    return result;
+}
 class MaintenanceService {
     /**
      * Get maintenance schedules for a given item category
@@ -58,8 +73,7 @@ class MaintenanceService {
                 const lastCompleted = historyMap.get(schedule.id) || null;
                 // Calculate next due date: from last completion, or from item start date
                 const baseDate = lastCompleted ? new Date(lastCompleted) : new Date(itemStartDate);
-                const nextDue = new Date(baseDate);
-                nextDue.setMonth(nextDue.getMonth() + schedule.frequency_months);
+                const nextDue = addMonthsSafe(baseDate, schedule.frequency_months);
                 const diffMs = nextDue.getTime() - now.getTime();
                 const daysUntilDue = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
                 return {
@@ -133,8 +147,7 @@ class MaintenanceService {
                 const tasks = schedules.map((schedule) => {
                     const lastCompleted = historyMap.get(`${item.id}:${schedule.id}`) || null;
                     const baseDate = lastCompleted ? new Date(lastCompleted) : new Date(itemStartDate);
-                    const nextDue = new Date(baseDate);
-                    nextDue.setMonth(nextDue.getMonth() + schedule.frequency_months);
+                    const nextDue = addMonthsSafe(baseDate, schedule.frequency_months);
                     const diffMs = nextDue.getTime() - now.getTime();
                     const daysUntilDue = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
                     return {
@@ -144,6 +157,10 @@ class MaintenanceService {
                         is_overdue: daysUntilDue < 0,
                         days_until_due: daysUntilDue,
                         priority: schedule.priority,
+                        is_required_for_warranty: schedule.is_required_for_warranty,
+                        how_to_url: schedule.how_to_url,
+                        video_url: schedule.video_url,
+                        frequency_label: schedule.frequency_label,
                     };
                 });
                 // Only include tasks that are due within 30 days or overdue
@@ -183,14 +200,14 @@ class MaintenanceService {
         const client = await db_1.pool.connect();
         try {
             await client.query('BEGIN');
-            // Verify item belongs to user
-            const itemCheck = await client.query('SELECT id FROM items WHERE id = $1 AND user_id = $2', [data.item_id, userId]);
+            // Verify item belongs to user and is not archived
+            const itemCheck = await client.query('SELECT id FROM items WHERE id = $1 AND user_id = $2 AND is_archived = FALSE', [data.itemId, userId]);
             if (itemCheck.rows.length === 0) {
-                throw new errors_1.AppError('Item not found or does not belong to user', 404);
+                throw new errors_1.AppError('Item not found or is archived', 404);
             }
-            // If schedule_id is provided, verify it exists
-            if (data.schedule_id) {
-                const scheduleCheck = await client.query('SELECT id FROM maintenance_schedules WHERE id = $1', [data.schedule_id]);
+            // If scheduleId is provided, verify it exists
+            if (data.scheduleId) {
+                const scheduleCheck = await client.query('SELECT id FROM maintenance_schedules WHERE id = $1', [data.scheduleId]);
                 if (scheduleCheck.rows.length === 0) {
                     throw new errors_1.AppError('Maintenance schedule not found', 404);
                 }
@@ -201,28 +218,29 @@ class MaintenanceService {
           completed_date, notes, duration_minutes, cost
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         RETURNING *`, [
-                data.item_id,
+                data.itemId,
                 userId,
-                data.schedule_id || null,
-                data.task_name,
-                data.completed_date || new Date(),
+                data.scheduleId || null,
+                data.taskName,
+                data.completedDate || new Date(),
                 data.notes || null,
-                data.duration_minutes || null,
+                data.durationMinutes || null,
                 data.cost || 0,
             ]);
             const entry = result.rows[0];
             // Update last_maintenance_date on the item
             await client.query(`UPDATE items
          SET last_maintenance_date = $1, updated_at = NOW()
-         WHERE id = $2`, [data.completed_date || new Date(), data.item_id]);
+         WHERE id = $2`, [data.completedDate || new Date(), data.itemId]);
             // Update user analytics
-            await client.query(`UPDATE user_analytics
-         SET total_maintenance_completed = total_maintenance_completed + 1,
-             updated_at = NOW()
-         WHERE user_id = $1`, [userId]);
+            await client.query(`INSERT INTO user_analytics (user_id, total_maintenance_completed)
+         VALUES ($1, 1)
+         ON CONFLICT (user_id)
+         DO UPDATE SET total_maintenance_completed = user_analytics.total_maintenance_completed + 1,
+                       updated_at = NOW()`, [userId]);
             // If there is a schedule with prevents_cost, add to preventive savings
-            if (data.schedule_id) {
-                const scheduleResult = await client.query('SELECT prevents_cost FROM maintenance_schedules WHERE id = $1', [data.schedule_id]);
+            if (data.scheduleId) {
+                const scheduleResult = await client.query('SELECT prevents_cost FROM maintenance_schedules WHERE id = $1', [data.scheduleId]);
                 if (scheduleResult.rows.length > 0 && scheduleResult.rows[0].prevents_cost) {
                     const preventsCost = parseFloat(scheduleResult.rows[0].prevents_cost);
                     await client.query(`UPDATE user_analytics
@@ -232,7 +250,7 @@ class MaintenanceService {
                 }
             }
             await client.query('COMMIT');
-            logger_1.logger.info({ entryId: entry.id, userId, itemId: data.item_id }, 'Maintenance logged');
+            logger_1.logger.info({ entryId: entry.id, userId, itemId: data.itemId }, 'Maintenance logged');
             return entry;
         }
         catch (error) {

@@ -34,18 +34,26 @@ exports.notificationParamsSchema = joi_1.default.object({
     id: joi_1.default.string().uuid().required(),
 });
 exports.updatePreferencesSchema = joi_1.default.object({
-    reminders_enabled: joi_1.default.boolean(),
-    first_reminder_days: joi_1.default.number().integer().min(1).max(365),
-    reminder_time: joi_1.default.string().pattern(/^\d{2}:\d{2}$/).custom((value, helpers) => {
+    remindersEnabled: joi_1.default.boolean(),
+    firstReminderDays: joi_1.default.number().integer().min(1).max(365),
+    reminderTime: joi_1.default.string().pattern(/^\d{2}:\d{2}$/).custom((value, helpers) => {
         const [hours, minutes] = value.split(':').map(Number);
         if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
             return helpers.error('any.invalid');
         }
         return value;
     }, 'valid time'),
-    warranty_offers_enabled: joi_1.default.boolean(),
-    tips_enabled: joi_1.default.boolean(),
-    push_enabled: joi_1.default.boolean(),
-    email_enabled: joi_1.default.boolean(),
-}).min(1);
+    warrantyOffersEnabled: joi_1.default.boolean(),
+    tipsEnabled: joi_1.default.boolean(),
+    pushEnabled: joi_1.default.boolean(),
+    emailEnabled: joi_1.default.boolean(),
+}).min(1)
+    // Accept snake_case from mobile clients
+    .rename('reminders_enabled', 'remindersEnabled', { ignoreUndefined: true, override: false })
+    .rename('first_reminder_days', 'firstReminderDays', { ignoreUndefined: true, override: false })
+    .rename('reminder_time', 'reminderTime', { ignoreUndefined: true, override: false })
+    .rename('warranty_offers_enabled', 'warrantyOffersEnabled', { ignoreUndefined: true, override: false })
+    .rename('tips_enabled', 'tipsEnabled', { ignoreUndefined: true, override: false })
+    .rename('push_enabled', 'pushEnabled', { ignoreUndefined: true, override: false })
+    .rename('email_enabled', 'emailEnabled', { ignoreUndefined: true, override: false });
 //# sourceMappingURL=notifications.validator.js.map

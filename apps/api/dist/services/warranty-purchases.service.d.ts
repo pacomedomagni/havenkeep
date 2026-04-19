@@ -1,18 +1,18 @@
 import { WarrantyPurchase } from '../types/database.types';
 interface CreateWarrantyPurchaseData {
-    item_id: string;
+    itemId: string;
     provider: string;
-    plan_name: string;
-    external_policy_id?: string;
-    duration_months: number;
-    starts_at: string;
-    coverage_details?: Record<string, any>;
+    planName: string;
+    externalPolicyId?: string;
+    durationMonths: number;
+    startsAt: string;
+    coverageDetails?: Record<string, any>;
     price: number;
     deductible?: number;
-    claim_limit?: number;
-    commission_amount?: number;
-    commission_rate?: number;
-    stripe_payment_intent_id?: string;
+    claimLimit?: number;
+    commissionAmount?: number;
+    commissionRate?: number;
+    stripePaymentIntentId?: string;
 }
 export declare class WarrantyPurchasesService {
     /**
@@ -48,9 +48,10 @@ export declare class WarrantyPurchasesService {
      */
     static getExpiringWarranties(userId: string, daysAhead?: number): Promise<WarrantyPurchase[]>;
     /**
-     * Update warranty purchase status (internal method, e.g., for auto-expiring)
+     * Expire all overdue active warranties in a single batch update.
+     * Designed to be called from a daily scheduled job.
      */
-    static updatePurchaseStatus(purchaseId: string, status: 'active' | 'expired' | 'cancelled' | 'pending'): Promise<WarrantyPurchase>;
+    static expireOverdueWarranties(): Promise<number>;
 }
 export {};
 //# sourceMappingURL=warranty-purchases.service.d.ts.map
