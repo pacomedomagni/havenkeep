@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:api_client/api_client.dart';
@@ -10,6 +9,8 @@ import '../../core/providers/items_provider.dart';
 import '../../core/router/router.dart';
 import '../../core/utils/error_handler.dart';
 import '../../core/widgets/error_state_widget.dart';
+import '../../core/widgets/haven_illustration.dart';
+import '../../core/utils/haven_haptics.dart';
 
 /// Sort mode for the items list.
 enum ItemSortMode {
@@ -158,7 +159,7 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
   }
 
   void _showSortPicker() {
-    HapticFeedback.lightImpact();
+    HavenHaptics.tap();
     final currentSort = ref.read(itemsSortProvider);
     showModalBottomSheet(
       context: context,
@@ -227,7 +228,7 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
       backgroundColor: HavenColors.background,
       appBar: AppBar(
         title: const Text(
-          'My Items',
+          'My Warranties',
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
         actions: [
@@ -367,11 +368,33 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
               ),
               const SizedBox(height: HavenSpacing.sm),
 
-              // Items list
+              // Items list — fades between filter states and supports
+              // pull-to-refresh for parity with the dashboard.
               Expanded(
-                child: sorted.isEmpty
-                    ? _buildNoResults()
-                    : _buildGroupedList(sorted),
+                child: RefreshIndicator(
+                  color: HavenColors.primary,
+                  onRefresh: () async {
+                    ref.invalidate(itemsProvider);
+                    await ref.read(itemsProvider.future);
+                  },
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 220),
+                    switchInCurve: Curves.easeOutCubic,
+                    switchOutCurve: Curves.easeInCubic,
+                    transitionBuilder: (child, anim) => FadeTransition(
+                      opacity: anim,
+                      child: child,
+                    ),
+                    child: KeyedSubtree(
+                      key: ValueKey(
+                        '${_searchQuery}_${activeFilters.join(",")}_${ref.watch(itemsSortProvider).name}',
+                      ),
+                      child: sorted.isEmpty
+                          ? _buildNoResults()
+                          : _buildGroupedList(sorted),
+                    ),
+                  ),
+                ),
               ),
             ],
           );
@@ -399,23 +422,16 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            Icons.inventory_2_outlined,
-            size: 64,
-            color: HavenColors.textTertiary,
+          HavenIllustration(
+            kind: HavenIllustrationKind.noWarranties,
+            size: 180,
           ),
           SizedBox(height: HavenSpacing.md),
-          Text(
-            'No items yet',
-            style: TextStyle(
-              fontSize: 18,
-              color: HavenColors.textSecondary,
-            ),
-          ),
+          Text('No warranties yet', style: HavenText.displayMedium),
           SizedBox(height: HavenSpacing.xs),
           Text(
-            'Tap + to add your first item',
-            style: TextStyle(color: HavenColors.textTertiary),
+            'Tap + to add your first warranty',
+            style: HavenText.bodySecondary,
           ),
         ],
       ),
@@ -426,58 +442,57 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
     final hasSearch = _searchQuery.isNotEmpty;
     final hasFilters = ref.read(itemsFilterProvider).isNotEmpty;
 
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(
-            Icons.search_off,
-            size: 48,
-            color: HavenColors.textTertiary,
-          ),
-          const SizedBox(height: HavenSpacing.md),
-          Text(
-            hasSearch
-                ? "No items match '$_searchQuery'"
-                : 'No items match the selected filters',
-            style: const TextStyle(
-              fontSize: 16,
-              color: HavenColors.textSecondary,
-            ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: HavenSpacing.xs),
-          Text(
-            hasSearch
-                ? 'Try a different search term or check your spelling'
-                : 'Try selecting a different status filter above',
-            style: const TextStyle(
-              fontSize: 13,
+    // Use a scrollable ListView so RefreshIndicator has a scrollable child.
+    return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.symmetric(vertical: HavenSpacing.xl),
+      children: [
+        Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.search_off,
+              size: 48,
               color: HavenColors.textTertiary,
             ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: HavenSpacing.lg),
-          if (hasSearch)
-            TextButton.icon(
-              onPressed: () => _searchController.clear(),
-              icon: const Icon(Icons.clear, size: 16),
-              label: const Text('Clear search'),
-              style: TextButton.styleFrom(
-                foregroundColor: HavenColors.secondary,
-              ),
+            const SizedBox(height: HavenSpacing.md),
+            Text(
+              hasSearch
+                  ? "No warranties match '$_searchQuery'"
+                  : 'No warranties match the selected filters',
+              style: HavenText.body.copyWith(color: HavenColors.textSecondary),
+              textAlign: TextAlign.center,
             ),
-          if (hasFilters)
-            TextButton.icon(
-              onPressed: _selectAll,
-              icon: const Icon(Icons.filter_alt_off, size: 16),
-              label: const Text('Show all items'),
-              style: TextButton.styleFrom(
-                foregroundColor: HavenColors.secondary,
-              ),
+            const SizedBox(height: HavenSpacing.xs),
+            Text(
+              hasSearch
+                  ? 'Try a different search term or check your spelling'
+                  : 'Try selecting a different status filter above',
+              style: HavenText.meta,
+              textAlign: TextAlign.center,
             ),
-        ],
-      ),
+            const SizedBox(height: HavenSpacing.lg),
+            if (hasSearch)
+              TextButton.icon(
+                onPressed: () => _searchController.clear(),
+                icon: const Icon(Icons.clear, size: 16),
+                label: const Text('Clear search'),
+                style: TextButton.styleFrom(
+                  foregroundColor: HavenColors.secondary,
+                ),
+              ),
+            if (hasFilters)
+              TextButton.icon(
+                onPressed: _selectAll,
+                icon: const Icon(Icons.filter_alt_off, size: 16),
+                label: const Text('Show all warranties'),
+                style: TextButton.styleFrom(
+                  foregroundColor: HavenColors.secondary,
+                ),
+              ),
+          ],
+        ),
+      ],
     );
   }
 
@@ -507,15 +522,18 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
             SectionHeader(
               title: roomLabel,
               count: roomItems.length,
-              trailing: Icon(
-                isCollapsed
-                    ? Icons.keyboard_arrow_right
-                    : Icons.keyboard_arrow_down,
-                color: HavenColors.textTertiary,
-                size: 20,
+              trailing: AnimatedRotation(
+                turns: isCollapsed ? -0.25 : 0,
+                duration: const Duration(milliseconds: 220),
+                curve: Curves.easeOutCubic,
+                child: const Icon(
+                  Icons.keyboard_arrow_down,
+                  color: HavenColors.textTertiary,
+                  size: 20,
+                ),
               ),
               onTap: () {
-                HapticFeedback.lightImpact();
+                HavenHaptics.tap();
                 setState(() {
                   if (isCollapsed) {
                     _collapsedRooms.remove(room);
@@ -525,10 +543,24 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
                 });
               },
             ),
-            if (!isCollapsed) ...[
-              ...roomItems.map((item) => _buildItemCard(item)),
-              const SizedBox(height: HavenSpacing.md),
-            ],
+            AnimatedSize(
+              duration: const Duration(milliseconds: 240),
+              curve: Curves.easeOutCubic,
+              alignment: Alignment.topCenter,
+              child: AnimatedOpacity(
+                duration: const Duration(milliseconds: 180),
+                opacity: isCollapsed ? 0 : 1,
+                child: isCollapsed
+                    ? const SizedBox.shrink()
+                    : Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          ...roomItems.map((item) => _buildItemCard(item)),
+                          const SizedBox(height: HavenSpacing.md),
+                        ],
+                      ),
+              ),
+            ),
           ],
         );
       },
@@ -579,7 +611,7 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
           margin: const EdgeInsets.only(left: HavenSpacing.xs),
           decoration: BoxDecoration(
             color: HavenColors.primary,
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(HavenRadius.button),
           ),
           child: const Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -599,19 +631,22 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
         ),
         child: GestureDetector(
           onTap: () {
-            HapticFeedback.lightImpact();
+            HavenHaptics.tap();
             context.push('/items/${item.id}');
           },
           child: Container(
             padding: const EdgeInsets.all(HavenSpacing.md),
             decoration: BoxDecoration(
               color: HavenColors.surface,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(HavenRadius.button),
               border: Border.all(color: HavenColors.border),
             ),
             child: Row(
               children: [
-                CategoryIcon.widget(item.category),
+                Hero(
+                  tag: 'item-icon-${item.id}',
+                  child: CategoryIcon.widget(item.category),
+                ),
                 const SizedBox(width: HavenSpacing.md),
                 Expanded(
                   child: Column(
@@ -683,7 +718,7 @@ class _FilterChip extends StatelessWidget {
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: () {
-        HapticFeedback.lightImpact();
+        HavenHaptics.tap();
         onTap();
       },
       child: Container(

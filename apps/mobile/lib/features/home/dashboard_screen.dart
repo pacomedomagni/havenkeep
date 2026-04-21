@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
@@ -14,7 +13,15 @@ import '../../core/providers/maintenance_provider.dart';
 import '../../core/providers/notifications_provider.dart';
 import '../../core/providers/warranty_claims_provider.dart';
 import '../../core/router/router.dart';
+import '../../core/utils/money_formatter.dart';
 import '../../core/widgets/value_dashboard_card.dart';
+import '../../core/widgets/haven_illustration.dart';
+import '../../core/widgets/haven_image.dart';
+import '../../core/widgets/haven_loader.dart';
+import '../../core/widgets/responsive_box.dart';
+import '../premium/premium_teaser_card.dart';
+import 'milestone_banner.dart';
+import '../../core/utils/haven_haptics.dart';
 
 /// Home dashboard — the main screen (Screen 3.1).
 ///
@@ -81,6 +88,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           ],
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.search),
+            tooltip: 'Search warranties',
+            onPressed: () => context.push(AppRoutes.search),
+          ),
           // Notification bell with unread badge
           _NotificationBell(),
           IconButton(
@@ -97,20 +109,18 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           await ref.read(itemsProvider.future);
         },
         color: HavenColors.primary,
-        child: ListView(
-          padding: const EdgeInsets.all(HavenSpacing.md),
-          children: [
+        child: ResponsiveBox(
+          maxWidth: 720,
+          child: ListView(
+            padding: const EdgeInsets.all(HavenSpacing.md),
+            children: [
             // Greeting with avatar
             Row(
               children: [
                 Expanded(
                   child: Text(
                     '${_getGreeting()}, $firstName',
-                    style: const TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      color: HavenColors.textPrimary,
-                    ),
+                    style: HavenText.displayLarge,
                   ),
                 ),
                 _UserAvatar(user: user.value),
@@ -151,7 +161,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   height: 280,
                   decoration: BoxDecoration(
                     color: HavenColors.surface,
-                    borderRadius: BorderRadius.circular(20),
+                    borderRadius: BorderRadius.circular(HavenRadius.chip),
                   ),
                 ),
                 error: (error, _) => Center(
@@ -163,6 +173,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 ),
               ),
               const SizedBox(height: HavenSpacing.lg),
+
+              // Maturity milestone banner (auto-hides when none applies)
+              const MilestoneBanner(),
 
               // Warranty summary card
               _buildWarrantySummary(stats),
@@ -181,11 +194,16 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 _buildTipCard(),
               ],
 
+              // Premium teaser (contextual — appears before the wall)
+              const SizedBox(height: HavenSpacing.lg),
+              const PremiumTeaserCard(),
+
               // Community Savings feed
               const SizedBox(height: HavenSpacing.lg),
               const _CommunitySavingsCard(),
             ],
           ],
+          ),
         ),
       ),
     );
@@ -198,29 +216,17 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(
-              Icons.inventory_2_outlined,
-              size: 72,
-              color: HavenColors.textTertiary,
+            const HavenIllustration(
+              kind: HavenIllustrationKind.emptyVault,
+              size: 180,
             ),
             const SizedBox(height: HavenSpacing.md),
-            const Text(
-              'Your vault is empty',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: HavenColors.textPrimary,
-              ),
-            ),
+            const Text('Your vault is empty', style: HavenText.displayMedium),
             const SizedBox(height: HavenSpacing.sm),
-            const Text(
-              'Add your first item to start\ntracking your warranties.',
+            Text(
+              'Add your first warranty to\nstart protecting your purchases.',
               textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 14,
-                color: HavenColors.textSecondary,
-                height: 1.4,
-              ),
+              style: HavenText.bodySecondary.copyWith(height: 1.4),
             ),
             const SizedBox(height: HavenSpacing.lg),
             SizedBox(
@@ -228,7 +234,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               child: ElevatedButton.icon(
                 onPressed: () => context.push(AppRoutes.addItem),
                 icon: const Icon(Icons.add),
-                label: const Text('Add Your First Item'),
+                label: const Text('Add Your First Warranty'),
               ),
             ),
             const SizedBox(height: HavenSpacing.sm),
@@ -255,11 +261,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             'YOUR WARRANTIES',
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.bold,
+            style: HavenText.badge.copyWith(
               color: HavenColors.textTertiary,
               letterSpacing: 1.2,
             ),
@@ -320,11 +324,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
+        Text(
           '⚠️  NEEDS ATTENTION',
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.bold,
+          style: HavenText.badge.copyWith(
             color: HavenColors.textTertiary,
             letterSpacing: 1.2,
           ),
@@ -344,10 +346,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 child: const Text(
                   'All clear! No warranties need\nyour attention right now. ✓',
                   textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: HavenColors.textSecondary,
-                  ),
+                  style: HavenText.bodySecondary,
                 ),
               );
             }
@@ -359,10 +358,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   const SizedBox(height: HavenSpacing.sm),
                   GestureDetector(
                     onTap: () => _navigateToItemsWithFilter('expiring'),
-                    child: const Text(
-                      'View all items →',
-                      style: TextStyle(
-                        fontSize: 14,
+                    child: Text(
+                      'View all warranties →',
+                      style: HavenText.body.copyWith(
                         color: HavenColors.secondary,
                         fontWeight: FontWeight.w500,
                       ),
@@ -408,7 +406,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
     return GestureDetector(
       onTap: () {
-        HapticFeedback.lightImpact();
+        HavenHaptics.tap();
         context.push('/items/${item.id}');
       },
       child: Container(
@@ -439,19 +437,14 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 children: [
                   Text(
                     '${item.brand ?? ''} ${item.name}'.trim(),
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: HavenColors.textPrimary,
-                    ),
+                    style: HavenText.body.copyWith(fontWeight: FontWeight.w600),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: 2),
                   Text(
                     timeText,
-                    style: TextStyle(
-                      fontSize: 12,
+                    style: HavenText.caption.copyWith(
                       color: color,
                       fontWeight: FontWeight.w500,
                     ),
@@ -483,27 +476,21 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         children: [
           const Text('💡', style: TextStyle(fontSize: 20)),
           const SizedBox(width: HavenSpacing.sm),
-          const Expanded(
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   'TIP',
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold,
+                  style: HavenText.badge.copyWith(
                     color: HavenColors.textTertiary,
                     letterSpacing: 1,
                   ),
                 ),
-                SizedBox(height: HavenSpacing.xs),
+                const SizedBox(height: HavenSpacing.xs),
                 Text(
-                  'Add receipts to your items so you have proof of purchase ready for claims.',
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: HavenColors.textSecondary,
-                    height: 1.4,
-                  ),
+                  'Add receipts to your warranties so you have proof of purchase ready for claims.',
+                  style: HavenText.meta.copyWith(height: 1.4),
                 ),
               ],
             ),
@@ -547,7 +534,7 @@ class _MaintenanceCard extends ConsumerWidget {
 
         return GestureDetector(
           onTap: () {
-            HapticFeedback.lightImpact();
+            HavenHaptics.tap();
             context.push(AppRoutes.maintenance);
           },
           child: Container(
@@ -560,7 +547,7 @@ class _MaintenanceCard extends ConsumerWidget {
             child: Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.all(10),
+                  padding: const EdgeInsets.all(HavenSpacing.sm),
                   decoration: BoxDecoration(
                     color: (summary.totalOverdue > 0
                             ? HavenColors.expired
@@ -581,21 +568,16 @@ class _MaintenanceCard extends ConsumerWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
+                      Text(
                         'Maintenance',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: HavenColors.textPrimary,
-                        ),
+                        style: HavenText.body.copyWith(fontWeight: FontWeight.w600),
                       ),
                       const SizedBox(height: 2),
                       Text(
                         summary.totalOverdue > 0
                             ? '${summary.totalOverdue} overdue, ${summary.totalDue - summary.totalOverdue} upcoming'
                             : '${summary.totalDue} tasks coming up',
-                        style: TextStyle(
-                          fontSize: 12,
+                        style: HavenText.caption.copyWith(
                           color: summary.totalOverdue > 0
                               ? HavenColors.expired
                               : HavenColors.textSecondary,
@@ -630,19 +612,17 @@ class _CommunitySavingsCard extends ConsumerWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // Section header
-        const Row(
+        Row(
           children: [
-            Icon(
+            const Icon(
               Icons.emoji_events_outlined,
               size: 18,
               color: HavenColors.active,
             ),
-            SizedBox(width: HavenSpacing.xs),
+            const SizedBox(width: HavenSpacing.xs),
             Text(
               'COMMUNITY SAVINGS',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
+              style: HavenText.badge.copyWith(
                 color: HavenColors.textTertiary,
                 letterSpacing: 1.2,
               ),
@@ -667,10 +647,7 @@ class _CommunitySavingsCard extends ConsumerWidget {
                   child: Center(
                     child: Text(
                       'No community savings data yet',
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: HavenColors.textTertiary,
-                      ),
+                      style: HavenText.meta,
                     ),
                   ),
                 );
@@ -683,7 +660,7 @@ class _CommunitySavingsCard extends ConsumerWidget {
                 child: SizedBox(
                   width: 20,
                   height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
+                  child: HavenLoader(),
                 ),
               ),
             ),
@@ -692,10 +669,7 @@ class _CommunitySavingsCard extends ConsumerWidget {
               child: Center(
                 child: Text(
                   'Unable to load community savings',
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: HavenColors.textTertiary,
-                  ),
+                  style: HavenText.meta,
                 ),
               ),
             ),
@@ -732,9 +706,7 @@ class _SavingsEntry extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final formatted = amount >= 1000
-        ? '\$${(amount / 1000).toStringAsFixed(amount % 1000 == 0 ? 0 : 1)}k'
-        : '\$${amount.toStringAsFixed(0)}';
+    final formatted = Money.formatCompact(amount);
 
     return Padding(
       padding: const EdgeInsets.symmetric(
@@ -748,7 +720,7 @@ class _SavingsEntry extends StatelessWidget {
             height: 32,
             decoration: BoxDecoration(
               color: HavenColors.active.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(HavenRadius.pill),
             ),
             child: const Icon(
               Icons.attach_money,
@@ -760,11 +732,7 @@ class _SavingsEntry extends StatelessWidget {
           Expanded(
             child: Text(
               'A homeowner saved $formatted on their $itemName',
-              style: const TextStyle(
-                fontSize: 13,
-                color: HavenColors.textSecondary,
-                height: 1.3,
-              ),
+              style: HavenText.meta.copyWith(height: 1.3),
             ),
           ),
         ],
@@ -795,12 +763,12 @@ class _HomeSwitcher extends ConsumerWidget {
     // Multiple homes: show dropdown
     return PopupMenuButton<String>(
       onSelected: (homeId) {
-        HapticFeedback.lightImpact();
+        HavenHaptics.tap();
         ref.read(selectedHomeIdProvider.notifier).state = homeId;
       },
       offset: const Offset(0, 40),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(HavenRadius.button),
       ),
       color: HavenColors.elevated,
       itemBuilder: (context) => homesList.map((home) {
@@ -867,7 +835,7 @@ class _StatCard extends StatelessWidget {
     return Expanded(
       child: GestureDetector(
         onTap: () {
-          HapticFeedback.lightImpact();
+          HavenHaptics.tap();
           onTap?.call();
         },
         child: Container(
@@ -880,17 +848,12 @@ class _StatCard extends StatelessWidget {
             children: [
               Text(
                 '$count',
-                style: TextStyle(
-                  fontSize: 28,
-                  fontWeight: FontWeight.bold,
-                  color: color,
-                ),
+                style: HavenText.stat.copyWith(color: color),
               ),
               const SizedBox(height: HavenSpacing.xs),
               Text(
                 label,
-                style: const TextStyle(
-                  fontSize: 12,
+                style: HavenText.caption.copyWith(
                   color: HavenColors.textSecondary,
                 ),
               ),
@@ -910,26 +873,16 @@ class _UserAvatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final avatarUrl = user?.avatarUrl;
-    final hasAvatar = avatarUrl != null && avatarUrl.isNotEmpty;
-
-    return CircleAvatar(
+    return HavenAvatar(
+      url: user?.avatarUrl,
       radius: 20,
-      backgroundColor: HavenColors.primary,
-      backgroundImage: hasAvatar ? NetworkImage(avatarUrl) : null,
-      onBackgroundImageError: hasAvatar
-          ? (error, __) => debugPrint('[Dashboard] Avatar load failed: $error')
-          : null,
-      child: hasAvatar
-          ? null
-          : Text(
-              _getInitials(user?.fullName),
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-                fontSize: 14,
-              ),
-            ),
+      fallback: Text(
+        _getInitials(user?.fullName),
+        style: HavenText.body.copyWith(
+          color: HavenColors.textPrimary,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
     );
   }
 
@@ -971,9 +924,10 @@ class _NotificationBell extends ConsumerWidget {
                 child: Text(
                   unreadCount > 9 ? '9+' : '$unreadCount',
                   style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 9,
-                    fontWeight: FontWeight.bold,
+                    color: HavenColors.textPrimary,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    height: 1.0,
                   ),
                   textAlign: TextAlign.center,
                 ),

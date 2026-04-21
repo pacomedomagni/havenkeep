@@ -7,6 +7,7 @@ import 'package:shared_ui/shared_ui.dart';
 import '../../core/providers/items_provider.dart';
 import '../../core/providers/warranty_purchases_provider.dart';
 import '../../core/utils/error_handler.dart';
+import '../../core/widgets/haven_loader.dart';
 
 /// Form to add a new warranty purchase.
 class AddWarrantyPurchaseScreen extends ConsumerStatefulWidget {
@@ -111,7 +112,7 @@ class _AddWarrantyPurchaseScreenState
                     ? const SizedBox(
                         width: 20,
                         height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
+                        child: HavenLoader(),
                       )
                     : const Text('Save Warranty'),
               ),
@@ -172,6 +173,8 @@ class _AddWarrantyPurchaseScreenState
   }) {
     return TextFormField(
       controller: controller,
+      textInputAction: TextInputAction.next,
+      textCapitalization: TextCapitalization.words,
       decoration: InputDecoration(
         labelText: label,
         hintText: hint,
@@ -193,7 +196,8 @@ class _AddWarrantyPurchaseScreenState
   }) {
     return TextFormField(
       controller: controller,
-      keyboardType: TextInputType.number,
+      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      textInputAction: TextInputAction.next,
       decoration: InputDecoration(
         labelText: label,
         prefixText: isCurrency ? '\$' : null,

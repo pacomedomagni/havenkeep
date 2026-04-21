@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:shared_models/shared_models.dart';
 import 'package:shared_ui/shared_ui.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../../core/utils/money_formatter.dart';
 import 'pdf_preview_screen.dart';
 
 /// A bottom sheet that displays warranty claim information and allows the
@@ -49,9 +50,7 @@ class ShareClaimSheet extends StatelessWidget {
       );
     }
     buffer.writeln('Store: ${item.store ?? '\u2014'}');
-    buffer.writeln(
-      'Price: ${item.price != null ? '\$${item.price!.toStringAsFixed(2)}' : '\u2014'}',
-    );
+    buffer.writeln('Price: ${Money.format(item.price)}');
     buffer.writeln(
       'Provider: ${item.warrantyProvider ?? '\u2014'}',
     );
@@ -127,9 +126,7 @@ class ShareClaimSheet extends StatelessWidget {
                   _InfoLine('Store', item.store),
                   _InfoLine(
                     'Price',
-                    item.price != null
-                        ? '\$${item.price!.toStringAsFixed(2)}'
-                        : null,
+                    item.price != null ? Money.format(item.price) : null,
                   ),
                   _InfoLine('Provider', item.warrantyProvider),
                 ],

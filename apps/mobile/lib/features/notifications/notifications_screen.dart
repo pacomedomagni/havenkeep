@@ -6,6 +6,8 @@ import 'package:shared_ui/shared_ui.dart';
 
 import '../../core/providers/notifications_provider.dart';
 import '../../core/widgets/error_state_widget.dart';
+import '../../core/widgets/haven_illustration.dart';
+import '../../core/widgets/haven_loader.dart';
 
 /// Notifications list screen.
 ///
@@ -39,22 +41,19 @@ class NotificationsScreen extends ConsumerWidget {
           final notifier = ref.read(notificationsProvider.notifier);
           final hasMore = notifier.hasMore;
 
+          // Group notifications by date bucket so long lists read well.
+          final entries = _groupByBucket(notifications);
+
           return RefreshIndicator(
             color: HavenColors.primary,
             onRefresh: () async {
               ref.read(notificationsProvider.notifier).refresh();
             },
-            child: ListView.separated(
+            child: ListView.builder(
               padding: const EdgeInsets.symmetric(vertical: HavenSpacing.sm),
-              itemCount: notifications.length + (hasMore ? 1 : 0),
-              separatorBuilder: (_, __) => const Divider(
-                height: 1,
-                color: HavenColors.border,
-                indent: HavenSpacing.lg + 40, // icon width + padding
-              ),
+              itemCount: entries.length + (hasMore ? 1 : 0),
               itemBuilder: (context, index) {
-                // Load-more trigger at the end
-                if (index == notifications.length) {
+                if (index == entries.length) {
                   try {
                     notifier.loadMore();
                   } catch (e) {
@@ -70,16 +69,48 @@ class NotificationsScreen extends ConsumerWidget {
                       child: SizedBox(
                         width: 20,
                         height: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: HavenColors.primary,
-                        ),
+                        child: HavenLoader(color: HavenColors.primary),
                       ),
                     ),
                   );
                 }
-                return _NotificationCard(
-                  notification: notifications[index],
+
+                final entry = entries[index];
+                if (entry is _BucketHeader) {
+                  return Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                      HavenSpacing.md,
+                      HavenSpacing.md,
+                      HavenSpacing.md,
+                      HavenSpacing.xs,
+                    ),
+                    child: Text(
+                      entry.label,
+                      style: HavenText.badge.copyWith(
+                        color: HavenColors.textTertiary,
+                        letterSpacing: 1.2,
+                      ),
+                    ),
+                  );
+                }
+                final n = (entry as _BucketItem).notification;
+                return Dismissible(
+                  key: ValueKey('notif-${n.id}'),
+                  direction: DismissDirection.endToStart,
+                  background: Container(
+                    color: HavenColors.expired.withValues(alpha: 0.9),
+                    alignment: Alignment.centerRight,
+                    padding:
+                        const EdgeInsets.only(right: HavenSpacing.lg),
+                    child: const Icon(Icons.archive_outlined,
+                        color: HavenColors.textPrimary),
+                  ),
+                  onDismissed: (_) async {
+                    await ref
+                        .read(notificationsProvider.notifier)
+                        .dismiss(n.id);
+                  },
+                  child: _NotificationCard(notification: n),
                 );
               },
             ),
@@ -110,27 +141,17 @@ class NotificationsScreen extends ConsumerWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            Icons.notifications_none,
-            size: 64,
-            color: HavenColors.textTertiary,
+          HavenIllustration(
+            kind: HavenIllustrationKind.noNotifications,
+            size: 180,
           ),
           SizedBox(height: HavenSpacing.md),
-          Text(
-            'No notifications yet',
-            style: TextStyle(
-              fontSize: 18,
-              color: HavenColors.textSecondary,
-            ),
-          ),
+          Text('No notifications yet', style: HavenText.displayMedium),
           SizedBox(height: HavenSpacing.xs),
           Text(
             "We'll notify you when warranties\nneed attention.",
             textAlign: TextAlign.center,
-            style: TextStyle(
-              color: HavenColors.textTertiary,
-              height: 1.4,
-            ),
+            style: HavenText.bodySecondary,
           ),
         ],
       ),
@@ -277,7 +298,7 @@ class _NotificationCard extends ConsumerWidget {
                 height: 36,
                 decoration: BoxDecoration(
                   color: typeColor.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(HavenRadius.pill),
                 ),
                 child: Icon(
                   _iconForType(notification.type),
@@ -368,10 +389,7 @@ class _MarkAllReadButtonState extends ConsumerState<_MarkAllReadButton> {
           ? const SizedBox(
               width: 16,
               height: 16,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                color: HavenColors.secondary,
-              ),
+              child: HavenLoader(color: HavenColors.secondary),
             )
           : const Text(
               'Mark All Read',
@@ -380,3 +398,46 @@ class _MarkAllReadButtonState extends ConsumerState<_MarkAllReadButton> {
     );
   }
 }
+
+/// Virtual list entry — either a bucket header or a notification row.
+sealed class _Entry {
+  const _Entry();
+}
+
+class _BucketHeader extends _Entry {
+  final String label;
+  const _BucketHeader(this.label);
+}
+
+class _BucketItem extends _Entry {
+  final AppNotification notification;
+  const _BucketItem(this.notification);
+}
+
+/// Groups notifications into Today / Yesterday / This week / Earlier buckets.
+List<_Entry> _groupByBucket(List<AppNotification> notifications) {
+  final now = DateTime.now();
+  final startOfToday = DateTime(now.year, now.month, now.day);
+  final startOfYesterday = startOfToday.subtract(const Duration(days: 1));
+  final startOfWeek = startOfToday.subtract(Duration(days: now.weekday - 1));
+
+  String bucket(DateTime t) {
+    if (!t.isBefore(startOfToday)) return 'TODAY';
+    if (!t.isBefore(startOfYesterday)) return 'YESTERDAY';
+    if (!t.isBefore(startOfWeek)) return 'THIS WEEK';
+    return 'EARLIER';
+  }
+
+  final entries = <_Entry>[];
+  String? currentBucket;
+  for (final n in notifications) {
+    final label = bucket(n.createdAt);
+    if (label != currentBucket) {
+      entries.add(_BucketHeader(label));
+      currentBucket = label;
+    }
+    entries.add(_BucketItem(n));
+  }
+  return entries;
+}
+

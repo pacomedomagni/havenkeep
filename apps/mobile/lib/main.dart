@@ -13,9 +13,11 @@ import 'core/config/environment.dart';
 import 'core/config/environment_config.dart';
 import 'core/config/firebase_options.dart';
 import 'core/router/router.dart';
+import 'core/services/auto_archive_service.dart';
 import 'core/services/logging_service.dart';
 import 'core/services/offline_sync_service.dart';
 import 'core/services/push_notification_service.dart';
+import 'core/providers/auth_provider.dart';
 import 'core/providers/premium_provider.dart';
 
 Future<void> main() async {
@@ -26,10 +28,14 @@ Future<void> main() async {
     () async {
       WidgetsFlutterBinding.ensureInitialized();
 
-      // Lock to portrait orientation
+      // Portrait-first on phones, but allow landscape on tablets so the
+      // responsive layouts we ship can actually shine. Flutter itself
+      // applies these preferences only where the platform respects them.
       await SystemChrome.setPreferredOrientations([
         DeviceOrientation.portraitUp,
         DeviceOrientation.portraitDown,
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
       ]);
 
       // Set system UI overlay style to match dark theme
@@ -190,6 +196,20 @@ class _AppBootstrapState extends ConsumerState<AppBootstrap> {
       }
     } else {
       LoggingService.warn('Push notifications skipped — Firebase not initialized', {});
+    }
+
+    // Auto-archive long-expired warranties once per day (authenticated users only).
+    if (ref.read(isAuthenticatedProvider)) {
+      try {
+        final archived =
+            await ref.read(autoArchiveServiceProvider).runIfDue();
+        if (archived != null && archived > 0) {
+          LoggingService.info(
+              'Auto-archived $archived expired warranties', {});
+        }
+      } catch (e) {
+        LoggingService.warn('Auto-archive failed', {'error': e.toString()});
+      }
     }
   }
 

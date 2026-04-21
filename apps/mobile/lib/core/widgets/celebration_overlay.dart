@@ -1,7 +1,9 @@
+import 'dart:math' as math;
+
+import 'package:confetti/confetti.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:lottie/lottie.dart';
 import 'package:shared_ui/shared_ui.dart';
+import '../../core/utils/haven_haptics.dart';
 
 /// Shows celebration animations when users accomplish goals.
 class CelebrationOverlay extends StatefulWidget {
@@ -29,7 +31,7 @@ class CelebrationOverlay extends StatefulWidget {
     required String subtitle,
     VoidCallback? onDismiss,
   }) {
-    HapticFeedback.heavyImpact();
+    HavenHaptics.celebrate();
 
     var isOpen = true;
     showDialog(
@@ -61,6 +63,7 @@ class _CelebrationOverlayState extends State<CelebrationOverlay>
   late AnimationController _controller;
   late Animation<double> _scaleAnimation;
   late Animation<double> _fadeAnimation;
+  late final ConfettiController _confetti;
 
   @override
   void initState() {
@@ -83,11 +86,19 @@ class _CelebrationOverlayState extends State<CelebrationOverlay>
     );
 
     _controller.forward();
+
+    _confetti =
+        ConfettiController(duration: const Duration(milliseconds: 1200));
+    if (widget.type == CelebrationType.firstItem ||
+        widget.type == CelebrationType.milestone) {
+      _confetti.play();
+    }
   }
 
   @override
   void dispose() {
     _controller.dispose();
+    _confetti.dispose();
     super.dispose();
   }
 
@@ -102,18 +113,26 @@ class _CelebrationOverlayState extends State<CelebrationOverlay>
         color: Colors.transparent,
         child: Stack(
           children: [
-            // Confetti animation (full screen)
+            // Confetti burst from the top center
             if (widget.type == CelebrationType.firstItem ||
                 widget.type == CelebrationType.milestone)
-              Positioned.fill(
+              Align(
+                alignment: Alignment.topCenter,
                 child: IgnorePointer(
-                  child: Lottie.asset(
-                    'assets/lottie/confetti_celebration.json',
-                    repeat: false,
-                    fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) {
-                      return const SizedBox.shrink();
-                    },
+                  child: ConfettiWidget(
+                    confettiController: _confetti,
+                    blastDirection: math.pi / 2,
+                    emissionFrequency: 0.04,
+                    numberOfParticles: 22,
+                    gravity: 0.35,
+                    maxBlastForce: 18,
+                    minBlastForce: 8,
+                    colors: const [
+                      HavenColors.primary,
+                      HavenColors.secondary,
+                      HavenColors.gold,
+                      HavenColors.active,
+                    ],
                   ),
                 ),
               ),
@@ -203,18 +222,11 @@ class _CelebrationOverlayState extends State<CelebrationOverlay>
             color: HavenColors.active.withValues(alpha: 0.1),
             shape: BoxShape.circle,
           ),
-          child: Lottie.asset(
-            'assets/lottie/success_checkmark.json',
-            width: 80,
-            height: 80,
-            repeat: false,
-            errorBuilder: (context, error, stackTrace) {
-              return const Icon(
-                Icons.check_circle,
-                size: 80,
-                color: HavenColors.active,
-              );
-            },
+          child: const Center(
+            child: AnimatedCheckmark(
+              size: 72,
+              color: HavenColors.active,
+            ),
           ),
         );
 
@@ -363,4 +375,101 @@ class CelebrationTrigger {
         );
     }
   }
+}
+
+/// Native (Lottie-free) success checkmark that draws its stroke in and
+/// then scales with a little overshoot. Use as the hero glyph for any
+/// success moment — faster than loading an asset, branded by color.
+class AnimatedCheckmark extends StatefulWidget {
+  final double size;
+  final Color color;
+  final Duration duration;
+
+  const AnimatedCheckmark({
+    super.key,
+    this.size = 64,
+    this.color = HavenColors.active,
+    this.duration = const Duration(milliseconds: 720),
+  });
+
+  @override
+  State<AnimatedCheckmark> createState() => _AnimatedCheckmarkState();
+}
+
+class _AnimatedCheckmarkState extends State<AnimatedCheckmark>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c;
+
+  @override
+  void initState() {
+    super.initState();
+    _c = AnimationController(vsync: this, duration: widget.duration)
+      ..forward();
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (context, _) => CustomPaint(
+        size: Size.square(widget.size),
+        painter: _CheckmarkPainter(
+          progress: Curves.easeOutCubic.transform(_c.value),
+          color: widget.color,
+        ),
+      ),
+    );
+  }
+}
+
+class _CheckmarkPainter extends CustomPainter {
+  final double progress;
+  final Color color;
+
+  _CheckmarkPainter({required this.progress, required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..strokeWidth = size.width * 0.12;
+
+    // Checkmark points, normalized to the box.
+    final p1 = Offset(size.width * 0.22, size.height * 0.52);
+    final p2 = Offset(size.width * 0.44, size.height * 0.72);
+    final p3 = Offset(size.width * 0.78, size.height * 0.32);
+
+    final path = Path()..moveTo(p1.dx, p1.dy);
+    // Split progress across two segments proportional to their length.
+    final seg1Length = (p2 - p1).distance;
+    final seg2Length = (p3 - p2).distance;
+    final total = seg1Length + seg2Length;
+    final cutoff = seg1Length / total;
+
+    if (progress <= cutoff) {
+      final t = progress / cutoff;
+      final end = Offset.lerp(p1, p2, t)!;
+      path.lineTo(end.dx, end.dy);
+    } else {
+      path.lineTo(p2.dx, p2.dy);
+      final t = (progress - cutoff) / (1 - cutoff);
+      final end = Offset.lerp(p2, p3, t)!;
+      path.lineTo(end.dx, end.dy);
+    }
+
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _CheckmarkPainter old) =>
+      old.progress != progress || old.color != color;
 }

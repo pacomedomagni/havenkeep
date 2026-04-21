@@ -9,6 +9,7 @@ import 'package:shared_ui/shared_ui.dart';
 import '../../core/providers/items_provider.dart';
 import '../../core/utils/error_handler.dart';
 import '../../core/widgets/error_state_widget.dart';
+import '../../core/utils/haven_haptics.dart';
 
 /// Edit item form screen. Mirrors the manual entry layout but pre-fills all
 /// fields from the existing item and supports dirty-state tracking.
@@ -145,7 +146,7 @@ class _EditItemScreenState extends ConsumerState<EditItemScreen> {
     final orig = _originalItem;
     if (orig == null) return;
 
-    HapticFeedback.mediumImpact();
+    HavenHaptics.confirm();
     setState(() => _saving = true);
 
     try {
@@ -234,7 +235,7 @@ class _EditItemScreenState extends ConsumerState<EditItemScreen> {
   }
 
   Future<void> _pickPurchaseDate() async {
-    HapticFeedback.lightImpact();
+    HavenHaptics.tap();
     final picked = await showDatePicker(
       context: context,
       initialDate: _purchaseDate,
@@ -312,6 +313,8 @@ class _EditItemScreenState extends ConsumerState<EditItemScreen> {
                   TextFormField(
                     controller: _nameController,
                     decoration: const InputDecoration(labelText: 'Product Name *'),
+                    textInputAction: TextInputAction.next,
+                    textCapitalization: TextCapitalization.words,
                     validator: (v) =>
                         v == null || v.trim().isEmpty ? 'Name is required' : null,
                     onChanged: (_) => setState(() {}),
@@ -332,6 +335,8 @@ class _EditItemScreenState extends ConsumerState<EditItemScreen> {
                   TextFormField(
                     controller: _modelController,
                     decoration: const InputDecoration(labelText: 'Model Number'),
+                    textInputAction: TextInputAction.next,
+                    textCapitalization: TextCapitalization.characters,
                     onChanged: (_) => setState(() {}),
                   ),
                   const SizedBox(height: HavenSpacing.md),
@@ -340,6 +345,8 @@ class _EditItemScreenState extends ConsumerState<EditItemScreen> {
                   TextFormField(
                     controller: _serialController,
                     decoration: const InputDecoration(labelText: 'Serial Number'),
+                    textInputAction: TextInputAction.next,
+                    textCapitalization: TextCapitalization.characters,
                     onChanged: (_) => setState(() {}),
                   ),
                   const SizedBox(height: HavenSpacing.md),
@@ -396,6 +403,8 @@ class _EditItemScreenState extends ConsumerState<EditItemScreen> {
                   TextFormField(
                     controller: _storeController,
                     decoration: const InputDecoration(labelText: 'Store'),
+                    textInputAction: TextInputAction.next,
+                    textCapitalization: TextCapitalization.words,
                     onChanged: (_) => setState(() {}),
                   ),
                   const SizedBox(height: HavenSpacing.md),
@@ -409,6 +418,7 @@ class _EditItemScreenState extends ConsumerState<EditItemScreen> {
                     ),
                     keyboardType:
                         const TextInputType.numberWithOptions(decimal: true),
+                    textInputAction: TextInputAction.next,
                     inputFormatters: [
                       FilteringTextInputFormatter.allow(
                         RegExp(r'^\d*\.?\d{0,2}'),
@@ -459,6 +469,8 @@ class _EditItemScreenState extends ConsumerState<EditItemScreen> {
                     controller: _warrantyProviderController,
                     decoration:
                         const InputDecoration(labelText: 'Warranty Provider'),
+                    textInputAction: TextInputAction.next,
+                    textCapitalization: TextCapitalization.words,
                     onChanged: (_) => setState(() {}),
                   ),
                   const SizedBox(height: HavenSpacing.md),
@@ -471,6 +483,8 @@ class _EditItemScreenState extends ConsumerState<EditItemScreen> {
                       alignLabelWithHint: true,
                     ),
                     maxLines: 4,
+                    textInputAction: TextInputAction.newline,
+                    textCapitalization: TextCapitalization.sentences,
                     onChanged: (_) => setState(() {}),
                   ),
                   const SizedBox(height: HavenSpacing.md),
@@ -483,6 +497,7 @@ class _EditItemScreenState extends ConsumerState<EditItemScreen> {
                       prefixIcon: Icon(Icons.qr_code, size: 20),
                     ),
                     keyboardType: TextInputType.number,
+                    textInputAction: TextInputAction.next,
                     onChanged: (_) => setState(() {}),
                     validator: (value) {
                       if (value == null || value.isEmpty) return null;
@@ -502,6 +517,7 @@ class _EditItemScreenState extends ConsumerState<EditItemScreen> {
                       prefixIcon: Icon(Icons.image_outlined, size: 20),
                     ),
                     keyboardType: TextInputType.url,
+                    textInputAction: TextInputAction.done,
                     onChanged: (_) => setState(() {}),
                     validator: (value) {
                       if (value == null || value.isEmpty) return null;

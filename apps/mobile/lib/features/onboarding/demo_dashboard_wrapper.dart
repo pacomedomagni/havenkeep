@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_ui/shared_ui.dart';
 
 import '../../core/providers/demo_mode_provider.dart';
+import '../../core/utils/money_formatter.dart';
 import '../home/dashboard_screen.dart';
+import '../../core/utils/haven_haptics.dart';
 
 /// Wraps the dashboard with interactive demo callouts and "Exit Demo" CTA.
 class DemoDashboardWrapper extends ConsumerStatefulWidget {
@@ -79,7 +80,7 @@ class _DemoDashboardWrapperState extends ConsumerState<DemoDashboardWrapper> {
                   ),
                   TextButton(
                     onPressed: () {
-                      HapticFeedback.mediumImpact();
+                      HavenHaptics.confirm();
                       _showExitConfirmation(context);
                     },
                     style: TextButton.styleFrom(
@@ -88,7 +89,7 @@ class _DemoDashboardWrapperState extends ConsumerState<DemoDashboardWrapper> {
                           horizontal: 12, vertical: 6),
                       backgroundColor: HavenColors.textPrimary.withValues(alpha: 0.2),
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
+                        borderRadius: BorderRadius.circular(HavenRadius.pill),
                       ),
                     ),
                     child: const Text('Exit Demo'),
@@ -111,7 +112,7 @@ class _DemoDashboardWrapperState extends ConsumerState<DemoDashboardWrapper> {
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   color: HavenColors.accent.withValues(alpha: 0.95),
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(HavenRadius.button),
                   boxShadow: [
                     BoxShadow(
                       color: HavenColors.accent.withValues(alpha: 0.3),
@@ -175,7 +176,7 @@ class _DemoDashboardWrapperState extends ConsumerState<DemoDashboardWrapper> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'Protecting \$${stats.totalValue.toStringAsFixed(0)} in warranties',
+                              'Protecting ${Money.formatWhole(stats.totalValue)} in warranties',
                               style: const TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
@@ -201,13 +202,13 @@ class _DemoDashboardWrapperState extends ConsumerState<DemoDashboardWrapper> {
                     height: 52,
                     child: FilledButton(
                       onPressed: () {
-                        HapticFeedback.mediumImpact();
+                        HavenHaptics.confirm();
                         _showExitConfirmation(context);
                       },
                       style: FilledButton.styleFrom(
                         backgroundColor: HavenColors.accent,
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(HavenRadius.button),
                         ),
                       ),
                       child: const Text(

@@ -12,6 +12,8 @@ import '../../core/providers/auth_provider.dart';
 import '../../core/utils/error_handler.dart';
 import '../../core/widgets/havenkeep_logo.dart';
 import 'forgot_password_screen.dart';
+import '../../core/widgets/haven_loader.dart';
+import '../../core/utils/haven_haptics.dart';
 
 /// Welcome screen — sign up / sign in (Screen 1.2).
 ///
@@ -122,7 +124,7 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
 
   Future<void> _submitEmail() async {
     if (_formKey.currentState?.validate() != true) {
-      HapticFeedback.lightImpact();
+      HavenHaptics.tap();
       return;
     }
 
@@ -159,7 +161,7 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
   }
 
   void _showError(String message) {
-    HapticFeedback.mediumImpact();
+    HavenHaptics.confirm();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
@@ -540,10 +542,7 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
                     ? const SizedBox(
                         height: 20,
                         width: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
+                        child: HavenLoader(color: Colors.white),
                       )
                     : Text(_isSignUp ? 'Create Account' : 'Sign In'),
               ),

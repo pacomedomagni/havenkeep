@@ -100,7 +100,7 @@ class _PreviewScreenState extends State<PreviewScreen> {
                       onPressed: widget.onGetStarted,
                       style: FilledButton.styleFrom(
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
+                          borderRadius: BorderRadius.circular(HavenRadius.card),
                         ),
                       ),
                       child: const Text(
@@ -123,7 +123,7 @@ class _PreviewScreenState extends State<PreviewScreen> {
                       onPressed: widget.onTryDemo,
                       style: OutlinedButton.styleFrom(
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
+                          borderRadius: BorderRadius.circular(HavenRadius.card),
                         ),
                       ),
                       child: Row(

@@ -9,6 +9,7 @@ import '../../core/providers/homes_provider.dart';
 import '../../core/router/router.dart';
 import '../../core/utils/error_handler.dart';
 import 'bulk_add/bulk_add_provider.dart';
+import '../../core/widgets/haven_loader.dart';
 
 /// Home setup screen — name your home (Screen 2.1).
 ///
@@ -197,10 +198,7 @@ class _HomeSetupScreenState extends ConsumerState<HomeSetupScreen> {
                         ? const SizedBox(
                             height: 20,
                             width: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
+                            child: HavenLoader(color: Colors.white),
                           )
                         : const Text('Start with Kitchen →'),
                   ),

@@ -25,7 +25,7 @@ class MainScaffold extends StatelessWidget {
       bottomNavigationBar: _BottomNav(),
       floatingActionButton: FloatingActionButton(
         onPressed: () => context.push(AppRoutes.addItem),
-        tooltip: 'Add item',
+        tooltip: 'Add warranty',
         backgroundColor: HavenColors.primary,
         foregroundColor: Colors.white,
         elevation: 4,
@@ -41,7 +41,11 @@ class _BottomNav extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final location = GoRouterState.of(context).matchedLocation;
-    final currentIndex = location.startsWith(AppRoutes.items) ? 1 : 0;
+    final currentIndex = location.startsWith(AppRoutes.maintenance)
+        ? 2
+        : location.startsWith(AppRoutes.items)
+            ? 1
+            : 0;
 
     return BottomAppBar(
       color: HavenColors.surface,
@@ -61,17 +65,28 @@ class _BottomNav extends StatelessWidget {
             ),
           ),
 
-          // Spacer for FAB
-          const SizedBox(width: 48),
-
-          // Items tab
+          // Warranties tab
           Expanded(
             child: _NavItem(
               icon: Icons.inventory_2_outlined,
               activeIcon: Icons.inventory_2,
-              label: 'Items',
+              label: 'Warranties',
               isSelected: currentIndex == 1,
               onTap: () => context.go(AppRoutes.items),
+            ),
+          ),
+
+          // Spacer for centered FAB
+          const SizedBox(width: 48),
+
+          // Maintenance tab
+          Expanded(
+            child: _NavItem(
+              icon: Icons.build_outlined,
+              activeIcon: Icons.build,
+              label: 'Maintenance',
+              isSelected: currentIndex == 2,
+              onTap: () => context.go(AppRoutes.maintenance),
             ),
           ),
         ],

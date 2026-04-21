@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -11,6 +10,9 @@ import '../../core/providers/auth_provider.dart';
 import '../../core/providers/maintenance_provider.dart';
 import '../../core/router/router.dart';
 import '../../core/utils/error_handler.dart';
+import '../../core/widgets/haven_illustration.dart';
+import '../../core/widgets/haven_loader.dart';
+import '../../core/utils/haven_haptics.dart';
 
 /// Dashboard showing due/overdue maintenance tasks grouped by item.
 class MaintenanceScreen extends ConsumerWidget {
@@ -38,10 +40,10 @@ class MaintenanceScreen extends ConsumerWidget {
         icon: const Icon(Icons.add),
         label: const Text('Log Task'),
         backgroundColor: HavenColors.primary,
-        foregroundColor: Colors.white,
+        foregroundColor: HavenColors.textPrimary,
       ),
       body: dueAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
+        loading: () => const Center(child: HavenLoader()),
         error: (e, _) => Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -63,25 +65,17 @@ class MaintenanceScreen extends ConsumerWidget {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.build_outlined,
-                        size: 64, color: HavenColors.textTertiary),
-                    SizedBox(height: HavenSpacing.md),
-                    Text(
-                      'No maintenance tasks',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: HavenColors.textPrimary,
-                      ),
+                    HavenIllustration(
+                      kind: HavenIllustrationKind.noMaintenance,
+                      size: 180,
                     ),
+                    SizedBox(height: HavenSpacing.md),
+                    Text('All caught up', style: HavenText.displayMedium),
                     SizedBox(height: HavenSpacing.sm),
                     Text(
-                      'Maintenance schedules will appear\nhere based on your items.',
+                      'Maintenance schedules will appear here\nbased on your warranties.',
                       textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: HavenColors.textSecondary,
-                      ),
+                      style: HavenText.bodySecondary,
                     ),
                   ],
                 ),
@@ -89,78 +83,88 @@ class MaintenanceScreen extends ConsumerWidget {
             );
           }
 
+          // Virtualized list so users with 200+ items don't build every card.
           return RefreshIndicator(
             onRefresh: () async {
               ref.invalidate(maintenanceDueProvider);
               await ref.read(maintenanceDueProvider.future);
             },
             color: HavenColors.primary,
-            child: ListView(
+            child: ListView.builder(
               padding: const EdgeInsets.all(HavenSpacing.md),
-              children: [
-                // Summary card
-                Container(
-                  padding: const EdgeInsets.all(HavenSpacing.md),
-                  decoration: BoxDecoration(
-                    color: HavenColors.elevated,
-                    borderRadius: BorderRadius.circular(HavenRadius.card),
-                  ),
-                  child: Row(
-                    children: [
-                      _SummaryChip(
-                        count: summary.totalOverdue,
-                        label: 'Overdue',
-                        color: HavenColors.expired,
+              itemCount: summary.items.length + 1, // +1 for summary card
+              itemBuilder: (context, index) {
+                if (index == 0) {
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: HavenSpacing.lg),
+                    child: Container(
+                      padding: const EdgeInsets.all(HavenSpacing.md),
+                      decoration: BoxDecoration(
+                        color: HavenColors.elevated,
+                        borderRadius:
+                            BorderRadius.circular(HavenRadius.card),
                       ),
-                      const SizedBox(width: HavenSpacing.md),
-                      _SummaryChip(
-                        count: summary.totalDue - summary.totalOverdue,
-                        label: 'Coming Up',
-                        color: HavenColors.expiring,
+                      child: Row(
+                        children: [
+                          _SummaryChip(
+                            count: summary.totalOverdue,
+                            label: 'Overdue',
+                            color: HavenColors.expired,
+                          ),
+                          const SizedBox(width: HavenSpacing.md),
+                          _SummaryChip(
+                            count:
+                                summary.totalDue - summary.totalOverdue,
+                            label: 'Coming Up',
+                            color: HavenColors.expiring,
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: HavenSpacing.lg),
+                    ),
+                  );
+                }
 
-                // Items with tasks
-                ...summary.items.map((item) => _MaintenanceItemCard(
-                      item: item,
-                      dateFormat: dateFormat,
-                      onMarkDone: (task) async {
-                        final entry = MaintenanceHistory(
-                          id: '',
-                          userId: ref.read(currentUserProvider).value?.id ?? '',
-                          itemId: item.itemId,
-                          scheduleId: task.scheduleId,
-                          taskName: task.taskName,
-                          completedDate: DateTime.now(),
-                          createdAt: DateTime.now(),
+                final item = summary.items[index - 1];
+                return _MaintenanceItemCard(
+                  item: item,
+                  dateFormat: dateFormat,
+                  onMarkDone: (task) async {
+                    final entry = MaintenanceHistory(
+                      id: '',
+                      userId:
+                          ref.read(currentUserProvider).value?.id ?? '',
+                      itemId: item.itemId,
+                      scheduleId: task.scheduleId,
+                      taskName: task.taskName,
+                      completedDate: DateTime.now(),
+                      createdAt: DateTime.now(),
+                    );
+                    try {
+                      await ref
+                          .read(maintenanceRepositoryProvider)
+                          .logTask(entry);
+                      HavenHaptics.confirm();
+                      ref.invalidate(maintenanceDueProvider);
+                      ref.invalidate(maintenanceHistoryProvider);
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                              content: Text(
+                                  '${task.taskName} marked as done')),
                         );
-                        try {
-                          await ref
-                              .read(maintenanceRepositoryProvider)
-                              .logTask(entry);
-                          HapticFeedback.mediumImpact();
-                          ref.invalidate(maintenanceDueProvider);
-                          ref.invalidate(maintenanceHistoryProvider);
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                  content:
-                                      Text('${task.taskName} marked as done')),
-                            );
-                          }
-                        } catch (e) {
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text(ErrorHandler.getUserMessage(e))),
-                            );
-                          }
-                        }
-                      },
-                    )),
-              ],
+                      }
+                    } catch (e) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                              content:
+                                  Text(ErrorHandler.getUserMessage(e))),
+                        );
+                      }
+                    }
+                  },
+                );
+              },
             ),
           );
         },
@@ -331,7 +335,7 @@ class _MaintenanceItemCard extends StatelessWidget {
                                   ),
                                   decoration: BoxDecoration(
                                     color: HavenColors.primary.withValues(alpha: 0.15),
-                                    borderRadius: BorderRadius.circular(4),
+                                    borderRadius: BorderRadius.circular(HavenRadius.micro),
                                   ),
                                   child: const Text(
                                     'WARRANTY',

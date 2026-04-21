@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_ui/shared_ui.dart';
@@ -7,6 +6,7 @@ import 'package:shared_ui/shared_ui.dart';
 import '../../../core/providers/items_provider.dart';
 import '../../../core/router/router.dart';
 import 'bulk_add_provider.dart';
+import '../../../core/utils/haven_haptics.dart';
 
 /// Room walkthrough screen (Screens 2.2–2.4).
 ///
@@ -33,7 +33,7 @@ class _RoomSetupScreenState extends ConsumerState<RoomSetupScreen> {
   }
 
   void _toggleAppliance(BulkAddAppliance appliance) {
-    HapticFeedback.mediumImpact();
+    HavenHaptics.confirm();
     final notifier = ref.read(bulkAddProvider.notifier);
     final state = ref.read(bulkAddProvider);
     final items = state.currentRoomItems;
@@ -231,7 +231,7 @@ class _RoomSetupScreenState extends ConsumerState<RoomSetupScreen> {
                 const SizedBox(height: HavenSpacing.sm),
                 // Progress bar
                 ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
+                  borderRadius: BorderRadius.circular(HavenRadius.micro),
                   child: LinearProgressIndicator(
                     value: progress,
                     backgroundColor: HavenColors.border,

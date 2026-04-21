@@ -14,6 +14,8 @@ import '../../core/providers/items_provider.dart';
 import '../../core/services/image_upload_service.dart';
 import '../../core/utils/error_handler.dart';
 import '../../core/widgets/error_state_widget.dart';
+import '../../core/widgets/haven_image.dart';
+import '../../core/widgets/haven_loader.dart';
 
 /// Profile editing screen.
 ///
@@ -182,38 +184,26 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     children: [
                       Stack(
                         children: [
-                          CircleAvatar(
+                          HavenAvatar(
+                            url: user.avatarUrl,
                             radius: 40,
-                            backgroundColor: HavenColors.primary,
-                            backgroundImage: user.avatarUrl != null
-                                ? NetworkImage(user.avatarUrl!)
-                                : null,
-                            child: user.avatarUrl == null
-                                ? Text(
-                                    (user.fullName.isNotEmpty ? user.fullName[0] : '?').toUpperCase(),
-                                    style: const TextStyle(
-                                      fontSize: 32,
-                                      color: HavenColors.textPrimary,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  )
-                                : null,
+                            fallback: Text(
+                              (user.fullName.isNotEmpty ? user.fullName[0] : '?').toUpperCase(),
+                              style: HavenText.stat,
+                            ),
                           ),
                           if (_isUploadingPhoto)
                             Positioned.fill(
                               child: Container(
                                 decoration: BoxDecoration(
-                                  color: Colors.black.withValues(alpha: 0.5),
+                                  color: HavenColors.background.withValues(alpha: 0.5),
                                   shape: BoxShape.circle,
                                 ),
                                 child: const Center(
                                   child: SizedBox(
                                     width: 24,
                                     height: 24,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Colors.white,
-                                    ),
+                                    child: HavenLoader(color: Colors.white),
                                   ),
                                 ),
                               ),
@@ -295,9 +285,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         ),
                         child: Text(
                           isPremium ? 'Premium' : 'Free Plan',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
+                          style: HavenText.badge.copyWith(
+                            letterSpacing: 0,
                             color: isPremium
                                 ? HavenColors.active
                                 : HavenColors.expiring,
@@ -307,12 +296,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       const SizedBox(width: HavenSpacing.md),
                       Text(
                         isPremium
-                            ? 'Unlimited items'
-                            : '$itemCount/$kFreePlanItemLimit items',
-                        style: const TextStyle(
-                          fontSize: 14,
-                          color: HavenColors.textSecondary,
-                        ),
+                            ? 'Unlimited warranties'
+                            : '$itemCount/$kFreePlanItemLimit warranties',
+                        style: HavenText.bodySecondary,
                       ),
                     ],
                   ),
@@ -333,13 +319,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
+                        Text(
                           'Share your referral code and help friends protect their home.',
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: HavenColors.textSecondary,
-                            height: 1.4,
-                          ),
+                          style: HavenText.meta.copyWith(height: 1.4),
                         ),
                         const SizedBox(height: HavenSpacing.md),
                         Row(
@@ -357,10 +339,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                 ),
                                 child: Text(
                                   user.referralCode!,
-                                  style: const TextStyle(
+                                  style: HavenText.titleLarge.copyWith(
                                     color: HavenColors.primary,
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
+                                    fontWeight: FontWeight.w700,
                                     letterSpacing: 1.5,
                                   ),
                                 ),
@@ -420,10 +401,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         ? const SizedBox(
                             width: 20,
                             height: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: HavenColors.textPrimary,
-                            ),
+                            child: HavenLoader(color: HavenColors.textPrimary),
                           )
                         : const Text('Save Changes'),
                   ),
@@ -473,10 +451,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             children: [
               const Text(
                 'A verification link will be sent to your new email address.',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: HavenColors.textSecondary,
-                ),
+                style: HavenText.meta,
               ),
               const SizedBox(height: HavenSpacing.md),
               TextFormField(

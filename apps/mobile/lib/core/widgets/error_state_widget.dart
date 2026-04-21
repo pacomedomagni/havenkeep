@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_ui/shared_ui.dart';
 
 import '../utils/error_handler.dart';
+import 'haven_loader.dart';
 
 /// A reusable widget for displaying error states with optional retry action.
 ///
@@ -296,7 +297,7 @@ class AsyncStateBuilder<T> extends StatelessWidget {
     if (asyncValue.connectionState == ConnectionState.waiting) {
       return loadingWidget ??
           const Center(
-            child: CircularProgressIndicator(),
+            child: HavenLoader(),
           );
     }
 

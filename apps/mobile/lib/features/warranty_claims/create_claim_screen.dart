@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -10,6 +9,8 @@ import '../../core/providers/auth_provider.dart';
 import '../../core/providers/items_provider.dart';
 import '../../core/providers/warranty_claims_provider.dart';
 import '../../core/utils/error_handler.dart';
+import '../../core/widgets/haven_loader.dart';
+import '../../core/utils/haven_haptics.dart';
 
 /// Screen to create a new warranty claim for a specific item.
 class CreateClaimScreen extends ConsumerStatefulWidget {
@@ -119,7 +120,7 @@ class _CreateClaimScreenState extends ConsumerState<CreateClaimScreen> {
       await ref.read(claimsProvider.notifier).addClaim(claim);
 
       if (mounted) {
-        HapticFeedback.mediumImpact();
+        HavenHaptics.confirm();
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Warranty claim created')),
         );
@@ -145,7 +146,7 @@ class _CreateClaimScreenState extends ConsumerState<CreateClaimScreen> {
       backgroundColor: HavenColors.background,
       appBar: AppBar(title: const Text('New Warranty Claim')),
       body: itemAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
+        loading: () => const Center(child: HavenLoader()),
         error: (e, _) => Center(child: Text(ErrorHandler.getUserMessage(e))),
         data: (item) => Form(
           key: _formKey,
@@ -330,7 +331,7 @@ class _CreateClaimScreenState extends ConsumerState<CreateClaimScreen> {
                       ? const SizedBox(
                           width: 20,
                           height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
+                          child: HavenLoader(),
                         )
                       : const Text('Create Claim'),
                 ),
@@ -352,6 +353,9 @@ class _CreateClaimScreenState extends ConsumerState<CreateClaimScreen> {
       controller: controller,
       maxLines: maxLines,
       style: const TextStyle(color: HavenColors.textPrimary),
+      textInputAction:
+          maxLines > 1 ? TextInputAction.newline : TextInputAction.next,
+      textCapitalization: TextCapitalization.sentences,
       decoration: InputDecoration(
         hintText: hint,
         hintStyle: const TextStyle(color: HavenColors.textTertiary),
@@ -377,6 +381,7 @@ class _CreateClaimScreenState extends ConsumerState<CreateClaimScreen> {
     return TextFormField(
       controller: controller,
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      textInputAction: TextInputAction.next,
       style: const TextStyle(color: HavenColors.textPrimary),
       decoration: InputDecoration(
         labelText: label,

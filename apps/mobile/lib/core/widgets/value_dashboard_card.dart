@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:shared_ui/shared_ui.dart';
+
+import '../utils/money_formatter.dart';
+import '../../core/utils/haven_haptics.dart';
 
 /// Enhanced dashboard card showing total value protected and warranty health.
 class ValueDashboardCard extends StatelessWidget {
@@ -23,7 +25,7 @@ class ValueDashboardCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: () {
-        HapticFeedback.lightImpact();
+        HavenHaptics.tap();
         onTap?.call();
       },
       child: Container(
@@ -37,7 +39,7 @@ class ValueDashboardCard extends StatelessWidget {
               HavenColors.accentSecondary,
             ],
           ),
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(HavenRadius.chip),
           boxShadow: [
             BoxShadow(
               color: HavenColors.accent.withValues(alpha: 0.3),
@@ -53,10 +55,10 @@ class ValueDashboardCard extends StatelessWidget {
             Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.all(10),
+                  padding: const EdgeInsets.all(HavenSpacing.sm),
                   decoration: BoxDecoration(
                     color: HavenColors.textPrimary.withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(HavenRadius.button),
                   ),
                   child: const Icon(
                     Icons.shield_outlined,
@@ -70,27 +72,14 @@ class ValueDashboardCard extends StatelessWidget {
                       const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
                     color: HavenColors.textPrimary.withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(20),
+                    borderRadius: BorderRadius.circular(HavenRadius.chip),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text(
-                        '$warrantyHealth%',
-                        style: const TextStyle(
-                          color: HavenColors.textPrimary,
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
+                      Text('$warrantyHealth%', style: HavenText.body.copyWith(fontWeight: FontWeight.w700)),
                       const SizedBox(width: 4),
-                      const Text(
-                        'Health',
-                        style: TextStyle(
-                          color: HavenColors.textPrimary,
-                          fontSize: 12,
-                        ),
-                      ),
+                      Text('Health', style: HavenText.caption.copyWith(color: HavenColors.textPrimary)),
                     ],
                   ),
                 ),
@@ -102,24 +91,17 @@ class ValueDashboardCard extends StatelessWidget {
             // Total value
             Text(
               'Total Value Protected',
-              style: TextStyle(
-                color: HavenColors.textPrimary.withValues(alpha: 0.9),
-                fontSize: 14,
+              style: HavenText.body.copyWith(
                 fontWeight: FontWeight.w500,
+                color: HavenColors.textPrimary.withValues(alpha: 0.9),
               ),
             ),
 
-            const SizedBox(height: 8),
+            const SizedBox(height: HavenSpacing.sm),
 
             Text(
-              '\$${_formatCurrency(totalValue)}',
-              style: const TextStyle(
-                color: HavenColors.textPrimary,
-                fontSize: 40,
-                fontWeight: FontWeight.bold,
-                height: 1,
-                letterSpacing: -1,
-              ),
+              Money.formatCompact(totalValue),
+              style: HavenText.hero.copyWith(letterSpacing: -1),
             ),
 
             const SizedBox(height: 20),
@@ -131,7 +113,7 @@ class ValueDashboardCard extends StatelessWidget {
                   child: _buildStat(
                     icon: Icons.inventory_2_outlined,
                     value: '$totalItems',
-                    label: totalItems == 1 ? 'Item' : 'Items',
+                    label: totalItems == 1 ? 'Warranty' : 'Warranties',
                   ),
                 ),
                 Container(
@@ -159,9 +141,8 @@ class ValueDashboardCard extends StatelessWidget {
             // Health message
             Text(
               _getHealthMessage(),
-              style: TextStyle(
+              style: HavenText.meta.copyWith(
                 color: HavenColors.textPrimary.withValues(alpha: 0.85),
-                fontSize: 13,
                 height: 1.4,
               ),
             ),
@@ -183,22 +164,14 @@ class ValueDashboardCard extends StatelessWidget {
           children: [
             Icon(icon, color: HavenColors.textPrimary, size: 16),
             const SizedBox(width: 6),
-            Text(
-              value,
-              style: const TextStyle(
-                color: HavenColors.textPrimary,
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
+            Text(value, style: HavenText.displayMedium),
           ],
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: HavenSpacing.xs),
         Text(
           label,
-          style: TextStyle(
+          style: HavenText.caption.copyWith(
             color: HavenColors.textPrimary.withValues(alpha: 0.8),
-            fontSize: 12,
           ),
         ),
       ],
@@ -219,10 +192,9 @@ class ValueDashboardCard extends StatelessWidget {
                 children: [
                   Text(
                     'Warranty Health',
-                    style: TextStyle(
-                      color: HavenColors.textPrimary.withValues(alpha: 0.9),
-                      fontSize: 12,
+                    style: HavenText.caption.copyWith(
                       fontWeight: FontWeight.w500,
+                      color: HavenColors.textPrimary.withValues(alpha: 0.9),
                     ),
                   ),
                   const SizedBox(width: 4),
@@ -236,25 +208,25 @@ class ValueDashboardCard extends StatelessWidget {
             ),
             Text(
               '$warrantyHealth%',
-              style: const TextStyle(
+              style: HavenText.caption.copyWith(
+                fontWeight: FontWeight.w700,
                 color: HavenColors.textPrimary,
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
               ),
             ),
           ],
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: HavenSpacing.xs),
         Text(
-          '$activeWarranties of $totalItems items actively covered',
-          style: TextStyle(
+          '$activeWarranties of $totalItems warranties actively covered',
+          style: HavenText.badge.copyWith(
+            fontWeight: FontWeight.w400,
+            letterSpacing: 0,
             color: HavenColors.textPrimary.withValues(alpha: 0.7),
-            fontSize: 11,
           ),
         ),
         const SizedBox(height: 8),
         ClipRRect(
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(HavenRadius.pill),
           child: LinearProgressIndicator(
             value: warrantyHealth / 100,
             minHeight: 8,
@@ -286,13 +258,4 @@ class ValueDashboardCard extends StatelessWidget {
     }
   }
 
-  String _formatCurrency(double value) {
-    if (value >= 1000000) {
-      return '${(value / 1000000).toStringAsFixed(1)}M';
-    } else if (value >= 1000) {
-      return '${(value / 1000).toStringAsFixed(1)}K';
-    } else {
-      return value.toStringAsFixed(0);
-    }
-  }
 }

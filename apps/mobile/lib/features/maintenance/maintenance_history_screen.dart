@@ -6,6 +6,9 @@ import 'package:shared_ui/shared_ui.dart';
 
 import '../../core/providers/maintenance_provider.dart';
 import '../../core/utils/error_handler.dart';
+import '../../core/utils/money_formatter.dart';
+import '../../core/widgets/haven_illustration.dart';
+import '../../core/widgets/haven_loader.dart';
 
 /// Paginated maintenance history list with infinite scroll and delete.
 class MaintenanceHistoryScreen extends ConsumerStatefulWidget {
@@ -107,7 +110,7 @@ class _MaintenanceHistoryScreenState
   Widget _buildBody(DateFormat dateFormat) {
     // Initial loading state
     if (_isInitialLoad && _isLoading) {
-      return const Center(child: CircularProgressIndicator());
+      return const Center(child: HavenLoader());
     }
 
     // Error on initial load with no data
@@ -136,24 +139,20 @@ class _MaintenanceHistoryScreenState
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.history, size: 64, color: HavenColors.textTertiary),
+              HavenIllustration(
+                kind: HavenIllustrationKind.noMaintenance,
+                size: 180,
+              ),
               SizedBox(height: HavenSpacing.md),
               Text(
                 'No maintenance history',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: HavenColors.textPrimary,
-                ),
+                style: HavenText.displayMedium,
               ),
               SizedBox(height: HavenSpacing.sm),
               Text(
                 'Completed maintenance tasks\nwill appear here.',
                 textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 14,
-                  color: HavenColors.textSecondary,
-                ),
+                style: HavenText.bodySecondary,
               ),
             ],
           ),
@@ -174,7 +173,7 @@ class _MaintenanceHistoryScreenState
           if (index == _items.length) {
             return const Padding(
               padding: EdgeInsets.symmetric(vertical: HavenSpacing.md),
-              child: Center(child: CircularProgressIndicator()),
+              child: Center(child: HavenLoader()),
             );
           }
 
@@ -295,7 +294,7 @@ class _MaintenanceHistoryScreenState
                             color: HavenColors.textTertiary)),
                   if (entry.cost != null)
                     Text(
-                      '\$${entry.cost!.toStringAsFixed(2)}',
+                      Money.format(entry.cost),
                       style: const TextStyle(
                         fontSize: 12,
                         color: HavenColors.textTertiary,

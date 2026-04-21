@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_ui/shared_ui.dart';
 
 import 'add_item_wizard_screen.dart';
+import '../../../core/utils/haven_haptics.dart';
 
 /// Step 2: Warranty (purchase date, warranty length) - ~20 seconds.
 class WizardStep2Warranty extends StatefulWidget {
@@ -135,12 +135,12 @@ class _WizardStep2WarrantyState extends State<WizardStep2Warranty> {
                     label: 'Pick purchase date',
                     child: InkWell(
                       onTap: _pickDate,
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius: BorderRadius.circular(HavenRadius.card),
                       child: Container(
-                        padding: const EdgeInsets.all(20),
+                        padding: const EdgeInsets.all(HavenSpacing.lg),
                         decoration: BoxDecoration(
                           color: HavenColors.surface,
-                          borderRadius: BorderRadius.circular(16),
+                          borderRadius: BorderRadius.circular(HavenRadius.card),
                           border: Border.all(color: HavenColors.border),
                         ),
                         child: Row(
@@ -204,7 +204,7 @@ class _WizardStep2WarrantyState extends State<WizardStep2Warranty> {
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
                         color: HavenColors.active.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(HavenRadius.button),
                         border: Border.all(
                           color: HavenColors.active.withValues(alpha: 0.3),
                         ),
@@ -255,7 +255,7 @@ class _WizardStep2WarrantyState extends State<WizardStep2Warranty> {
               onPressed: _canContinue ? _handleNext : null,
               style: FilledButton.styleFrom(
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(HavenRadius.card),
                 ),
               ),
               child: const Text(
@@ -283,17 +283,20 @@ class _WizardStep2WarrantyState extends State<WizardStep2Warranty> {
           label: label,
           child: InkWell(
             onTap: () {
-              HapticFeedback.selectionClick();
+              HavenHaptics.select();
               setState(() {
                 widget.data.warrantyMonths = months;
               });
             },
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(HavenRadius.button),
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+              padding: const EdgeInsets.symmetric(
+                horizontal: HavenSpacing.lg,
+                vertical: HavenSpacing.md,
+              ),
               decoration: BoxDecoration(
                 color: isSelected ? HavenColors.primary : HavenColors.surface,
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(HavenRadius.button),
                 border: Border.all(
                   color: isSelected ? HavenColors.primary : HavenColors.border,
                   width: 2,

@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_ui/shared_ui.dart';
 
 import '../../core/providers/auth_provider.dart';
 import '../../core/router/router.dart';
+import '../../core/utils/haven_haptics.dart';
 
 /// First Action screen (Screen 1.3) — "What do you want to do first?"
 ///
@@ -122,7 +122,7 @@ class _ActionCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: () {
-        HapticFeedback.mediumImpact();
+        HavenHaptics.confirm();
         onTap();
       },
       child: AnimatedContainer(

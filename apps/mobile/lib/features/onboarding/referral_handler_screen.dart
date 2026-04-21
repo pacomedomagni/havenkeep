@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shared_ui/shared_ui.dart';
 
 import '../../core/router/router.dart';
+import '../../core/widgets/haven_loader.dart';
 
 /// Key for storing referral code in shared preferences.
 const kReferralCodeKey = 'referral_code';
@@ -73,7 +74,7 @@ class _ReferralHandlerScreenState
               style: TextStyle(color: HavenColors.textSecondary),
             ),
             const SizedBox(height: HavenSpacing.lg),
-            const CircularProgressIndicator(color: HavenColors.primary),
+            const HavenLoader(color: HavenColors.primary),
           ],
         ),
       ),

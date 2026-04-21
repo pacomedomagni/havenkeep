@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:api_client/api_client.dart';
@@ -8,6 +7,7 @@ import 'package:shared_ui/shared_ui.dart';
 
 import '../../core/providers/items_provider.dart';
 import '../../core/router/router.dart';
+import '../../core/utils/haven_haptics.dart';
 
 /// Add item screen -- method selection (fullscreenDialog).
 ///
@@ -131,7 +131,7 @@ class AddItemScreen extends ConsumerWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // Quick-Add section
-              const SectionHeader(title: 'Quick Add'),
+              const SectionHeader(title: 'Add in seconds'),
               const SizedBox(height: HavenSpacing.sm),
 
               // 3x3 category grid
@@ -148,7 +148,7 @@ class AddItemScreen extends ConsumerWidget {
                       category: entry.$1,
                       label: entry.$2,
                       onTap: () {
-                        HapticFeedback.mediumImpact();
+                        HavenHaptics.confirm();
                         context.push('/add-item/quick/${entry.$1.name}');
                       },
                     ),
@@ -159,7 +159,7 @@ class AddItemScreen extends ConsumerWidget {
                     label: 'Other',
                     customEmoji: '\u{00B7}\u{00B7}\u{00B7}',
                     onTap: () {
-                      HapticFeedback.mediumImpact();
+                      HavenHaptics.confirm();
                       context.push('/add-item/quick/${ItemCategory.other.name}');
                     },
                   ),
@@ -190,33 +190,33 @@ class AddItemScreen extends ConsumerWidget {
               const SizedBox(height: HavenSpacing.lg),
 
               // Method cards
-              // 1. Scan Receipt
+              // 1. Scan Receipt — AI-assisted
               _MethodCard(
                 icon: Icons.camera_alt_outlined,
-                title: 'Scan Receipt',
-                subtitle: 'Auto-extract details',
+                title: 'Snap a receipt',
+                subtitle: 'Our AI fills in the details',
                 isDisabled: false,
                 onTap: () => context.push(AppRoutes.scanReceipt),
               ),
               const SizedBox(height: HavenSpacing.sm),
 
-              // 2. Full Manual Entry
+              // 2. Barcode — product lookup
               _MethodCard(
-                icon: Icons.edit_outlined,
-                title: 'Full Manual Entry',
-                subtitle: 'All fields',
+                icon: Icons.qr_code_scanner,
+                title: 'Scan a barcode',
+                subtitle: 'Auto-identify your product',
                 isDisabled: false,
-                onTap: () => context.push(AppRoutes.manualEntry),
+                onTap: () => context.push(AppRoutes.scanBarcode),
               ),
               const SizedBox(height: HavenSpacing.sm),
 
-              // 3. Scan Barcode
+              // 3. Manual entry — fallback for rarely-used items
               _MethodCard(
-                icon: Icons.qr_code_scanner,
-                title: 'Scan Barcode',
-                subtitle: 'Look up product info',
+                icon: Icons.edit_outlined,
+                title: 'Enter it yourself',
+                subtitle: 'Type all the details',
                 isDisabled: false,
-                onTap: () => context.push(AppRoutes.scanBarcode),
+                onTap: () => context.push(AppRoutes.manualEntry),
               ),
             ],
           ),
@@ -247,7 +247,7 @@ class _CategoryTile extends StatelessWidget {
       child: Container(
         decoration: BoxDecoration(
           color: HavenColors.elevated,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(HavenRadius.button),
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -304,7 +304,7 @@ class _MethodCard extends StatelessWidget {
           padding: const EdgeInsets.all(HavenSpacing.md),
           decoration: BoxDecoration(
             color: HavenColors.surface,
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(HavenRadius.button),
             border: Border.all(color: HavenColors.border),
           ),
           child: Row(

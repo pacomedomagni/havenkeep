@@ -9,6 +9,7 @@ import 'package:shared_ui/shared_ui.dart';
 import '../../core/providers/documents_provider.dart';
 import '../../core/services/pdf_export_service.dart';
 import '../../core/utils/error_handler.dart';
+import '../../core/widgets/haven_loader.dart';
 
 /// Full-screen PDF preview of a warranty claim document.
 ///
@@ -116,7 +117,7 @@ class _PdfPreviewScreenState extends ConsumerState<PdfPreviewScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            CircularProgressIndicator(color: HavenColors.primary),
+            HavenLoader(color: HavenColors.primary),
             SizedBox(height: HavenSpacing.md),
             Text(
               'Generating PDF...',

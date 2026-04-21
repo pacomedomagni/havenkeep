@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:havenkeep_mobile/core/widgets/haven_loader.dart';
 import 'package:havenkeep_mobile/core/widgets/retry_button.dart';
 
 void main() {
@@ -101,14 +102,14 @@ void main() {
 
       // Initial state - shows icon
       expect(find.byIcon(Icons.refresh), findsOneWidget);
-      expect(find.byType(CircularProgressIndicator), findsNothing);
+      expect(find.byType(HavenLoader), findsNothing);
 
       // Tap the button
       await tester.tap(find.text('Retry'));
       await tester.pump();
 
       // Loading state - shows progress indicator
-      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      expect(find.byType(HavenLoader), findsOneWidget);
       expect(find.byIcon(Icons.refresh), findsNothing);
 
       // Wait for retry to complete
@@ -116,7 +117,7 @@ void main() {
 
       // Back to initial state
       expect(find.byIcon(Icons.refresh), findsOneWidget);
-      expect(find.byType(CircularProgressIndicator), findsNothing);
+      expect(find.byType(HavenLoader), findsNothing);
     });
 
     testWidgets('disabled when disabled is true', (tester) async {

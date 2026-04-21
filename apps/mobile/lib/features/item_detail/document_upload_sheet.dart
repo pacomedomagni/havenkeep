@@ -9,6 +9,7 @@ import 'package:shared_ui/shared_ui.dart';
 
 import '../../core/providers/documents_provider.dart';
 import '../../core/utils/error_handler.dart';
+import '../../core/widgets/haven_loader.dart';
 
 /// Maximum file size for document uploads (10 MB).
 const _kMaxFileSizeBytes = 10 * 1024 * 1024;
@@ -405,10 +406,7 @@ class _DocumentUploadSheetState extends ConsumerState<DocumentUploadSheet> {
                       ? const SizedBox(
                           width: 20,
                           height: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
+                          child: HavenLoader(color: Colors.white),
                         )
                       : Icon(
                           _errorMessage != null ? Icons.refresh : Icons.upload,

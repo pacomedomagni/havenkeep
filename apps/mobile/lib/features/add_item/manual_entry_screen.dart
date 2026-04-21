@@ -11,6 +11,7 @@ import '../../core/providers/items_provider.dart';
 import '../../core/utils/error_handler.dart';
 import '../../core/utils/price_parser.dart';
 import '../../core/widgets/celebration_overlay.dart';
+import '../../core/widgets/haven_loader.dart';
 
 /// Full manual entry form for adding an item with all fields.
 class ManualEntryScreen extends ConsumerStatefulWidget {
@@ -224,7 +225,7 @@ class _ManualEntryScreenState extends ConsumerState<ManualEntryScreen> {
       backgroundColor: HavenColors.background,
       appBar: AppBar(
         title: const Text(
-          'Add Item',
+          'Add Warranty',
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
         bottom: PreferredSize(
@@ -541,10 +542,7 @@ class _ManualEntryScreenState extends ConsumerState<ManualEntryScreen> {
                       ? const SizedBox(
                           width: 20,
                           height: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: HavenColors.textPrimary,
-                          ),
+                          child: HavenLoader(color: HavenColors.textPrimary),
                         )
                       : const Text(
                           'Save Item',

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'haven_loader.dart';
 
 /// A reusable retry button widget with loading state.
 ///
@@ -129,11 +130,8 @@ class _RetryButtonState extends State<RetryButton> {
       return SizedBox(
         width: size ?? 18,
         height: size ?? 18,
-        child: CircularProgressIndicator(
-          strokeWidth: 2,
-          valueColor: AlwaysStoppedAnimation<Color>(
-            Theme.of(context).colorScheme.onPrimary,
-          ),
+        child: HavenLoader(
+          color: Theme.of(context).colorScheme.onPrimary,
         ),
       );
     }

@@ -112,7 +112,7 @@ class _GiftActivationSuccessScreenState
                       elevation: 0,
                       color: HavenColors.surface,
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
+                        borderRadius: BorderRadius.circular(HavenRadius.card),
                         side: const BorderSide(color: HavenColors.border),
                       ),
                       child: Padding(
@@ -187,7 +187,7 @@ class _GiftActivationSuccessScreenState
                       style: ElevatedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 16),
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(HavenRadius.button),
                         ),
                         elevation: 2,
                       ),

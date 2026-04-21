@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -11,6 +10,8 @@ import '../../core/providers/homes_provider.dart';
 import '../../core/providers/items_provider.dart';
 import '../../core/utils/error_handler.dart';
 import '../../core/widgets/celebration_overlay.dart';
+import '../../core/widgets/haven_loader.dart';
+import '../../core/utils/haven_haptics.dart';
 
 /// Quick-Add form screen for a specific category.
 ///
@@ -56,7 +57,7 @@ class _QuickAddScreenState extends ConsumerState<QuickAddScreen> {
   bool get _isFormValid => _brand.isNotEmpty && _purchaseDate != null;
 
   Future<void> _pickDate() async {
-    HapticFeedback.lightImpact();
+    HavenHaptics.tap();
     final now = DateTime.now();
     final picked = await showDatePicker(
       context: context,
@@ -87,7 +88,7 @@ class _QuickAddScreenState extends ConsumerState<QuickAddScreen> {
   Future<void> _save() async {
     if (!(_formKey.currentState?.validate() ?? false) || !_isFormValid) return;
 
-    HapticFeedback.mediumImpact();
+    HavenHaptics.confirm();
     setState(() => _isSaving = true);
 
     try {
@@ -341,7 +342,7 @@ class _QuickAddScreenState extends ConsumerState<QuickAddScreen> {
                         label: 'Change room',
                         child: TextButton(
                           onPressed: () async {
-                            HapticFeedback.lightImpact();
+                            HavenHaptics.tap();
                             await showDialog<ItemRoom?>(
                               context: context,
                               builder: (ctx) => AlertDialog(
@@ -387,10 +388,7 @@ class _QuickAddScreenState extends ConsumerState<QuickAddScreen> {
                       ? const SizedBox(
                           width: 20,
                           height: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: HavenColors.textPrimary,
-                          ),
+                          child: HavenLoader(color: HavenColors.textPrimary),
                         )
                       : const Text(
                           'Save Item',

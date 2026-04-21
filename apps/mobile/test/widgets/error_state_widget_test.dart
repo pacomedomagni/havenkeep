@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:havenkeep_mobile/core/widgets/error_state_widget.dart';
+import 'package:havenkeep_mobile/core/widgets/haven_loader.dart';
 
 void main() {
   group('ErrorStateWidget', () {
@@ -291,7 +292,7 @@ void main() {
         ),
       );
 
-      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      expect(find.byType(HavenLoader), findsOneWidget);
     });
 
     testWidgets('shows custom loading widget when provided', (tester) async {
@@ -308,7 +309,7 @@ void main() {
       );
 
       expect(find.text('Custom loading'), findsOneWidget);
-      expect(find.byType(CircularProgressIndicator), findsNothing);
+      expect(find.byType(HavenLoader), findsNothing);
     });
 
     testWidgets('shows error state when has error', (tester) async {

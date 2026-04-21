@@ -24,21 +24,37 @@ class HavenDatabase extends _$HavenDatabase {
   HavenDatabase() : super(_openConnection());
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
+    onCreate: (m) async {
+      await m.createAll();
+      await _createIndexes();
+    },
     onUpgrade: (m, from, to) async {
-      // Stepwise migration: apply each version's changes in order.
       for (var target = from + 1; target <= to; target++) {
         switch (target) {
           case 2:
-            // Example: await m.addColumn(localItems, localItems.newColumn);
+            await _createIndexes();
             break;
         }
       }
     },
   );
+
+  Future<void> _createIndexes() async {
+    await customStatement(
+        'CREATE INDEX IF NOT EXISTS idx_local_items_warranty_end_date ON local_items (warranty_end_date)');
+    await customStatement(
+        'CREATE INDEX IF NOT EXISTS idx_local_items_home_id ON local_items (home_id)');
+    await customStatement(
+        'CREATE INDEX IF NOT EXISTS idx_local_items_is_archived ON local_items (is_archived)');
+    await customStatement(
+        'CREATE INDEX IF NOT EXISTS idx_local_items_home_archived ON local_items (home_id, is_archived)');
+    await customStatement(
+        'CREATE INDEX IF NOT EXISTS idx_offline_queue_status_created ON offline_queue (status, created_at)');
+  }
 
   // ---------------------------------------------------------------------------
   // LOCAL ITEMS

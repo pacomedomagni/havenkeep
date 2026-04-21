@@ -12,11 +12,15 @@ import '../../core/providers/auth_provider.dart';
 import '../../core/providers/homes_provider.dart';
 import '../../core/providers/items_provider.dart';
 import '../../core/router/router.dart';
+import '../../core/services/auto_archive_service.dart';
 import '../../core/services/biometric_service.dart';
 import '../../core/services/csv_export_service.dart';
 import '../../core/services/offline_sync_service.dart';
+import '../../core/services/pdf_export_service.dart';
 import '../../core/services/secure_storage_service.dart';
 import '../../main.dart';
+import '../../core/widgets/haven_image.dart';
+import '../../core/widgets/haven_loader.dart';
 
 /// Reads the app version + build number from the package metadata.
 final appVersionProvider = FutureProvider<String>((ref) async {
@@ -100,27 +104,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
                 child: Row(
                   children: [
-                    CircleAvatar(
+                    HavenAvatar(
+                      url: u?.avatarUrl,
                       radius: 24,
-                      backgroundColor: HavenColors.primary,
-                      backgroundImage: u?.avatarUrl != null && u!.avatarUrl!.isNotEmpty
-                          ? NetworkImage(u.avatarUrl!)
-                          : null,
-                      onBackgroundImageError: u?.avatarUrl != null
-                          ? (error, __) {
-                              debugPrint('Avatar load failed: $error');
-                            }
-                          : null,
-                      child: u?.avatarUrl == null || u!.avatarUrl!.isEmpty
-                          ? Text(
-                              _getInitials(u?.fullName),
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 18,
-                              ),
-                            )
-                          : null,
+                      fallback: Text(
+                        _getInitials(u?.fullName),
+                        style: HavenText.titleLarge.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                     ),
                     const SizedBox(width: HavenSpacing.md),
                     Expanded(
@@ -129,19 +121,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         children: [
                           Text(
                             u?.fullName ?? 'User',
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              color: HavenColors.textPrimary,
-                            ),
+                            style: HavenText.titleLarge,
                           ),
                           const SizedBox(height: 2),
                           Text(
                             u?.email ?? '',
-                            style: const TextStyle(
-                              fontSize: 13,
-                              color: HavenColors.textSecondary,
-                            ),
+                            style: HavenText.meta,
                           ),
                         ],
                       ),
@@ -189,30 +174,32 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
           const SizedBox(height: HavenSpacing.lg),
 
-          // ITEMS section
-          const SectionHeader(title: 'ITEMS'),
+          // WARRANTIES section
+          const SectionHeader(title: 'WARRANTIES'),
           const SizedBox(height: HavenSpacing.sm),
 
           _SettingsTile(
             icon: Icons.archive_outlined,
-            title: 'Archived Items',
+            title: 'Archived Warranties',
             subtitle: archivedAsync.whenOrNull(
                   data: (items) =>
-                      '${items.length} ${items.length == 1 ? 'item' : 'items'}',
+                      '${items.length} ${items.length == 1 ? 'warranty' : 'warranties'}',
                 ) ??
                 'Loading...',
             onTap: () => context.push(AppRoutes.archivedItems),
           ),
           const SizedBox(height: HavenSpacing.xs),
+          const _AutoArchiveToggleTile(),
+          const SizedBox(height: HavenSpacing.xs),
           _SettingsTile(
             icon: Icons.file_download_outlined,
-            title: 'Export Items (CSV)',
-            subtitle: 'Download all items as a spreadsheet',
+            title: 'Export Warranties (CSV)',
+            subtitle: 'Download all warranties as a spreadsheet',
             onTap: () async {
               final items = ref.read(itemsProvider).valueOrNull ?? [];
               if (items.isEmpty) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('No items to export')),
+                  const SnackBar(content: Text('No warranties to export')),
                 );
                 return;
               }
@@ -222,6 +209,33 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('Export failed. Please try again.')),
+                  );
+                }
+              }
+            },
+          ),
+          const SizedBox(height: HavenSpacing.xs),
+          _SettingsTile(
+            icon: Icons.picture_as_pdf_outlined,
+            title: 'Export Warranties (PDF)',
+            subtitle: 'Insurance-ready warranty summary',
+            onTap: () async {
+              final items = ref.read(itemsProvider).valueOrNull ?? [];
+              if (items.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('No warranties to export')),
+                );
+                return;
+              }
+              try {
+                final svc = ref.read(pdfExportServiceProvider);
+                final bytes = await svc.generateWarrantiesSummaryPdf(items);
+                final stamp = DateTime.now().toIso8601String().split('T').first;
+                await svc.sharePdf(bytes, 'havenkeep-warranties-$stamp.pdf');
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('PDF export failed. Please try again.')),
                   );
                 }
               }
@@ -273,12 +287,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           borderRadius:
                               BorderRadius.circular(HavenRadius.chip),
                         ),
-                        child: const Text(
+                        child: Text(
                           'Upgrade',
-                          style: TextStyle(
-                            fontSize: 10,
+                          style: HavenText.badge.copyWith(
                             color: HavenColors.primary,
-                            fontWeight: FontWeight.w600,
+                            letterSpacing: 0,
                           ),
                         ),
                       ),
@@ -339,17 +352,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ),
                   title: const Text(
                     'Biometric Unlock',
-                    style: TextStyle(
-                      fontSize: 15,
-                      color: HavenColors.textPrimary,
-                    ),
+                    style: HavenText.titleMedium,
                   ),
                   subtitle: const Text(
                     'Use fingerprint or face to unlock',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: HavenColors.textTertiary,
-                    ),
+                    style: HavenText.caption,
                   ),
                   value: _biometricEnabled,
                   activeThumbColor: HavenColors.primary,
@@ -558,20 +565,13 @@ class _SettingsTile extends StatelessWidget {
                 children: [
                   Text(
                     title,
-                    style: const TextStyle(
-                      fontSize: 15,
-                      color: HavenColors.textPrimary,
+                    style: HavenText.titleMedium.copyWith(
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
                   if (subtitle != null) ...[
                     const SizedBox(height: 2),
-                    Text(
-                      subtitle!,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: HavenColors.textTertiary,
-                      ),
-                    ),
+                    Text(subtitle!, style: HavenText.caption),
                   ],
                 ],
               ),
@@ -645,9 +645,8 @@ class _PendingChangesSection extends ConsumerWidget {
                   children: [
                     Text(
                       '$pendingCount pending, $failedCount failed',
-                      style: const TextStyle(
-                        fontSize: 15,
-                        color: HavenColors.textPrimary,
+                      style: HavenText.titleMedium.copyWith(
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
                     const SizedBox(height: 2),
@@ -655,10 +654,7 @@ class _PendingChangesSection extends ConsumerWidget {
                       failedCount > 0
                           ? 'Some changes could not be synced'
                           : 'Changes waiting to sync',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: HavenColors.textTertiary,
-                      ),
+                      style: HavenText.caption,
                     ),
                   ],
                 ),
@@ -699,10 +695,7 @@ class _PendingChangesSection extends ConsumerWidget {
                           Expanded(
                             child: Text(
                               '${item.action} ${item.entityType} (${item.attempts} attempts)',
-                              style: const TextStyle(
-                                fontSize: 13,
-                                color: HavenColors.textSecondary,
-                              ),
+                              style: HavenText.meta,
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
@@ -745,7 +738,7 @@ class _PendingChangesSection extends ConsumerWidget {
             loading: () => const Center(
               child: Padding(
                 padding: EdgeInsets.all(HavenSpacing.md),
-                child: CircularProgressIndicator(strokeWidth: 2),
+                child: HavenLoader(),
               ),
             ),
             error: (_, __) => const SizedBox.shrink(),
@@ -754,6 +747,48 @@ class _PendingChangesSection extends ConsumerWidget {
 
         const SizedBox(height: HavenSpacing.lg),
       ],
+    );
+  }
+}
+
+/// Switch tile for the auto-archive behavior (warranties expired > 90 days).
+class _AutoArchiveToggleTile extends StatefulWidget {
+  const _AutoArchiveToggleTile();
+
+  @override
+  State<_AutoArchiveToggleTile> createState() => _AutoArchiveToggleTileState();
+}
+
+class _AutoArchiveToggleTileState extends State<_AutoArchiveToggleTile> {
+  bool? _enabled;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final v = await AutoArchiveService.isEnabled();
+    if (mounted) setState(() => _enabled = v);
+  }
+
+  Future<void> _set(bool value) async {
+    setState(() => _enabled = value);
+    await AutoArchiveService.setEnabled(value);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _SettingsTile(
+      icon: Icons.auto_delete_outlined,
+      title: 'Auto-Archive Expired',
+      subtitle: 'Hide warranties expired more than 90 days',
+      trailing: Switch.adaptive(
+        value: _enabled ?? true,
+        onChanged: _enabled == null ? null : _set,
+        activeThumbColor: HavenColors.primary,
+      ),
     );
   }
 }

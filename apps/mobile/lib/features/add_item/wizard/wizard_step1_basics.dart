@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:shared_models/shared_models.dart';
 import 'package:shared_ui/shared_ui.dart';
 
 import 'add_item_wizard_screen.dart';
+import '../../../core/utils/haven_haptics.dart';
 
 /// Step 1: Basics (name, category, brand) - ~30 seconds.
 class WizardStep1Basics extends StatefulWidget {
@@ -153,7 +153,7 @@ class _WizardStep1BasicsState extends State<WizardStep1Basics> {
                 onPressed: _canContinue ? _handleNext : null,
                 style: FilledButton.styleFrom(
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: BorderRadius.circular(HavenRadius.card),
                   ),
                 ),
                 child: const Text(
@@ -190,17 +190,17 @@ class _WizardStep1BasicsState extends State<WizardStep1Basics> {
           label: category.displayLabel,
           child: InkWell(
             onTap: () {
-              HapticFeedback.selectionClick();
+              HavenHaptics.select();
               setState(() {
                 widget.data.category = category;
               });
             },
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(HavenRadius.button),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
                 color: isSelected ? HavenColors.primary : HavenColors.surface,
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(HavenRadius.button),
                 border: Border.all(
                   color: isSelected ? HavenColors.primary : HavenColors.border,
                 ),

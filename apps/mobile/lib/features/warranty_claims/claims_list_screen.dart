@@ -7,6 +7,9 @@ import 'package:shared_ui/shared_ui.dart';
 
 import '../../core/providers/warranty_claims_provider.dart';
 import '../../core/utils/error_handler.dart';
+import '../../core/utils/money_formatter.dart';
+import '../../core/widgets/haven_illustration.dart';
+import '../../core/widgets/haven_loader.dart';
 
 /// Screen showing all warranty claims with a savings summary card.
 class ClaimsListScreen extends ConsumerWidget {
@@ -23,7 +26,7 @@ class ClaimsListScreen extends ConsumerWidget {
       backgroundColor: HavenColors.background,
       appBar: AppBar(title: const Text('Warranty Claims')),
       body: claimsAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
+        loading: () => const Center(child: HavenLoader()),
         error: (e, _) => Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -45,25 +48,20 @@ class ClaimsListScreen extends ConsumerWidget {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.receipt_long_outlined,
-                        size: 64, color: HavenColors.textTertiary),
+                    HavenIllustration(
+                      kind: HavenIllustrationKind.noClaims,
+                      size: 180,
+                    ),
                     SizedBox(height: HavenSpacing.md),
                     Text(
                       'No warranty claims yet',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: HavenColors.textPrimary,
-                      ),
+                      style: HavenText.displayMedium,
                     ),
                     SizedBox(height: HavenSpacing.sm),
                     Text(
                       'When you file a warranty claim,\nit will appear here.',
                       textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: HavenColors.textSecondary,
-                      ),
+                      style: HavenText.bodySecondary,
                     ),
                   ],
                 ),
@@ -84,7 +82,7 @@ class ClaimsListScreen extends ConsumerWidget {
                     padding: const EdgeInsets.all(HavenSpacing.lg),
                     decoration: BoxDecoration(
                       gradient: const LinearGradient(
-                        colors: [HavenColors.primary, Color(0xFF8B5CF6)],
+                        colors: [HavenColors.primary, HavenColors.secondary],
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                       ),
@@ -93,30 +91,23 @@ class ClaimsListScreen extends ConsumerWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
+                        Text(
                           'TOTAL SAVINGS',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white70,
+                          style: HavenText.badge.copyWith(
+                            color: HavenColors.textPrimary.withValues(alpha: 0.75),
                             letterSpacing: 1.2,
                           ),
                         ),
                         const SizedBox(height: HavenSpacing.sm),
                         Text(
-                          '\$${totalSaved.toStringAsFixed(2)}',
-                          style: const TextStyle(
-                            fontSize: 32,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                          ),
+                          Money.format(totalSaved),
+                          style: HavenText.stat.copyWith(fontSize: 32),
                         ),
                         const SizedBox(height: HavenSpacing.xs),
                         Text(
                           '$totalClaims claim${totalClaims == 1 ? '' : 's'} filed',
-                          style: const TextStyle(
-                            fontSize: 14,
-                            color: Colors.white70,
+                          style: HavenText.bodySecondary.copyWith(
+                            color: HavenColors.textPrimary.withValues(alpha: 0.75),
                           ),
                         ),
                       ],
@@ -250,10 +241,9 @@ class _ClaimCard extends ConsumerWidget {
                     ),
                     child: Text(
                       claim.status.displayLabel,
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
+                      style: HavenText.badge.copyWith(
                         color: color,
+                        letterSpacing: 0,
                       ),
                     ),
                   ),
@@ -265,10 +255,7 @@ class _ClaimCard extends ConsumerWidget {
                   claim.issueDescription!,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    color: HavenColors.textSecondary,
-                  ),
+                  style: HavenText.meta,
                 ),
                 const SizedBox(height: HavenSpacing.sm),
               ],
@@ -276,19 +263,15 @@ class _ClaimCard extends ConsumerWidget {
                 children: [
                   Text(
                     dateFormat.format(claim.claimDate),
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: HavenColors.textTertiary,
-                    ),
+                    style: HavenText.caption,
                   ),
                   const Spacer(),
                   if (claim.amountSaved > 0)
                     Text(
-                      'Saved \$${claim.amountSaved.toStringAsFixed(2)}',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
+                      'Saved ${Money.format(claim.amountSaved)}',
+                      style: HavenText.caption.copyWith(
                         color: HavenColors.active,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                 ],
@@ -347,10 +330,8 @@ class _SavingsFeedEntry extends StatelessWidget {
               children: [
                 Text(
                   subtitle,
-                  style: const TextStyle(
+                  style: HavenText.meta.copyWith(
                     color: HavenColors.textPrimary,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -358,19 +339,19 @@ class _SavingsFeedEntry extends StatelessWidget {
                 if (location.isNotEmpty)
                   Text(
                     location,
-                    style: const TextStyle(
+                    style: HavenText.badge.copyWith(
+                      fontWeight: FontWeight.w400,
+                      letterSpacing: 0,
                       color: HavenColors.textTertiary,
-                      fontSize: 11,
                     ),
                   ),
               ],
             ),
           ),
           Text(
-            '\$${amount.toStringAsFixed(0)} saved',
-            style: const TextStyle(
+            '${Money.formatWhole(amount)} saved',
+            style: HavenText.meta.copyWith(
               color: HavenColors.active,
-              fontSize: 13,
               fontWeight: FontWeight.w600,
             ),
           ),

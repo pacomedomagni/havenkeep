@@ -4,6 +4,7 @@ import 'package:shared_ui/shared_ui.dart';
 
 import '../providers/connectivity_provider.dart';
 import '../services/offline_sync_service.dart';
+import 'haven_loader.dart';
 
 /// A banner that shows offline status and sync progress.
 ///
@@ -105,10 +106,7 @@ class _Banner extends StatelessWidget {
               SizedBox(
                 width: 16,
                 height: 16,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: color,
-                ),
+                child: HavenLoader(color: color),
               )
             else
               Icon(icon, size: 16, color: color),

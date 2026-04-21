@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_models/shared_models.dart';
@@ -13,6 +12,7 @@ import '../../../core/widgets/celebration_overlay.dart';
 import 'wizard_step1_basics.dart';
 import 'wizard_step2_warranty.dart';
 import 'wizard_step3_details.dart';
+import '../../../core/utils/haven_haptics.dart';
 
 /// Multi-step wizard for adding items (replaces long 17-field form).
 ///
@@ -42,7 +42,7 @@ class _AddItemWizardScreenState extends ConsumerState<AddItemWizardScreen> {
 
   void _nextStep() {
     if (_currentStep < 2) {
-      HapticFeedback.lightImpact();
+      HavenHaptics.tap();
       setState(() {
         _currentStep++;
       });
@@ -56,7 +56,7 @@ class _AddItemWizardScreenState extends ConsumerState<AddItemWizardScreen> {
 
   void _previousStep() {
     if (_currentStep > 0) {
-      HapticFeedback.lightImpact();
+      HavenHaptics.tap();
       setState(() {
         _currentStep--;
       });
@@ -151,7 +151,7 @@ class _AddItemWizardScreenState extends ConsumerState<AddItemWizardScreen> {
     return Scaffold(
       backgroundColor: HavenColors.background,
       appBar: AppBar(
-        title: const Text('Add Item'),
+        title: const Text('Add Warranty'),
         leading: IconButton(
           icon: const Icon(Icons.close),
           onPressed: () => context.pop(),

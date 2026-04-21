@@ -12,6 +12,8 @@ import '../../core/providers/items_provider.dart';
 import '../../core/router/router.dart';
 import '../../core/services/barcode_lookup_service.dart';
 import '../../core/utils/error_handler.dart';
+import '../../core/widgets/haven_image.dart';
+import '../../core/widgets/haven_loader.dart';
 
 /// Barcode scan screen — uses the camera to detect barcodes,
 /// looks up product info, and creates a new item.
@@ -182,7 +184,7 @@ class _BarcodeScanScreenState extends ConsumerState<BarcodeScanScreen> {
             height: 160,
             decoration: BoxDecoration(
               border: Border.all(color: HavenColors.primary, width: 2),
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(HavenRadius.button),
             ),
           ),
         ),
@@ -217,7 +219,7 @@ class _BarcodeScanScreenState extends ConsumerState<BarcodeScanScreen> {
 
         if (_isLookingUp)
           const Center(
-            child: CircularProgressIndicator(color: HavenColors.primary),
+            child: HavenLoader(color: HavenColors.primary),
           ),
       ],
     );
@@ -242,12 +244,12 @@ class _BarcodeScanScreenState extends ConsumerState<BarcodeScanScreen> {
                   color: HavenColors.surface,
                   borderRadius: BorderRadius.circular(HavenRadius.card),
                 ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(HavenRadius.card),
-                  child: Image.network(
-                    result.imageUrl!,
-                    fit: BoxFit.contain,
-                    errorBuilder: (_, __, ___) => const Icon(
+                child: HavenImage(
+                  url: result.imageUrl,
+                  fit: BoxFit.contain,
+                  borderRadius: HavenRadius.card,
+                  errorFallback: const Center(
+                    child: Icon(
                       Icons.image_not_supported,
                       color: HavenColors.textTertiary,
                     ),
@@ -367,10 +369,7 @@ class _BarcodeScanScreenState extends ConsumerState<BarcodeScanScreen> {
                   ? const SizedBox(
                       width: 20,
                       height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: HavenColors.textPrimary,
-                      ),
+                      child: HavenLoader(color: HavenColors.textPrimary),
                     )
                   : Text(result.hasData ? 'Add This Item' : 'Add Manually'),
             ),

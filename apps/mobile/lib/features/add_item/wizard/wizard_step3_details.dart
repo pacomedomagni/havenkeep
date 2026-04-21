@@ -3,6 +3,7 @@ import 'package:shared_models/shared_models.dart';
 import 'package:shared_ui/shared_ui.dart';
 
 import 'add_item_wizard_screen.dart';
+import '../../../core/widgets/haven_loader.dart';
 
 /// Step 3: Details (optional: price, store, room) - ~15 seconds.
 class WizardStep3Details extends StatefulWidget {
@@ -155,7 +156,7 @@ class _WizardStep3DetailsState extends State<WizardStep3Details> {
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
                       color: HavenColors.primary.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(HavenRadius.button),
                     ),
                     child: const Row(
                       children: [
@@ -188,7 +189,7 @@ class _WizardStep3DetailsState extends State<WizardStep3Details> {
               onPressed: widget.isSaving ? null : _handleSave,
               style: FilledButton.styleFrom(
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(HavenRadius.card),
                 ),
                 backgroundColor: HavenColors.active,
               ),
@@ -196,10 +197,7 @@ class _WizardStep3DetailsState extends State<WizardStep3Details> {
                   ? const SizedBox(
                       width: 24,
                       height: 24,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(HavenColors.textPrimary),
-                      ),
+                      child: HavenLoader(color: Colors.white),
                     )
                   : const Row(
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -255,12 +253,12 @@ class _WizardStep3DetailsState extends State<WizardStep3Details> {
                 widget.data.room = isSelected ? null : room;
               });
             },
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(HavenRadius.button),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
                 color: isSelected ? HavenColors.primary : HavenColors.surface,
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(HavenRadius.button),
                 border: Border.all(
                   color: isSelected ? HavenColors.primary : HavenColors.border,
                 ),

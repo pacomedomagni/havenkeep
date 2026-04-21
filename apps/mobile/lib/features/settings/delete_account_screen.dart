@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_models/shared_models.dart';
 import 'package:shared_ui/shared_ui.dart';
 
 import '../../core/providers/auth_provider.dart';
 import '../../core/utils/error_handler.dart';
+import '../../core/widgets/haven_loader.dart';
+import '../../core/utils/haven_haptics.dart';
 
 /// Delete account screen — permanent account deletion with password confirmation.
 class DeleteAccountScreen extends ConsumerStatefulWidget {
@@ -30,7 +31,7 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
 
   Future<void> _deleteAccount() async {
     if (_passwordController.text.isEmpty) {
-      HapticFeedback.lightImpact();
+      HavenHaptics.tap();
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Enter your password to confirm deletion'),
@@ -60,7 +61,7 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
       // Navigation handled by GoRouter auth guard (user becomes unauthenticated)
     } catch (e) {
       if (mounted) {
-        HapticFeedback.mediumImpact();
+        HavenHaptics.confirm();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(ErrorHandler.getUserMessage(e)),
@@ -91,7 +92,7 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
       await ref.read(currentUserProvider.notifier).deleteOAuthAccount();
     } catch (e) {
       if (mounted) {
-        HapticFeedback.mediumImpact();
+        HavenHaptics.confirm();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(ErrorHandler.getUserMessage(e)),
@@ -139,18 +140,14 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
 
               const Text(
                 'This action is permanent',
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                  color: HavenColors.textPrimary,
-                ),
+                style: HavenText.displayMedium,
               ),
               const SizedBox(height: HavenSpacing.sm),
-              const Text(
+              Text(
                 'Deleting your account will permanently remove:',
-                style: TextStyle(
-                  fontSize: 15,
+                style: HavenText.titleMedium.copyWith(
                   color: HavenColors.textSecondary,
+                  fontWeight: FontWeight.w400,
                   height: 1.4,
                 ),
               ),
@@ -167,11 +164,11 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
 
               if (isOAuthUser) ...[
                 // OAuth users: delete without password, just confirm
-                const Text(
+                Text(
                   'Since you signed in with a social account, no password is needed. Just confirm below.',
-                  style: TextStyle(
-                    fontSize: 15,
+                  style: HavenText.titleMedium.copyWith(
                     color: HavenColors.textSecondary,
+                    fontWeight: FontWeight.w400,
                     height: 1.4,
                   ),
                 ),
@@ -194,14 +191,10 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
                         ),
                       ),
                       const SizedBox(width: HavenSpacing.sm),
-                      const Expanded(
+                      Expanded(
                         child: Text(
                           'I understand that this action is permanent and all my data will be deleted.',
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: HavenColors.textSecondary,
-                            height: 1.4,
-                          ),
+                          style: HavenText.meta.copyWith(height: 1.4),
                         ),
                       ),
                     ],
@@ -226,21 +219,16 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
                         ? const SizedBox(
                             height: 20,
                             width: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
+                            child: HavenLoader(color: Colors.white),
                           )
                         : const Text('Delete My Account'),
                   ),
                 ),
               ] else ...[
                 // Password confirmation
-                const Text(
+                Text(
                   'Enter your password to confirm:',
-                  style: TextStyle(
-                    fontSize: 15,
-                    color: HavenColors.textPrimary,
+                  style: HavenText.titleMedium.copyWith(
                     fontWeight: FontWeight.w500,
                   ),
                 ),
@@ -284,14 +272,10 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
                         ),
                       ),
                       const SizedBox(width: HavenSpacing.sm),
-                      const Expanded(
+                      Expanded(
                         child: Text(
                           'I understand that this action is permanent and all my data will be deleted.',
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: HavenColors.textSecondary,
-                            height: 1.4,
-                          ),
+                          style: HavenText.meta.copyWith(height: 1.4),
                         ),
                       ),
                     ],
@@ -316,10 +300,7 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
                         ? const SizedBox(
                             height: 20,
                             width: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
+                            child: HavenLoader(color: Colors.white),
                           )
                         : const Text('Delete My Account'),
                   ),
@@ -344,13 +325,7 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
           ),
           const SizedBox(width: HavenSpacing.sm),
           Expanded(
-            child: Text(
-              text,
-              style: const TextStyle(
-                fontSize: 14,
-                color: HavenColors.textSecondary,
-              ),
-            ),
+            child: Text(text, style: HavenText.bodySecondary),
           ),
         ],
       ),

@@ -5,7 +5,9 @@ import 'package:shared_ui/shared_ui.dart';
 
 import '../../core/providers/auth_provider.dart';
 import '../../core/providers/notifications_provider.dart';
+import '../../core/services/notification_prefs_local.dart';
 import '../../core/utils/error_handler.dart';
+import '../../core/widgets/haven_loader.dart';
 
 /// Notification preferences screen.
 ///
@@ -29,11 +31,84 @@ class _NotificationPreferencesScreenState
   bool _pushEnabled = true;
   bool _emailEnabled = false;
 
+  // Local-only state (SharedPreferences)
+  bool _digestEnabled = false;
+  bool _quietHoursEnabled = false;
+  TimeOfDay _quietStart = const TimeOfDay(hour: 22, minute: 0);
+  TimeOfDay _quietEnd = const TimeOfDay(hour: 8, minute: 0);
+  List<int> _reminderCascade = NotificationPrefsLocal.defaultReminderCascade;
+
   bool _isDirty = false;
   bool _isSaving = false;
   bool _isInitialized = false;
 
   static const _reminderDayOptions = [90, 60, 30, 14, 7];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadLocalPrefs();
+  }
+
+  Future<void> _loadLocalPrefs() async {
+    final digest = await NotificationPrefsLocal.isDigestEnabled();
+    final quiet = await NotificationPrefsLocal.isQuietHoursEnabled();
+    final startMin = await NotificationPrefsLocal.getQuietStartMinutes();
+    final endMin = await NotificationPrefsLocal.getQuietEndMinutes();
+    final cascade = await NotificationPrefsLocal.getReminderCascade();
+    if (!mounted) return;
+    setState(() {
+      _digestEnabled = digest;
+      _quietHoursEnabled = quiet;
+      _quietStart = TimeOfDay(hour: startMin ~/ 60, minute: startMin % 60);
+      _quietEnd = TimeOfDay(hour: endMin ~/ 60, minute: endMin % 60);
+      _reminderCascade = cascade;
+    });
+  }
+
+  Future<void> _toggleCascadeDay(int day) async {
+    final next = List<int>.from(_reminderCascade);
+    if (next.contains(day)) {
+      next.remove(day);
+    } else {
+      next.add(day);
+    }
+    next.sort((a, b) => b.compareTo(a));
+    setState(() => _reminderCascade = next);
+    await NotificationPrefsLocal.setReminderCascade(next);
+  }
+
+  Future<void> _pickQuietTime({required bool isStart}) async {
+    final initial = isStart ? _quietStart : _quietEnd;
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: initial,
+      builder: (context, child) => Theme(
+        data: Theme.of(context).copyWith(
+          colorScheme: const ColorScheme.dark(
+            primary: HavenColors.primary,
+            surface: HavenColors.elevated,
+          ),
+        ),
+        child: child!,
+      ),
+    );
+    if (picked == null) return;
+    final minutes = picked.hour * 60 + picked.minute;
+    if (isStart) {
+      setState(() => _quietStart = picked);
+      await NotificationPrefsLocal.setQuietStartMinutes(minutes);
+    } else {
+      setState(() => _quietEnd = picked);
+      await NotificationPrefsLocal.setQuietEndMinutes(minutes);
+    }
+  }
+
+  String _fmtTod(TimeOfDay t) {
+    final period = t.hour >= 12 ? 'PM' : 'AM';
+    final hour = t.hour == 0 ? 12 : (t.hour > 12 ? t.hour - 12 : t.hour);
+    return '$hour:${t.minute.toString().padLeft(2, '0')} $period';
+  }
 
   void _initFromPrefs(NotificationPreferences? prefs) {
     if (_isInitialized) return;
@@ -306,6 +381,151 @@ class _NotificationPreferencesScreenState
               ),
             ),
           ),
+
+          const SizedBox(height: HavenSpacing.sm),
+
+          // Reminder cascade (30/14/7 style). Persists locally.
+          Container(
+            padding: const EdgeInsets.all(HavenSpacing.md),
+            decoration: BoxDecoration(
+              color: HavenColors.surface,
+              borderRadius: BorderRadius.circular(HavenRadius.card),
+              border: Border.all(color: HavenColors.border),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Reminder schedule', style: HavenText.titleMedium),
+                const SizedBox(height: 2),
+                const Text(
+                  'We\'ll ping you at each selected milestone.',
+                  style: HavenText.caption,
+                ),
+                const SizedBox(height: HavenSpacing.sm),
+                Wrap(
+                  spacing: HavenSpacing.xs,
+                  runSpacing: HavenSpacing.xs,
+                  children: NotificationPrefsLocal.availableReminderDays
+                      .map((day) {
+                    final selected = _reminderCascade.contains(day);
+                    return FilterChip(
+                      label: Text('${day}d'),
+                      selected: selected,
+                      onSelected: (_) => _toggleCascadeDay(day),
+                      checkmarkColor: HavenColors.textPrimary,
+                      backgroundColor: HavenColors.elevated,
+                      selectedColor: HavenColors.primary,
+                      labelStyle: HavenText.caption.copyWith(
+                        color: selected
+                            ? HavenColors.textPrimary
+                            : HavenColors.textSecondary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius:
+                            BorderRadius.circular(HavenRadius.chip),
+                        side: BorderSide(
+                          color: selected
+                              ? HavenColors.primary
+                              : HavenColors.border,
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ],
+            ),
+          ),
+        ],
+
+        const SizedBox(height: HavenSpacing.lg),
+
+        // ON-DEVICE section (digest + quiet hours)
+        const SectionHeader(title: 'ON-DEVICE'),
+        const SizedBox(height: HavenSpacing.sm),
+
+        _buildSwitchTile(
+          title: 'Daily Digest',
+          subtitle: 'Group warranty reminders into one daily notification',
+          value: _digestEnabled,
+          onChanged: (v) async {
+            setState(() => _digestEnabled = v);
+            await NotificationPrefsLocal.setDigestEnabled(v);
+          },
+        ),
+        const SizedBox(height: HavenSpacing.sm),
+        _buildSwitchTile(
+          title: 'Quiet Hours',
+          subtitle: 'Silence notifications during your chosen window',
+          value: _quietHoursEnabled,
+          onChanged: (v) async {
+            setState(() => _quietHoursEnabled = v);
+            await NotificationPrefsLocal.setQuietHoursEnabled(v);
+          },
+        ),
+        if (_quietHoursEnabled) ...[
+          const SizedBox(height: HavenSpacing.sm),
+          Row(
+            children: [
+              Expanded(
+                child: GestureDetector(
+                  onTap: () => _pickQuietTime(isStart: true),
+                  child: Container(
+                    padding: const EdgeInsets.all(HavenSpacing.md),
+                    decoration: BoxDecoration(
+                      color: HavenColors.surface,
+                      borderRadius: BorderRadius.circular(HavenRadius.card),
+                      border: Border.all(color: HavenColors.border),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Start',
+                            style: TextStyle(
+                                color: HavenColors.textTertiary,
+                                fontSize: 12)),
+                        const SizedBox(height: 2),
+                        Text(_fmtTod(_quietStart),
+                            style: const TextStyle(
+                                color: HavenColors.secondary,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w500)),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: HavenSpacing.sm),
+              Expanded(
+                child: GestureDetector(
+                  onTap: () => _pickQuietTime(isStart: false),
+                  child: Container(
+                    padding: const EdgeInsets.all(HavenSpacing.md),
+                    decoration: BoxDecoration(
+                      color: HavenColors.surface,
+                      borderRadius: BorderRadius.circular(HavenRadius.card),
+                      border: Border.all(color: HavenColors.border),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('End',
+                            style: TextStyle(
+                                color: HavenColors.textTertiary,
+                                fontSize: 12)),
+                        const SizedBox(height: 2),
+                        Text(_fmtTod(_quietEnd),
+                            style: const TextStyle(
+                                color: HavenColors.secondary,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w500)),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ],
 
         const SizedBox(height: HavenSpacing.lg),
@@ -371,10 +591,7 @@ class _NotificationPreferencesScreenState
                 ? const SizedBox(
                     width: 20,
                     height: 20,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.white,
-                    ),
+                    child: HavenLoader(color: Colors.white),
                   )
                 : const Text('Save Changes'),
           ),

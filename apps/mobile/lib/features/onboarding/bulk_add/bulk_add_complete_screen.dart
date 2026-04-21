@@ -8,6 +8,7 @@ import '../../../core/providers/auth_provider.dart';
 import '../../../core/providers/items_provider.dart';
 import '../../../core/router/router.dart';
 import 'bulk_add_provider.dart';
+import '../../../core/widgets/haven_loader.dart';
 
 /// Bulk-add complete screen (Screen 2.5).
 ///
@@ -150,9 +151,7 @@ class _BulkAddCompleteScreenState
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const CircularProgressIndicator(
-                  color: HavenColors.primary,
-                ),
+                const HavenLoader(color: HavenColors.primary),
                 const SizedBox(height: HavenSpacing.lg),
                 Text(
                   'Saving item $_savedCount of $_totalCount...',
@@ -163,7 +162,7 @@ class _BulkAddCompleteScreenState
                 ),
                 const SizedBox(height: HavenSpacing.md),
                 ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
+                  borderRadius: BorderRadius.circular(HavenRadius.micro),
                   child: LinearProgressIndicator(
                     value: progress,
                     backgroundColor: HavenColors.surface,

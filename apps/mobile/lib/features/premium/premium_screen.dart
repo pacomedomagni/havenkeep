@@ -7,6 +7,8 @@ import 'package:shared_ui/shared_ui.dart';
 import '../../core/providers/premium_provider.dart';
 import '../../core/router/router.dart';
 import '../../core/utils/error_handler.dart';
+import '../../core/widgets/haven_loader.dart';
+import '../../core/widgets/responsive_box.dart';
 
 class PremiumScreen extends ConsumerStatefulWidget {
   const PremiumScreen({super.key});
@@ -152,7 +154,9 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
   }
 
   Widget _buildUpgradeContent() {
-    return SingleChildScrollView(
+    return ResponsiveBox(
+      maxWidth: 560,
+      child: SingleChildScrollView(
       padding: const EdgeInsets.all(HavenSpacing.lg),
       child: Column(
         children: [
@@ -176,6 +180,7 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
           ),
           const SizedBox(height: HavenSpacing.lg),
         ],
+      ),
       ),
     );
   }
@@ -387,10 +392,7 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
             ? const SizedBox(
                 height: 20,
                 width: 20,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: HavenColors.background,
-                ),
+                child: HavenLoader(color: HavenColors.background),
               )
             : const Text(
                 'Subscribe',
@@ -410,10 +412,7 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
           ? const SizedBox(
               height: 16,
               width: 16,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                color: HavenColors.textSecondary,
-              ),
+              child: HavenLoader(color: HavenColors.textSecondary),
             )
           : const Text(
               'Restore Purchase',

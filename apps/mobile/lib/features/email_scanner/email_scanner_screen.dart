@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -8,6 +10,8 @@ import '../../core/providers/email_scanner_provider.dart';
 import '../../core/providers/items_provider.dart';
 import '../../core/utils/error_handler.dart';
 import '../../main.dart';
+import '../../core/widgets/haven_illustration.dart';
+import '../../core/widgets/haven_loader.dart';
 
 /// Screen to initiate email scans and view scan history.
 class EmailScannerScreen extends ConsumerWidget {
@@ -37,8 +41,10 @@ class EmailScannerScreen extends ConsumerWidget {
             title: 'Import purchases from your inbox',
             body:
                 'Connect Gmail or Outlook to scan for purchase receipts and '
-                'auto-create items.',
+                'auto-create warranties.',
           ),
+          const SizedBox(height: HavenSpacing.sm),
+          const _PrivacyCard(),
           const SizedBox(height: HavenSpacing.md),
           _ProviderButtons(
             outlookEnabled: config.outlookClientId.isNotEmpty &&
@@ -164,33 +170,195 @@ class EmailScannerScreen extends ConsumerWidget {
     String provider,
   ) async {
     final messenger = ScaffoldMessenger.of(context);
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const Center(
-        child: CircularProgressIndicator(),
+
+    // 1. Pre-prime: explain exactly what we do and don't access.
+    final proceed = await _showPrivacyPrime(context, provider);
+    if (proceed != true) return;
+    if (!context.mounted) return;
+
+    // 2. Show staged progress dialog that advances through the scan steps.
+    final progress = _ScanProgressController();
+    unawaited(
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => _ScanProgressDialog(controller: progress),
       ),
     );
 
     try {
+      progress.advance('Connecting to $provider…');
       final notifier = ref.read(emailScansProvider.notifier);
       final token = await notifier.getAccessToken(provider);
+
+      progress.advance('Searching your inbox for receipts…');
       await notifier.startScan(provider: provider, accessToken: token);
 
+      progress.advance('Importing found receipts…');
+      // Brief pause so the user can read the final stage.
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+
       if (context.mounted) {
-        Navigator.of(context).pop();
+        Navigator.of(context, rootNavigator: true).pop();
         messenger.showSnackBar(
           SnackBar(content: Text('Email scan started for $provider')),
         );
       }
     } catch (e) {
       if (context.mounted) {
-        Navigator.of(context).pop();
+        Navigator.of(context, rootNavigator: true).pop();
         messenger.showSnackBar(
           SnackBar(content: Text(ErrorHandler.getUserMessage(e))),
         );
       }
     }
+  }
+
+  Future<bool?> _showPrivacyPrime(BuildContext context, String provider) {
+    final providerLabel = provider == 'gmail' ? 'Gmail' : 'Outlook';
+    return showDialog<bool>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        backgroundColor: HavenColors.elevated,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(HavenRadius.card),
+        ),
+        title: Text('Connect $providerLabel'),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _PrivacyLine(icon: Icons.search, text: 'We scan only for purchase receipts.'),
+            SizedBox(height: HavenSpacing.sm),
+            _PrivacyLine(icon: Icons.lock_outline, text: 'Other emails are never read or stored.'),
+            SizedBox(height: HavenSpacing.sm),
+            _PrivacyLine(icon: Icons.logout, text: 'You can disconnect any time from Settings.'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(true),
+            child: Text('Connect $providerLabel'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Lightweight progress controller for the scan dialog. Uses a
+/// ValueNotifier so the dialog rebuilds on each advance without state ceremony.
+class _ScanProgressController {
+  final ValueNotifier<String> stage =
+      ValueNotifier<String>('Preparing…');
+  void advance(String label) => stage.value = label;
+}
+
+class _ScanProgressDialog extends StatelessWidget {
+  final _ScanProgressController controller;
+  const _ScanProgressDialog({required this.controller});
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: HavenColors.elevated,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(HavenRadius.card),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(HavenSpacing.lg),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const HavenLoader(size: 40),
+            const SizedBox(height: HavenSpacing.md),
+            ValueListenableBuilder<String>(
+              valueListenable: controller.stage,
+              builder: (_, label, __) => AnimatedSwitcher(
+                duration: const Duration(milliseconds: 240),
+                child: Text(
+                  label,
+                  key: ValueKey(label),
+                  style: const TextStyle(
+                    color: HavenColors.textPrimary,
+                    fontSize: 15,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PrivacyCard extends StatelessWidget {
+  const _PrivacyCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(HavenSpacing.md),
+      decoration: BoxDecoration(
+        color: HavenColors.surface,
+        borderRadius: BorderRadius.circular(HavenRadius.card),
+        border: Border.all(
+            color: HavenColors.primary.withValues(alpha: 0.35)),
+      ),
+      child: const Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Icon(Icons.shield_outlined,
+                color: HavenColors.primary, size: 18),
+            SizedBox(width: HavenSpacing.sm),
+            Text('How we protect your inbox',
+                style: TextStyle(
+                    color: HavenColors.textPrimary,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14)),
+          ]),
+          SizedBox(height: HavenSpacing.sm),
+          _PrivacyLine(icon: Icons.search,
+              text: 'We look only for purchase receipts.'),
+          SizedBox(height: 6),
+          _PrivacyLine(icon: Icons.visibility_off_outlined,
+              text: 'We never read personal or unrelated messages.'),
+          SizedBox(height: 6),
+          _PrivacyLine(icon: Icons.logout,
+              text: 'Disconnect any time from Settings.'),
+        ],
+      ),
+    );
+  }
+}
+
+class _PrivacyLine extends StatelessWidget {
+  final IconData icon;
+  final String text;
+  const _PrivacyLine({required this.icon, required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, color: HavenColors.textTertiary, size: 16),
+        const SizedBox(width: HavenSpacing.sm),
+        Expanded(
+          child: Text(
+            text,
+            style: const TextStyle(
+                color: HavenColors.textSecondary, fontSize: 13),
+          ),
+        ),
+      ],
+    );
   }
 }
 
@@ -392,23 +560,17 @@ class _EmptyState extends StatelessWidget {
       ),
       child: Column(
         children: [
-          const Icon(Icons.inbox_outlined, color: HavenColors.textTertiary),
-          const SizedBox(height: HavenSpacing.sm),
-          Text(
-            title,
-            style: const TextStyle(
-              color: HavenColors.textPrimary,
-              fontWeight: FontWeight.w600,
-            ),
+          const HavenIllustration(
+            kind: HavenIllustrationKind.noScans,
+            size: 140,
           ),
+          const SizedBox(height: HavenSpacing.sm),
+          Text(title, style: HavenText.titleLarge),
           const SizedBox(height: HavenSpacing.xs),
           Text(
             subtitle,
             textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: HavenColors.textSecondary,
-              fontSize: 12,
-            ),
+            style: HavenText.caption,
           ),
         ],
       ),
@@ -423,7 +585,7 @@ class _LoadingState extends StatelessWidget {
   Widget build(BuildContext context) {
     return const Padding(
       padding: EdgeInsets.all(HavenSpacing.lg),
-      child: Center(child: CircularProgressIndicator()),
+      child: Center(child: HavenLoader()),
     );
   }
 }

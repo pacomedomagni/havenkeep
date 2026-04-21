@@ -8,6 +8,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/providers/warranty_purchases_provider.dart';
 import '../../core/router/router.dart';
 import '../../core/utils/error_handler.dart';
+import '../../core/widgets/haven_loader.dart';
 
 /// List of extended warranty purchases for the current user.
 class WarrantyPurchasesScreen extends ConsumerWidget {
@@ -247,7 +248,7 @@ class _LoadingState extends StatelessWidget {
   Widget build(BuildContext context) {
     return const Padding(
       padding: EdgeInsets.all(HavenSpacing.lg),
-      child: Center(child: CircularProgressIndicator()),
+      child: Center(child: HavenLoader()),
     );
   }
 }

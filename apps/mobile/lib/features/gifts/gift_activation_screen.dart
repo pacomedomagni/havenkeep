@@ -7,6 +7,7 @@ import '../../core/services/partners_repository.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/utils/error_handler.dart';
 import '../../core/widgets/celebration_overlay.dart';
+import '../../core/widgets/haven_loader.dart';
 
 class GiftActivationScreen extends ConsumerStatefulWidget {
   final String giftId;
@@ -115,7 +116,7 @@ class _GiftActivationScreenState extends ConsumerState<GiftActivationScreen> {
                 children: [
                   if (_isActivating) ...[
                     const Center(
-                      child: CircularProgressIndicator(),
+                      child: HavenLoader(),
                     ),
                     const SizedBox(height: 24),
                     Text(
@@ -149,7 +150,7 @@ class _GiftActivationScreenState extends ConsumerState<GiftActivationScreen> {
                         style: ElevatedButton.styleFrom(
                           padding: const EdgeInsets.symmetric(vertical: 16),
                           shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
+                            borderRadius: BorderRadius.circular(HavenRadius.button),
                           ),
                         ),
                         child: const Text(
@@ -166,7 +167,7 @@ class _GiftActivationScreenState extends ConsumerState<GiftActivationScreen> {
                         style: OutlinedButton.styleFrom(
                           padding: const EdgeInsets.symmetric(vertical: 16),
                           shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
+                            borderRadius: BorderRadius.circular(HavenRadius.button),
                           ),
                         ),
                         child: const Text(
@@ -183,7 +184,7 @@ class _GiftActivationScreenState extends ConsumerState<GiftActivationScreen> {
                         style: ElevatedButton.styleFrom(
                           padding: const EdgeInsets.symmetric(vertical: 16),
                           shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
+                            borderRadius: BorderRadius.circular(HavenRadius.button),
                           ),
                         ),
                         child: const Text(

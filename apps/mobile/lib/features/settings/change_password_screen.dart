@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_ui/shared_ui.dart';
 
 import '../../core/providers/auth_provider.dart';
 import '../../core/utils/error_handler.dart';
+import '../../core/widgets/haven_loader.dart';
+import '../../core/utils/haven_haptics.dart';
 
 /// Change password screen for authenticated email users.
 class ChangePasswordScreen extends ConsumerStatefulWidget {
@@ -36,12 +37,12 @@ class _ChangePasswordScreenState extends ConsumerState<ChangePasswordScreen> {
 
   Future<void> _changePassword() async {
     if (_formKey.currentState?.validate() != true) {
-      HapticFeedback.lightImpact();
+      HavenHaptics.tap();
       return;
     }
 
     if (_currentPasswordController.text == _newPasswordController.text) {
-      HapticFeedback.lightImpact();
+      HavenHaptics.tap();
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('New password must be different from your current password'),
@@ -64,7 +65,7 @@ class _ChangePasswordScreenState extends ConsumerState<ChangePasswordScreen> {
       }
     } catch (e) {
       if (mounted) {
-        HapticFeedback.mediumImpact();
+        HavenHaptics.confirm();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(ErrorHandler.getUserMessage(e)),
@@ -210,10 +211,7 @@ class _ChangePasswordScreenState extends ConsumerState<ChangePasswordScreen> {
                         ? const SizedBox(
                             height: 20,
                             width: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
+                            child: HavenLoader(color: Colors.white),
                           )
                         : const Text('Update Password'),
                   ),

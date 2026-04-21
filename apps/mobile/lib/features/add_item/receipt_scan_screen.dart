@@ -13,6 +13,8 @@ import '../../core/providers/homes_provider.dart';
 import '../../core/providers/items_provider.dart';
 import '../../core/services/receipt_scanner_service.dart';
 import '../../core/utils/error_handler.dart';
+import '../../core/utils/money_formatter.dart';
+import '../../core/widgets/haven_loader.dart';
 
 /// Receipt scan screen — capture a receipt photo, extract data via OCR,
 /// review/edit extracted fields, then save as a new item.
@@ -214,7 +216,7 @@ class _ReceiptScanScreenState extends ConsumerState<ReceiptScanScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            CircularProgressIndicator(color: HavenColors.primary),
+            HavenLoader(color: HavenColors.primary),
             SizedBox(height: HavenSpacing.md),
             Text(
               'Extracting details...',
@@ -453,7 +455,7 @@ class _ReceiptScanScreenState extends ConsumerState<ReceiptScanScreen> {
                       ),
                       if (item.amount != null)
                         Text(
-                          '\$${item.amount!.toStringAsFixed(2)}',
+                          Money.format(item.amount),
                           style: const TextStyle(
                             fontSize: 13,
                             color: HavenColors.textPrimary,
@@ -476,10 +478,7 @@ class _ReceiptScanScreenState extends ConsumerState<ReceiptScanScreen> {
                   ? const SizedBox(
                       width: 20,
                       height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: HavenColors.textPrimary,
-                      ),
+                      child: HavenLoader(color: HavenColors.textPrimary),
                     )
                   : const Text('Save Item'),
             ),

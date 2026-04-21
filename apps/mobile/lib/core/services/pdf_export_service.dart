@@ -196,6 +196,105 @@ class PdfExportService {
     return pdf.save();
   }
 
+  /// Generates a multi-warranty summary PDF suitable for insurance records.
+  /// Lists every item with category, purchase info, and warranty status on
+  /// a clean A4 table so homeowners can hand it to their insurer.
+  Future<Uint8List> generateWarrantiesSummaryPdf(List<Item> items) async {
+    final pdf = pw.Document(
+      theme: pw.ThemeData.withFont(
+        base: await PdfGoogleFonts.interRegular(),
+        bold: await PdfGoogleFonts.interBold(),
+      ),
+    );
+    final dateFormat = DateFormat.yMMMd();
+    final now = dateFormat.format(DateTime.now());
+
+    pdf.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(36),
+        header: (context) => pw.Container(
+          margin: const pw.EdgeInsets.only(bottom: 16),
+          child: pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            children: [
+              pw.Text(
+                'HavenKeep — Warranty Summary',
+                style: pw.TextStyle(
+                  color: _brandColor,
+                  fontSize: 14,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+              pw.Text(
+                'Generated $now',
+                style: pw.TextStyle(
+                  color: _textSecondary,
+                  fontSize: 10,
+                ),
+              ),
+            ],
+          ),
+        ),
+        footer: (context) => pw.Container(
+          padding: const pw.EdgeInsets.only(top: 12),
+          child: pw.Text(
+            'Page ${context.pageNumber} of ${context.pagesCount}',
+            style: pw.TextStyle(color: _textSecondary, fontSize: 9),
+            textAlign: pw.TextAlign.center,
+          ),
+        ),
+        build: (context) => [
+          pw.Text(
+            '${items.length} ${items.length == 1 ? 'warranty' : 'warranties'}',
+            style: pw.TextStyle(
+                color: _textPrimary,
+                fontSize: 18,
+                fontWeight: pw.FontWeight.bold),
+          ),
+          pw.SizedBox(height: 12),
+          pw.TableHelper.fromTextArray(
+            headerStyle: pw.TextStyle(
+              color: _brandColor,
+              fontWeight: pw.FontWeight.bold,
+              fontSize: 10,
+            ),
+            cellStyle: pw.TextStyle(color: _textPrimary, fontSize: 10),
+            headers: const [
+              'Item',
+              'Category',
+              'Purchased',
+              'Warranty ends',
+              'Price',
+            ],
+            data: items
+                .map((i) => [
+                      ('${i.brand ?? ''} ${i.name}').trim(),
+                      i.category.displayLabel,
+                      dateFormat.format(i.purchaseDate),
+                      i.warrantyEndDate != null
+                          ? dateFormat.format(i.warrantyEndDate!)
+                          : '—',
+                      i.price != null ? '\$${i.price!.toStringAsFixed(2)}' : '—',
+                    ])
+                .toList(),
+            cellAlignments: const {
+              4: pw.Alignment.centerRight,
+            },
+            columnWidths: const {
+              0: pw.FlexColumnWidth(2.4),
+              1: pw.FlexColumnWidth(1.4),
+              2: pw.FlexColumnWidth(1.4),
+              3: pw.FlexColumnWidth(1.4),
+              4: pw.FlexColumnWidth(1.2),
+            },
+          ),
+        ],
+      ),
+    );
+    return pdf.save();
+  }
+
   /// Share a PDF via the system share sheet.
   Future<void> sharePdf(Uint8List bytes, String filename) async {
     await Printing.sharePdf(bytes: bytes, filename: filename);

@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_models/shared_models.dart';
@@ -7,6 +6,8 @@ import 'package:shared_ui/shared_ui.dart';
 
 import '../../core/providers/items_provider.dart';
 import '../../core/widgets/error_state_widget.dart';
+import '../../core/widgets/haven_illustration.dart';
+import '../../core/utils/haven_haptics.dart';
 
 /// Archived items screen.
 ///
@@ -21,7 +22,7 @@ class ArchivedItemsScreen extends ConsumerWidget {
     return Scaffold(
       backgroundColor: HavenColors.background,
       appBar: AppBar(
-        title: const Text('Archived Items'),
+        title: const Text('Archived Warranties'),
       ),
       body: archivedAsync.when(
         data: (items) {
@@ -78,25 +79,16 @@ class ArchivedItemsScreen extends ConsumerWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            Icons.archive_outlined,
-            size: 64,
-            color: HavenColors.textTertiary,
+          HavenIllustration(
+            kind: HavenIllustrationKind.noArchive,
+            size: 180,
           ),
           SizedBox(height: HavenSpacing.md),
-          Text(
-            'No archived items',
-            style: TextStyle(
-              fontSize: 18,
-              color: HavenColors.textSecondary,
-            ),
-          ),
+          Text('No archived warranties', style: HavenText.displayMedium),
           SizedBox(height: HavenSpacing.xs),
           Text(
-            'Items you archive will appear here.',
-            style: TextStyle(
-              color: HavenColors.textTertiary,
-            ),
+            'Warranties you archive will appear here.',
+            style: HavenText.bodySecondary,
           ),
         ],
       ),
@@ -162,7 +154,7 @@ class _ArchivedItemCard extends ConsumerWidget {
             ),
           ),
           confirmDismiss: (direction) async {
-            HapticFeedback.mediumImpact();
+            HavenHaptics.confirm();
 
             if (direction == DismissDirection.startToEnd) {
               // Restore

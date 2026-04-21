@@ -45,6 +45,7 @@ import '../../features/maintenance/log_maintenance_screen.dart';
 import '../../features/maintenance/maintenance_history_screen.dart';
 import '../../features/warranty_purchases/warranty_purchases_screen.dart';
 import '../../features/warranty_purchases/add_warranty_purchase_screen.dart';
+import '../../features/search/global_search_screen.dart';
 
 /// Route path constants.
 abstract class AppRoutes {
@@ -86,6 +87,7 @@ abstract class AppRoutes {
   static const maintenanceHistory = '/maintenance/history';
   static const warrantyPurchases = '/warranty-coverage';
   static const addWarrantyPurchase = '/warranty-coverage/add';
+  static const search = '/search';
 }
 
 /// Navigator keys for the shell route.
@@ -232,21 +234,30 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const BulkAddCompleteScreen(),
       ),
 
-      // Main app shell with bottom nav (Dashboard + Items tabs)
+      // Main app shell with bottom nav
       ShellRoute(
         navigatorKey: _shellNavigatorKey,
         builder: (context, state, child) => MainScaffold(child: child),
         routes: [
           GoRoute(
             path: AppRoutes.dashboard,
-            pageBuilder: (context, state) => const NoTransitionPage(
-              child: DashboardScreen(),
+            pageBuilder: (context, state) => _fadeThroughPage(
+              state: state,
+              child: const DashboardScreen(),
             ),
           ),
           GoRoute(
             path: AppRoutes.items,
-            pageBuilder: (context, state) => const NoTransitionPage(
-              child: ItemsScreen(),
+            pageBuilder: (context, state) => _fadeThroughPage(
+              state: state,
+              child: const ItemsScreen(),
+            ),
+          ),
+          GoRoute(
+            path: AppRoutes.maintenance,
+            pageBuilder: (context, state) => _fadeThroughPage(
+              state: state,
+              child: const MaintenanceScreen(),
             ),
           ),
         ],
@@ -482,13 +493,6 @@ final routerProvider = Provider<GoRouter>((ref) {
         },
       ),
 
-      // Maintenance
-      GoRoute(
-        path: AppRoutes.maintenance,
-        parentNavigatorKey: _rootNavigatorKey,
-        builder: (context, state) => const MaintenanceScreen(),
-      ),
-
       // Log Maintenance
       GoRoute(
         path: AppRoutes.logMaintenance,
@@ -502,6 +506,45 @@ final routerProvider = Provider<GoRouter>((ref) {
         parentNavigatorKey: _rootNavigatorKey,
         builder: (context, state) => const MaintenanceHistoryScreen(),
       ),
+
+      // Global search (launched from dashboard app bar)
+      GoRoute(
+        path: AppRoutes.search,
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) => const GlobalSearchScreen(),
+      ),
     ],
   );
 });
+
+/// Fade-through transition for bottom-nav tab switching: outgoing fades out
+/// and scales down slightly while the incoming fades in from below.
+/// Feels like Material's M3 fade-through without pulling in the package.
+CustomTransitionPage<T> _fadeThroughPage<T>({
+  required GoRouterState state,
+  required Widget child,
+}) {
+  return CustomTransitionPage<T>(
+    key: state.pageKey,
+    child: child,
+    transitionDuration: const Duration(milliseconds: 240),
+    reverseTransitionDuration: const Duration(milliseconds: 180),
+    transitionsBuilder: (context, animation, secondaryAnimation, child) {
+      final curved = CurvedAnimation(
+        parent: animation,
+        curve: Curves.easeOutCubic,
+        reverseCurve: Curves.easeInCubic,
+      );
+      return FadeTransition(
+        opacity: curved,
+        child: SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(0, 0.02),
+            end: Offset.zero,
+          ).animate(curved),
+          child: child,
+        ),
+      );
+    },
+  );
+}

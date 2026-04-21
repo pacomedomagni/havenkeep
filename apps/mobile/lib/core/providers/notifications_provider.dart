@@ -90,6 +90,19 @@ class NotificationsNotifier extends AsyncNotifier<List<AppNotification>> {
     );
   }
 
+  /// Dismiss (swipe-to-remove) a notification. Marks as read on the server
+  /// and drops it from the local list so the user doesn't see it again this
+  /// session. The next refresh/paginated fetch will honor the server state.
+  Future<void> dismiss(String id) async {
+    final current = state.value ?? [];
+    state = AsyncValue.data(current.where((n) => n.id != id).toList());
+    try {
+      await ref.read(notificationsRepositoryProvider).markAsRead(id);
+    } catch (_) {
+      // If server fails, optimistic removal stays — next refresh corrects it.
+    }
+  }
+
   /// Mark all notifications as read.
   Future<void> markAllAsRead() async {
     await ref.read(notificationsRepositoryProvider).markAllAsRead();

@@ -9,9 +9,13 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/providers/documents_provider.dart';
 import '../../core/providers/items_provider.dart';
 import '../../core/utils/error_handler.dart';
+import '../../core/utils/money_formatter.dart';
 import '../../core/router/router.dart';
+import '../../core/widgets/responsive_box.dart';
 import 'document_upload_sheet.dart';
 import 'share_claim_sheet.dart';
+import '../../core/widgets/haven_image.dart';
+import '../../core/widgets/haven_loader.dart';
 
 /// Item detail screen with accordion sections (Screen 6.1/6.2).
 ///
@@ -47,7 +51,7 @@ class ItemDetailScreen extends ConsumerWidget {
       ),
       body: itemAsync.when(
         data: (item) => _ItemDetailBody(item: item, itemId: itemId),
-        loading: () => const Center(child: CircularProgressIndicator()),
+        loading: () => const Center(child: HavenLoader()),
         error: (error, _) => Center(
           child: Text(
             ErrorHandler.getUserMessage(error),
@@ -81,17 +85,21 @@ class _OverflowMenu extends ConsumerWidget {
           case 'archive':
             final confirmed = await showHavenConfirmDialog(
               context,
-              title: 'Archive item?',
+              title: 'Archive warranty?',
               body:
-                  'This item will be moved to your archive. You can restore it later.',
+                  'This warranty will be moved to your archive. You can restore it later.',
               confirmLabel: 'Archive',
             );
             if (confirmed && context.mounted) {
               try {
                 await ref.read(itemsProvider.notifier).archiveItem(itemId);
                 if (context.mounted) {
-                  showHavenSnackBar(context, message: 'Item archived');
-                  context.go(AppRoutes.items);
+                  showHavenSnackBar(context, message: 'Warranty archived');
+                  if (context.canPop()) {
+                    context.pop();
+                  } else {
+                    context.go(AppRoutes.items);
+                  }
                 }
               } catch (e) {
                 if (context.mounted) {
@@ -103,9 +111,9 @@ class _OverflowMenu extends ConsumerWidget {
           case 'delete':
             final confirmed = await showHavenConfirmDialog(
               context,
-              title: 'Delete item?',
+              title: 'Delete warranty?',
               body:
-                  'This action cannot be undone. All data for this item will be permanently removed.',
+                  'This action cannot be undone. All data for this warranty will be permanently removed.',
               confirmLabel: 'Delete',
               isDestructive: true,
             );
@@ -113,8 +121,12 @@ class _OverflowMenu extends ConsumerWidget {
               try {
                 await ref.read(itemsProvider.notifier).deleteItem(itemId);
                 if (context.mounted) {
-                  showHavenSnackBar(context, message: 'Item deleted');
-                  context.go(AppRoutes.items);
+                  showHavenSnackBar(context, message: 'Warranty deleted');
+                  if (context.canPop()) {
+                    context.pop();
+                  } else {
+                    context.go(AppRoutes.items);
+                  }
                 }
               } catch (e) {
                 if (context.mounted) {
@@ -176,7 +188,8 @@ class _ItemDetailBody extends ConsumerWidget {
       WarrantyStatus.expired => HavenColors.expired,
     };
 
-    return SingleChildScrollView(
+    return ResponsiveBox(
+      child: SingleChildScrollView(
       padding: const EdgeInsets.all(HavenSpacing.md),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -197,7 +210,10 @@ class _ItemDetailBody extends ConsumerWidget {
                 // Category icon
                 Padding(
                   padding: const EdgeInsets.only(top: HavenSpacing.xl),
-                  child: CategoryIcon.widget(item.category, size: 64),
+                  child: Hero(
+                    tag: 'item-icon-${item.id}',
+                    child: CategoryIcon.widget(item.category, size: 64),
+                  ),
                 ),
                 const SizedBox(height: HavenSpacing.md),
 
@@ -356,9 +372,7 @@ class _ItemDetailBody extends ConsumerWidget {
                   _DetailRow('Room', item.room?.displayLabel),
                   _DetailRow(
                     'Price',
-                    item.price != null
-                        ? '\$${item.price!.toStringAsFixed(2)}'
-                        : null,
+                    item.price != null ? Money.format(item.price) : null,
                   ),
                   _DetailRow('Store', item.store),
                   _DetailRow('Warranty', item.warrantyType.displayLabel),
@@ -366,7 +380,7 @@ class _ItemDetailBody extends ConsumerWidget {
                   if (item.estimatedRepairCost != null)
                     _DetailRow(
                       'Typical Repair Cost',
-                      '\$${item.estimatedRepairCost!.toStringAsFixed(0)}',
+                      Money.formatWhole(item.estimatedRepairCost),
                     ),
                 ],
               ),
@@ -391,7 +405,7 @@ class _ItemDetailBody extends ConsumerWidget {
                   const SectionHeader(title: 'LIFESPAN'),
                   const SizedBox(height: HavenSpacing.sm),
                   ClipRRect(
-                    borderRadius: BorderRadius.circular(4),
+                    borderRadius: BorderRadius.circular(HavenRadius.micro),
                     child: LinearProgressIndicator(
                       value: item.lifespanPercentage! / 100.0,
                       minHeight: 8,
@@ -478,7 +492,7 @@ class _ItemDetailBody extends ConsumerWidget {
                   child: Padding(
                     padding: EdgeInsets.all(HavenSpacing.md),
                     child:
-                        SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2)),
+                        SizedBox(width: 24, height: 24, child: HavenLoader()),
                   ),
                 ),
                 error: (_, __) => const Text(
@@ -595,6 +609,7 @@ class _ItemDetailBody extends ConsumerWidget {
           const SizedBox(height: HavenSpacing.xxl),
         ],
       ),
+      ),
     );
   }
 
@@ -680,24 +695,14 @@ class _DocumentRowState extends ConsumerState<_DocumentRow> {
               ),
               body: Center(
                 child: InteractiveViewer(
-                  child: Image.network(
-                    doc.fileUrl,
+                  child: HavenImage(
+                    url: doc.fileUrl,
                     fit: BoxFit.contain,
-                    loadingBuilder: (context, child, loadingProgress) {
-                      if (loadingProgress == null) return child;
-                      return const Center(
-                        child: CircularProgressIndicator(
-                          color: HavenColors.primary,
-                        ),
-                      );
-                    },
-                    errorBuilder: (context, error, stackTrace) {
-                      return const Icon(
-                        Icons.broken_image,
-                        size: 120,
-                        color: HavenColors.textTertiary,
-                      );
-                    },
+                    errorFallback: const Icon(
+                      Icons.broken_image,
+                      size: 120,
+                      color: HavenColors.textTertiary,
+                    ),
                   ),
                 ),
               ),

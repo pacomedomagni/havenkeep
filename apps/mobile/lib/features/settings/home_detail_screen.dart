@@ -9,6 +9,7 @@ import '../../core/providers/homes_provider.dart';
 import '../../core/providers/items_provider.dart';
 import '../../core/router/router.dart';
 import '../../core/utils/error_handler.dart';
+import '../../core/widgets/haven_loader.dart';
 
 /// Home detail / edit screen.
 ///
@@ -207,7 +208,7 @@ class _HomeDetailScreenState extends ConsumerState<HomeDetailScreen> {
           ],
         ),
         body: home == null
-          ? const Center(child: CircularProgressIndicator())
+          ? const Center(child: HavenLoader())
           : Form(
               key: _formKey,
               onChanged: _markDirty,
@@ -347,10 +348,7 @@ class _HomeDetailScreenState extends ConsumerState<HomeDetailScreen> {
                           ? const SizedBox(
                               width: 20,
                               height: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: HavenColors.textPrimary,
-                              ),
+                              child: HavenLoader(color: HavenColors.textPrimary),
                             )
                           : const Text('Save Changes'),
                     ),

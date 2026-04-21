@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -10,6 +9,8 @@ import '../../core/providers/auth_provider.dart';
 import '../../core/providers/items_provider.dart';
 import '../../core/providers/maintenance_provider.dart';
 import '../../core/utils/error_handler.dart';
+import '../../core/widgets/haven_loader.dart';
+import '../../core/utils/haven_haptics.dart';
 
 /// Form to log a completed maintenance task.
 class LogMaintenanceScreen extends ConsumerStatefulWidget {
@@ -104,7 +105,7 @@ class _LogMaintenanceScreenState extends ConsumerState<LogMaintenanceScreen> {
       await ref.read(maintenanceRepositoryProvider).logTask(entry);
 
       if (mounted) {
-        HapticFeedback.mediumImpact();
+        HavenHaptics.confirm();
         ref.invalidate(maintenanceDueProvider);
         ref.invalidate(maintenanceHistoryProvider);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -334,7 +335,7 @@ class _LogMaintenanceScreenState extends ConsumerState<LogMaintenanceScreen> {
                     ? const SizedBox(
                         width: 20,
                         height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
+                        child: HavenLoader(),
                       )
                     : const Text('Log Task'),
               ),
@@ -439,7 +440,7 @@ class _LogMaintenanceScreenState extends ConsumerState<LogMaintenanceScreen> {
               child: SizedBox(
                 width: 20,
                 height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2),
+                child: HavenLoader(),
               ),
             ),
             error: (_, __) => const Padding(

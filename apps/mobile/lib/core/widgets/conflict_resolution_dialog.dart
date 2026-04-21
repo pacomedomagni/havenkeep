@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_models/shared_models.dart';
+import 'package:shared_ui/shared_ui.dart';
 
 import '../utils/conflict_resolver.dart';
 
@@ -49,9 +50,9 @@ class ConflictResolutionDialog extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
+            const Text(
               'This item was modified on multiple devices. Choose which version to keep:',
-              style: TextStyle(color: Colors.grey[700]),
+              style: HavenText.bodySecondary,
             ),
             const SizedBox(height: 20),
             _buildVersionCard(
@@ -77,7 +78,7 @@ class ConflictResolutionDialog extends StatelessWidget {
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
                   color: Colors.amber[50],
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(HavenRadius.pill),
                   border: Border.all(color: Colors.amber[200]!),
                 ),
                 child: Row(
@@ -137,8 +138,8 @@ class ConflictResolutionDialog extends StatelessWidget {
   }) {
     return Container(
       decoration: BoxDecoration(
-        border: Border.all(color: Colors.grey[300]!),
-        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: HavenColors.border),
+        borderRadius: BorderRadius.circular(HavenRadius.pill),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -148,8 +149,8 @@ class ConflictResolutionDialog extends StatelessWidget {
             decoration: BoxDecoration(
               color: color.withValues(alpha: 0.1),
               borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(8),
-                topRight: Radius.circular(8),
+                topLeft: Radius.circular(HavenRadius.pill),
+                topRight: Radius.circular(HavenRadius.pill),
               ),
             ),
             child: Row(
@@ -169,10 +170,7 @@ class ConflictResolutionDialog extends StatelessWidget {
                       ),
                       Text(
                         subtitle,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey[600],
-                        ),
+                        style: HavenText.caption,
                       ),
                     ],
                   ),
@@ -188,10 +186,9 @@ class ConflictResolutionDialog extends StatelessWidget {
                 children: [
                   Text(
                     'Changes:',
-                    style: TextStyle(
-                      fontSize: 12,
+                    style: HavenText.caption.copyWith(
                       fontWeight: FontWeight.w600,
-                      color: Colors.grey[700],
+                      color: HavenColors.textSecondary,
                     ),
                   ),
                   const SizedBox(height: 6),
@@ -204,10 +201,7 @@ class ConflictResolutionDialog extends StatelessWidget {
                             Expanded(
                               child: Text(
                                 change,
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  color: Colors.grey[800],
-                                ),
+                                style: HavenText.meta,
                               ),
                             ),
                           ],
@@ -221,9 +215,8 @@ class ConflictResolutionDialog extends StatelessWidget {
               padding: const EdgeInsets.all(12),
               child: Text(
                 'No changes',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: Colors.grey[600],
+                style: HavenText.meta.copyWith(
+                  color: HavenColors.textTertiary,
                   fontStyle: FontStyle.italic,
                 ),
               ),

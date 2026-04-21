@@ -5,7 +5,9 @@ import 'package:api_client/api_client.dart';
 import 'package:shared_ui/shared_ui.dart';
 import '../../core/services/partners_repository.dart';
 import '../../core/utils/error_handler.dart';
+import '../../core/widgets/haven_image.dart';
 import '../../core/widgets/havenkeep_logo.dart';
+import '../../core/widgets/haven_loader.dart';
 
 class GiftWelcomeScreen extends ConsumerStatefulWidget {
   final String giftId;
@@ -64,7 +66,7 @@ class _GiftWelcomeScreenState extends ConsumerState<GiftWelcomeScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const CircularProgressIndicator(),
+              const HavenLoader(),
               const SizedBox(height: 16),
               Text(
                 'Loading your gift...',
@@ -86,7 +88,7 @@ class _GiftWelcomeScreenState extends ConsumerState<GiftWelcomeScreen> {
         ),
         body: Center(
           child: Padding(
-            padding: const EdgeInsets.all(24.0),
+            padding: const EdgeInsets.all(HavenSpacing.lg),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -148,7 +150,7 @@ class _GiftWelcomeScreenState extends ConsumerState<GiftWelcomeScreen> {
         ),
         child: SafeArea(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24.0),
+            padding: const EdgeInsets.all(HavenSpacing.lg),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -157,12 +159,11 @@ class _GiftWelcomeScreenState extends ConsumerState<GiftWelcomeScreen> {
                 // Partner Logo or HavenKeep Logo
                 if (logoUrl != null && logoUrl.isNotEmpty)
                   Center(
-                    child: Image.network(
-                      logoUrl,
+                    child: HavenImage(
+                      url: logoUrl,
                       height: 80,
-                      errorBuilder: (context, error, stackTrace) {
-                        return const HavenKeepLogo(size: 80);
-                      },
+                      fit: BoxFit.contain,
+                      errorFallback: const HavenKeepLogo(size: 80),
                     ),
                   )
                 else
@@ -172,7 +173,7 @@ class _GiftWelcomeScreenState extends ConsumerState<GiftWelcomeScreen> {
 
                 // Gift Icon
                 Container(
-                  padding: const EdgeInsets.all(24),
+                  padding: const EdgeInsets.all(HavenSpacing.lg),
                   decoration: BoxDecoration(
                     color: brandColor.withValues(alpha: 0.1),
                     shape: BoxShape.circle,
@@ -215,11 +216,11 @@ class _GiftWelcomeScreenState extends ConsumerState<GiftWelcomeScreen> {
                   elevation: 0,
                   color: HavenColors.surface,
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: BorderRadius.circular(HavenRadius.card),
                     side: const BorderSide(color: HavenColors.border),
                   ),
                   child: Padding(
-                    padding: const EdgeInsets.all(24.0),
+                    padding: const EdgeInsets.all(HavenSpacing.lg),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -275,10 +276,10 @@ class _GiftWelcomeScreenState extends ConsumerState<GiftWelcomeScreen> {
                     elevation: 0,
                     color: brandColor.withValues(alpha: 0.05),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius: BorderRadius.circular(HavenRadius.card),
                     ),
                     child: Padding(
-                      padding: const EdgeInsets.all(20.0),
+                      padding: const EdgeInsets.all(HavenSpacing.lg),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -323,7 +324,7 @@ class _GiftWelcomeScreenState extends ConsumerState<GiftWelcomeScreen> {
                     foregroundColor: HavenColors.textPrimary,
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(HavenRadius.button),
                     ),
                     elevation: 2,
                   ),
@@ -358,7 +359,7 @@ class _GiftWelcomeScreenState extends ConsumerState<GiftWelcomeScreen> {
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
             color: color.withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(HavenRadius.pill),
           ),
           child: Icon(icon, color: color, size: 24),
         ),
