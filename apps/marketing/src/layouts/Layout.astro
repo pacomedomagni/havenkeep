@@ -13,10 +13,10 @@ interface Props {
   description?: string;
   canonicalPath?: string;
   /**
-   * Per-page OG image. Defaults to the site-wide hero. Audit Ch10-W076.
-   * The asset must live under `/public/og/` so Astro emits it as a static
-   * resource. The fallback is left as SVG with a TODO marker for the
-   * 1200x630 PNG sweep (Ch10-W075).
+   * Per-page OG image. Defaults to the site-wide hero `/og-image.png`
+   * (1200x630, regenerated from `og-image.svg` via
+   * `node scripts/build-og-image.cjs`). Per-page assets live under
+   * `/public/og/` so Astro emits them as static resources (Ch10-W075/W076).
    */
   ogImage?: string;
 }
