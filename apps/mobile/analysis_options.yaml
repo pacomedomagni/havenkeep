@@ -9,6 +9,13 @@
 # packages, and plugins designed to encourage good coding practices.
 include: package:flutter_lints/flutter.yaml
 
+analyzer:
+  # Generated mocks deliberately surface drift's internal stream/query types
+  # in their override signatures. We can't avoid those warnings without
+  # hand-rolling every mock, so exclude generated mock files from analysis.
+  exclude:
+    - "**/*.mocks.dart"
+
 linter:
   # The lint rules applied to this project can be customized in the
   # section below to disable rules from the `package:flutter_lints/flutter.yaml`

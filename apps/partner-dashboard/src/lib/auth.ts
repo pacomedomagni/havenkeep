@@ -1,9 +1,15 @@
+import { cache } from 'react';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { API_URL } from './config';
+import { fetchWithTimeout } from './fetch';
+import { decodeJwtPayload, isTokenExpired, looksLikeJwt } from './jwt';
 
 const ACCESS_TOKEN_COOKIE = 'hk_access_token';
 const REFRESH_TOKEN_COOKIE = 'hk_refresh_token';
+const CSRF_COOKIE = 'csrf_token';
+// Audit Ch10-W045: every cookie the dashboard sets gets cleared on logout.
+const CLEARABLE_COOKIES = [ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE, CSRF_COOKIE] as const;
 
 export interface AuthUser {
   id: string;
@@ -13,29 +19,7 @@ export interface AuthUser {
   isPartner: boolean;
 }
 
-interface TokenPayload {
-  userId: string;
-  email: string;
-  exp: number;
-  iat: number;
-}
-
-function decodeJwtPayload(token: string): TokenPayload | null {
-  try {
-    const parts = token.split('.');
-    if (parts.length !== 3) return null;
-    const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString());
-    return payload;
-  } catch {
-    return null;
-  }
-}
-
-export function isTokenExpired(token: string): boolean {
-  const payload = decodeJwtPayload(token);
-  if (!payload) return true;
-  return payload.exp * 1000 < Date.now();
-}
+export { isTokenExpired, looksLikeJwt, decodeJwtPayload };
 
 export async function getTokens(): Promise<{ accessToken: string; refreshToken: string } | null> {
   const cookieStore = await cookies();
@@ -46,38 +30,65 @@ export async function getTokens(): Promise<{ accessToken: string; refreshToken: 
   return { accessToken, refreshToken };
 }
 
-export async function getUser(): Promise<AuthUser | null> {
+/**
+ * Fetch the authenticated user. Three failure modes:
+ *   - no tokens / 401              -> null (caller redirects to /login)
+ *   - 5xx / network / parse error  -> throws ApiUnavailableError so callers
+ *                                     can render a real error UI rather than
+ *                                     bouncing the user to /login on every
+ *                                     transient outage (audit Ch10-W047).
+ *
+ * Wrapped in React `cache()` so a single render that calls `requireAuth`
+ * + `requireAdmin` + a layout-level lookup hits the upstream once
+ * (audit Ch10-W060).
+ */
+export class ApiUnavailableError extends Error {
+  constructor(message = 'API unavailable') {
+    super(message);
+    this.name = 'ApiUnavailableError';
+  }
+}
+
+async function getUserUncached(): Promise<AuthUser | null> {
   const tokens = await getTokens();
   if (!tokens) return null;
 
-  const payload = decodeJwtPayload(tokens.accessToken);
-  if (!payload) return null;
+  if (!looksLikeJwt(tokens.accessToken)) return null;
+  if (isTokenExpired(tokens.accessToken, 0)) return null;
 
+  let response: Response;
   try {
-    const response = await fetch(`${API_URL}/api/v1/admin/me`, {
+    response = await fetchWithTimeout(`${API_URL}/api/v1/admin/me`, {
       headers: {
         Authorization: `Bearer ${tokens.accessToken}`,
         'Content-Type': 'application/json',
       },
       cache: 'no-store',
     });
-
-    if (response.ok) {
-      const data = await response.json();
-      return {
-        id: data.data.id,
-        email: data.data.email,
-        plan: data.data.plan,
-        isAdmin: data.data.is_admin,
-        isPartner: data.data.is_partner ?? false,
-      };
-    }
   } catch {
-    // API unreachable — return null so callers redirect to login
+    throw new ApiUnavailableError();
   }
 
-  return null;
+  if (response.status === 401) return null;
+  if (!response.ok) throw new ApiUnavailableError();
+
+  try {
+    const data = await response.json();
+    if (!data?.data) throw new ApiUnavailableError('Malformed user response');
+    return {
+      id: data.data.id,
+      email: data.data.email,
+      plan: data.data.plan,
+      isAdmin: !!data.data.is_admin,
+      isPartner: !!data.data.is_partner,
+    };
+  } catch (err) {
+    if (err instanceof ApiUnavailableError) throw err;
+    throw new ApiUnavailableError('Malformed user response');
+  }
 }
+
+export const getUser = cache(getUserUncached);
 
 export async function requireAuth(): Promise<AuthUser> {
   const user = await getUser();
@@ -90,6 +101,30 @@ export async function requireAuth(): Promise<AuthUser> {
 export async function requireAdmin(): Promise<AuthUser> {
   const user = await requireAuth();
   if (!user.isAdmin) {
+    redirect('/unauthorized');
+  }
+  return user;
+}
+
+/**
+ * Layout-level role gate. Use in a server-component layout to enforce the
+ * role for every nested route, so a forgotten `requireAdmin` in a leaf page
+ * doesn't quietly leak admin UI to non-admins (audit Ch10-W044).
+ */
+export const requireRole = (role: 'admin' | 'partner' | 'partner-or-admin'): Promise<AuthUser> => {
+  switch (role) {
+    case 'admin':
+      return requireAdmin();
+    case 'partner':
+      return requirePartner();
+    case 'partner-or-admin':
+      return requirePartnerOrAdmin();
+  }
+};
+
+export async function requirePartner(): Promise<AuthUser> {
+  const user = await requireAuth();
+  if (!user.isPartner) {
     redirect('/unauthorized');
   }
   return user;
@@ -128,18 +163,44 @@ export function setAuthCookies(
 }
 
 export function clearAuthCookies(cookieStore: Awaited<ReturnType<typeof cookies>>) {
-  cookieStore.delete(ACCESS_TOKEN_COOKIE);
-  cookieStore.delete(REFRESH_TOKEN_COOKIE);
+  for (const name of CLEARABLE_COOKIES) {
+    cookieStore.delete(name);
+  }
 }
 
 /**
  * Server-side API client that automatically includes JWT from cookies.
+ *
+ * Errors are rewritten to a small set of generic messages so internal
+ * details (stack-trace tail, DB driver text, internal route names) never
+ * leak to admin UI (audit Ch10-W046).
  */
-export async function serverApiClient<T = any>(
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public status: number
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
+function genericMessageForStatus(status: number): string {
+  if (status === 401) return 'Your session has expired. Please sign in again.';
+  if (status === 403) return 'You do not have permission to perform that action.';
+  if (status === 404) return 'The requested record could not be found.';
+  if (status === 409) return 'That action conflicts with the current state.';
+  if (status === 422) return 'The request was rejected by the server.';
+  if (status === 429) return 'Too many requests. Please slow down and try again.';
+  if (status >= 500) return 'The service is temporarily unavailable. Please try again.';
+  return 'The request was rejected by the server.';
+}
+
+export async function serverApiClient<T = unknown>(
   endpoint: string,
   options: {
     method?: string;
-    body?: any;
+    body?: unknown;
     headers?: Record<string, string>;
   } = {}
 ): Promise<T> {
@@ -156,21 +217,26 @@ export async function serverApiClient<T = any>(
     cache: 'no-store',
   };
 
-  if (body && method !== 'GET') {
+  if (body !== undefined && method !== 'GET') {
     fetchOptions.body = JSON.stringify(body);
   }
 
   const url = `${API_URL}${endpoint}`;
-  const response = await fetch(url, fetchOptions);
+  let response: Response;
+  try {
+    response = await fetchWithTimeout(url, fetchOptions);
+  } catch {
+    throw new ApiError(genericMessageForStatus(503), 503);
+  }
 
   if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(
-      errorData.error || errorData.message || `API request failed with status ${response.status}`
-    );
+    // Drain the body so we don't leak the upstream's verbose JSON, but read
+    // it for logging. The thrown message is the generic one.
+    await response.json().catch(() => ({}));
+    throw new ApiError(genericMessageForStatus(response.status), response.status);
   }
 
   return response.json();
 }
 
-export { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE };
+export { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE, CSRF_COOKIE };

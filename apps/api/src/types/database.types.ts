@@ -194,6 +194,14 @@ export interface Partner {
   // Stripe Connect
   stripe_account_id: string | null;
   stripe_onboarded: boolean;
+  stripe_account_status:
+    | 'unknown'
+    | 'pending'
+    | 'enabled'
+    | 'restricted'
+    | 'disabled'
+    | 'rejected';
+  stripe_account_status_at: Date | null;
 
   // Status
   is_active: boolean;

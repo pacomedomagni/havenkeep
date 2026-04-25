@@ -82,18 +82,25 @@ import Footer from '../components/Footer.astro';
                 ></textarea>
               </div>
 
+              <!-- Audit Ch10-W068: Cloudflare Turnstile placeholder. The widget
+                   only renders when PUBLIC_TURNSTILE_SITE_KEY is set so local
+                   dev still works without an account. The backend's
+                   /api/v1/contact endpoint enforces the matching server-side
+                   verification. -->
+              <div id="contact-turnstile" class="cf-turnstile" data-sitekey={import.meta.env.PUBLIC_TURNSTILE_SITE_KEY ?? ''} data-theme="dark"></div>
+
               <button
                 type="submit"
                 id="contact-submit"
-                class="w-full bg-primary hover:bg-secondary text-white font-semibold py-4 px-6 rounded-lg transition-colors duration-200"
+                class="w-full bg-primary hover:bg-secondary text-white font-semibold py-4 px-6 rounded-lg transition-colors duration-200 disabled:opacity-60"
               >
                 Send Message
               </button>
 
-              <div id="contact-error" class="hidden text-center py-4">
+              <div id="contact-error" class="hidden text-center py-4" role="alert">
                 <div class="inline-flex items-center gap-2 text-red-400 font-semibold">
-                  <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd" /></svg>
-                  <span id="contact-error-text">Failed to send message. Opening email client instead...</span>
+                  <svg class="w-5 h-5" aria-hidden="true" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd" /></svg>
+                  <span id="contact-error-text">We couldn't send your message right now. Please try again in a moment, or email <a class="underline" href="mailto:hello@havenkeep.com">hello@havenkeep.com</a>.</span>
                 </div>
               </div>
 
@@ -192,73 +199,68 @@ import Footer from '../components/Footer.astro';
   <Footer />
 </Layout>
 
+<!-- Audit Ch10-W069: same-origin POST goes to the API behind the marketing
+     edge proxy, never via cross-origin without an explicit credentials
+     policy. Audit Ch10-W068, W072: Cloudflare Turnstile token attached when
+     the widget is mounted. Audit Ch10-W070: failure no longer auto-redirects
+     to a mailto link — that masked the failure as success and broke users
+     without a configured native mail client. -->
 <script>
-  const form = document.getElementById('contact-form') as HTMLFormElement;
-  const submitBtn = document.getElementById('contact-submit') as HTMLButtonElement;
+  const form = document.getElementById('contact-form') as HTMLFormElement | null;
+  const submitBtn = document.getElementById('contact-submit') as HTMLButtonElement | null;
   const successMsg = document.getElementById('contact-success');
   const errorMsg = document.getElementById('contact-error');
 
+  function getTurnstileToken(): string | null {
+    const w = window as unknown as { turnstile?: { getResponse: (selector: string) => string | undefined } };
+    return w.turnstile?.getResponse('#contact-turnstile') ?? null;
+  }
+
   form?.addEventListener('submit', async (e) => {
     e.preventDefault();
+    if (!submitBtn || submitBtn.disabled) return;
 
     const name = (document.getElementById('name') as HTMLInputElement).value.trim();
     const email = (document.getElementById('email') as HTMLInputElement).value.trim();
     const subject = (document.getElementById('subject') as HTMLSelectElement).value;
     const message = (document.getElementById('message') as HTMLTextAreaElement).value.trim();
 
-    // Hide any previous messages
     errorMsg?.classList.add('hidden');
     successMsg?.classList.add('hidden');
 
-    // Disable form while submitting
-    if (submitBtn) {
-      submitBtn.disabled = true;
-      submitBtn.textContent = 'Sending...';
-    }
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Sending...';
 
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 15_000);
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 15000);
-
-      const apiUrl = import.meta.env.PUBLIC_API_URL || 'https://api.havenkeep.kouakoudomagni.com';
+      const apiUrl = (import.meta.env.PUBLIC_API_URL as string | undefined) ?? '';
+      const turnstileToken = getTurnstileToken();
       const response = await fetch(`${apiUrl}/api/v1/contact`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(turnstileToken ? { 'X-Turnstile-Token': turnstileToken } : {}),
+        },
         body: JSON.stringify({ name, email, subject, message }),
         signal: controller.signal,
+        credentials: 'omit',
       });
-      clearTimeout(timeout);
 
-      if (!response.ok) throw new Error('Failed to send message');
+      if (!response.ok) throw new Error(String(response.status));
 
-      // Show success state
-      if (submitBtn) submitBtn.classList.add('hidden');
+      submitBtn.classList.add('hidden');
       successMsg?.classList.remove('hidden');
       form.reset();
-
-      setTimeout(() => {
-        if (submitBtn) {
-          submitBtn.classList.remove('hidden');
-          submitBtn.disabled = false;
-          submitBtn.textContent = 'Send Message';
-        }
-        successMsg?.classList.add('hidden');
-      }, 5000);
+      // Audit Ch10-W073: success state stays until the user reloads or
+      // navigates away. The previous auto-reset cleared the form to its
+      // empty state and re-enabled the button, encouraging duplicate sends.
     } catch {
-      // Show error message, then fallback to mailto
       errorMsg?.classList.remove('hidden');
-
-      const body = `Name: ${name}\nEmail: ${email}\n\n${message}`;
-      const mailto = `mailto:hello@havenkeep.com?subject=${encodeURIComponent(subject + ' - ' + name)}&body=${encodeURIComponent(body)}`;
-
-      setTimeout(() => {
-        window.location.href = mailto;
-      }, 1500);
-
-      if (submitBtn) {
-        submitBtn.disabled = false;
-        submitBtn.textContent = 'Send Message';
-      }
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Send Message';
+    } finally {
+      window.clearTimeout(timeout);
     }
   });
 </script>

@@ -33,13 +33,49 @@ export interface FcmPayload {
   title: string;
   body: string;
   data?: Record<string, string>;
+  // F074: optional override; default 'havenkeep_default' channel which the
+  // mobile client registers in MainActivity. Channel must exist on Android
+  // 8+ for the OS to render the notification at all.
+  androidChannelId?: string;
 }
+
+/**
+ * F076: FCM error codes we treat as "this token is dead, drop it".
+ * - invalid-registration-token: malformed token (probably manual edit)
+ * - registration-token-not-registered: app uninstalled / token rotated
+ * - sender-id-mismatch: token belongs to a different sender (project switch)
+ * - invalid-argument: occasionally surfaced for permanently-bad tokens
+ */
+const DEAD_TOKEN_CODES: ReadonlySet<string> = new Set<string>([
+  'messaging/invalid-registration-token',
+  'messaging/registration-token-not-registered',
+  'messaging/sender-id-mismatch',
+  'messaging/invalid-argument',
+]);
+
+/** F076: codes that we should back off on but NOT drop the token. */
+const TRANSIENT_CODES: ReadonlySet<string> = new Set<string>([
+  'messaging/quota-exceeded',
+  'messaging/server-unavailable',
+  'messaging/internal-error',
+]);
+
+/** F072: Firebase sendEachForMulticast caps per-call at 500 tokens. */
+const MULTICAST_BATCH_SIZE = 500;
 
 export class FcmService {
   /**
    * Send a push notification to all FCM tokens registered for a user.
-   * Silently ignores invalid/expired tokens (removes them from DB).
-   * Returns the number of successful deliveries.
+   *
+   * F072: tokens are batched into groups of 500 so a user with >500
+   * registered devices doesn't hit the per-call cap.
+   * F074: Android payload sets `channelId` + `priority='high'` so the OS
+   * renders the notification on Android 8+ devices and treats it as a
+   * user-visible (heads-up) push.
+   * F076: dead tokens are deleted; transient (quota/internal) errors are
+   * logged but the token is left in place for the next attempt.
+   * F079: tokens that successfully delivered have `last_seen_at` bumped so
+   * the cleanup job can purge anything older than 60 days.
    */
   static async sendToUser(userId: string, payload: FcmPayload): Promise<number> {
     const app = getFirebaseApp();
@@ -49,61 +85,66 @@ export class FcmService {
 
     // Fetch all tokens for the user
     const result = await pool.query(
-      `SELECT fcm_token, platform FROM user_push_tokens WHERE user_id = $1`,
+      `SELECT fcm_token FROM user_push_tokens WHERE user_id = $1`,
       [userId]
     );
 
     if (result.rows.length === 0) return 0;
 
     const tokens: string[] = result.rows.map((r: any) => r.fcm_token);
+    const channelId = payload.androidChannelId || 'havenkeep_default';
+
+    const message = (token: string): admin.messaging.Message => ({
+      token,
+      notification: { title: payload.title, body: payload.body },
+      data: payload.data,
+      apns: {
+        payload: { aps: { sound: 'default', badge: 1 } },
+      },
+      android: {
+        priority: 'high',
+        notification: {
+          sound: 'default',
+          channelId,
+          clickAction: 'FLUTTER_NOTIFICATION_CLICK',
+        },
+      },
+    });
+
     const tokensToRemove: string[] = [];
+    const tokensDelivered: string[] = [];
     let successCount = 0;
 
-    // Send to each token individually so we can handle per-token errors
-    await Promise.all(
-      tokens.map(async (token) => {
-        try {
-          await messaging.send({
-            token,
-            notification: {
-              title: payload.title,
-              body: payload.body,
-            },
-            data: payload.data,
-            apns: {
-              payload: {
-                aps: {
-                  sound: 'default',
-                  badge: 1,
-                },
-              },
-            },
-            android: {
-              notification: {
-                sound: 'default',
-                clickAction: 'FLUTTER_NOTIFICATION_CLICK',
-              },
-            },
-          });
+    // F072: batch sends. Each batch is `sendAll`ed in parallel so a single
+    // dead token doesn't poison the whole batch.
+    for (let i = 0; i < tokens.length; i += MULTICAST_BATCH_SIZE) {
+      const batch = tokens.slice(i, i + MULTICAST_BATCH_SIZE);
+      const responses = await messaging.sendEach(batch.map(message));
+      responses.responses.forEach((resp, idx) => {
+        const token = batch[idx];
+        if (resp.success) {
           successCount++;
-        } catch (err: any) {
-          // Remove stale tokens from DB
-          if (
-            err.code === 'messaging/invalid-registration-token' ||
-            err.code === 'messaging/registration-token-not-registered'
-          ) {
-            tokensToRemove.push(token);
-          } else {
-            logger.error(
-              { err, userId, token: token.substring(0, 20) + '...' },
-              'FCM send error'
-            );
-          }
+          tokensDelivered.push(token);
+          return;
         }
-      })
-    );
+        const code = resp.error?.code;
+        if (code && DEAD_TOKEN_CODES.has(code)) {
+          tokensToRemove.push(token);
+        } else if (code && TRANSIENT_CODES.has(code)) {
+          logger.warn(
+            { code, userId, token: token.substring(0, 20) + '...' },
+            'FCM transient error — token retained',
+          );
+        } else {
+          logger.error(
+            { code, err: resp.error, userId, token: token.substring(0, 20) + '...' },
+            'FCM send error',
+          );
+        }
+      });
+    }
 
-    // Clean up stale tokens
+    // Clean up dead tokens
     if (tokensToRemove.length > 0) {
       await pool.query(
         `DELETE FROM user_push_tokens WHERE user_id = $1 AND fcm_token = ANY($2)`,
@@ -111,11 +152,40 @@ export class FcmService {
       );
       logger.info(
         { userId, removed: tokensToRemove.length },
-        'Removed stale FCM tokens'
+        'Removed dead FCM tokens',
+      );
+    }
+
+    // F079: bump last_seen_at on tokens that just delivered so the cleanup
+    // job leaves them alone.
+    if (tokensDelivered.length > 0) {
+      await pool.query(
+        `UPDATE user_push_tokens
+            SET last_seen_at = NOW()
+          WHERE user_id = $1 AND fcm_token = ANY($2)`,
+        [userId, tokensDelivered],
       );
     }
 
     return successCount;
+  }
+
+  /**
+   * F079: cleanup tokens that haven't been seen for `staleDays`. Called by
+   * the daily maintenance cron alongside expireOverdueWarranties.
+   */
+  static async cleanupStaleTokens(staleDays = 60): Promise<number> {
+    const result = await pool.query(
+      `DELETE FROM user_push_tokens
+        WHERE last_seen_at < NOW() - ($1 || ' days')::interval
+        RETURNING id`,
+      [String(staleDays)],
+    );
+    const count = result.rowCount ?? 0;
+    if (count > 0) {
+      logger.info({ count, staleDays }, 'Cleaned up stale FCM tokens');
+    }
+    return count;
   }
 
   /**

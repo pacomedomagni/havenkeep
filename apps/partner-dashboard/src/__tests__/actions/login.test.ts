@@ -38,6 +38,8 @@ vi.mock('@/lib/auth', () => ({
 
 vi.mock('@/lib/config', () => ({
   API_URL: 'http://localhost:3000',
+  PROXY_FETCH_TIMEOUT_MS: 30_000,
+  CLIENT_FETCH_TIMEOUT_MS: 25_000,
 }));
 
 const mockFetch = vi.fn();
@@ -88,13 +90,16 @@ describe('signIn', () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it('returns error on invalid credentials (fetch returns 401)', async () => {
+  it('returns generic error on invalid credentials (audit Ch10-W015)', async () => {
+    // The login action no longer echoes upstream messages — the user always
+    // gets the same generic "incorrect" copy regardless of which field is
+    // wrong.
     mockFetch.mockResolvedValueOnce(
-      makeResponse(401, { error: 'Invalid credentials' })
+      makeResponse(401, { error: 'Some upstream message we should not surface' })
     );
     const fd = makeFormData({ email: 'user@example.com', password: 'wrong' });
     const result = await signIn(null, fd);
-    expect(result).toEqual({ error: 'Invalid credentials' });
+    expect(result).toEqual({ error: 'The email or password is incorrect.' });
   });
 
   it('returns error for non-partner/non-admin user', async () => {

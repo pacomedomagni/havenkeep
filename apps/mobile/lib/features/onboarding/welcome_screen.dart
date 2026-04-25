@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -42,6 +43,25 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
   bool _isLoading = false;
   bool _obscurePassword = true;
   bool _loginFailed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // The router rewrites unauthenticated `/referral/:code` deep links
+    // to `/welcome?pendingReferral=$code` (C102) so the auth gate runs
+    // before any account is created. Persist the code now so the email
+    // sign-up below picks it up just like the handler screen used to.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final code = GoRouterState.of(context)
+          .uri
+          .queryParameters['pendingReferral'];
+      if (code != null && code.isNotEmpty) {
+        SharedPreferences.getInstance().then((prefs) {
+          prefs.setString('referral_code', code);
+        });
+      }
+    });
+  }
 
   @override
   void dispose() {

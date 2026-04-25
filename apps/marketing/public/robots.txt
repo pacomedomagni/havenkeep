@@ -1,0 +1,7 @@
+# Audit Ch10-W102.
+
+User-agent: *
+Allow: /
+Disallow: /legal/delete-account
+
+Sitemap: https://havenkeep.com/sitemap-index.xml

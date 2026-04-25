@@ -1,6 +1,10 @@
 import 'enums.dart';
 
 /// A tracked item (appliance, system, etc.) with warranty information.
+///
+/// Field-by-field the model mirrors the `items` table; computed fields
+/// (warranty status, days remaining, lifespan %) come from the API view
+/// rather than the table.
 class Item {
   final String id;
   final String homeId;
@@ -19,11 +23,22 @@ class Item {
   // Purchase info
   final DateTime purchaseDate;
   final String? store;
+
+  /// Price.
+  ///
+  /// Ch08-Item-D009: the wire format is Postgres `DECIMAL(10, 2)` which
+  /// arrives as a JSON string ("1234.56") OR a JSON number depending on
+  /// the route's serializer. We coerce to [double] for display ergonomics;
+  /// callers that need ledger-grade precision must NOT use this for
+  /// arithmetic — use [num.parse] on the original string at the call site
+  /// (Phase 9 plans a `Decimal`-typed migration of the math paths).
   final double? price;
 
   // Warranty info
   final int warrantyMonths;
-  final DateTime? warrantyEndDate; // GENERATED column — read-only from DB
+
+  /// Computed by the DB. NEVER null — the column is `NOT NULL` (Ch08-Item-D010).
+  final DateTime warrantyEndDate;
   final WarrantyType warrantyType;
   final String? warrantyProvider;
 
@@ -67,7 +82,7 @@ class Item {
     this.store,
     this.price,
     this.warrantyMonths = 12,
-    this.warrantyEndDate,
+    required this.warrantyEndDate,
     this.warrantyType = WarrantyType.manufacturer,
     this.warrantyProvider,
     this.warrantyStatus,
@@ -95,28 +110,25 @@ class Item {
       brand: json['brand'] as String?,
       modelNumber: json['model_number'] as String?,
       serialNumber: json['serial_number'] as String?,
-      category: json['category'] != null
-          ? ItemCategory.fromJson(json['category'] as String)
-          : ItemCategory.other,
+      category: ItemCategory.fromJson(json['category'] as String? ?? 'other'),
       room: json['room'] != null
           ? ItemRoom.fromJson(json['room'] as String)
           : null,
       productImageUrl: json['product_image_url'] as String?,
       barcode: json['barcode'] as String?,
-      purchaseDate: DateTime.tryParse(json['purchase_date'] as String? ?? '') ?? DateTime.now(),
+      purchaseDate: _parseDate(json['purchase_date'])!,
       store: json['store'] as String?,
+      // Ch08-Item-D009: handle both numeric and DECIMAL-string envelopes.
       price: json['price'] != null
           ? (json['price'] is num
               ? (json['price'] as num).toDouble()
               : double.tryParse(json['price'].toString()))
           : null,
       warrantyMonths: (json['warranty_months'] as num?)?.toInt() ?? 12,
-      warrantyEndDate: json['warranty_end_date'] != null
-          ? DateTime.tryParse(json['warranty_end_date'] as String)
-          : null,
-      warrantyType: json['warranty_type'] != null
-          ? WarrantyType.fromJson(json['warranty_type'] as String)
-          : WarrantyType.manufacturer,
+      warrantyEndDate: _parseDate(json['warranty_end_date'])!,
+      warrantyType: WarrantyType.fromJson(
+        json['warranty_type'] as String? ?? 'manufacturer',
+      ),
       warrantyProvider: json['warranty_provider'] as String?,
       warrantyStatus: json['warranty_status'] != null
           ? WarrantyStatus.fromJson(json['warranty_status'] as String)
@@ -129,25 +141,15 @@ class Item {
           : null,
       expectedLifespanYears: (json['expected_lifespan_years'] as num?)?.toInt(),
       lifespanPercentage: (json['lifespan_percentage'] as num?)?.toInt(),
-      installationDate: json['installation_date'] != null
-          ? DateTime.tryParse(json['installation_date'] as String)
-          : null,
-      lastMaintenanceDate: json['last_maintenance_date'] != null
-          ? DateTime.tryParse(json['last_maintenance_date'] as String)
-          : null,
-      nextMaintenanceDue: json['next_maintenance_due'] != null
-          ? DateTime.tryParse(json['next_maintenance_due'] as String)
-          : null,
+      installationDate: _parseDate(json['installation_date']),
+      lastMaintenanceDate: _parseDate(json['last_maintenance_date']),
+      nextMaintenanceDue: _parseDate(json['next_maintenance_due']),
       notes: json['notes'] as String?,
       isArchived: json['is_archived'] as bool? ?? false,
-      addedVia: json['added_via'] != null
-          ? ItemAddedVia.fromJson(json['added_via'] as String)
-          : ItemAddedVia.manual,
-      archivedAt: json['archived_at'] != null
-          ? DateTime.tryParse(json['archived_at'] as String)
-          : null,
-      createdAt: DateTime.tryParse(json['created_at'] as String? ?? '') ?? DateTime.now(),
-      updatedAt: DateTime.tryParse(json['updated_at'] as String? ?? '') ?? DateTime.now(),
+      addedVia: ItemAddedVia.fromJson(json['added_via'] as String? ?? 'manual'),
+      archivedAt: _parseDate(json['archived_at']),
+      createdAt: _parseDate(json['created_at'])!,
+      updatedAt: _parseDate(json['updated_at'])!,
     );
   }
 
@@ -169,41 +171,53 @@ class Item {
       'store': store,
       'price': price,
       'warranty_months': warrantyMonths,
-      // warranty_end_date is GENERATED — don't send on insert/update
+      'warranty_end_date':
+          warrantyEndDate.toIso8601String().split('T').first,
       'warranty_type': warrantyType.toJson(),
       'warranty_provider': warrantyProvider,
       'installation_date': installationDate?.toIso8601String().split('T').first,
-      'last_maintenance_date': lastMaintenanceDate?.toIso8601String().split('T').first,
-      'next_maintenance_due': nextMaintenanceDue?.toIso8601String().split('T').first,
+      'last_maintenance_date':
+          lastMaintenanceDate?.toIso8601String().split('T').first,
+      'next_maintenance_due':
+          nextMaintenanceDue?.toIso8601String().split('T').first,
       'notes': notes,
       'is_archived': isArchived,
       'added_via': addedVia.toJson(),
+      'archived_at': archivedAt?.toIso8601String(),
+      'created_at': createdAt.toIso8601String(),
+      'updated_at': updatedAt.toIso8601String(),
     };
   }
 
-  /// JSON for inserts — excludes generated/read-only columns.
+  /// JSON for inserts. Strips id (server generates the UUID) and
+  /// `warranty_end_date` (GENERATED column, server computes from
+  /// `purchase_date + warranty_months`). Ch08-Item-D013/D014/D015:
+  /// [installationDate], [lastMaintenanceDate], and [nextMaintenanceDue]
+  /// ARE included — clients need them on initial create-from-receipt
+  /// flows. Server enforces ownership / date ordering.
   Map<String, dynamic> toInsertJson() {
     final json = toJson();
-    json.remove('id'); // Let DB generate UUID
-    json.remove('installation_date'); // Server-managed
-    json.remove('last_maintenance_date'); // Server-managed
-    json.remove('next_maintenance_due'); // Server-managed
+    json.remove('id');
+    json.remove('warranty_end_date');
+    json.remove('archived_at');
+    json.remove('created_at');
+    json.remove('updated_at');
     return json;
   }
 
-  /// Compute the warranty end date using proper month arithmetic
-  /// matching the server's calculation (avoids 30-day-per-month approximation).
-  DateTime get computedEndDate => _computedEndDate;
-
-  DateTime get _computedEndDate {
-    if (warrantyEndDate != null) return warrantyEndDate!;
+  /// Compute warranty_end_date the same way the API does (calendar-month
+  /// arithmetic, day-clamped to the last day of the target month). Used by
+  /// demo-mode + add-item flows that need to pre-fill the field locally
+  /// before the server roundtrips it back.
+  static DateTime computeWarrantyEndDate(
+    DateTime purchaseDate,
+    int warrantyMonths,
+  ) {
     var year = purchaseDate.year;
     var month = purchaseDate.month + warrantyMonths;
     var day = purchaseDate.day;
-    // Normalize month overflow
     year += (month - 1) ~/ 12;
     month = ((month - 1) % 12) + 1;
-    // Clamp day to last day of target month
     final lastDay = DateTime(year, month + 1, 0).day;
     if (day > lastDay) day = lastDay;
     return DateTime(year, month, day);
@@ -213,12 +227,13 @@ class Item {
   WarrantyStatus get computedWarrantyStatus {
     if (warrantyStatus != null) return warrantyStatus!;
 
-    final endDate = _computedEndDate;
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
 
-    if (endDate.isBefore(today)) return WarrantyStatus.expired;
-    if (endDate.difference(today).inDays <= 90) return WarrantyStatus.expiring;
+    if (warrantyEndDate.isBefore(today)) return WarrantyStatus.expired;
+    if (warrantyEndDate.difference(today).inDays <= 90) {
+      return WarrantyStatus.expiring;
+    }
     return WarrantyStatus.active;
   }
 
@@ -226,10 +241,9 @@ class Item {
   int get computedDaysRemaining {
     if (daysRemaining != null) return daysRemaining!;
 
-    final endDate = _computedEndDate;
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    return endDate.difference(today).inDays;
+    return warrantyEndDate.difference(today).inDays;
   }
 
   Item copyWith({
@@ -279,6 +293,7 @@ class Item {
     bool? isArchived,
     ItemAddedVia? addedVia,
     DateTime? archivedAt,
+    bool clearArchivedAt = false,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -309,16 +324,28 @@ class Item {
           : (warrantyProvider ?? this.warrantyProvider),
       warrantyStatus: warrantyStatus ?? this.warrantyStatus,
       daysRemaining: daysRemaining ?? this.daysRemaining,
-      estimatedRepairCost: clearEstimatedRepairCost ? null : (estimatedRepairCost ?? this.estimatedRepairCost),
-      expectedLifespanYears: clearExpectedLifespanYears ? null : (expectedLifespanYears ?? this.expectedLifespanYears),
-      lifespanPercentage: clearLifespanPercentage ? null : (lifespanPercentage ?? this.lifespanPercentage),
-      installationDate: clearInstallationDate ? null : (installationDate ?? this.installationDate),
-      lastMaintenanceDate: clearLastMaintenanceDate ? null : (lastMaintenanceDate ?? this.lastMaintenanceDate),
-      nextMaintenanceDue: clearNextMaintenanceDue ? null : (nextMaintenanceDue ?? this.nextMaintenanceDue),
+      estimatedRepairCost: clearEstimatedRepairCost
+          ? null
+          : (estimatedRepairCost ?? this.estimatedRepairCost),
+      expectedLifespanYears: clearExpectedLifespanYears
+          ? null
+          : (expectedLifespanYears ?? this.expectedLifespanYears),
+      lifespanPercentage: clearLifespanPercentage
+          ? null
+          : (lifespanPercentage ?? this.lifespanPercentage),
+      installationDate: clearInstallationDate
+          ? null
+          : (installationDate ?? this.installationDate),
+      lastMaintenanceDate: clearLastMaintenanceDate
+          ? null
+          : (lastMaintenanceDate ?? this.lastMaintenanceDate),
+      nextMaintenanceDue: clearNextMaintenanceDue
+          ? null
+          : (nextMaintenanceDue ?? this.nextMaintenanceDue),
       notes: clearNotes ? null : (notes ?? this.notes),
       isArchived: isArchived ?? this.isArchived,
       addedVia: addedVia ?? this.addedVia,
-      archivedAt: archivedAt ?? this.archivedAt,
+      archivedAt: clearArchivedAt ? null : (archivedAt ?? this.archivedAt),
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
@@ -333,4 +360,11 @@ class Item {
 
   @override
   int get hashCode => id.hashCode;
+}
+
+DateTime? _parseDate(Object? value) {
+  if (value == null) return null;
+  if (value is DateTime) return value;
+  if (value is String) return DateTime.tryParse(value);
+  return null;
 }

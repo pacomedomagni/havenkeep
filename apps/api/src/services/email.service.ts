@@ -7,6 +7,84 @@ if (config.sendgrid.apiKey) {
   sgMail.setApiKey(config.sendgrid.apiKey);
 }
 
+// F086: strip CR/LF (and adjacent whitespace) from any value that flows
+// into a header — the audit caught the contact form's user-supplied email
+// landing verbatim in `replyTo`, where `foo\r\nBcc: x@y` would inject a
+// blind copy into every outbound reply.
+function sanitizeHeaderValue(value: string): string {
+  return value.replace(/[\r\n]+/g, ' ').trim();
+}
+
+// F081: a tiny circuit breaker around SendGrid. SendGrid 429 / 5xx during a
+// promo blast historically cascaded into a request flood; we now back off
+// exponentially and short-circuit further sends for a cooldown window once
+// the consecutive-failure threshold is hit.
+const SENDGRID_BREAKER = {
+  consecutiveFailures: 0,
+  cooldownUntil: 0,
+  failureThreshold: 8,
+  cooldownMs: 60_000,
+};
+
+function isCircuitOpen(): boolean {
+  return Date.now() < SENDGRID_BREAKER.cooldownUntil;
+}
+
+function noteCircuitSuccess(): void {
+  SENDGRID_BREAKER.consecutiveFailures = 0;
+  SENDGRID_BREAKER.cooldownUntil = 0;
+}
+
+function noteCircuitFailure(): void {
+  SENDGRID_BREAKER.consecutiveFailures += 1;
+  if (SENDGRID_BREAKER.consecutiveFailures >= SENDGRID_BREAKER.failureThreshold) {
+    SENDGRID_BREAKER.cooldownUntil = Date.now() + SENDGRID_BREAKER.cooldownMs;
+    logger.warn(
+      { until: new Date(SENDGRID_BREAKER.cooldownUntil) },
+      'SendGrid circuit opened — pausing sends',
+    );
+  }
+}
+
+/**
+ * F081: retry SendGrid sends with exponential backoff on transient errors.
+ * Throws after the final attempt — caller decides whether to enqueue for a
+ * later retry. Exposed for tests.
+ */
+export async function sendGridSendWithRetry(
+  msg: sgMail.MailDataRequired,
+  maxAttempts = 3,
+): Promise<void> {
+  if (isCircuitOpen()) {
+    throw new Error('SendGrid circuit is open — refusing send');
+  }
+  let attempt = 0;
+  let lastErr: any;
+  while (attempt < maxAttempts) {
+    attempt++;
+    try {
+      await sgMail.send(msg);
+      noteCircuitSuccess();
+      return;
+    } catch (err: any) {
+      lastErr = err;
+      const status = err?.code || err?.response?.statusCode;
+      // Retry only on transient / rate-limit codes — 4xx (other than 429)
+      // is a permanent send failure (bad address, malformed payload).
+      const transient = status === 429 || (typeof status === 'number' && status >= 500);
+      if (!transient || attempt >= maxAttempts) {
+        noteCircuitFailure();
+        throw err;
+      }
+      const backoff = 250 * Math.pow(2, attempt - 1);
+      logger.warn({ attempt, status, backoff }, 'SendGrid transient error, retrying');
+      await new Promise((r) => setTimeout(r, backoff));
+    }
+  }
+  noteCircuitFailure();
+  throw lastErr;
+}
+
 // Sanitize user input for safe HTML embedding
 function escapeHtml(str: string): string {
   return str
@@ -20,6 +98,21 @@ function escapeHtml(str: string): string {
 // Validate hex color format
 function sanitizeColor(color: string): string {
   return /^#[0-9A-Fa-f]{6}$/.test(color) ? color : '#3B82F6';
+}
+
+/**
+ * Outlook treats `#RRGGBBAA` as invalid and falls back to black, breaking
+ * the gradient (Ch03-F032). Convert a sanitized #RRGGBB + 0..1 alpha into
+ * `rgba(r,g,b,a)` which every modern client (Outlook 2019+, Apple Mail,
+ * Gmail) understands.
+ */
+function colorWithAlpha(hexColor: string, alpha: number): string {
+  const safe = sanitizeColor(hexColor);
+  const r = parseInt(safe.slice(1, 3), 16);
+  const g = parseInt(safe.slice(3, 5), 16);
+  const b = parseInt(safe.slice(5, 7), 16);
+  const a = Math.max(0, Math.min(1, alpha));
+  return `rgba(${r}, ${g}, ${b}, ${a})`;
 }
 
 // Validate URL is https (allow http only for localhost in development)
@@ -97,7 +190,7 @@ export class EmailService {
 
           <!-- Header with Brand Color -->
           <tr>
-            <td style="background: linear-gradient(135deg, ${brand_color} 0%, ${brand_color}dd 100%); padding: 40px 40px 30px; text-align: center;">
+            <td style="background: linear-gradient(135deg, ${brand_color} 0%, ${colorWithAlpha(brand_color, 0.87)} 100%); padding: 40px 40px 30px; text-align: center;">
               ${logo_url ? `<img src="${logo_url}" alt="${fromName}" style="max-height: 60px; margin-bottom: 20px;">` : ''}
               <h1 style="color: #ffffff; margin: 0; font-size: 28px; font-weight: bold;">🎁 You've Received a Gift!</h1>
               <p style="color: #ffffff; margin: 10px 0 0; font-size: 16px; opacity: 0.95;">From ${fromName}</p>
@@ -114,7 +207,7 @@ export class EmailService {
               </p>
 
               ${safeCustomMessage ? `
-              <div style="background-color: ${brand_color}10; border-left: 4px solid ${brand_color}; padding: 20px; margin: 0 0 30px; border-radius: 4px;">
+              <div style="background-color: ${colorWithAlpha(brand_color, 0.06)}; border-left: 4px solid ${brand_color}; padding: 20px; margin: 0 0 30px; border-radius: 4px;">
                 <p style="color: #374151; font-size: 15px; line-height: 1.6; margin: 0; font-style: italic;">
                   "${safeCustomMessage}"
                 </p>
@@ -191,7 +284,7 @@ export class EmailService {
                       HavenKeep — Your Warranties. Protected.
                     </p>
                     <p style="color: #9ca3af; font-size: 12px; margin: 0;">
-                      This gift expires in 6 months. Questions? Contact us at support@havenkeep.com
+                      This gift expires in ${premium_months} month${premium_months === 1 ? '' : 's'}. Questions? Contact us at support@havenkeep.com
                     </p>
                   </td>
                 </tr>
@@ -232,8 +325,14 @@ This gift will help you protect your home investment by keeping all your warrant
 
 ---
 HavenKeep — Your Warranties. Protected.
-This gift expires in 6 months. Questions? Contact us at support@havenkeep.com
+This gift expires in ${premium_months} month${premium_months === 1 ? '' : 's'}. Questions? Contact us at support@havenkeep.com
       `;
+
+      // F082: gift email is a transactional notification but it's still a
+      // marketing-class send from the recipient's POV — RFC 8058 List-
+      // Unsubscribe + One-Click headers keep us compliant with Gmail/Yahoo
+      // sender requirements and away from spam reputation hits.
+      const giftUnsubscribeUrl = `${config.app.frontendUrl.replace(/\/$/, '')}/settings/notifications`;
 
       const msg = {
         to,
@@ -241,13 +340,17 @@ This gift expires in 6 months. Questions? Contact us at support@havenkeep.com
           email: config.sendgrid.fromEmail,
           name: fromName,
         },
-        replyTo: config.sendgrid.replyToEmail,
+        replyTo: sanitizeHeaderValue(config.sendgrid.replyToEmail),
         subject: `🎁 ${fromName} sent you a gift: ${premium_months} Months HavenKeep Premium`,
         text: textContent,
         html: htmlContent,
+        headers: {
+          'List-Unsubscribe': `<${giftUnsubscribeUrl}>`,
+          'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+        },
       };
 
-      await sgMail.send(msg);
+      await sendGridSendWithRetry(msg);
 
       logger.info(
         {
@@ -406,7 +509,7 @@ This gift expires in 6 months. Questions? Contact us at support@havenkeep.com
         <table width="600" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
 
           <tr>
-            <td style="background: linear-gradient(135deg, ${urgencyColor} 0%, ${urgencyColor}dd 100%); padding: 40px; text-align: center;">
+            <td style="background: linear-gradient(135deg, ${urgencyColor} 0%, ${colorWithAlpha(urgencyColor, 0.87)} 100%); padding: 40px; text-align: center;">
               <h1 style="color: #ffffff; margin: 0; font-size: 28px; font-weight: bold;">Warranty ${urgencyLabel}</h1>
               <p style="color: #ffffff; margin: 10px 0 0; font-size: 16px; opacity: 0.95;">${days_remaining} day${days_remaining !== 1 ? 's' : ''} remaining</p>
             </td>
@@ -554,7 +657,7 @@ To stop receiving these emails, visit: ${unsubscribeUrl}
         <table width="600" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
 
           <tr>
-            <td style="background: linear-gradient(135deg, #F59E0B 0%, #F59E0Bdd 100%); padding: 40px; text-align: center;">
+            <td style="background: linear-gradient(135deg, #F59E0B 0%, ${colorWithAlpha('#F59E0B', 0.87)} 100%); padding: 40px; text-align: center;">
               <h1 style="color: #ffffff; margin: 0; font-size: 28px; font-weight: bold;">Maintenance Due</h1>
               <p style="color: #ffffff; margin: 10px 0 0; font-size: 16px; opacity: 0.95;">${safeTaskName}</p>
             </td>
@@ -1238,23 +1341,85 @@ HavenKeep — Your Warranties. Protected.
 
       const textContent = `New Contact Form Submission\n\nFrom: ${name} <${email}>\nSubject: ${subject}\n\nMessage:\n${message}`;
 
+      // F086: replyTo is user-controlled. CRLF in the address would inject
+      // additional headers (Bcc, X-Spam-Status, etc.). Strip + trim before
+      // it reaches SendGrid. Subject also has CRLF stripped via F115 in
+      // the contact route.
+      const safeReplyTo = sanitizeHeaderValue(email);
+
       const msg = {
         to: 'support@havenkeep.com',
         from: {
           email: config.sendgrid.fromEmail,
           name: 'HavenKeep Contact Form',
         },
-        replyTo: email,
+        replyTo: safeReplyTo,
         subject: `Contact Form: ${subject} - ${name}`,
         text: textContent,
         html: htmlContent,
       };
 
-      await sgMail.send(msg);
+      await sendGridSendWithRetry(msg);
 
       logger.info({ from: email, subject }, 'Contact notification email sent');
     } catch (error) {
       logger.error({ error, from: data.email }, 'Failed to send contact notification email');
+      throw error;
+    }
+  }
+
+  /**
+   * Send the double-opt-in confirmation link for a newsletter signup. The
+   * URL embeds the single-use plaintext token; the DB only holds the hash.
+   */
+  static async sendNewsletterConfirmation(data: {
+    to: string;
+    confirmUrl: string;
+  }): Promise<void> {
+    const { to, confirmUrl } = data;
+    const safeUrl = escapeHtml(confirmUrl);
+
+    const html = `
+<!DOCTYPE html>
+<html><body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 40px 20px;">
+  <table width="100%" cellpadding="0" cellspacing="0">
+    <tr><td align="center">
+      <table width="560" cellpadding="0" cellspacing="0" style="background:#fff; border-radius:12px; padding:32px;">
+        <tr><td>
+          <h2 style="color:#111827; margin:0 0 16px;">Confirm your subscription</h2>
+          <p style="color:#374151; line-height:1.6; margin:0 0 24px;">
+            You requested newsletter updates from HavenKeep. Click the button below to confirm.
+            If you didn't request this, you can ignore this email.
+          </p>
+          <p style="text-align:center; margin:0 0 24px;">
+            <a href="${safeUrl}"
+               style="background:#3B82F6; color:#fff; padding:12px 24px; border-radius:8px;
+                      text-decoration:none; font-weight:bold; display:inline-block;">
+              Confirm subscription
+            </a>
+          </p>
+          <p style="color:#6b7280; font-size:13px;">
+            Or copy and paste this link: <br/>${safeUrl}
+          </p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>`;
+
+    const text = `Confirm your subscription to the HavenKeep newsletter:\n\n${confirmUrl}\n\nIf you didn't request this, ignore this email.`;
+
+    try {
+      await sgMail.send({
+        to,
+        from: { email: config.sendgrid.fromEmail, name: 'HavenKeep' },
+        subject: 'Confirm your HavenKeep newsletter subscription',
+        text,
+        html,
+      });
+      logger.info({ to }, 'Newsletter confirmation email sent');
+    } catch (error) {
+      logger.error({ error, to }, 'Failed to send newsletter confirmation email');
       throw error;
     }
   }

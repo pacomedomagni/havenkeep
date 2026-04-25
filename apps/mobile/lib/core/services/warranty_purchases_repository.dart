@@ -17,7 +17,10 @@ class WarrantyPurchasesRepository {
       if (itemId != null) params['item_id'] = itemId;
       if (status != null) params['status'] = status;
 
-      final data = await _client.get('/api/v1/warranty-purchases', queryParams: params);
+      final data = await _client.get(
+        pathSegments: const ['api', 'v1', 'warranty-purchases'],
+        queryParams: params,
+      );
       final purchases = (data['data'] as List)
           .map((json) => WarrantyPurchase.fromJson(json as Map<String, dynamic>))
           .toList();
@@ -30,7 +33,9 @@ class WarrantyPurchasesRepository {
 
   Future<WarrantyPurchase> getPurchaseById(String id) async {
     try {
-      final data = await _client.get('/api/v1/warranty-purchases/$id');
+      final data = await _client.get(
+        pathSegments: ['api', 'v1', 'warranty-purchases', id],
+      );
       return WarrantyPurchase.fromJson(data['data'] as Map<String, dynamic>);
     } catch (e) {
       debugPrint('[WarrantyPurchasesRepository] getPurchaseById failed: $e');
@@ -41,7 +46,7 @@ class WarrantyPurchasesRepository {
   Future<WarrantyPurchase> createPurchase(WarrantyPurchase purchase) async {
     try {
       final data = await _client.post(
-        '/api/v1/warranty-purchases',
+        pathSegments: const ['api', 'v1', 'warranty-purchases'],
         body: purchase.toCreateJson(),
       );
       return WarrantyPurchase.fromJson(data['data'] as Map<String, dynamic>);
@@ -54,7 +59,7 @@ class WarrantyPurchasesRepository {
   Future<WarrantyPurchase> cancelPurchase(String id, {String? reason}) async {
     try {
       final data = await _client.post(
-        '/api/v1/warranty-purchases/$id/cancel',
+        pathSegments: ['api', 'v1', 'warranty-purchases', id, 'cancel'],
         body: {'reason': reason},
       );
       return WarrantyPurchase.fromJson(data['data'] as Map<String, dynamic>);

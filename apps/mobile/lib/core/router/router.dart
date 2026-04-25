@@ -124,13 +124,21 @@ final routerProvider = Provider<GoRouter>((ref) {
       // Read current state at redirect time (not at provider creation time)
       final isAuthenticated = ref.read(isAuthenticatedProvider);
       final isDemoMode = ref.read(demoModeProvider);
-      final hasHome = ref.read(hasHomeProvider);
+      final hasHomeAsync = ref.read(hasHomeProvider);
 
       // Allow splash to load
       if (location == AppRoutes.splash) return null;
 
-      // Allow referral deep links to pass through (handled by the screen)
-      if (location.startsWith('/referral/')) return null;
+      // Referral deep links: only honor for authenticated users. Anyone
+      // else is bounced to /welcome with the code stashed for post-signup
+      // — see C102.
+      if (location.startsWith('/referral/')) {
+        if (isAuthenticated && !isDemoMode.isEnabled) return null;
+        final code = location.substring('/referral/'.length);
+        return code.isEmpty
+            ? AppRoutes.welcome
+            : '${AppRoutes.welcome}?pendingReferral=$code';
+      }
 
       // In demo mode, only allow demo route
       if (isDemoMode.isEnabled) {
@@ -142,6 +150,15 @@ final routerProvider = Provider<GoRouter>((ref) {
       if (!isAuthenticated) {
         if (location == AppRoutes.welcome) return null;
         return AppRoutes.welcome;
+      }
+
+      // Authenticated but homes haven't resolved yet — keep the user on
+      // the splash screen instead of routing on a speculative value
+      // (C101). Once `homesProvider` emits, the refresh listenable runs
+      // this redirect again.
+      final hasHome = hasHomeAsync.valueOrNull;
+      if (hasHome == null) {
+        return AppRoutes.splash;
       }
 
       // Authenticated but no home → allow first-action, home-setup,

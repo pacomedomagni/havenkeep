@@ -6,17 +6,53 @@ import { logger } from '../utils/logger';
 import { getRedisClient } from '../utils/redis';
 import { asyncHandler } from '../utils/async-handler';
 import { sendSuccess } from '../utils/response';
+import { pool } from '../db';
+import { AppError } from '../utils/errors';
 
 const router = Router();
 router.use(authenticate);
 router.use(requirePremium);
 
-const BARCODE_CACHE_TTL = 86400; // 24 hours in seconds
+// F105: a successful lookup is cached for 24h (results don't change often).
+// A 404 is now only cached for 1h so a newly-listed product surfaces within
+// the day instead of staying invisible until the cache TTL expires.
+const BARCODE_CACHE_TTL_HIT = 86400;       // 24h
+const BARCODE_CACHE_TTL_MISS = 60 * 60;    // 1h
+
+// F103: per-user daily quota. The shared upcitemdb trial cap is 100/day, so
+// without a per-user limit a single chatty account can starve the rest.
+// Free plan users (technically blocked by requirePremium today, but kept
+// here for consistency) get 10/day; premium users get 50/day.
+const QUOTA_PREMIUM = 50;
+const QUOTA_FREE = 10;
+
+async function consumeBarcodeQuota(userId: string, plan: 'free' | 'premium' | string): Promise<void> {
+  const limit = plan === 'premium' ? QUOTA_PREMIUM : QUOTA_FREE;
+  // Atomic upsert + check. The ON CONFLICT branch returns the post-increment
+  // value, so we can throw 429 immediately if the user is over.
+  const result = await pool.query<{ lookups: number }>(
+    `INSERT INTO barcode_lookup_quota (user_id, quota_date, lookups)
+     VALUES ($1, (NOW() AT TIME ZONE 'UTC')::date, 1)
+     ON CONFLICT (user_id, quota_date)
+     DO UPDATE SET lookups = barcode_lookup_quota.lookups + 1
+     RETURNING lookups`,
+    [userId],
+  );
+  if (result.rows[0].lookups > limit) {
+    throw new AppError(`Daily barcode lookup quota of ${limit} exceeded`, 429);
+  }
+}
 
 router.post('/lookup', validate(barcodeLookupSchema), asyncHandler(async (req: AuthRequest, res) => {
   const { barcode } = req.body;
+  const user = req.user!;
 
-  logger.info({ barcode, userId: req.user!.id }, 'Barcode lookup requested');
+  // F103: bump per-user quota first; over-quota requests don't consume any
+  // upstream budget. The plan string lives on req.user (premium gating
+  // already filtered free out, but treat conservatively).
+  await consumeBarcodeQuota(user.id, (user as any).plan ?? 'premium');
+
+  logger.info({ barcode, userId: user.id }, 'Barcode lookup requested');
 
   // Serve from Redis cache if available (avoids hitting rate-limited trial API)
   const cacheKey = `barcode:${barcode}`;
@@ -32,8 +68,6 @@ router.post('/lookup', validate(barcodeLookupSchema), asyncHandler(async (req: A
   }
 
   // Try UPC Database API (general product database, not food-only)
-  // NOTE: Using the UPC Item DB trial API which has strict rate limits (100 req/day).
-  // For production traffic, upgrade to a paid plan.
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10000);
   let response: Response;
@@ -51,24 +85,22 @@ router.post('/lookup', validate(barcodeLookupSchema), asyncHandler(async (req: A
   }
   clearTimeout(timeout);
 
-  // BE-25: Distinguish between API error (upstream failure) and not-found
   if (!response.ok) {
     const statusCode = response.status;
     logger.error({ barcode, statusCode }, 'Barcode API returned error');
 
     if (statusCode === 404) {
-      // API explicitly says not found — return 200 with null product data
       const notFoundResult = { barcode, brand: null, product_name: null, description: null, image_url: null };
       try {
         const redis = await getRedisClient();
-        await redis.set(cacheKey, JSON.stringify(notFoundResult), { EX: BARCODE_CACHE_TTL });
+        // F105: short TTL on 404 so a newly-listed product surfaces sooner.
+        await redis.set(cacheKey, JSON.stringify(notFoundResult), { EX: BARCODE_CACHE_TTL_MISS });
       } catch (err) {
-        logger.warn({ err, barcode }, 'Redis cache write failed for barcode');
+        logger.warn({ err, barcode }, 'Redis cache write failed for barcode (404)');
       }
       return sendSuccess(res, notFoundResult);
     }
 
-    // Upstream server error or rate limit — return 502 Bad Gateway
     return res.status(502).json({
       error: 'Barcode lookup service unavailable',
       message: `External API returned status ${statusCode}`,
@@ -89,7 +121,7 @@ router.post('/lookup', validate(barcodeLookupSchema), asyncHandler(async (req: A
     };
     try {
       const redis = await getRedisClient();
-      await redis.set(cacheKey, JSON.stringify(result), { EX: BARCODE_CACHE_TTL });
+      await redis.set(cacheKey, JSON.stringify(result), { EX: BARCODE_CACHE_TTL_HIT });
     } catch (err) {
       logger.warn({ err, barcode }, 'Redis cache write failed for barcode');
     }
@@ -101,9 +133,10 @@ router.post('/lookup', validate(barcodeLookupSchema), asyncHandler(async (req: A
   const emptyResult = { barcode, brand: null, product_name: null, description: null, image_url: null };
   try {
     const redis = await getRedisClient();
-    await redis.set(cacheKey, JSON.stringify(emptyResult), { EX: BARCODE_CACHE_TTL });
+    // F105: same short TTL as 404; "200 with no items" is functionally a miss.
+    await redis.set(cacheKey, JSON.stringify(emptyResult), { EX: BARCODE_CACHE_TTL_MISS });
   } catch (err) {
-    logger.warn({ err, barcode }, 'Redis cache write failed for barcode');
+    logger.warn({ err, barcode }, 'Redis cache write failed for barcode (empty)');
   }
   sendSuccess(res, emptyResult);
 }));

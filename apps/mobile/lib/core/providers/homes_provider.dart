@@ -25,23 +25,26 @@ class HomesNotifier extends AsyncNotifier<List<Home>> {
   Future<List<Home>> build() async {
     final userAsync = ref.watch(currentUserProvider);
 
-    // If auth is still loading, preserve current state to avoid flashing empty
-    // BUT only if the user hasn't changed (prevent stale data across user switches)
+    // While auth is still resolving, suspend on a never-completing future
+    // so this provider stays in `AsyncLoading` (instead of synthesizing
+    // an `AsyncData([])` that downstream guards would mistake for "no
+    // homes"). The router and any UI consumer must observe loading and
+    // wait — see C101 in the audit.
     if (userAsync.isLoading) {
-      final currentUserId = userAsync.valueOrNull?.id;
-      if (_previousUserId != null && currentUserId != null && _previousUserId != currentUserId) {
-        // User has changed — return empty list to avoid showing stale homes
-        _previousUserId = currentUserId;
-        return [];
-      }
-      final prevHomes = state.valueOrNull ?? [];
-      return prevHomes;
+      return Completer<List<Home>>().future;
     }
 
     final user = userAsync.valueOrNull;
     if (user == null) {
       _previousUserId = null;
       return [];
+    }
+
+    // Detect account switches — if the active user changed, drop any
+    // cached homes so we never serve user A's data while user B's fetch
+    // is in flight.
+    if (_previousUserId != null && _previousUserId != user.id) {
+      state = const AsyncValue.loading();
     }
 
     _previousUserId = user.id;
@@ -102,9 +105,12 @@ final currentHomeProvider = Provider<Home?>((ref) {
 });
 
 /// Whether the user has at least one home set up.
-/// Returns true while loading to prevent premature redirect to home setup.
-final hasHomeProvider = Provider<bool>((ref) {
+///
+/// Wrapped in `AsyncValue` so callers can distinguish "still loading"
+/// from "definitely (no) homes". The router uses this to keep
+/// authenticated users on the splash screen until the answer is real
+/// instead of redirecting on a speculative value (C101).
+final hasHomeProvider = Provider<AsyncValue<bool>>((ref) {
   final homes = ref.watch(homesProvider);
-  if (homes.isLoading) return true;
-  return ref.watch(currentHomeProvider) != null;
+  return homes.whenData((list) => list.isNotEmpty);
 });

@@ -20,6 +20,10 @@ class _TestCurrentUserNotifier extends CurrentUserNotifier {
 }
 
 /// Helper to create test AppNotification instances.
+///
+/// `isRead` is now a getter on the model (true iff `openedAt != null`)
+/// — see Ch08-Notification-D041. Pass `isRead: true` to mark this row
+/// as opened so the helper sets a synthetic `openedAt`.
 AppNotification createTestNotification({
   String? id,
   String? title,
@@ -27,15 +31,16 @@ AppNotification createTestNotification({
   bool isRead = false,
   NotificationType type = NotificationType.warranty_expiring,
 }) {
+  final now = DateTime.now();
   return AppNotification(
-    id: id ?? 'notif-${DateTime.now().millisecondsSinceEpoch}',
+    id: id ?? 'notif-${now.millisecondsSinceEpoch}',
     userId: TestHelpers.testUserId,
     type: type,
     title: title ?? 'Test Notification',
     body: body ?? 'Test notification body',
-    isRead: isRead,
-    scheduledAt: DateTime.now(),
-    createdAt: DateTime.now(),
+    sentAt: now,
+    openedAt: isRead ? now : null,
+    createdAt: now,
   );
 }
 

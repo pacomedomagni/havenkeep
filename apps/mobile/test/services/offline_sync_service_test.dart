@@ -23,14 +23,19 @@ class _MockNotificationsRepository extends Mock
   @override
   Future<NotificationPreferences> upsertPreferences(
     NotificationPreferences prefs,
-  ) =>
-      super.noSuchMethod(
-        Invocation.method(#upsertPreferences, [prefs]),
-        returnValue: Future.value(
-            const NotificationPreferences(userId: 'test-user')),
-        returnValueForMissingStub: Future.value(
-            const NotificationPreferences(userId: 'test-user')),
-      ) as Future<NotificationPreferences>;
+  ) {
+    final epoch = DateTime.utc(1970);
+    final fallback = NotificationPreferences(
+      userId: 'test-user',
+      createdAt: epoch,
+      updatedAt: epoch,
+    );
+    return super.noSuchMethod(
+      Invocation.method(#upsertPreferences, [prefs]),
+      returnValue: Future.value(fallback),
+      returnValueForMissingStub: Future.value(fallback),
+    ) as Future<NotificationPreferences>;
+  }
 }
 
 /// A provider used solely to capture a [Ref] for constructing the
@@ -40,7 +45,13 @@ final _testRefProvider = Provider<Ref>((ref) => ref);
 @GenerateMocks([HavenDatabase, ItemsRepository])
 void main() {
   // Register fallback for non-nullable types used with Mockito's `any` matcher.
-  provideDummy(const NotificationPreferences(userId: ''));
+  // `createdAt` and `updatedAt` are required after Phase 8 — use the epoch.
+  final epoch = DateTime.utc(1970);
+  provideDummy(NotificationPreferences(
+    userId: '',
+    createdAt: epoch,
+    updatedAt: epoch,
+  ));
 
   // Required for Connectivity plugin used by OfflineSyncService.start()
   WidgetsFlutterBinding.ensureInitialized();
@@ -95,8 +106,10 @@ void main() {
       entityType: entityType ?? 'item',
       entityId: entityId ?? 'test-item-id',
       action: action ?? OfflineAction.create_item.toJson(),
+      // Item.fromJson now requires `purchase_date` and `warranty_end_date`
+      // (Ch08-Item-D010) — both are NOT NULL on the wire.
       payload: payload ??
-          '{"id":"test-item-id","name":"Test Item","home_id":"home-1","user_id":"user-1","category":"refrigerator","warranty_months":12,"created_at":"2026-01-01T00:00:00.000Z","updated_at":"2026-01-01T00:00:00.000Z"}',
+          '{"id":"test-item-id","name":"Test Item","home_id":"home-1","user_id":"user-1","category":"refrigerator","purchase_date":"2026-01-01","warranty_months":12,"warranty_end_date":"2027-01-01","created_at":"2026-01-01T00:00:00.000Z","updated_at":"2026-01-01T00:00:00.000Z"}',
       status: status,
       attempts: attempts,
       createdAt: DateTime.now(),
@@ -188,12 +201,12 @@ void main() {
       verifyNever(mockDb.markActionSynced(1));
     });
 
-    test('retries failed actions up to max attempts', () async {
+    test('reschedules transient failures up to max attempts', () async {
       final entry = createQueueEntry(id: 1, attempts: 1);
 
       when(mockDb.getPendingActions()).thenAnswer((_) async => [entry]);
       when(mockDb.markActionFailed(any, any)).thenAnswer((_) async => 1);
-      when(mockDb.retryAction(any)).thenAnswer((_) async => 1);
+      when(mockDb.reschedulePending(any, any)).thenAnswer((_) async {});
       when(mockDb.clearSyncedActions()).thenAnswer((_) async => 0);
 
       when(mockItemsRepo.createItem(any))
@@ -201,16 +214,18 @@ void main() {
 
       await service.syncPendingChanges();
 
-      verify(mockDb.markActionFailed(1, 2)).called(1);
-      verify(mockDb.retryAction(1)).called(1);
+      // Single status write: row stays `pending` with bumped attempt count.
+      verify(mockDb.reschedulePending(1, 2)).called(1);
+      verifyNever(mockDb.markActionFailed(any, any));
     });
 
-    test('does not retry when max attempts reached', () async {
+    test('marks failed when max attempts reached', () async {
       final entry =
           createQueueEntry(id: 1, attempts: 2); // Will be 3 after fail
 
       when(mockDb.getPendingActions()).thenAnswer((_) async => [entry]);
       when(mockDb.markActionFailed(any, any)).thenAnswer((_) async => 1);
+      when(mockDb.reschedulePending(any, any)).thenAnswer((_) async {});
       when(mockDb.clearSyncedActions()).thenAnswer((_) async => 0);
 
       when(mockItemsRepo.createItem(any))
@@ -219,7 +234,7 @@ void main() {
       await service.syncPendingChanges();
 
       verify(mockDb.markActionFailed(1, 3)).called(1);
-      verifyNever(mockDb.retryAction(any));
+      verifyNever(mockDb.reschedulePending(any, any));
     });
 
     test('prevents concurrent syncs', () async {
@@ -342,12 +357,22 @@ void main() {
     });
 
     test('handles update_preferences action', () async {
+      // Phase 8 made `user_id`, `created_at`, and `updated_at` required
+      // on the NotificationPreferences wire format — pass a payload that
+      // round-trips through `fromJson`.
       final entry = createQueueEntry(
         action: OfflineAction.update_preferences.toJson(),
         payload: jsonEncode({
-          'maintenance_reminders': true,
-          'warranty_alerts': true,
-          'community_updates': false,
+          'user_id': 'test-user',
+          'reminders_enabled': true,
+          'first_reminder_days': 30,
+          'reminder_time': '09:00',
+          'warranty_offers_enabled': true,
+          'tips_enabled': false,
+          'push_enabled': true,
+          'email_enabled': false,
+          'created_at': '2026-01-01T00:00:00.000Z',
+          'updated_at': '2026-01-01T00:00:00.000Z',
         }),
       );
 
@@ -364,12 +389,12 @@ void main() {
   });
 
   group('OfflineSyncService - error handling', () {
-    test('marks action as failed on repository error', () async {
+    test('reschedules entry as pending on repository error', () async {
       final entry = createQueueEntry(id: 1, attempts: 0);
 
       when(mockDb.getPendingActions()).thenAnswer((_) async => [entry]);
       when(mockDb.markActionFailed(any, any)).thenAnswer((_) async => 1);
-      when(mockDb.retryAction(any)).thenAnswer((_) async => 1);
+      when(mockDb.reschedulePending(any, any)).thenAnswer((_) async {});
       when(mockDb.clearSyncedActions()).thenAnswer((_) async => 0);
 
       when(mockItemsRepo.createItem(any))
@@ -377,11 +402,13 @@ void main() {
 
       await service.syncPendingChanges();
 
-      verify(mockDb.markActionFailed(1, 1)).called(1);
-      verify(mockDb.retryAction(1)).called(1);
+      verify(mockDb.reschedulePending(1, 1)).called(1);
+      verifyNever(mockDb.markActionFailed(any, any));
     });
 
     test('continues processing after single entry failure', () async {
+      // Phase 8: `purchase_date` + `warranty_end_date` are NOT NULL on
+      // the wire — include them so the fixture parses cleanly.
       final entries = [
         createQueueEntry(id: 1), // Will fail
         createQueueEntry(
@@ -393,7 +420,9 @@ void main() {
             'home_id': 'home-1',
             'user_id': 'user-1',
             'category': 'refrigerator',
+            'purchase_date': '2026-01-01',
             'warranty_months': 12,
+            'warranty_end_date': '2027-01-01',
             'created_at': '2026-01-01T00:00:00.000Z',
             'updated_at': '2026-01-01T00:00:00.000Z',
           }),
@@ -403,7 +432,7 @@ void main() {
       when(mockDb.getPendingActions()).thenAnswer((_) async => entries);
       when(mockDb.markActionSynced(any)).thenAnswer((_) async => 1);
       when(mockDb.markActionFailed(any, any)).thenAnswer((_) async => 1);
-      when(mockDb.retryAction(any)).thenAnswer((_) async => 1);
+      when(mockDb.reschedulePending(any, any)).thenAnswer((_) async {});
       when(mockDb.clearSyncedActions()).thenAnswer((_) async => 1);
 
       var callCount = 0;
@@ -417,7 +446,7 @@ void main() {
 
       await service.syncPendingChanges();
 
-      verify(mockDb.markActionFailed(1, 1)).called(1);
+      verify(mockDb.reschedulePending(1, 1)).called(1);
       verify(mockDb.markActionSynced(2)).called(1);
     });
 
@@ -428,7 +457,7 @@ void main() {
 
       when(mockDb.getPendingActions()).thenAnswer((_) async => [entry]);
       when(mockDb.markActionFailed(any, any)).thenAnswer((_) async => 1);
-      when(mockDb.retryAction(any)).thenAnswer((_) async => 1);
+      when(mockDb.reschedulePending(any, any)).thenAnswer((_) async {});
       when(mockDb.clearSyncedActions()).thenAnswer((_) async => 0);
 
       await service.syncPendingChanges();

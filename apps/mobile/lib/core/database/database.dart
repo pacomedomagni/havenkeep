@@ -1,47 +1,62 @@
+import 'dart:convert';
+import 'dart:ffi';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:sqlcipher_flutter_libs/sqlcipher_flutter_libs.dart';
+import 'package:sqlite3/open.dart';
 
+import '../services/secure_storage_service.dart';
 import 'tables/local_items.dart';
 import 'tables/local_homes.dart';
 import 'tables/offline_queue.dart';
+import 'tables/sync_conflicts.dart';
 
 part 'database.g.dart';
 
-/// HavenKeep local SQLite database powered by Drift.
+/// HavenKeep local SQLite database powered by Drift on top of SQLCipher.
 ///
 /// Caches items and homes locally for offline support and maintains
-/// a queue of mutations to sync when connectivity is restored.
+/// a queue of mutations to sync when connectivity is restored. The
+/// database file is encrypted at rest with a 256-bit key persisted in
+/// platform secure storage and is scoped per signed-in user (so two
+/// accounts on the same device cannot read each other's cache).
 ///
 /// Run `dart run build_runner build` inside `apps/mobile/` to regenerate
 /// the `database.g.dart` file after modifying table definitions.
-@DriftDatabase(tables: [LocalItems, LocalHomes, OfflineQueue])
+@DriftDatabase(tables: [LocalItems, LocalHomes, OfflineQueue, SyncConflicts])
 class HavenDatabase extends _$HavenDatabase {
-  HavenDatabase() : super(_openConnection());
+  HavenDatabase({String? userId})
+      : super(_openConnection(userId: userId));
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
-    onCreate: (m) async {
-      await m.createAll();
-      await _createIndexes();
-    },
-    onUpgrade: (m, from, to) async {
-      for (var target = from + 1; target <= to; target++) {
-        switch (target) {
-          case 2:
-            await _createIndexes();
-            break;
-        }
-      }
-    },
-  );
+        onCreate: (m) async {
+          await m.createAll();
+          await _createIndexes();
+        },
+        onUpgrade: (m, from, to) async {
+          for (var target = from + 1; target <= to; target++) {
+            switch (target) {
+              case 2:
+                await _createIndexes();
+                break;
+              case 3:
+                await m.createTable(syncConflicts);
+                break;
+            }
+          }
+        },
+      );
 
   Future<void> _createIndexes() async {
     await customStatement(
@@ -127,7 +142,7 @@ class HavenDatabase extends _$HavenDatabase {
       (update(offlineQueue)..where((t) => t.id.equals(actionId)))
           .write(const OfflineQueueCompanion(status: Value('synced')));
 
-  /// Mark a queued action as failed and record the attempt count.
+  /// Mark a queued action as permanently failed and record the attempt count.
   Future<void> markActionFailed(int actionId, int attemptCount) =>
       (update(offlineQueue)..where((t) => t.id.equals(actionId)))
           .write(OfflineQueueCompanion(
@@ -135,10 +150,15 @@ class HavenDatabase extends _$HavenDatabase {
         attempts: Value(attemptCount),
       ));
 
-  /// Re-queue a failed action for retry.
-  Future<void> retryAction(int actionId) =>
+  /// Reschedule a transient failure: keep the row in `pending` and bump the
+  /// attempt counter in a single UPDATE so we never write a `failed` state
+  /// we'd immediately flip back to `pending`.
+  Future<void> reschedulePending(int actionId, int attemptCount) =>
       (update(offlineQueue)..where((t) => t.id.equals(actionId)))
-          .write(const OfflineQueueCompanion(status: Value('pending')));
+          .write(OfflineQueueCompanion(
+        status: const Value('pending'),
+        attempts: Value(attemptCount),
+      ));
 
   /// Fetch all failed queue entries, ordered oldest first.
   Future<List<OfflineQueueData>> getFailedActions() =>
@@ -169,6 +189,9 @@ class HavenDatabase extends _$HavenDatabase {
   Future<void> clearSyncedActions() =>
       (delete(offlineQueue)..where((t) => t.status.equals('synced'))).go();
 
+  /// Drop every row in the offline queue (used on sign-out / per-user wipe).
+  Future<void> clearAllQueueEntries() => delete(offlineQueue).go();
+
   /// Get the total number of entries in the offline queue.
   Future<int> getQueueSize() async {
     final countExpr = countAll();
@@ -191,19 +214,157 @@ class HavenDatabase extends _$HavenDatabase {
   /// Remove all queue entries older than [cutoff].
   Future<void> removeEntriesOlderThan(DateTime cutoff) =>
       (delete(offlineQueue)..where((t) => t.createdAt.isSmallerThanValue(cutoff))).go();
+
+  // ---------------------------------------------------------------------------
+  // SYNC CONFLICTS
+  // ---------------------------------------------------------------------------
+
+  /// Park a conflict for manual user resolution.
+  Future<int> recordConflict({
+    required String entityType,
+    required String entityId,
+    required Map<String, dynamic> localVersion,
+    required Map<String, dynamic> serverVersion,
+  }) {
+    return into(syncConflicts).insert(
+      SyncConflictsCompanion(
+        entityType: Value(entityType),
+        entityId: Value(entityId),
+        localVersionJson: Value(jsonEncode(localVersion)),
+        serverVersionJson: Value(jsonEncode(serverVersion)),
+      ),
+    );
+  }
+
+  /// All currently parked conflicts, oldest first.
+  Future<List<SyncConflict>> getOpenConflicts() =>
+      (select(syncConflicts)
+            ..orderBy([(t) => OrderingTerm.asc(t.createdAt)]))
+          .get();
+
+  /// Number of currently parked conflicts.
+  Future<int> getConflictCount() async {
+    final countExpr = countAll();
+    final query = selectOnly(syncConflicts)..addColumns([countExpr]);
+    final result = await query.getSingle();
+    return result.read(countExpr) ?? 0;
+  }
+
+  /// Remove a parked conflict once the user has resolved it.
+  Future<int> removeConflict(int conflictId) =>
+      (delete(syncConflicts)..where((t) => t.id.equals(conflictId))).go();
+
+  /// Remove every parked conflict (used on sign-out / per-user wipe).
+  Future<void> clearAllConflicts() => delete(syncConflicts).go();
 }
 
-LazyDatabase _openConnection() {
+/// Compute the on-disk filename for the per-user database, falling back to
+/// a global file when no user is signed in (used for the very first launch
+/// before any auth happens).
+String _databaseFileName(String? userId) {
+  if (userId == null || userId.isEmpty) {
+    return 'havenkeep.sqlite';
+  }
+  // SHA-256 truncated to 16 hex chars is more than enough entropy to
+  // disambiguate accounts on a single device while keeping the path short.
+  final digest = sha256.convert(utf8.encode(userId));
+  final shortHash = digest.toString().substring(0, 16);
+  return 'havenkeep-$shortHash.sqlite';
+}
+
+/// Compute the absolute file system path Drift will use for [userId].
+Future<File> resolveDatabaseFile({String? userId}) async {
+  final dir = await getApplicationDocumentsDirectory();
+  return File(p.join(dir.path, _databaseFileName(userId)));
+}
+
+/// Delete the per-user database file from disk (idempotent).
+Future<void> deleteDatabaseFile({String? userId}) async {
+  try {
+    final file = await resolveDatabaseFile(userId: userId);
+    if (file.existsSync()) {
+      await file.delete();
+    }
+  } catch (e) {
+    debugPrint('[HavenDatabase] Failed to delete db file: $e');
+  }
+}
+
+LazyDatabase _openConnection({String? userId}) {
   return LazyDatabase(() async {
-    final dir = await getApplicationDocumentsDirectory();
-    final file = File(p.join(dir.path, 'havenkeep.sqlite'));
-    return NativeDatabase.createInBackground(file);
+    // sqlcipher_flutter_libs ships an Android workaround required when
+    // both SQLCipher and the system SQLite are linked into the same
+    // process — it needs to run before sqlite3 is opened.
+    if (Platform.isAndroid) {
+      await applyWorkaroundToOpenSqlCipherOnOldAndroidVersions();
+    }
+    open.overrideFor(OperatingSystem.android, openCipherOnAndroid);
+    open.overrideFor(OperatingSystem.iOS, _openCipherOnIos);
+
+    final file = await resolveDatabaseFile(userId: userId);
+    final keyBytes = await SecureStorageService.getOrCreateDbEncryptionKey();
+    // SQLCipher's PRAGMA key accepts a hex blob literal — `x'…'` — which
+    // tells SQLCipher to use the raw bytes verbatim and skip its own
+    // PBKDF2 derivation step (we already have a 256-bit CSPRNG key).
+    final passphrase = "x'${_bytesToHex(keyBytes)}'";
+
+    return NativeDatabase(
+      file,
+      setup: (db) {
+        // Verify SQLCipher is the linked sqlite3, then activate the key
+        // before any other statement runs.
+        final cipherCheck =
+            db.select('PRAGMA cipher_version;');
+        if (cipherCheck.isEmpty) {
+          throw StateError(
+            'sqlite3 is not SQLCipher — refusing to open an unencrypted '
+            'HavenKeep database.',
+          );
+        }
+        db.execute('PRAGMA key = "$passphrase";');
+      },
+    );
   });
 }
 
+/// iOS ships SQLCipher via the dynamically-linked framework bundled in
+/// the sqlcipher_flutter_libs pod, so we just resolve the symbol from the
+/// process address space.
+DynamicLibrary _openCipherOnIos() => DynamicLibrary.process();
+
+String _bytesToHex(List<int> bytes) {
+  final buf = StringBuffer();
+  for (final b in bytes) {
+    buf.write(b.toRadixString(16).padLeft(2, '0'));
+  }
+  return buf.toString();
+}
+
 /// Riverpod provider for the local Drift database singleton.
+///
+/// The instance is bound to the currently signed-in user id so that
+/// switching accounts (sign-out + sign-in) yields a fresh, isolated
+/// database. The provider is invalidated by [authProvider] when auth
+/// state changes.
 final localDatabaseProvider = Provider<HavenDatabase>((ref) {
-  final db = HavenDatabase();
+  // Read once at construction time. Re-reads on auth change happen via
+  // explicit invalidation in the auth provider.
+  final db = HavenDatabase(userId: _activeUserIdSync);
   ref.onDispose(() => db.close());
   return db;
 });
+
+/// In-memory cache of the active user id used by the database opener.
+///
+/// Updated by the auth flow before the local DB provider is read so that
+/// the right per-user file is opened on the current process. Persistence
+/// across launches is handled by [SecureStorageService.setActiveUserId].
+String? _activeUserIdSync;
+
+/// Set the active user id for subsequent [HavenDatabase] instances.
+///
+/// Call this BEFORE invalidating [localDatabaseProvider]; otherwise the
+/// new instance will fall back to the legacy global db file.
+void setActiveDatabaseUser(String? userId) {
+  _activeUserIdSync = userId;
+}

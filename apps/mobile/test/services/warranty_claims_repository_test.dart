@@ -42,15 +42,13 @@ void main() {
   group('WarrantyClaimsRepository', () {
     group('getClaims', () {
       test('calls correct endpoint with pagination params', () async {
-        when(mockClient.get(
-          '/api/v1/warranty-claims',
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'warranty-claims'],
           queryParams: anyNamed('queryParams'),
         )).thenAnswer((_) async => {'data': []});
 
         await repository.getClaims();
 
-        final captured = verify(mockClient.get(
-          '/api/v1/warranty-claims',
+        final captured = verify(mockClient.get(pathSegments: const ['api', 'v1', 'warranty-claims'],
           queryParams: captureAnyNamed('queryParams'),
         )).captured.single as Map<String, String>;
         expect(captured['limit'], '100');
@@ -58,38 +56,33 @@ void main() {
       });
 
       test('sends item_id query param when itemId is provided', () async {
-        when(mockClient.get(
-          '/api/v1/warranty-claims',
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'warranty-claims'],
           queryParams: anyNamed('queryParams'),
         )).thenAnswer((_) async => {'data': []});
 
         await repository.getClaims(itemId: 'item-xyz');
 
-        final captured = verify(mockClient.get(
-          '/api/v1/warranty-claims',
+        final captured = verify(mockClient.get(pathSegments: const ['api', 'v1', 'warranty-claims'],
           queryParams: captureAnyNamed('queryParams'),
         )).captured.single as Map<String, String>;
         expect(captured['item_id'], 'item-xyz');
       });
 
       test('does not send item_id when itemId is null', () async {
-        when(mockClient.get(
-          '/api/v1/warranty-claims',
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'warranty-claims'],
           queryParams: anyNamed('queryParams'),
         )).thenAnswer((_) async => {'data': []});
 
         await repository.getClaims();
 
-        final captured = verify(mockClient.get(
-          '/api/v1/warranty-claims',
+        final captured = verify(mockClient.get(pathSegments: const ['api', 'v1', 'warranty-claims'],
           queryParams: captureAnyNamed('queryParams'),
         )).captured.single as Map<String, String>;
         expect(captured.containsKey('item_id'), isFalse);
       });
 
       test('returns parsed list of claims', () async {
-        when(mockClient.get(
-          '/api/v1/warranty-claims',
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'warranty-claims'],
           queryParams: anyNamed('queryParams'),
         )).thenAnswer((_) async => {
               'data': [
@@ -106,8 +99,7 @@ void main() {
       });
 
       test('rethrows errors from API client', () async {
-        when(mockClient.get(
-          '/api/v1/warranty-claims',
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'warranty-claims'],
           queryParams: anyNamed('queryParams'),
         )).thenThrow(ApiException(500, 'Server error'));
 
@@ -132,8 +124,7 @@ void main() {
           updatedAt: now,
         );
 
-        when(mockClient.post(
-          '/api/v1/warranty-claims',
+        when(mockClient.post(pathSegments: const ['api', 'v1', 'warranty-claims'],
           body: anyNamed('body'),
         )).thenAnswer((_) async => {
               'data': claimJson(id: 'created-1', repairCost: 200.0),
@@ -143,8 +134,7 @@ void main() {
 
         expect(created.id, 'created-1');
         expect(created.repairCost, 200.0);
-        verify(mockClient.post(
-          '/api/v1/warranty-claims',
+        verify(mockClient.post(pathSegments: const ['api', 'v1', 'warranty-claims'],
           body: anyNamed('body'),
         )).called(1);
       });
@@ -152,16 +142,16 @@ void main() {
 
     group('deleteClaim', () {
       test('sends DELETE to correct endpoint', () async {
-        when(mockClient.delete('/api/v1/warranty-claims/claim-99'))
+        when(mockClient.delete(pathSegments: const ['api', 'v1', 'warranty-claims', 'claim-99']))
             .thenAnswer((_) async => {});
 
         await repository.deleteClaim('claim-99');
 
-        verify(mockClient.delete('/api/v1/warranty-claims/claim-99')).called(1);
+        verify(mockClient.delete(pathSegments: const ['api', 'v1', 'warranty-claims', 'claim-99'])).called(1);
       });
 
       test('rethrows errors on delete failure', () async {
-        when(mockClient.delete('/api/v1/warranty-claims/claim-1'))
+        when(mockClient.delete(pathSegments: const ['api', 'v1', 'warranty-claims', 'claim-1']))
             .thenThrow(ApiException(404, 'Not found'));
 
         expect(
@@ -173,7 +163,7 @@ void main() {
 
     group('getSavings', () {
       test('calls correct endpoint and returns parsed data', () async {
-        when(mockClient.get('/api/v1/warranty-claims/savings'))
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'warranty-claims', 'savings']))
             .thenAnswer((_) async => {
                   'data': {
                     'total_saved': 450.0,
@@ -186,14 +176,13 @@ void main() {
 
         expect(savings['total_saved'], 450.0);
         expect(savings['claim_count'], 4);
-        verify(mockClient.get('/api/v1/warranty-claims/savings')).called(1);
+        verify(mockClient.get(pathSegments: const ['api', 'v1', 'warranty-claims', 'savings'])).called(1);
       });
     });
 
     group('getSavingsFeed', () {
       test('sends limit query param and calls correct endpoint', () async {
-        when(mockClient.get(
-          '/api/v1/warranty-claims/feed',
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'warranty-claims', 'feed'],
           queryParams: anyNamed('queryParams'),
         )).thenAnswer((_) async => {
               'data': [
@@ -206,23 +195,20 @@ void main() {
 
         expect(feed, hasLength(2));
 
-        final captured = verify(mockClient.get(
-          '/api/v1/warranty-claims/feed',
+        final captured = verify(mockClient.get(pathSegments: const ['api', 'v1', 'warranty-claims', 'feed'],
           queryParams: captureAnyNamed('queryParams'),
         )).captured.single as Map<String, String>;
         expect(captured['limit'], '5');
       });
 
       test('uses default limit of 10 when not specified', () async {
-        when(mockClient.get(
-          '/api/v1/warranty-claims/feed',
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'warranty-claims', 'feed'],
           queryParams: anyNamed('queryParams'),
         )).thenAnswer((_) async => {'data': []});
 
         await repository.getSavingsFeed();
 
-        final captured = verify(mockClient.get(
-          '/api/v1/warranty-claims/feed',
+        final captured = verify(mockClient.get(pathSegments: const ['api', 'v1', 'warranty-claims', 'feed'],
           queryParams: captureAnyNamed('queryParams'),
         )).captured.single as Map<String, String>;
         expect(captured['limit'], '10');

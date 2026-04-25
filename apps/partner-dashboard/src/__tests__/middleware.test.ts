@@ -288,9 +288,18 @@ describe('middleware', () => {
     });
 
     it('refreshes an expired access token and continues to /dashboard', async () => {
+      // Audit Ch10-W009: the rotated refresh token must itself look like a
+      // JWT before the middleware persists it. We hand the upstream a fresh
+      // signed JWT so the middleware accepts it.
+      const newRefreshToken = createFakeJwt({
+        userId: 'p-1',
+        email: 'p@test.com',
+        exp: Math.floor(Date.now() / 1000) + 7 * 24 * 3600,
+        iat: Math.floor(Date.now() / 1000),
+      });
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ accessToken: freshToken, refreshToken: 'new-rt' }),
+        json: async () => ({ accessToken: freshToken, refreshToken: newRefreshToken }),
       });
 
       const req = createNextRequest('http://localhost:3001/dashboard', {
@@ -302,7 +311,7 @@ describe('middleware', () => {
 
       // The response should have the refreshed cookies set
       expect(res.cookies.get('hk_access_token')?.value).toBe(freshToken);
-      expect(res.cookies.get('hk_refresh_token')?.value).toBe('new-rt');
+      expect(res.cookies.get('hk_refresh_token')?.value).toBe(newRefreshToken);
     });
 
     it('redirects to /login when refresh fails', async () => {

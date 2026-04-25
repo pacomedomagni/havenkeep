@@ -1,29 +1,15 @@
 import rateLimit from 'express-rate-limit';
-import { createClient } from 'redis';
+import type { createClient } from 'redis';
 import { config } from '../config';
 import { logger } from '../utils/logger';
+import { getRedisClient as getSharedRedisClient } from '../utils/redis';
 
-// Redis store for distributed rate limiting
-let redisClient: ReturnType<typeof createClient> | null = null;
-
-async function getRedisClient() {
-  if (!redisClient) {
-    redisClient = createClient({
-      url: config.redis.url,
-      password: config.redis.password,
-    });
-
-    redisClient.on('error', (err) => {
-      logger.error('Redis error:', err);
-    });
-
-    redisClient.on('connect', () => {
-      logger.info('✅ Redis connected for rate limiting');
-    });
-
-    await redisClient.connect();
-  }
-  return redisClient;
+// Reuse the shared Redis client (Ch11-I060). The rate limiter used to open
+// its own connection that diverged from token-blacklist + the user cache;
+// every Redis hiccup hit one client and not the others, producing
+// hard-to-triage flakiness.
+async function getRedisClient(): Promise<ReturnType<typeof createClient>> {
+  return getSharedRedisClient();
 }
 
 // Custom Redis store for rate limiting
@@ -78,44 +64,49 @@ class RedisStore {
   }
 }
 
-// Initialize rate limiter with Redis in production and staging
+// Initialize rate limiter with Redis in production and staging.
+// Audit Ch11-I089: the previous "fall back to memory if Redis unavailable"
+// path silently shrunk the production rate limit to a per-instance count,
+// which under multi-instance deploys means a 100/min limit becomes 100*N/min.
+// Production now FAILS startup if Redis is required and unavailable.
 const initializeRateLimiter = async () => {
-  if (config.env !== 'development' && config.env !== 'test') {
-    try {
-      const client = await getRedisClient();
-      const store = new RedisStore(client, config.rateLimit.windowMs);
-
-      return rateLimit({
-        windowMs: config.rateLimit.windowMs,
-        max: config.rateLimit.max,
-        message: 'Too many requests from this IP, please try again later.',
-        standardHeaders: true,
-        legacyHeaders: false,
-        handler: (req, res) => {
-          logger.warn({
-            ip: req.ip,
-            path: req.path,
-            userAgent: req.get('user-agent'),
-          }, 'Rate limit exceeded');
-
-          res.status(429).json({
-            error: 'Too many requests',
-            message: 'Please try again later',
-            retryAfter: Math.ceil(config.rateLimit.windowMs / 1000),
-          });
-        },
-        skip: (req) => {
-          // Skip rate limiting for health checks
-          return req.path.startsWith('/health') || req.path.startsWith('/live') || req.path.startsWith('/ready');
-        },
-      });
-    } catch (error) {
-      logger.error('Failed to initialize Redis rate limiter, falling back to memory store', error);
-      return createMemoryRateLimiter();
-    }
-  } else {
-    // Use memory store for development
+  const isProduction = config.env === 'production' || config.env === 'staging';
+  if (!isProduction) {
     return createMemoryRateLimiter();
+  }
+  try {
+    const client = await getRedisClient();
+    const store = new RedisStore(client, config.rateLimit.windowMs);
+
+    return rateLimit({
+      windowMs: config.rateLimit.windowMs,
+      max: config.rateLimit.max,
+      message: 'Too many requests from this IP, please try again later.',
+      standardHeaders: true,
+      legacyHeaders: false,
+      handler: (req, res) => {
+        logger.warn({
+          ip: req.ip,
+          path: req.path,
+          userAgent: req.get('user-agent'),
+        }, 'Rate limit exceeded');
+
+        res.status(429).json({
+          error: 'Too many requests',
+          message: 'Please try again later',
+          retryAfter: Math.ceil(config.rateLimit.windowMs / 1000),
+        });
+      },
+      skip: (req) => {
+        return req.path.startsWith('/health') || req.path.startsWith('/live') || req.path.startsWith('/ready');
+      },
+      store: store as any,
+    });
+  } catch (error) {
+    // No silent memory fallback in production — surface the failure so the
+    // pod fails health and the load balancer keeps its old healthy targets.
+    logger.fatal({ error }, 'Redis required for rate limiting in production but unavailable');
+    throw error;
   }
 };
 
@@ -182,19 +173,12 @@ initializeEndpointRedis().catch((err) => {
 });
 
 /**
- * Close the Redis client(s) used by the rate limiter.
- * Call during graceful shutdown to avoid leaked connections.
+ * Close the rate-limiter's reference to Redis. The shared Redis client owns
+ * the actual socket close (utils/redis.ts → closeRedisClient); this function
+ * only clears the module-level reference to it.
  */
 export async function closeRateLimiterRedis(): Promise<void> {
-  if (redisClient) {
-    try {
-      await redisClient.quit();
-    } catch (err) {
-      logger.error({ err }, 'Error closing rate limiter Redis client');
-    }
-    redisClient = null;
-    sharedRedisClient = null;
-  }
+  sharedRedisClient = null;
 }
 
 // Specific rate limiters for sensitive endpoints
@@ -270,6 +254,23 @@ export const receiptScanRateLimiter = createEndpointRateLimiter({
   message: 'Too many receipt scan requests, please try again later.',
 });
 
+// Items list limiter (Ch02-F065): cheap to call but expensive to scale; cap
+// at 60 reads/minute per IP. Burst-friendly for normal app use, blocks
+// scrapers.
+export const itemsListRateLimiter = createEndpointRateLimiter({
+  windowMs: 60 * 1000, // 1 minute
+  max: 60,
+  message: 'Too many list requests, please try again later.',
+});
+
+// CSV export limiter (Ch02-F066): exports stream the entire item table; cap
+// to 5 per hour per IP to prevent unbounded server work.
+export const csvExportRateLimiter = createEndpointRateLimiter({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 5,
+  message: 'Too many CSV exports, please try again later.',
+});
+
 // Newsletter subscription limiter: 5 per hour per IP
 export const newsletterRateLimiter = createEndpointRateLimiter({
   windowMs: 60 * 60 * 1000, // 1 hour
@@ -282,4 +283,13 @@ export const contactRateLimiter = createEndpointRateLimiter({
   windowMs: 60 * 60 * 1000, // 1 hour
   max: 3,
   message: 'Too many contact submissions, please try again later.',
+});
+
+// Generic read limiter (Ch04-F009/F089): per-IP cap on cheap GET endpoints
+// that fan out big joins (warranty-claims list, audit/logs, etc.). 120/min
+// matches the busy mobile-app scrolling pattern; anything above is scraping.
+export const readRateLimiter = createEndpointRateLimiter({
+  windowMs: 60 * 1000, // 1 minute
+  max: 120,
+  message: 'Too many read requests, please slow down.',
 });

@@ -8,11 +8,37 @@ dotenv.config({ path: path.join(__dirname, '../../../../.env') });
 process.env.NODE_ENV = 'test';
 // Point to Docker postgres on localhost (not internal 'postgres' hostname)
 process.env.DB_HOST = 'localhost';
+// Force the test DB to a *_test name regardless of what .env carries. The
+// dev DB shipped in docker-compose.yml is `havenkeep`, but the test harness
+// destroys the schema between suites so we never run against the dev DB.
+// Tests opt-in by creating a sibling `havenkeep_test` database — see
+// `npm run test:db:setup` (or the README) for the one-off creation.
+process.env.DB_NAME = process.env.TEST_DB_NAME || 'havenkeep_test';
 process.env.DATABASE_URL = `postgresql://${process.env.DB_USER}:${process.env.DB_PASSWORD}@localhost:${process.env.DB_PORT}/${process.env.DB_NAME}`;
 // Point to Docker redis on localhost
 process.env.REDIS_URL = 'redis://localhost:6379';
 // Point to Docker minio on localhost
 process.env.MINIO_ENDPOINT = 'localhost';
+// Default test secrets for the email-scanner OAuth + OpenAI flows. The
+// outbound HTTP calls are stubbed by the test mocks, so the real values
+// don't matter — only that the config-level guards see something non-empty.
+process.env.OAUTH_TOKEN_ENCRYPTION_SECRET ||= 'test-oauth-encryption-secret-32bytes!';
+process.env.OPENAI_API_KEY ||= 'sk-test-fake-not-real';
+
+// Hard guard: tests TRUNCATE the entire schema between suites. If DATABASE_URL
+// or DB_NAME are misconfigured (e.g. someone copy-pasted production env vars
+// into a local shell) this would wipe production. Refuse to load the test
+// harness unless the DB name explicitly contains "test".
+{
+  const dbName = (process.env.DB_NAME || '').toLowerCase();
+  if (!dbName.includes('test')) {
+    // Bail before any module that opens a connection is imported.
+    throw new Error(
+      `Refusing to start test harness: DB_NAME='${process.env.DB_NAME}' does not contain "test". ` +
+      `If you intend to truncate this database, rename it to include 'test'.`
+    );
+  }
+}
 
 import { pool } from '../db';
 import { createClient } from 'redis';
@@ -46,6 +72,12 @@ const TABLES = [
   'maintenance_history',
   'notification_history',
   'documents',
+  'email_scanner_review_queue',
+  'email_scans',
+  'user_oauth_integrations',
+  // Phase 6 tables — keep before `users` so the FK CASCADE order holds.
+  'openai_usage',
+  'receipt_scan_idempotency',
   'items',
   'homes',
   'partner_commissions',

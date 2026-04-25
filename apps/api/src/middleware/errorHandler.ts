@@ -1,91 +1,134 @@
 import { Request, Response, NextFunction } from 'express';
 import { JsonWebTokenError, TokenExpiredError, NotBeforeError } from 'jsonwebtoken';
 import { logger } from '../utils/logger';
-import { AppError } from '../utils/errors';
+import { AppError, AppErrorCode, ValidationError } from '../utils/errors';
+
+interface ErrorEnvelope {
+  success: false;
+  error: string;
+  code: AppErrorCode;
+  statusCode: number;
+  requestId?: string;
+  /** Validation details — present only on 400/VALIDATION_ERROR. */
+  details?: Array<{ field: string; message: string }>;
+  /** Dev-only: extra context for triage. Stripped in production. */
+  message?: string;
+  stack?: string;
+}
+
+function getRequestId(req: Request): string | undefined {
+  return (req.headers['x-request-id'] as string | undefined)
+    ?? (req.get('x-request-id') as string | undefined);
+}
+
+function pgErrorToApp(err: any): AppError | null {
+  const pgCode: string | undefined = err?.code;
+  if (typeof pgCode !== 'string') return null;
+  switch (pgCode) {
+    case '23505':
+      return new AppError('A record with that value already exists', 409, 'CONFLICT', err);
+    case '23503':
+      return new AppError('Referenced record does not exist', 409, 'CONFLICT', err);
+    case '23502':
+      // NOT NULL violation — usually a server bug, but some routes accept
+      // partial input and the right answer is 400 to surface the missing
+      // field. Audit Ch11-I019 caught these falling through to 500.
+      return new AppError('A required field is missing', 400, 'VALIDATION_ERROR', err);
+    case '22001':
+      return new AppError('Field exceeds maximum length', 400, 'VALIDATION_ERROR', err);
+    case '22P02':
+      return new AppError('Field has the wrong type or format', 400, 'VALIDATION_ERROR', err);
+    case '57P03':
+      return new AppError('Service temporarily unavailable', 503, 'UNHEALTHY', err);
+    default:
+      return null;
+  }
+}
 
 export function errorHandler(
   err: Error,
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ) {
-  // If response already sent, delegate to Express default handler
-  if (res.headersSent) {
-    return next(err);
-  }
+  if (res.headersSent) return next(err);
 
+  const requestId = getRequestId(req);
+  const isDev = process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test';
+
+  // ── Operational errors (AppError + ValidationError) ───────────────────
   if (err instanceof AppError) {
-    logger.error({
-      statusCode: err.statusCode,
-      message: err.message,
+    // 4xx errors are user-facing, not "errors" worth Sentry traffic. Log at
+    // warn unless 5xx. (Ch11-I016)
+    const level = err.statusCode >= 500 ? 'error' : 'warn';
+    logger[level](
+      {
+        statusCode: err.statusCode,
+        code: err.code,
+        message: err.message,
+        path: req.path,
+        method: req.method,
+        cause: err.cause,
+      },
+      'Operational error',
+    );
+
+    const body: ErrorEnvelope = {
+      success: false,
+      error: err.message,
       code: err.code,
-      path: req.path,
-      method: req.method,
-    }, 'Operational error');
-
-    return res.status(err.statusCode).json({
-      error: err.message,
       statusCode: err.statusCode,
-    });
+      requestId,
+    };
+    if (err instanceof ValidationError) body.details = err.details;
+    return res.status(err.statusCode).json(body);
   }
 
-  // JWT errors — malformed, expired, or invalid tokens
+  // ── JWT errors ────────────────────────────────────────────────────────
   if (err instanceof JsonWebTokenError || err instanceof TokenExpiredError || err instanceof NotBeforeError) {
-    logger.warn({
-      error: err.message,
-      path: req.path,
-      method: req.method,
-    }, 'JWT authentication error');
-
-    const message = err instanceof TokenExpiredError ? 'Token expired' : 'Invalid token';
+    logger.warn({ err: err.message, path: req.path, method: req.method }, 'JWT auth error');
+    const expired = err instanceof TokenExpiredError;
     return res.status(401).json({
-      error: message,
+      success: false,
+      error: expired ? 'Token expired' : 'Invalid token',
+      code: expired ? 'TOKEN_EXPIRED' : 'INVALID_TOKEN',
       statusCode: 401,
-    });
+      requestId,
+    } satisfies ErrorEnvelope);
   }
 
-  // PostgreSQL-specific error code mapping
-  const pgCode = (err as any).code;
-  if (typeof pgCode === 'string') {
-    if (pgCode === '23505') {
-      // Unique constraint violation
-      logger.error({ error: err.message, code: pgCode, path: req.path, method: req.method }, 'Unique constraint violation');
-      return res.status(409).json({
-        error: 'A record with that value already exists',
-        statusCode: 409,
-      });
-    }
-    if (pgCode === '23503') {
-      // Foreign key violation
-      logger.error({ error: err.message, code: pgCode, path: req.path, method: req.method }, 'Foreign key violation');
-      return res.status(409).json({
-        error: 'Referenced record does not exist or would be violated',
-        statusCode: 409,
-      });
-    }
-    if (pgCode === '57P03') {
-      // Database unavailable
-      logger.error({ error: err.message, code: pgCode, path: req.path, method: req.method }, 'Database unavailable');
-      return res.status(503).json({
-        error: 'Service temporarily unavailable',
-        statusCode: 503,
-      });
-    }
+  // ── Postgres ──────────────────────────────────────────────────────────
+  const pgWrapped = pgErrorToApp(err);
+  if (pgWrapped) {
+    logger.warn(
+      { code: pgWrapped.code, pgCode: (err as any).code, path: req.path },
+      'PG error mapped to AppError',
+    );
+    return res.status(pgWrapped.statusCode).json({
+      success: false,
+      error: pgWrapped.message,
+      code: pgWrapped.code,
+      statusCode: pgWrapped.statusCode,
+      requestId,
+    } satisfies ErrorEnvelope);
   }
 
-  // Unexpected errors — log real details server-side only, never send to client in production
-  logger.error({
-    error: err.message,
-    stack: err.stack,
-    path: req.path,
-    method: req.method,
-  }, 'Unexpected error');
+  // ── Unknown / unexpected ──────────────────────────────────────────────
+  logger.error(
+    { err, stack: err.stack, path: req.path, method: req.method },
+    'Unexpected error',
+  );
 
-  const isDevelopment = process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test';
-
-  res.status(500).json({
+  const body: ErrorEnvelope = {
+    success: false,
     error: 'Internal server error',
+    code: 'INTERNAL',
     statusCode: 500,
-    ...(isDevelopment && { message: err.message, stack: err.stack }),
-  });
+    requestId,
+  };
+  if (isDev) {
+    body.message = err.message;
+    body.stack = err.stack;
+  }
+  res.status(500).json(body);
 }

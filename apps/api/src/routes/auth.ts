@@ -16,6 +16,7 @@ import { AuditService } from '../services/audit.service';
 import { EmailService } from '../services/email.service';
 import { blacklistTokenAuto } from '../utils/token-blacklist';
 import { generateUniqueReferralCode } from '../utils/referral-code';
+import { isDisposableEmail } from '../utils/disposable-emails';
 
 const router = Router();
 
@@ -36,16 +37,43 @@ function parseExpiryToMs(expiry: string | number): number {
 
 const REFRESH_TOKEN_EXPIRY_MS = parseExpiryToMs(config.jwt.refreshExpiresIn as string | number);
 
-// Hash opaque-bearer tokens with SHA-256 before storing in the database.
-// Used for refresh tokens, email verification tokens, and password reset
-// tokens — all are server-generated, single-purpose opaque strings, so a
-// single deterministic hash is safe. Raw tokens are only sent to the client;
-// a DB dump leaks only the hashes.
+// Hash opaque-bearer tokens with SHA-256 before storing. Used for refresh
+// tokens, email verification tokens, and password reset tokens — all are
+// server-generated single-purpose opaque strings.
+//
+// Audit Ch01-F019: keyed hash so a DB-only leak of token hashes doesn't
+// allow offline lookup against a stolen Redis or backup. The HMAC key is
+// the refresh-token JWT secret — already required-in-prod.
 function hashToken(token: string): string {
-  return crypto.createHash('sha256').update(token).digest('hex');
+  return crypto.createHmac('sha256', config.jwt.refreshSecret).update(token).digest('hex');
 }
-// Backwards-compat alias kept until all callers migrate.
 const hashRefreshToken = hashToken;
+
+/**
+ * Pre-hash a password to defang bcrypt's 72-byte truncation (Ch01-F005).
+ * bcrypt(SHA-256(password) base64-encoded) gives a fixed 44-char input that
+ * uses the full keyspace of the original password.  We cap to 72 bytes
+ * post-hash too so bcrypt's internal limit is never reached even if the
+ * implementation changes.
+ */
+function preHashForBcrypt(password: string): string {
+  return crypto.createHash('sha256').update(password, 'utf8').digest('base64').slice(0, 72);
+}
+
+/**
+ * Sanitize a free-form string for inclusion in audit-log descriptions
+ * (Ch01-F058). Strips control / non-printable characters and caps length so
+ * a malicious email like `attacker\nrole_change=admin\n@evil.com` can't
+ * smuggle fake newline-delimited audit entries.
+ */
+function sanitizeAuditLogText(value: unknown, max = 200): string {
+  if (typeof value !== 'string') return '';
+  return value
+    .replace(/[\x00-\x1f\x7f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, max);
+}
 
 // Helper to get IP address
 const getIpAddress = (req: any): string => {
@@ -145,6 +173,14 @@ router.post('/register', authRateLimiter, validate(registerSchema), async (req, 
   try {
     const { email, password, fullName, referralCode } = req.body;
 
+    // Audit Ch12-T045: reject obvious disposable / temp-mail signups before
+    // we touch bcrypt or the database. The list is intentionally narrow —
+    // a more aggressive list would lock out legitimate users on niche email
+    // providers.
+    if (isDisposableEmail(email)) {
+      throw new AppError('That email provider is not supported. Please use a personal or work email.', 400);
+    }
+
     const referredBy = await resolveReferredBy(referralCode);
     const userReferralCode = await generateUniqueReferralCode();
 
@@ -159,8 +195,10 @@ router.post('/register', authRateLimiter, validate(registerSchema), async (req, 
       throw new AppError('Email already registered', 409);
     }
 
-    // Hash password with bcrypt rounds=12 (only after confirming email is available)
-    const passwordHash = await bcrypt.hash(password, 12);
+    // Hash password with bcrypt rounds=12 (only after confirming email is
+    // available). Pre-hash with SHA-256 so passwords > 72 bytes still use
+    // their full entropy (Ch01-F005).
+    const passwordHash = await bcrypt.hash(preHashForBcrypt(password), 12);
 
     // Atomically insert user — ON CONFLICT handles the race condition
     const result = await client.query(
@@ -295,7 +333,7 @@ router.post('/login', authRateLimiter, validate(loginSchema), async (req, res, n
 
     if (result.rows.length === 0) {
       // Constant-time: run bcrypt even when user doesn't exist to prevent timing attacks
-      await bcrypt.compare(password, '$2a$12$000000000000000000000uGAV.eTk/fI05JBbVvI3B.ggHOFglqi');
+      await bcrypt.compare(preHashForBcrypt(password), '$2a$12$000000000000000000000uGAV.eTk/fI05JBbVvI3B.ggHOFglqi');
       throw new AppError('Invalid credentials', 401);
     }
 
@@ -303,10 +341,10 @@ router.post('/login', authRateLimiter, validate(loginSchema), async (req, res, n
 
     // Verify password
     if (!user.password_hash) {
-      await bcrypt.compare(password, '$2a$12$000000000000000000000uGAV.eTk/fI05JBbVvI3B.ggHOFglqi');
+      await bcrypt.compare(preHashForBcrypt(password), '$2a$12$000000000000000000000uGAV.eTk/fI05JBbVvI3B.ggHOFglqi');
       throw new AppError('Invalid credentials', 401);
     }
-    const valid = await bcrypt.compare(password, user.password_hash);
+    const valid = await bcrypt.compare(preHashForBcrypt(password), user.password_hash);
 
     if (!valid) {
       // Audit log: failed login (wrong password)
@@ -382,13 +420,15 @@ router.post('/refresh', refreshRateLimiter, validate(refreshTokenSchema), async 
   try {
     const { refreshToken } = req.body;
 
-    // Verify refresh token
-    const decoded = jwt.verify(refreshToken, config.jwt.refreshSecret) as {
-      userId: string;
-    };
+    // Verify the JWT signature first; the user_id we trust is whatever the
+    // refresh_tokens row carries, not whatever the decoded JWT body claims
+    // (audit Ch01-F020). The decoded body is only used to short-circuit
+    // before doing the DB hit.
+    jwt.verify(refreshToken, config.jwt.refreshSecret);
 
     // Atomically consume the refresh token (prevents race conditions).
-    // DELETE...RETURNING guarantees only one concurrent request succeeds.
+    // DELETE...RETURNING guarantees only one concurrent request succeeds and
+    // returns the *server-side* user_id bound to the token row.
     const tokenHash = hashRefreshToken(refreshToken);
     const tokenResult = await query(
       `DELETE FROM refresh_tokens
@@ -398,31 +438,22 @@ router.post('/refresh', refreshRateLimiter, validate(refreshTokenSchema), async 
     );
 
     if (tokenResult.rows.length === 0) {
-      // Token not found — could be replay/reuse. Check if user exists
-      // and invalidate all their tokens as a security precaution.
-      const suspectUser = await query(
-        `SELECT id FROM users WHERE id = $1`,
-        [decoded.userId]
-      );
-      if (suspectUser.rows.length > 0) {
-        await query(
-          `DELETE FROM refresh_tokens WHERE user_id = $1`,
-          [decoded.userId]
-        );
-        logger.warn(
-          { userId: decoded.userId },
-          'Refresh token reuse detected — all sessions invalidated'
-        );
-      }
+      // Token unknown / already consumed. We can't safely identify the
+      // owning user (the JWT body is attacker-controlled if signing was
+      // compromised), so just refuse without doing any user-scoped action.
+      logger.warn({ tokenHashPrefix: tokenHash.slice(0, 12) }, 'Unknown refresh token presented');
       throw new AppError('Invalid refresh token', 401);
     }
 
+    // Trust ONLY the user_id from the row we just deleted.
+    const trustedUserId: string = tokenResult.rows[0].user_id;
+
     // Get user (include role fields for JWT claims)
     const userResult = await query(
-      `SELECT u.id, u.email, u.is_admin,
+      `SELECT u.id, u.email, u.is_admin, u.deleted_at, u.plan,
               (EXISTS(SELECT 1 FROM partners p WHERE p.user_id = u.id AND p.is_active = TRUE)) as is_partner
        FROM users u WHERE u.id = $1`,
-      [decoded.userId]
+      [trustedUserId],
     );
 
     if (userResult.rows.length === 0) {
@@ -430,6 +461,14 @@ router.post('/refresh', refreshRateLimiter, validate(refreshTokenSchema), async 
     }
 
     const user = userResult.rows[0];
+
+    // Refuse to refresh for soft-deleted or suspended users — otherwise a
+    // valid refresh token outlives a suspend (audit Ch01-F021/F047).
+    if (user.deleted_at || user.plan === 'suspended') {
+      // Burn the rest of this user's refresh tokens too.
+      await query(`DELETE FROM refresh_tokens WHERE user_id = $1`, [trustedUserId]);
+      throw new AppError('Account is suspended or deleted', 401);
+    }
 
     // Blacklist the old access token so it can't be reused after refresh
     const authHeader = req.headers.authorization;
@@ -453,65 +492,72 @@ router.post('/refresh', refreshRateLimiter, validate(refreshTokenSchema), async 
   }
 });
 
-// Logout — refreshToken is optional (allows logout with just an access token)
+// Logout — requires a valid access token (Ch01-F014: previously accepted
+// unauthenticated requests, which let an attacker who guessed a refresh
+// token blacklist arbitrary access tokens). The access-token signature is
+// verified by the `authenticate` middleware before the handler runs, so we
+// can trust `req.user!.id` (Ch01-F015).
 const logoutSchema = Joi.object({
-  refreshToken: Joi.string().optional(),
+  refreshToken: Joi.string().min(20).max(4096).optional(),
 }).rename('refresh_token', 'refreshToken', { ignoreUndefined: true, override: false });
 
-router.post('/logout', refreshRateLimiter, validate(logoutSchema), async (req, res, next) => {
+router.post('/logout', authenticate, refreshRateLimiter, validate(logoutSchema), async (req, res, next) => {
   try {
     const { refreshToken } = req.body;
+    const userId = req.user!.id;
 
-    let userId: string | undefined;
-
-    // Blacklist the current access token using its actual remaining TTL
+    // Blacklist the current access token using its actual remaining TTL.
     const authHeader = req.headers.authorization;
     if (authHeader?.startsWith('Bearer ')) {
       const accessToken = authHeader.substring(7);
       try {
         await blacklistTokenAuto(accessToken);
       } catch (blacklistError) {
-        // Best-effort: don't block logout if Redis/blacklist fails
         logger.warn({ error: blacklistError }, 'Failed to blacklist access token during logout');
       }
     }
 
     if (refreshToken) {
-      // Get user ID from refresh token before deleting (lookup by hash)
+      // Delete only refresh tokens that belong to the authenticated user —
+      // we don't trust the JWT body of the refresh token any more than for
+      // /refresh (Ch01-F020).
       const tokenHash = hashRefreshToken(refreshToken);
-      const tokenResult = await query(
-        `SELECT user_id FROM refresh_tokens WHERE token = $1`,
-        [tokenHash]
-      );
-
-      if (tokenResult.rows.length > 0) {
-        userId = tokenResult.rows[0].user_id;
-      }
-
       await query(
-        `DELETE FROM refresh_tokens WHERE token = $1`,
-        [tokenHash]
+        `DELETE FROM refresh_tokens WHERE token = $1 AND user_id = $2`,
+        [tokenHash, userId],
       );
-
-      // Invalidate any unused password reset tokens for this user
-      if (userId) {
-        await query(
-          `UPDATE password_reset_tokens SET used = TRUE WHERE user_id = $1 AND used = FALSE`,
-          [userId]
-        );
-      }
     }
 
-    // Audit log: logout
-    if (userId) {
-      await AuditService.logAuth({
-        action: 'auth.logout',
-        userId,
-        ipAddress: getIpAddress(req),
-        userAgent: req.get('user-agent'),
-        success: true,
-      });
+    // Invalidate any unused password reset tokens for this user.
+    await query(
+      `UPDATE password_reset_tokens SET used = TRUE WHERE user_id = $1 AND used = FALSE`,
+      [userId],
+    );
+
+    // Invalidate pending email-verification tokens too — a stale verify
+    // link sent before logout shouldn't survive a logout (Ch01-F013).
+    await query(
+      `DELETE FROM email_verification_tokens WHERE user_id = $1`,
+      [userId],
+    );
+
+    // Drop the cached user row so the next request after re-login isn't
+    // served the stale 10s cache entry (Ch01-F048).
+    try {
+      const { getRedisClient } = await import('../utils/redis');
+      const redis = await getRedisClient();
+      await redis.del(`user:${userId}`);
+    } catch (err) {
+      logger.warn({ err, userId }, 'Failed to invalidate user cache on logout');
     }
+
+    await AuditService.logAuth({
+      action: 'auth.logout',
+      userId,
+      ipAddress: getIpAddress(req),
+      userAgent: req.get('user-agent'),
+      success: true,
+    });
 
     res.json({ success: true, message: 'Logged out successfully' });
   } catch (error) {
@@ -559,47 +605,66 @@ router.post('/logout-all', authenticate, async (req, res, next) => {
   }
 });
 
-// Forgot password - request reset
+// Forgot password - request reset.
+//
+// Audit Ch01-F016: response shape and timing must NOT vary on whether the
+//   account exists. We always return the same generic message after a fixed
+//   constant-time delay floor.
+// Audit Ch01-F017: skip the email send entirely for accounts that haven't
+//   verified their email — those accounts can re-trigger the verification
+//   flow instead of using password reset to take over an unconfirmed inbox.
+// Audit Ch01-F028: Apple/Google OAuth-only accounts have no password to
+//   reset; tell the user (without confirming the email exists) to use the
+//   provider's flow.
+const FORGOT_PASSWORD_MIN_DURATION_MS = 250;
+
 router.post('/forgot-password', passwordResetRateLimiter, validate(forgotPasswordSchema), async (req, res, next) => {
+  const startedAt = Date.now();
+  const respondGeneric = async () => {
+    const elapsed = Date.now() - startedAt;
+    if (elapsed < FORGOT_PASSWORD_MIN_DURATION_MS) {
+      await new Promise((r) => setTimeout(r, FORGOT_PASSWORD_MIN_DURATION_MS - elapsed));
+    }
+    res.json({ success: true, message: 'If an account exists with that email, a reset link has been sent.' });
+  };
+
   try {
     const { email } = req.body;
 
     const result = await query(
-      `SELECT id, email, full_name FROM users WHERE email = $1`,
-      [email.toLowerCase()]
+      `SELECT id, email, full_name, auth_provider, email_verified
+         FROM users
+        WHERE email = $1
+          AND deleted_at IS NULL
+          AND plan <> 'suspended'`,
+      [email.toLowerCase()],
     );
 
-    // Always return success to prevent email enumeration
-    if (result.rows.length === 0) {
-      res.json({ success: true, message: 'If an account exists with that email, a reset link has been sent.' });
-      return;
+    // Account doesn't exist, is OAuth-only, or hasn't verified email — all
+    // three return the same generic response so an attacker can't tell them
+    // apart.
+    const user = result.rows[0];
+    const isPasswordAccount = user?.auth_provider === 'email' || (user && !user.auth_provider);
+
+    if (!user || !isPasswordAccount || !user.email_verified) {
+      return respondGeneric();
     }
 
-    const user = result.rows[0];
-
-    // Invalidate any existing reset tokens
+    // Invalidate any existing reset tokens (single-use semantics).
     await query(
       `UPDATE password_reset_tokens SET used = TRUE WHERE user_id = $1 AND used = FALSE`,
-      [user.id]
+      [user.id],
     );
 
-    // Generate reset token
     const resetToken = crypto.randomBytes(32).toString('hex');
-    const expiresAt = new Date();
-    expiresAt.setHours(expiresAt.getHours() + 1); // 1 hour expiry
-
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
     await query(
       `INSERT INTO password_reset_tokens (user_id, token, expires_at)
-       VALUES ($1, $2, $3)`,
-      [user.id, hashRefreshToken(resetToken), expiresAt]
+         VALUES ($1, $2, $3)`,
+      [user.id, hashToken(resetToken), expiresAt],
     );
 
-    // Send password reset email
     const resetUrl = `${config.app.frontendUrl}/reset-password?token=${resetToken}`;
-
-    logger.info({ userId: user.id }, 'Password reset requested');
-
-    // Fire-and-forget: don't block the HTTP response on email delivery
     EmailService.sendPasswordResetEmail({
       to: user.email,
       user_name: user.full_name || 'there',
@@ -608,17 +673,16 @@ router.post('/forgot-password', passwordResetRateLimiter, validate(forgotPasswor
       logger.error({ error: emailError, userId: user.id }, 'Failed to send password reset email');
     });
 
-    // Audit log: password reset requested
-    await AuditService.logAuth({
+    AuditService.logAuth({
       action: 'auth.password_reset_request',
       userId: user.id,
       email: user.email,
       ipAddress: getIpAddress(req),
       userAgent: req.get('user-agent'),
       success: true,
-    });
+    }).catch((err) => logger.warn({ err }, 'Audit log failed for password_reset_request'));
 
-    res.json({ success: true, message: 'If an account exists with that email, a reset link has been sent.' });
+    return respondGeneric();
   } catch (error) {
     next(error);
   }
@@ -629,12 +693,12 @@ router.post('/reset-password', authRateLimiter, validate(resetPasswordSchema), a
   try {
     const { token, newPassword } = req.body;
 
-    // Hash the token for lookup (reset tokens are stored as SHA-256 hashes)
-    const tokenHash = hashRefreshToken(token);
+    // Hash the token for lookup. Audit Ch01-F019: lookups go through the
+    // keyed `hashToken` helper so a DB-only leak doesn't allow rainbowing.
+    const tokenHash = hashToken(token);
 
-    // Hash new password *before* the transaction so bcrypt work doesn't
-    // hold a DB connection open.
-    const passwordHash = await bcrypt.hash(newPassword, 12);
+    // Pre-hash to defang bcrypt's 72-byte truncation (Ch01-F005).
+    const passwordHash = await bcrypt.hash(preHashForBcrypt(newPassword), 12);
 
     // Atomically: validate+consume token, update password, invalidate all
     // sessions. If any step fails the token stays unused so the user can
@@ -660,8 +724,15 @@ router.post('/reset-password', authRateLimiter, validate(resetPasswordSchema), a
         `UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2`,
         [passwordHash, userId],
       );
+      // Drop every refresh token + every other unused reset token + every
+      // pending email-verification token so no stale credential survives a
+      // password reset (Ch01-F018: the dead "blacklist caller token" path
+      // below was removed since the caller doesn't have one — the reset
+      // page is unauthenticated).
+      await client.query(`DELETE FROM refresh_tokens WHERE user_id = $1`, [userId]);
       await client.query(
-        `DELETE FROM refresh_tokens WHERE user_id = $1`,
+        `UPDATE password_reset_tokens SET used = TRUE
+          WHERE user_id = $1 AND used = FALSE`,
         [userId],
       );
       await client.query('COMMIT');
@@ -670,16 +741,6 @@ router.post('/reset-password', authRateLimiter, validate(resetPasswordSchema), a
       throw err;
     } finally {
       client.release();
-    }
-
-    // Blacklist the caller's access token if present
-    const authHeader = req.headers.authorization;
-    if (authHeader?.startsWith('Bearer ')) {
-      try {
-        await blacklistTokenAuto(authHeader.substring(7));
-      } catch {
-        // Best-effort
-      }
     }
 
     // Audit log: password reset completed
@@ -702,13 +763,18 @@ router.post('/verify-email', authRateLimiter, validate(verifyEmailSchema), async
   try {
     const { token } = req.body;
 
-    // Atomically consume the verification token and get user_id
-    // Token is hashed (SHA-256) before lookup — same pattern as password reset tokens.
+    // Atomically consume the verification token. Only accept tokens whose
+    // metadata indicates a register-flow verification — change-email tokens
+    // live in the same table and would otherwise let a request to /verify-email
+    // mark the *current* address as verified without applying the email swap
+    // (audit Ch01-F011). Change-email tokens go through /verify-email-change.
     const tokenResult = await query(
       `DELETE FROM email_verification_tokens
-       WHERE token = $1 AND expires_at > NOW()
-       RETURNING user_id`,
-      [hashRefreshToken(token)]
+        WHERE token = $1
+          AND expires_at > NOW()
+          AND COALESCE(metadata->>'type', 'register') IN ('register', 'verify')
+        RETURNING user_id`,
+      [hashRefreshToken(token)],
     );
 
     if (tokenResult.rows.length === 0) {
@@ -717,10 +783,17 @@ router.post('/verify-email', authRateLimiter, validate(verifyEmailSchema), async
 
     const userId = tokenResult.rows[0].user_id;
 
-    // Mark email as verified and clean up any remaining tokens for this user
+    // Mark email as verified and clean up any remaining tokens for this user.
+    // Limit cleanup to register-flow tokens so an in-flight change-email
+    // token isn't collateral-damage deleted.
     await Promise.all([
       query(`UPDATE users SET email_verified = TRUE WHERE id = $1`, [userId]),
-      query(`DELETE FROM email_verification_tokens WHERE user_id = $1`, [userId]),
+      query(
+        `DELETE FROM email_verification_tokens
+          WHERE user_id = $1
+            AND COALESCE(metadata->>'type', 'register') IN ('register', 'verify')`,
+        [userId],
+      ),
     ]);
 
     // Audit log: email verified
@@ -746,7 +819,16 @@ const googleOAuthSchema = Joi.object({
 
 router.post('/google', authRateLimiter, validate(googleOAuthSchema), async (req, res, next) => {
   try {
-    if (!config.google?.clientId) {
+    // Audit Ch01-F022: accept multiple audiences. The deployed setup keeps
+    // Google client IDs per platform — iOS, Android, Web — and the audience
+    // claim varies depending on which one the SDK initialised. Accept any
+    // configured client id.
+    const allowedGoogleAudiences: string[] = [
+      config.google?.clientId,
+      ...((process.env.GOOGLE_AUDIENCES || '').split(',').map((s) => s.trim()).filter(Boolean)),
+    ].filter((a): a is string => typeof a === 'string' && a.length > 0);
+
+    if (allowedGoogleAudiences.length === 0) {
       throw new AppError('Google OAuth is not configured', 501);
     }
 
@@ -755,13 +837,13 @@ router.post('/google', authRateLimiter, validate(googleOAuthSchema), async (req,
     // Verify the Google ID token (lazy-init singleton)
     if (!googleOAuth2Client) {
       const { OAuth2Client } = await import('google-auth-library');
-      googleOAuth2Client = new OAuth2Client(config.google.clientId);
+      googleOAuth2Client = new OAuth2Client(allowedGoogleAudiences[0]);
     }
     const oauthClient = googleOAuth2Client;
 
     const ticket = await oauthClient.verifyIdToken({
       idToken,
-      audience: config.google?.clientId,
+      audience: allowedGoogleAudiences,
     });
 
     const payload = ticket.getPayload();
@@ -781,11 +863,27 @@ router.post('/google', authRateLimiter, validate(googleOAuthSchema), async (req,
     // Find or create user
     let userResult = await query(
       `SELECT id, email, full_name, avatar_url, auth_provider, plan, plan_expires_at,
-              referred_by, referral_code, is_admin, created_at, updated_at,
+              referred_by, referral_code, is_admin, email_verified, created_at, updated_at,
               (EXISTS(SELECT 1 FROM partners p WHERE p.user_id = users.id AND p.is_active = TRUE)) as is_partner
        FROM users WHERE email = $1`,
       [email]
     );
+
+    // Audit Ch01-F023: the prior code silently merged a Google sign-in into
+    // an existing email/password account, which would let an attacker who
+    // owns a Google address take over a same-email password account if the
+    // password user never verified their email. Refuse the merge unless the
+    // existing account has confirmed the address.
+    if (
+      userResult.rows.length > 0 &&
+      userResult.rows[0].auth_provider === 'email' &&
+      !userResult.rows[0].email_verified
+    ) {
+      throw new AppError(
+        'An account with this email already exists. Please sign in with your password and verify your email before linking Google.',
+        409,
+      );
+    }
 
     let user;
     let isNewUser = false;

@@ -84,9 +84,14 @@ class NotificationsNotifier extends AsyncNotifier<List<AppNotification>> {
   Future<void> markAsRead(String id) async {
     await ref.read(notificationsRepositoryProvider).markAsRead(id);
 
+    // `isRead` is a derived getter (`openedAt != null`) — mirror the
+    // server side-effect by stamping the local row's `openedAt` so the
+    // optimistic UI flips to read without a refetch
+    // (Ch08-Notification-D041).
+    final now = DateTime.now();
     final current = state.value ?? [];
     state = AsyncValue.data(
-      current.map((n) => n.id == id ? n.copyWith(isRead: true) : n).toList(),
+      current.map((n) => n.id == id ? n.copyWith(openedAt: now) : n).toList(),
     );
   }
 
@@ -107,9 +112,14 @@ class NotificationsNotifier extends AsyncNotifier<List<AppNotification>> {
   Future<void> markAllAsRead() async {
     await ref.read(notificationsRepositoryProvider).markAllAsRead();
 
+    final now = DateTime.now();
     final current = state.value ?? [];
     state = AsyncValue.data(
-      current.map((n) => n.copyWith(isRead: true)).toList(),
+      // Same pattern as [markAsRead]: stamp `openedAt` to flip the
+      // derived `isRead` getter on every row.
+      current
+          .map((n) => n.openedAt == null ? n.copyWith(openedAt: now) : n)
+          .toList(),
     );
   }
 }

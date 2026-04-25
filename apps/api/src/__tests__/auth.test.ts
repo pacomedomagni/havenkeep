@@ -20,8 +20,12 @@ jest.mock('../middleware/rateLimiter', () => {
     receiptScanRateLimiter: pass,
     newsletterRateLimiter: pass,
     contactRateLimiter: pass,
+    itemsListRateLimiter: pass,
+    csvExportRateLimiter: pass,
+    readRateLimiter: pass,
     initializeRateLimiter: jest.fn().mockResolvedValue(undefined),
     shutdownRateLimiter: jest.fn().mockResolvedValue(undefined),
+    closeRateLimiterRedis: jest.fn().mockResolvedValue(undefined),
   };
 });
 
@@ -227,13 +231,15 @@ describe('Auth API', () => {
       expect(res.status).toBe(401);
     });
 
-    it('should reject an invalid refresh token', async () => {
+    // Audit Ch12-R005: a malformed refresh token must surface as 401 (or
+    // 400 from the validator), never a 500. The previous test allowed 500,
+    // which codified the bug it was meant to catch.
+    it('should reject an invalid refresh token with 401 (audit Ch12-R005)', async () => {
       const res = await request(app)
         .post('/api/v1/auth/refresh')
         .send({ refreshToken: 'not-a-valid-jwt' });
-
-      // Joi validator might reject, or jwt.verify might throw
-      expect([400, 401, 500]).toContain(res.status);
+      expect([400, 401]).toContain(res.status);
+      expect(res.status).not.toBe(500);
     });
   });
 
@@ -249,21 +255,25 @@ describe('Auth API', () => {
           fullName: 'Logout User',
         });
 
-      const { refreshToken } = registerRes.body;
+      const { accessToken, refreshToken } = registerRes.body.data ?? registerRes.body;
 
       const res = await request(app)
         .post('/api/v1/auth/logout')
+        .set('Authorization', `Bearer ${accessToken}`)
         .send({ refreshToken });
 
       expect(res.status).toBe(200);
     });
 
-    it('should logout successfully without a refresh token', async () => {
+    // Audit Ch01-F014: unauthenticated logout used to succeed and let an
+    // attacker with a guessed refresh token blacklist arbitrary access
+    // tokens. The route now requires a valid access token.
+    it('rejects unauthenticated logout', async () => {
       const res = await request(app)
         .post('/api/v1/auth/logout')
         .send({});
 
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(401);
     });
 
     it('should invalidate the refresh token after logout', async () => {
@@ -275,10 +285,11 @@ describe('Auth API', () => {
           fullName: 'Logout Invalidate',
         });
 
-      const { refreshToken } = registerRes.body;
+      const { accessToken, refreshToken } = registerRes.body.data ?? registerRes.body;
 
       await request(app)
         .post('/api/v1/auth/logout')
+        .set('Authorization', `Bearer ${accessToken}`)
         .send({ refreshToken });
 
       // Try to use the refresh token after logout
@@ -287,6 +298,103 @@ describe('Auth API', () => {
         .send({ refreshToken });
 
       expect(refreshRes.status).toBe(401);
+    });
+  });
+
+  // ──────────────────── Phase 4 — additional coverage ────────────────────
+
+  describe('POST /api/v1/auth/forgot-password (Ch01-F016/F017/F028)', () => {
+    // F016: response shape MUST be identical for unknown vs known emails so
+    //   the route isn't an enumeration oracle.
+    it('returns the same generic response for unknown and known emails', async () => {
+      const { user } = await createTestUser({
+        email: 'fp-known@test.com',
+        emailVerified: true,
+      });
+      // Bump a verified flag — createTestUser already does this, but the
+      // route also checks auth_provider='email' which the helper sets.
+
+      const known = await request(app)
+        .post('/api/v1/auth/forgot-password')
+        .send({ email: user.email });
+      const unknown = await request(app)
+        .post('/api/v1/auth/forgot-password')
+        .send({ email: 'nobody-here@test.com' });
+
+      expect(known.status).toBe(200);
+      expect(unknown.status).toBe(200);
+      expect(known.body.message).toBe(unknown.body.message);
+    });
+
+    // F017: never email a reset link to an unverified address.
+    it('does not issue a reset token for unverified email accounts', async () => {
+      const { user } = await createTestUser({
+        email: 'fp-unverified@test.com',
+        emailVerified: false,
+      });
+
+      const res = await request(app)
+        .post('/api/v1/auth/forgot-password')
+        .send({ email: user.email });
+      expect(res.status).toBe(200);
+
+      const { pool } = require('../db');
+      const tokens = await pool.query(
+        `SELECT 1 FROM password_reset_tokens WHERE user_id = $1 AND used = FALSE`,
+        [user.id],
+      );
+      expect(tokens.rows.length).toBe(0);
+    });
+  });
+
+  describe('Refresh token family invalidation (Ch12-T019)', () => {
+    // Audit Ch01-F020: a refresh token belongs to exactly ONE user; any
+    // attempt to use it on behalf of a different user_id must fail and the
+    // server must NOT mass-invalidate based on the attacker's claim.
+    it('rejects refresh with no DB-side row even if JWT verifies', async () => {
+      const jwt = require('jsonwebtoken');
+      const { config } = require('../config');
+      const { user } = await createTestUser({ email: 'family@test.com' });
+
+      // Mint a JWT-valid refresh token but never insert it into refresh_tokens.
+      const orphan = jwt.sign({ userId: user.id }, config.jwt.refreshSecret, {
+        expiresIn: '7d',
+      });
+
+      const res = await request(app)
+        .post('/api/v1/auth/refresh')
+        .send({ refreshToken: orphan });
+      expect(res.status).toBe(401);
+
+      // The honest refresh tokens for this user were never issued in this
+      // test — we only need to confirm the orphan path doesn't 500 or
+      // succeed.
+    });
+  });
+
+  describe('Email verification token reuse (Ch12-T046)', () => {
+    // Verifying twice with the same token must not succeed the second time.
+    it('rejects re-use of an email verification token', async () => {
+      const crypto = require('crypto');
+      const { pool } = require('../db');
+      const { user } = await createTestUser({ email: 'reuse@test.com', emailVerified: false });
+
+      const raw = crypto.randomBytes(32).toString('hex');
+      const sha = crypto
+        .createHmac('sha256', require('../config').config.jwt.refreshSecret)
+        .update(raw)
+        .digest('hex');
+      await pool.query(
+        `INSERT INTO email_verification_tokens (user_id, token, expires_at, metadata)
+         VALUES ($1, $2, NOW() + INTERVAL '1 hour', '{"type":"register"}'::jsonb)`,
+        [user.id, sha],
+      );
+
+      const first = await request(app).post('/api/v1/auth/verify-email').send({ token: raw });
+      const second = await request(app).post('/api/v1/auth/verify-email').send({ token: raw });
+
+      expect(first.status).toBe(200);
+      expect(second.status).toBe(400);
     });
   });
 });

@@ -28,8 +28,16 @@ describe('formatCurrency', () => {
     expect(formatCurrency(0.5)).toBe('$0.50');
   });
 
-  it('handles NaN gracefully (returns NaN string)', () => {
-    const result = formatCurrency(NaN);
-    expect(result).toContain('NaN');
+  // Audit Ch10-W036: formatCurrency now falls back to "$0.00" rather than
+  // surfacing "NaN" — DECIMAL columns can serialize as empty strings on a
+  // 5xx upstream and the prior NaN string leaked into KPI cards.
+  it('handles NaN gracefully (returns $0.00)', () => {
+    expect(formatCurrency(NaN)).toBe('$0.00');
+  });
+
+  it('accepts string inputs (DECIMAL wire shape)', () => {
+    expect(formatCurrency('1234.56')).toBe('$1,234.56');
+    expect(formatCurrency('')).toBe('$0.00');
+    expect(formatCurrency('not-a-number')).toBe('$0.00');
   });
 });

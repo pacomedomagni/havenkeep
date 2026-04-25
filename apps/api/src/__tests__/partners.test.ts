@@ -18,6 +18,9 @@ jest.mock('../middleware/rateLimiter', () => {
     receiptScanRateLimiter: pass,
     newsletterRateLimiter: pass,
     contactRateLimiter: pass,
+    itemsListRateLimiter: pass,
+    csvExportRateLimiter: pass,
+    readRateLimiter: pass,
     initializeRateLimiter: jest.fn().mockResolvedValue(undefined),
     shutdownRateLimiter: jest.fn().mockResolvedValue(undefined),
   };
@@ -183,6 +186,86 @@ describe('Partners Routes', () => {
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.data.company_name).toBe('Updated Realty LLC');
+    });
+  });
+
+  // ----------------------------------------------------------------
+  // Activation code verify (audit Ch09-FlowC-T-C2/C3/C16)
+  // ----------------------------------------------------------------
+
+  describe('POST /api/v1/partners/gifts/verify-code', () => {
+    // C3: verify-code requires email as a 2nd factor — without it the route
+    // is an enumeration oracle.
+    it('rejects requests without homebuyer_email', async () => {
+      const res = await request(app)
+        .post('/api/v1/partners/gifts/verify-code')
+        .send({ activation_code: 'AAAA-BBBB-CCCC-DDDD' });
+
+      expect(res.status).toBe(400);
+    });
+
+    // C2/C16: even with a valid code shape, an unknown code returns the
+    // same opaque 404 as a known code with the wrong email.
+    it('returns 404 for an unknown code', async () => {
+      const res = await request(app)
+        .post('/api/v1/partners/gifts/verify-code')
+        .send({
+          activation_code: 'AAAA-BBBB-CCCC-DDDD',
+          homebuyer_email: 'nope@test.com',
+        });
+
+      expect(res.status).toBe(404);
+    });
+  });
+
+  // ----------------------------------------------------------------
+  // Tier rates locked (Ch12-T037)
+  // ----------------------------------------------------------------
+
+  describe('GET /api/v1/partners/tiers — rate values locked', () => {
+    it('locks commission_rate to 0.10/0.15/0.20 across basic/premium/platinum', async () => {
+      const res = await request(app)
+        .get('/api/v1/partners/tiers')
+        .set('Authorization', `Bearer ${token}`);
+      expect(res.status).toBe(200);
+      const byId = Object.fromEntries(
+        (res.body.data as Array<{ id: string; commission_rate: number }>).map((t) => [
+          t.id,
+          t.commission_rate,
+        ]),
+      );
+      expect(byId.basic).toBe(0.1);
+      expect(byId.premium).toBe(0.15);
+      expect(byId.platinum).toBe(0.2);
+    });
+
+    it('matches the service-side TIER_COMMISSION_RATES constant', () => {
+      // Import lazily so the mock for rateLimiter resolves first.
+      const { TIER_COMMISSION_RATES } = require('../services/partners.service');
+      expect(TIER_COMMISSION_RATES.basic).toBe(0.1);
+      expect(TIER_COMMISSION_RATES.premium).toBe(0.15);
+      expect(TIER_COMMISSION_RATES.platinum).toBe(0.2);
+    });
+  });
+
+  // ----------------------------------------------------------------
+  // Partner type lock (Ch03-F015)
+  // ----------------------------------------------------------------
+
+  describe('PUT /api/v1/partners/me — partner_type lock', () => {
+    it('rejects updates that try to change partner_type', async () => {
+      await request(app)
+        .post('/api/v1/partners/register')
+        .set('Authorization', `Bearer ${token}`)
+        .send(REGISTER_PAYLOAD);
+
+      const res = await request(app)
+        .put('/api/v1/partners/me')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ partner_type: 'builder', company_name: 'Sneaky Builder LLC' });
+
+      // Validator rejects the unknown field — it isn't in updatePartnerSchema.
+      expect(res.status).toBe(400);
     });
   });
 });

@@ -3,14 +3,19 @@ import 'enums.dart';
 /// A document attached to an item (receipt, warranty card, manual, etc.).
 class Document {
   final String id;
-  final String itemId;
+  final String? itemId;
   final String userId;
   final DocumentType type;
   final String fileUrl;
   final String fileName;
+
+  /// Bytes. Backed by a `BIGINT` on the server (Ch08-Document-D019) so the
+  /// client can carry the full PostgreSQL range without overflow.
   final int fileSize;
+
   final String mimeType;
   final String? thumbnailUrl;
+  final DateTime? deletedAt;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -24,6 +29,7 @@ class Document {
     this.fileSize = 0,
     this.mimeType = 'application/octet-stream',
     this.thumbnailUrl,
+    this.deletedAt,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -31,7 +37,7 @@ class Document {
   factory Document.fromJson(Map<String, dynamic> json) {
     return Document(
       id: json['id'] as String? ?? '',
-      itemId: json['item_id'] as String? ?? '',
+      itemId: json['item_id'] as String?,
       userId: json['user_id'] as String? ?? '',
       type: json['type'] != null
           ? DocumentType.fromJson(json['type'] as String)
@@ -41,8 +47,9 @@ class Document {
       fileSize: (json['file_size'] as num?)?.toInt() ?? 0,
       mimeType: json['mime_type'] as String? ?? 'application/octet-stream',
       thumbnailUrl: json['thumbnail_url'] as String?,
-      createdAt: DateTime.tryParse(json['created_at'] as String? ?? '') ?? DateTime.now(),
-      updatedAt: DateTime.tryParse(json['updated_at'] as String? ?? '') ?? DateTime.now(),
+      deletedAt: _parseDate(json['deleted_at']),
+      createdAt: _parseDate(json['created_at'])!,
+      updatedAt: _parseDate(json['updated_at'])!,
     );
   }
 
@@ -57,14 +64,21 @@ class Document {
       'file_size': fileSize,
       'mime_type': mimeType,
       'thumbnail_url': thumbnailUrl,
+      if (deletedAt != null) 'deleted_at': deletedAt!.toIso8601String(),
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
     };
   }
 
+  /// JSON for inserts. Strips id + server-managed timestamps so the server
+  /// is never asked to honor a client-supplied audit field
+  /// (Ch08-Document-D021).
   Map<String, dynamic> toInsertJson() {
     final json = toJson();
     json.remove('id');
+    json.remove('created_at');
+    json.remove('updated_at');
+    json.remove('deleted_at');
     return json;
   }
 
@@ -74,7 +88,10 @@ class Document {
     if (fileSize < 1024 * 1024) {
       return '${(fileSize / 1024).toStringAsFixed(1)} KB';
     }
-    return '${(fileSize / (1024 * 1024)).toStringAsFixed(1)} MB';
+    if (fileSize < 1024 * 1024 * 1024) {
+      return '${(fileSize / (1024 * 1024)).toStringAsFixed(1)} MB';
+    }
+    return '${(fileSize / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
   }
 
   /// Whether this document is an image.
@@ -86,6 +103,7 @@ class Document {
   Document copyWith({
     String? id,
     String? itemId,
+    bool clearItemId = false,
     String? userId,
     DocumentType? type,
     String? fileUrl,
@@ -94,12 +112,14 @@ class Document {
     String? mimeType,
     String? thumbnailUrl,
     bool clearThumbnailUrl = false,
+    DateTime? deletedAt,
+    bool clearDeletedAt = false,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
     return Document(
       id: id ?? this.id,
-      itemId: itemId ?? this.itemId,
+      itemId: clearItemId ? null : (itemId ?? this.itemId),
       userId: userId ?? this.userId,
       type: type ?? this.type,
       fileUrl: fileUrl ?? this.fileUrl,
@@ -108,6 +128,7 @@ class Document {
       mimeType: mimeType ?? this.mimeType,
       thumbnailUrl:
           clearThumbnailUrl ? null : (thumbnailUrl ?? this.thumbnailUrl),
+      deletedAt: clearDeletedAt ? null : (deletedAt ?? this.deletedAt),
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
@@ -122,4 +143,11 @@ class Document {
 
   @override
   int get hashCode => id.hashCode;
+}
+
+DateTime? _parseDate(Object? value) {
+  if (value == null) return null;
+  if (value is DateTime) return value;
+  if (value is String) return DateTime.tryParse(value);
+  return null;
 }

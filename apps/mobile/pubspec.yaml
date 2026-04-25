@@ -27,8 +27,12 @@ dependencies:
   go_router: ^14.0.0
 
   # --- Local Database (Offline-First) ---
-  drift: ^2.0.0
-  sqlite3_flutter_libs: ^0.5.0
+  # sqlcipher_flutter_libs ships the SQLCipher build of sqlite3 and acts as
+  # a drop-in replacement for sqlite3_flutter_libs; including both crashes
+  # the dex merger because they declare the same plugin class.
+  drift: ^2.21.0
+  sqlcipher_flutter_libs: ^0.6.8
+  sqlite3: ^2.9.4
 
   # --- Local KV Store ---
   shared_preferences: ^2.0.0
@@ -99,7 +103,7 @@ dev_dependencies:
     sdk: flutter
   flutter_lints: ^4.0.0
   build_runner: ^2.0.0
-  drift_dev: ^2.0.0
+  drift_dev: ^2.21.2
   riverpod_generator: ^2.0.0
   mockito: ^5.0.0
 

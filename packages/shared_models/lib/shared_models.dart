@@ -4,7 +4,11 @@
 /// - User, Home, Item, Document
 /// - AppNotification, NotificationPreferences
 /// - ReferralPartner, Referral, AffiliateConversion
-/// - CategoryDefault, BrandSuggestion
+/// - CategoryDefault, BrandSuggestion, Tip
+/// - Partner, PartnerGift, PartnerCommission
+/// - WarrantyClaim, WarrantyPurchase
+/// - MaintenanceSchedule + history
+/// - EmailScan, ContactSubmission
 /// - OfflineQueueEntry
 /// - All enums (Category, Room, WarrantyType, WarrantyStatus, etc.)
 library shared_models;
@@ -24,13 +28,25 @@ export 'src/category_default.dart';
 export 'src/brand_suggestion.dart';
 export 'src/receipt_scan_result.dart';
 export 'src/barcode_lookup_result.dart';
+export 'src/contact_submission.dart' show ContactSubmission;
+export 'src/tip.dart' show Tip;
+export 'src/partner.dart' show Partner, PartnerSubscriptionTier;
 export 'src/warranty_claim.dart' show WarrantyClaim, ClaimStatus;
 export 'src/maintenance.dart'
     show
         MaintenanceSchedule,
         MaintenanceHistory,
+        MaintenanceDifficulty,
         MaintenanceDueTask,
         MaintenanceDueItem,
         MaintenanceDueSummary;
 export 'src/warranty_purchase.dart' show WarrantyPurchase, WarrantyPurchaseStatus;
 export 'src/email_scan.dart' show EmailScan, EmailScanStatus;
+export 'src/partner_gift.dart' show PartnerGift, PartnerGiftStatus;
+export 'src/partner_commission.dart'
+    show
+        PartnerCommission,
+        PartnerCommissionType,
+        PartnerCommissionStatus,
+        PartnerCommissionReferenceType,
+        PartnerCommissionPayoutMethod;

@@ -1,7 +1,30 @@
 'use client'
 
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { ChevronDownIcon, ChevronUpIcon } from '@heroicons/react/24/outline'
+
+const METADATA_RENDER_LIMIT_BYTES = 4096
+
+/**
+ * Stringify metadata with a hard cap (audit Ch10-W052). Some entries record
+ * full upstream API payloads — rendering megabytes of JSON in a `<pre>` blocks
+ * the main thread and silently breaks the audit page.
+ */
+function safeStringifyMetadata(value: unknown): { text: string; truncated: boolean } {
+  let text: string
+  try {
+    text = JSON.stringify(value, null, 2) ?? ''
+  } catch {
+    return { text: '<unable to render metadata>', truncated: false }
+  }
+  if (text.length <= METADATA_RENDER_LIMIT_BYTES) {
+    return { text, truncated: false }
+  }
+  return {
+    text: `${text.slice(0, METADATA_RENDER_LIMIT_BYTES)}\n…(truncated)`,
+    truncated: true,
+  }
+}
 
 interface AuditLogTableProps {
   initialLogs: any[]
@@ -131,9 +154,10 @@ export default function AuditLogTable({ initialLogs }: AuditLogTableProps) {
                 </tr>
               ) : (
                 filteredLogs.map((log) => (
-                  <>
+                  // Audit Ch10-W053: Fragment must carry an explicit `key` —
+                  // a React shorthand `<>` here triggered the render warning.
+                  <Fragment key={log.id}>
                     <tr
-                      key={log.id}
                       className="hover:bg-haven-elevated/50 transition-colors cursor-pointer"
                       onClick={() => toggleRow(log.id)}
                     >
@@ -172,7 +196,7 @@ export default function AuditLogTable({ initialLogs }: AuditLogTableProps) {
                       </td>
                     </tr>
                     {expandedRow === log.id && (
-                      <tr key={`${log.id}-expanded`} className="bg-haven-elevated/30">
+                      <tr className="bg-haven-elevated/30">
                         <td colSpan={7} className="px-6 py-4">
                           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
                             <div>
@@ -199,21 +223,29 @@ export default function AuditLogTable({ initialLogs }: AuditLogTableProps) {
                                 {log.user_agent || '-'}
                               </p>
                             </div>
-                            {log.metadata && Object.keys(log.metadata).length > 0 && (
-                              <div className="md:col-span-3">
-                                <label className="block text-xs font-medium text-haven-text-tertiary mb-1">
-                                  Metadata
-                                </label>
-                                <pre className="text-white text-xs bg-haven-bg rounded-lg p-3 overflow-x-auto">
-                                  {JSON.stringify(log.metadata, null, 2)}
-                                </pre>
-                              </div>
-                            )}
+                            {log.metadata && Object.keys(log.metadata).length > 0 && (() => {
+                              const { text, truncated } = safeStringifyMetadata(log.metadata)
+                              return (
+                                <div className="md:col-span-3">
+                                  <label className="block text-xs font-medium text-haven-text-tertiary mb-1">
+                                    Metadata
+                                  </label>
+                                  <pre className="text-white text-xs bg-haven-bg rounded-lg p-3 overflow-x-auto">
+                                    {text}
+                                  </pre>
+                                  {truncated && (
+                                    <p className="text-xs text-haven-text-tertiary mt-1">
+                                      Truncated at {METADATA_RENDER_LIMIT_BYTES} bytes for performance.
+                                    </p>
+                                  )}
+                                </div>
+                              )
+                            })()}
                           </div>
                         </td>
                       </tr>
                     )}
-                  </>
+                  </Fragment>
                 ))
               )}
             </tbody>

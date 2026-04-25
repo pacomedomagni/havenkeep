@@ -1,3 +1,7 @@
+import 'dart:convert';
+import 'dart:math' as math;
+import 'dart:typed_data';
+
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'logging_service.dart';
@@ -24,6 +28,9 @@ class SecureStorageService {
   static const _keyDeviceId = 'device_id';
   static const _keyPushToken = 'push_token';
   static const _keyBiometricEnabled = 'biometric_enabled';
+  static const _keyDbEncryptionKey = 'db_encryption_key';
+  static const _keyActiveUserId = 'active_user_id';
+  static const _keyLastUnlockEpochMs = 'last_unlock_epoch_ms';
 
   /// Save device ID for push notifications.
   ///
@@ -97,6 +104,103 @@ class SecureStorageService {
     } catch (e, stack) {
       LoggingService.error('Failed to read biometric preference', e, stack);
       return false;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Local DB encryption key (256-bit, generated on first launch)
+  // ---------------------------------------------------------------------------
+
+  /// Returns the persisted 256-bit DB encryption key, generating + storing
+  /// one with a CSPRNG on first call. The key is base64-encoded for storage
+  /// and decoded back to raw bytes on read.
+  static Future<Uint8List> getOrCreateDbEncryptionKey() async {
+    try {
+      final existing = await _storage.read(key: _keyDbEncryptionKey);
+      if (existing != null && existing.isNotEmpty) {
+        return base64Decode(existing);
+      }
+      final rng = math.Random.secure();
+      final bytes = Uint8List(32);
+      for (var i = 0; i < bytes.length; i++) {
+        bytes[i] = rng.nextInt(256);
+      }
+      await _storage.write(
+        key: _keyDbEncryptionKey,
+        value: base64Encode(bytes),
+      );
+      LoggingService.info('Generated new DB encryption key');
+      return bytes;
+    } catch (e, stack) {
+      LoggingService.error('Failed to read/create DB encryption key', e, stack);
+      rethrow;
+    }
+  }
+
+  /// Wipe the DB encryption key (e.g. on sign-out, after the file is deleted).
+  static Future<void> deleteDbEncryptionKey() async {
+    try {
+      await _storage.delete(key: _keyDbEncryptionKey);
+    } catch (e, stack) {
+      LoggingService.error('Failed to delete DB encryption key', e, stack);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Active user (used to scope per-user DB files)
+  // ---------------------------------------------------------------------------
+
+  /// Persist the currently signed-in user id so background services (like
+  /// the database opener) can derive a per-user DB filename.
+  static Future<void> setActiveUserId(String? userId) async {
+    try {
+      if (userId == null || userId.isEmpty) {
+        await _storage.delete(key: _keyActiveUserId);
+      } else {
+        await _storage.write(key: _keyActiveUserId, value: userId);
+      }
+    } catch (e, stack) {
+      LoggingService.error('Failed to write active user id', e, stack);
+    }
+  }
+
+  /// Read the currently signed-in user id (or null if signed out).
+  static Future<String?> getActiveUserId() async {
+    try {
+      return await _storage.read(key: _keyActiveUserId);
+    } catch (e, stack) {
+      LoggingService.error('Failed to read active user id', e, stack);
+      return null;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Biometric lock — last unlock timestamp (for "lock after N seconds" gate)
+  // ---------------------------------------------------------------------------
+
+  /// Record the moment the biometric lock screen was last cleared.
+  static Future<void> setLastUnlockTimestamp(DateTime when) async {
+    try {
+      await _storage.write(
+        key: _keyLastUnlockEpochMs,
+        value: when.millisecondsSinceEpoch.toString(),
+      );
+    } catch (e, stack) {
+      LoggingService.error('Failed to write last unlock timestamp', e, stack);
+    }
+  }
+
+  /// Read the last successful unlock timestamp (null if never unlocked).
+  static Future<DateTime?> getLastUnlockTimestamp() async {
+    try {
+      final raw = await _storage.read(key: _keyLastUnlockEpochMs);
+      if (raw == null || raw.isEmpty) return null;
+      final ms = int.tryParse(raw);
+      if (ms == null) return null;
+      return DateTime.fromMillisecondsSinceEpoch(ms);
+    } catch (e, stack) {
+      LoggingService.error('Failed to read last unlock timestamp', e, stack);
+      return null;
     }
   }
 

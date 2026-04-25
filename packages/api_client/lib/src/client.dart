@@ -34,11 +34,59 @@ enum ApiAuthState {
   tokenRefreshed,
 }
 
+/// Mask `Bearer <token>` and JWT-shaped tokens in any string before it is
+/// handed to the log callback or surfaced through an [ApiException]. The
+/// callback is provided by the host app and may forward the message to a
+/// remote sink (Sentry, Datadog), so leaking access tokens in those breadcrumbs
+/// would let an attacker who reads the log replay full sessions.
+///
+/// Top-level so callers (and tests) can reuse the exact regex set the client
+/// uses internally.
+String redactSensitive(String input) {
+  // `Bearer <opaque>` — strip the token after the keyword.
+  var out = input.replaceAll(
+    RegExp(r'Bearer\s+[^\s"]+', caseSensitive: false),
+    'Bearer [REDACTED]',
+  );
+  // Standalone JWTs (header.payload.signature, base64url alphabet).
+  out = out.replaceAll(
+    RegExp(r'eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+'),
+    '[REDACTED_JWT]',
+  );
+  return out;
+}
+
 /// HTTP API client for the HavenKeep Express backend.
 ///
 /// Manages JWT tokens (access + refresh) in secure storage,
 /// auto-refreshes expired access tokens, and provides typed
 /// convenience methods for REST operations.
+///
+/// ## TLS pinning (release builds)
+///
+/// The constructor accepts an injected [http.Client] so release builds can
+/// pass an [IOClient] backed by a [SecurityContext] pinned to the issuer's
+/// SPKI. The default client uses the platform trust store, which is fine
+/// for development but lets a device with a custom CA installed MITM the
+/// API. Mobile bootstrap should construct the pinned client and pass it in:
+///
+/// ```dart
+/// final pinned = IOClient(
+///   HttpClient(context: SecurityContext(withTrustedRoots: false))
+///     ..badCertificateCallback = (cert, host, port) =>
+///         _spkiMatches(cert, expectedSpkiSha256),
+/// );
+/// final client = ApiClient(baseUrl: env.apiBaseUrl, httpClient: pinned);
+/// ```
+///
+/// ## URL safety
+///
+/// Always prefer the segments-based methods (e.g. `get(pathSegments: ['items',
+/// itemId])`) over the legacy `path:` API. Segments are percent-encoded by
+/// `Uri`, so even if a caller passes user-controlled input as a path segment
+/// the request can't be tricked into hitting a different endpoint via path
+/// traversal or unencoded slashes. The `path:` API remains for the few
+/// hard-coded routes that contain no interpolated values.
 class ApiClient {
   final String baseUrl;
   final http.Client _http;
@@ -72,11 +120,15 @@ class ApiClient {
             );
 
   /// Log a message via the callback and, in debug mode, via debugPrint.
+  ///
+  /// All messages are passed through [redactSensitive] first so a Bearer
+  /// header or JWT that ended up in an error string never reaches the sink.
   void _log(String message) {
+    final safe = redactSensitive(message);
     if (kDebugMode) {
-      debugPrint(message);
+      debugPrint(safe);
     }
-    _onLog?.call(message);
+    _onLog?.call(safe);
   }
 
   /// Stream of auth state changes (signedIn, signedOut, tokenRefreshed).
@@ -219,7 +271,7 @@ class ApiClient {
       }
 
       final response = await _http.post(
-        Uri.parse('$baseUrl/api/v1/auth/refresh'),
+        _buildUri(pathSegments: const ['api', 'v1', 'auth', 'refresh']),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'refreshToken': refreshToken}),
       ).timeout(const Duration(seconds: 10));
@@ -320,7 +372,9 @@ class ApiClient {
         } else {
           throw ApiException(
             response.statusCode,
-            'Unexpected response format: expected a JSON object but got ${decoded.runtimeType}',
+            redactSensitive(
+              'Unexpected response format: expected a JSON object but got ${decoded.runtimeType}',
+            ),
           );
         }
       }
@@ -340,7 +394,9 @@ class ApiClient {
       final retryAfterSeconds = retryAfter != null ? int.tryParse(retryAfter) : null;
       throw ApiException(
         429,
-        body['message'] as String? ?? 'Too many requests. Please try again later.',
+        redactSensitive(
+          body['message'] as String? ?? 'Too many requests. Please try again later.',
+        ),
         code: 'rate_limited',
         retryAfterSeconds: retryAfterSeconds,
       );
@@ -348,9 +404,11 @@ class ApiClient {
 
     throw ApiException(
       response.statusCode,
-      body['error'] as String? ??
-          body['message'] as String? ??
-          'Request failed',
+      redactSensitive(
+        body['error'] as String? ??
+            body['message'] as String? ??
+            'Request failed',
+      ),
       code: body['code'] as String?,
     );
   }
@@ -358,12 +416,59 @@ class ApiClient {
   static const _defaultTimeout = Duration(seconds: 30);
   static const _uploadTimeout = Duration(seconds: 120);
 
+  /// Build a [Uri] for [baseUrl] + either a precomputed [path] or a list of
+  /// [pathSegments] (each segment is percent-encoded by [Uri]). Exactly one
+  /// of [path] / [pathSegments] must be supplied.
+  Uri _buildUri({
+    String? path,
+    List<String>? pathSegments,
+    Map<String, String>? queryParams,
+  }) {
+    assert(
+      (path == null) != (pathSegments == null),
+      'Provide exactly one of path or pathSegments',
+    );
+
+    final base = Uri.parse(baseUrl);
+    if (pathSegments != null) {
+      // Merge any segments already on baseUrl (e.g. when baseUrl ends in
+      // `/api`) with the caller-provided segments. Empty strings are
+      // dropped so trailing slashes don't produce `//` in the final URL.
+      final merged = <String>[
+        ...base.pathSegments.where((s) => s.isNotEmpty),
+        ...pathSegments,
+      ];
+      return base.replace(
+        pathSegments: merged,
+        queryParameters: queryParams,
+      );
+    }
+
+    // Legacy path mode — kept for hard-coded routes that contain no
+    // interpolated user input. Accepts an absolute or relative path.
+    final normalized = path!.startsWith('/') ? path : '/$path';
+    return Uri.parse('$baseUrl$normalized')
+        .replace(queryParameters: queryParams);
+  }
+
   /// GET request.
-  Future<Map<String, dynamic>> get(
-    String path, {
+  ///
+  /// Provide either [path] (a hard-coded route with no interpolation) or
+  /// [pathSegments] (preferred — segments are percent-encoded so user input
+  /// can't escape the intended endpoint).
+  Future<Map<String, dynamic>> get({
+    @Deprecated(
+      'Use pathSegments to avoid URL injection. Only acceptable for hard-coded routes with no interpolated values.',
+    )
+    String? path,
+    List<String>? pathSegments,
     Map<String, String>? queryParams,
   }) async {
-    final uri = Uri.parse('$baseUrl$path').replace(queryParameters: queryParams);
+    final uri = _buildUri(
+      path: path,
+      pathSegments: pathSegments,
+      queryParams: queryParams,
+    );
     final response = await _withAutoRefresh(
       () => _http.get(uri, headers: _headers()).timeout(_defaultTimeout),
     );
@@ -371,13 +476,23 @@ class ApiClient {
   }
 
   /// POST request with JSON body.
-  Future<Map<String, dynamic>> post(
-    String path, {
+  Future<Map<String, dynamic>> post({
+    @Deprecated(
+      'Use pathSegments to avoid URL injection. Only acceptable for hard-coded routes with no interpolated values.',
+    )
+    String? path,
+    List<String>? pathSegments,
+    Map<String, String>? queryParams,
     Map<String, dynamic>? body,
   }) async {
+    final uri = _buildUri(
+      path: path,
+      pathSegments: pathSegments,
+      queryParams: queryParams,
+    );
     final response = await _withAutoRefresh(
       () => _http.post(
-        Uri.parse('$baseUrl$path'),
+        uri,
         headers: _headers(),
         body: body != null ? jsonEncode(body) : null,
       ).timeout(_defaultTimeout),
@@ -386,13 +501,23 @@ class ApiClient {
   }
 
   /// PUT request with JSON body.
-  Future<Map<String, dynamic>> put(
-    String path, {
+  Future<Map<String, dynamic>> put({
+    @Deprecated(
+      'Use pathSegments to avoid URL injection. Only acceptable for hard-coded routes with no interpolated values.',
+    )
+    String? path,
+    List<String>? pathSegments,
+    Map<String, String>? queryParams,
     Map<String, dynamic>? body,
   }) async {
+    final uri = _buildUri(
+      path: path,
+      pathSegments: pathSegments,
+      queryParams: queryParams,
+    );
     final response = await _withAutoRefresh(
       () => _http.put(
-        Uri.parse('$baseUrl$path'),
+        uri,
         headers: _headers(),
         body: body != null ? jsonEncode(body) : null,
       ).timeout(_defaultTimeout),
@@ -401,13 +526,23 @@ class ApiClient {
   }
 
   /// PATCH request with JSON body.
-  Future<Map<String, dynamic>> patch(
-    String path, {
+  Future<Map<String, dynamic>> patch({
+    @Deprecated(
+      'Use pathSegments to avoid URL injection. Only acceptable for hard-coded routes with no interpolated values.',
+    )
+    String? path,
+    List<String>? pathSegments,
+    Map<String, String>? queryParams,
     Map<String, dynamic>? body,
   }) async {
+    final uri = _buildUri(
+      path: path,
+      pathSegments: pathSegments,
+      queryParams: queryParams,
+    );
     final response = await _withAutoRefresh(
       () => _http.patch(
-        Uri.parse('$baseUrl$path'),
+        uri,
         headers: _headers(),
         body: body != null ? jsonEncode(body) : null,
       ).timeout(_defaultTimeout),
@@ -416,13 +551,23 @@ class ApiClient {
   }
 
   /// DELETE request with optional JSON body.
-  Future<Map<String, dynamic>> delete(
-    String path, {
+  Future<Map<String, dynamic>> delete({
+    @Deprecated(
+      'Use pathSegments to avoid URL injection. Only acceptable for hard-coded routes with no interpolated values.',
+    )
+    String? path,
+    List<String>? pathSegments,
+    Map<String, String>? queryParams,
     Map<String, dynamic>? body,
   }) async {
+    final uri = _buildUri(
+      path: path,
+      pathSegments: pathSegments,
+      queryParams: queryParams,
+    );
     final response = await _withAutoRefresh(
       () => _http.delete(
-        Uri.parse('$baseUrl$path'),
+        uri,
         headers: _headers(),
         body: body != null ? jsonEncode(body) : null,
       ).timeout(_defaultTimeout),
@@ -431,17 +576,20 @@ class ApiClient {
   }
 
   /// Upload a file via multipart POST.
-  Future<Map<String, dynamic>> upload(
-    String path, {
+  Future<Map<String, dynamic>> upload({
+    @Deprecated(
+      'Use pathSegments to avoid URL injection. Only acceptable for hard-coded routes with no interpolated values.',
+    )
+    String? path,
+    List<String>? pathSegments,
     required File file,
     required String fieldName,
     Map<String, String>? fields,
   }) async {
+    final uri = _buildUri(path: path, pathSegments: pathSegments);
+
     Future<http.Response> doUpload() async {
-      final request = http.MultipartRequest(
-        'POST',
-        Uri.parse('$baseUrl$path'),
-      );
+      final request = http.MultipartRequest('POST', uri);
 
       // Use _accessToken at request time (not closure capture time)
       // so that after a token refresh, the new token is used.

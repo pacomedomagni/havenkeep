@@ -2,11 +2,11 @@
 // Navigation component
 ---
 
-<nav class="fixed top-0 w-full bg-gray-900/95 backdrop-blur-md border-b border-gray-800 z-50">
+<nav class="fixed top-0 w-full bg-gray-900/95 backdrop-blur-md border-b border-gray-800 z-50" aria-label="Primary">
   <div class="container">
     <div class="flex items-center justify-between h-16">
       <!-- Logo -->
-      <a href="/" class="flex items-center">
+      <a href="/" class="flex items-center" aria-label="HavenKeep home">
         <img src="/images/logo.svg" alt="HavenKeep" class="h-9" />
       </a>
 
@@ -17,19 +17,39 @@
         <a href="/blog" class="text-gray-300 hover:text-white font-medium transition-colors">Blog</a>
       </div>
 
-      <!-- CTA -->
+      <!-- CTA. Audit Ch10-W104: external subdomain links carry the ↗ glyph
+           so the visual cue matches the destination change. Audit Ch10-W084:
+           target=_blank gets noopener+noreferrer. -->
       <div class="hidden md:flex items-center space-x-4">
-        <a href="https://app.havenkeep.com/login" class="text-gray-300 hover:text-white font-medium transition-colors">
-          Sign In
+        <a
+          href="https://app.havenkeep.com/login"
+          class="text-gray-300 hover:text-white font-medium transition-colors"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Sign In <span aria-hidden="true">↗</span>
         </a>
-        <a href="https://app.havenkeep.com/signup" class="btn-primary">
-          Get Started
+        <a
+          href="https://app.havenkeep.com/signup"
+          class="btn-primary"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Get Started <span aria-hidden="true">↗</span>
         </a>
       </div>
 
-      <!-- Mobile menu button -->
-      <button id="mobile-menu-button" class="md:hidden p-2 text-gray-300 hover:text-white">
-        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <!-- Audit Ch10-W091, W092: aria-expanded + aria-controls + an
+           accessible name make the hamburger discoverable to screen readers. -->
+      <button
+        id="mobile-menu-button"
+        class="md:hidden p-2 text-gray-300 hover:text-white"
+        type="button"
+        aria-expanded="false"
+        aria-controls="mobile-menu"
+        aria-label="Open navigation menu"
+      >
+        <svg class="w-6 h-6" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
         </svg>
       </button>
@@ -37,17 +57,29 @@
   </div>
 
   <!-- Mobile menu -->
-  <div id="mobile-menu" class="hidden md:hidden border-t border-gray-800 bg-gray-900">
+  <div id="mobile-menu" class="hidden md:hidden border-t border-gray-800 bg-gray-900" role="menu">
     <div class="container py-4 space-y-3">
-      <a href="/features" class="block py-2 text-gray-300 hover:text-white font-medium">Features</a>
-      <a href="/pricing" class="block py-2 text-gray-300 hover:text-white font-medium">Pricing</a>
-      <a href="/blog" class="block py-2 text-gray-300 hover:text-white font-medium">Blog</a>
+      <a href="/features" class="block py-2 text-gray-300 hover:text-white font-medium" role="menuitem">Features</a>
+      <a href="/pricing" class="block py-2 text-gray-300 hover:text-white font-medium" role="menuitem">Pricing</a>
+      <a href="/blog" class="block py-2 text-gray-300 hover:text-white font-medium" role="menuitem">Blog</a>
       <div class="pt-4 border-t border-gray-800 space-y-2">
-        <a href="https://app.havenkeep.com/login" class="block text-center py-2 text-gray-300 hover:text-white font-medium">
-          Sign In
+        <a
+          href="https://app.havenkeep.com/login"
+          class="block text-center py-2 text-gray-300 hover:text-white font-medium"
+          target="_blank"
+          rel="noopener noreferrer"
+          role="menuitem"
+        >
+          Sign In <span aria-hidden="true">↗</span>
         </a>
-        <a href="https://app.havenkeep.com/signup" class="block text-center btn-primary">
-          Get Started
+        <a
+          href="https://app.havenkeep.com/signup"
+          class="block text-center btn-primary"
+          target="_blank"
+          rel="noopener noreferrer"
+          role="menuitem"
+        >
+          Get Started <span aria-hidden="true">↗</span>
         </a>
       </div>
     </div>
@@ -55,11 +87,15 @@
 </nav>
 
 <script>
-  // Mobile menu toggle
-  const button = document.getElementById('mobile-menu-button');
+  // Audit Ch10-W089: this is a `<script>` tag — Astro processes it as a
+  // module bundle, so a strict CSP without 'unsafe-inline' still works.
+  const button = document.getElementById('mobile-menu-button') as HTMLButtonElement | null;
   const menu = document.getElementById('mobile-menu');
 
   button?.addEventListener('click', () => {
-    menu?.classList.toggle('hidden');
+    if (!menu) return;
+    const open = menu.classList.toggle('hidden') === false;
+    button.setAttribute('aria-expanded', String(open));
+    button.setAttribute('aria-label', open ? 'Close navigation menu' : 'Open navigation menu');
   });
 </script>

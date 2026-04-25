@@ -1,16 +1,20 @@
 import { Request, Response, NextFunction } from 'express';
-import { logger } from './logger';
 
-type AsyncFunction = (req: Request, res: Response, next: NextFunction) => Promise<any>;
+type AsyncFunction = (req: Request, res: Response, next: NextFunction) => Promise<unknown>;
 
 /**
- * Wrapper for async route handlers to catch errors and pass to error middleware
+ * Wrap an async route handler so a thrown error / rejection flows to
+ * Express's `next(err)`. The error handler middleware logs once — the prior
+ * version logged here AND in errorHandler, producing duplicate entries that
+ * polluted Loki (audit Ch11-I014).
+ *
+ * Sync throws inside an async function become rejections automatically; this
+ * wrapper does NOT need a separate try/catch — the audit's worry (Ch11-I015)
+ * is only when a wrapped handler is non-async (no implicit Promise wrap),
+ * which the type signature forbids.
  */
 export const asyncHandler = (fn: AsyncFunction) => {
   return (req: Request, res: Response, next: NextFunction) => {
-    Promise.resolve(fn(req, res, next)).catch((error) => {
-      logger.error({ error, method: req.method, path: req.path }, 'Unhandled route error');
-      next(error);
-    });
+    Promise.resolve(fn(req, res, next)).catch(next);
   };
 };

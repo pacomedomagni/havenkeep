@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:lottie/lottie.dart';
 import 'package:shared_ui/shared_ui.dart';
 import '../../core/providers/auth_provider.dart';
+import '../../core/providers/homes_provider.dart';
 import '../../core/router/router.dart';
 import '../../core/widgets/havenkeep_logo.dart';
 
@@ -73,17 +74,51 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
   ///
   /// Uses [isAuthenticatedProvider] which reads the API client's token
   /// directly — no dependency on the broadcast stream that may never emit.
-  void _navigate() {
+  /// For authenticated users we must also know whether they have any
+  /// homes before we navigate, otherwise the router would bounce them
+  /// back to the splash and leave them stranded (C101).
+  Future<void> _navigate() async {
     if (_hasNavigated || !mounted) return;
-    _hasNavigated = true;
 
     final isAuthenticated = ref.read(isAuthenticatedProvider);
     debugPrint('[Splash] Navigating — isAuthenticated=$isAuthenticated');
 
-    if (isAuthenticated) {
-      context.go(AppRoutes.dashboard);
-    } else {
+    if (!isAuthenticated) {
+      _hasNavigated = true;
       context.go(AppRoutes.welcome);
+      return;
+    }
+
+    // Wait for the homes query to resolve before navigating, so we route
+    // straight to the right destination (dashboard vs first-action) and
+    // skip the historical flicker from C101.
+    final hasHome = await _resolveHasHome();
+    if (!mounted) return;
+    _hasNavigated = true;
+    context.go(hasHome ? AppRoutes.dashboard : AppRoutes.firstAction);
+  }
+
+  /// Read [hasHomeProvider] until it has a value.
+  Future<bool> _resolveHasHome() async {
+    final initial = ref.read(hasHomeProvider).valueOrNull;
+    if (initial != null) return initial;
+
+    final completer = Completer<bool>();
+    final sub = ref.listenManual<AsyncValue<bool>>(
+      hasHomeProvider,
+      (_, next) {
+        final value = next.valueOrNull;
+        if (value != null && !completer.isCompleted) {
+          completer.complete(value);
+        }
+      },
+      fireImmediately: false,
+    );
+
+    try {
+      return await completer.future;
+    } finally {
+      sub.close();
     }
   }
 

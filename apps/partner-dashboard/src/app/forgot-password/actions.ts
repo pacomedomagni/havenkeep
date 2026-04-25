@@ -1,6 +1,7 @@
 'use server';
 
 import { API_URL } from '@/lib/config';
+import { fetchWithTimeout } from '@/lib/fetch';
 
 export async function requestPasswordReset(
   formData: FormData
@@ -12,7 +13,7 @@ export async function requestPasswordReset(
   }
 
   try {
-    const response = await fetch(`${API_URL}/api/v1/auth/forgot-password`, {
+    const response = await fetchWithTimeout(`${API_URL}/api/v1/auth/forgot-password`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email }),

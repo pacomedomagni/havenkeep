@@ -21,6 +21,9 @@ jest.mock('../middleware/rateLimiter', () => {
     receiptScanRateLimiter: pass,
     newsletterRateLimiter: pass,
     contactRateLimiter: pass,
+    itemsListRateLimiter: pass,
+    csvExportRateLimiter: pass,
+    readRateLimiter: pass,
     initializeRateLimiter: jest.fn().mockResolvedValue(undefined),
     shutdownRateLimiter: jest.fn().mockResolvedValue(undefined),
   };
@@ -318,6 +321,115 @@ describe('Webhooks API', () => {
       expect(updatedUser.rows[0].plan_expires_at).toBeNull();
     });
 
+    // Audit Ch12-R001: previously the EXPIRATION handler unconditionally
+    // downgraded to 'free', which stranded gift-funded premium users when
+    // their RC subscription expired. Phase 1 made the handler check for an
+    // active partner gift before downgrading.
+    it('keeps premium on EXPIRATION when an active partner gift covers the user', async () => {
+      const { user } = await createTestUser({ email: 'gifted@test.com', plan: 'premium' });
+      // Set up partner + an active gift held by this user.
+      const partnerOwner = await createTestUser({ email: 'gifter@test.com' });
+      const partnerRow = await pool.query(
+        `INSERT INTO partners (user_id, partner_type, company_name, is_active)
+         VALUES ($1, 'realtor', 'GiftCo', TRUE)
+         RETURNING id`,
+        [partnerOwner.user.id],
+      );
+      await pool.query(
+        `INSERT INTO partner_gifts (
+           partner_id, homebuyer_email, homebuyer_name, premium_months,
+           amount_charged, status, is_activated, activated_user_id, expires_at
+         )
+         VALUES ($1, $2, 'Gifted User', 12, 99, 'activated', TRUE, $3, NOW() + INTERVAL '180 days')`,
+        [partnerRow.rows[0].id, user.email, user.id],
+      );
+
+      const res = await request(app)
+        .post('/api/v1/webhooks/revenuecat')
+        .set('Authorization', getRevenueCatAuthHeader())
+        .send({
+          api_version: '1.0',
+          event: {
+            type: 'EXPIRATION',
+            id: 'evt_expiration_with_gift',
+            app_user_id: user.id,
+            original_app_user_id: user.id,
+            aliases: [],
+            product_id: 'havenkeep_premium_monthly',
+            entitlement_ids: ['premium'],
+            period_type: 'NORMAL',
+            purchased_at_ms: Date.now() - 30 * 86400000,
+            expiration_at_ms: Date.now(),
+            store: 'APP_STORE',
+            environment: 'SANDBOX',
+            is_family_share: false,
+            currency: 'USD',
+            price_in_purchased_currency: 4.99,
+            subscriber_attributes: {},
+            transaction_id: 'txn_gift_keep',
+            original_transaction_id: 'txn_gift_keep',
+          },
+        });
+
+      expect(res.status).toBe(200);
+      const after = await pool.query('SELECT plan FROM users WHERE id = $1', [user.id]);
+      expect(after.rows[0].plan).toBe('premium');
+    });
+
+    // Audit Ch03-F002 + Ch12-T002: in production, sandbox events must be
+    // dropped — they're test traffic and should never mutate production
+    // user state.
+    it('ignores SANDBOX events in production (config flag controls dev/test override)', async () => {
+      const { config } = require('../config');
+      const original = config.revenuecatAllowSandboxWebhooks;
+      // Temporarily flip the gate off as if this were prod.
+      Object.defineProperty(require('../config').config, 'revenuecatAllowSandboxWebhooks', {
+        value: false,
+        configurable: true,
+      });
+      try {
+        const { user } = await createTestUser({ email: 'sandboxignore@test.com', plan: 'premium' });
+
+        const res = await request(app)
+          .post('/api/v1/webhooks/revenuecat')
+          .set('Authorization', getRevenueCatAuthHeader())
+          .send({
+            api_version: '1.0',
+            event: {
+              type: 'EXPIRATION',
+              id: 'evt_sandbox_drop',
+              app_user_id: user.id,
+              original_app_user_id: user.id,
+              aliases: [],
+              product_id: 'havenkeep_premium_monthly',
+              entitlement_ids: ['premium'],
+              period_type: 'NORMAL',
+              purchased_at_ms: Date.now(),
+              expiration_at_ms: Date.now(),
+              store: 'APP_STORE',
+              environment: 'SANDBOX',
+              is_family_share: false,
+              currency: 'USD',
+              price_in_purchased_currency: 4.99,
+              subscriber_attributes: {},
+              transaction_id: 'txn_sandbox',
+              original_transaction_id: 'txn_sandbox',
+            },
+          });
+
+        expect(res.status).toBe(200);
+        expect(res.body.sandboxIgnored).toBe(true);
+
+        const after = await pool.query('SELECT plan FROM users WHERE id = $1', [user.id]);
+        expect(after.rows[0].plan).toBe('premium');
+      } finally {
+        Object.defineProperty(require('../config').config, 'revenuecatAllowSandboxWebhooks', {
+          value: original,
+          configurable: true,
+        });
+      }
+    });
+
     it('should handle RENEWAL and extend premium', async () => {
       const { user } = await createTestUser({ email: 'renewing@test.com' });
       await pool.query(
@@ -391,6 +503,188 @@ describe('Webhooks API', () => {
       // Should return 200 to prevent retries
       expect(res.status).toBe(200);
       expect(res.body.message).toMatch(/user not found/i);
+    });
+
+    // Ch03-F009: an out-of-order RC event (older event_timestamp_ms) must
+    // not undo a fresher applied event. The high-water row wins.
+    it('drops out-of-order RC events via the per-user high-water guard', async () => {
+      const { user } = await createTestUser({ email: 'order@test.com' });
+      const newer = Date.now();
+      const older = newer - 60_000;
+
+      // Apply newer RENEWAL first.
+      await request(app)
+        .post('/api/v1/webhooks/revenuecat')
+        .set('Authorization', getRevenueCatAuthHeader())
+        .send({
+          api_version: '1.0',
+          event: {
+            type: 'RENEWAL',
+            id: 'evt_order_newer',
+            app_user_id: user.id,
+            original_app_user_id: user.id,
+            aliases: [],
+            product_id: 'havenkeep_premium_monthly',
+            entitlement_ids: ['premium'],
+            period_type: 'NORMAL',
+            purchased_at_ms: newer,
+            event_timestamp_ms: newer,
+            expiration_at_ms: newer + 30 * 86400000,
+            store: 'APP_STORE',
+            environment: 'SANDBOX',
+            is_family_share: false,
+            currency: 'USD',
+            price_in_purchased_currency: 4.99,
+            subscriber_attributes: {},
+            transaction_id: 'txn_order_newer',
+            original_transaction_id: 'txn_order_newer',
+          },
+        });
+
+      const afterNewer = await pool.query('SELECT plan FROM users WHERE id = $1', [user.id]);
+      expect(afterNewer.rows[0].plan).toBe('premium');
+
+      // Then a stale EXPIRATION arrives. It must NOT downgrade.
+      const stale = await request(app)
+        .post('/api/v1/webhooks/revenuecat')
+        .set('Authorization', getRevenueCatAuthHeader())
+        .send({
+          api_version: '1.0',
+          event: {
+            type: 'EXPIRATION',
+            id: 'evt_order_older',
+            app_user_id: user.id,
+            original_app_user_id: user.id,
+            aliases: [],
+            product_id: 'havenkeep_premium_monthly',
+            entitlement_ids: ['premium'],
+            period_type: 'NORMAL',
+            purchased_at_ms: older,
+            event_timestamp_ms: older,
+            expiration_at_ms: older,
+            store: 'APP_STORE',
+            environment: 'SANDBOX',
+            is_family_share: false,
+            currency: 'USD',
+            price_in_purchased_currency: 4.99,
+            subscriber_attributes: {},
+            transaction_id: 'txn_order_older',
+            original_transaction_id: 'txn_order_older',
+          },
+        });
+
+      expect(stale.status).toBe(200);
+      expect(stale.body.outOfOrder).toBe(true);
+      const after = await pool.query('SELECT plan FROM users WHERE id = $1', [user.id]);
+      expect(after.rows[0].plan).toBe('premium');
+    });
+
+    // Ch03-F005: RC events without the 'premium' entitlement must NOT upgrade.
+    it('refuses to upgrade when entitlement_ids lacks "premium"', async () => {
+      const { user } = await createTestUser({ email: 'noEnt@test.com' });
+      const res = await request(app)
+        .post('/api/v1/webhooks/revenuecat')
+        .set('Authorization', getRevenueCatAuthHeader())
+        .send({
+          api_version: '1.0',
+          event: {
+            type: 'INITIAL_PURCHASE',
+            id: 'evt_no_entitlement',
+            app_user_id: user.id,
+            original_app_user_id: user.id,
+            aliases: [],
+            product_id: 'havenkeep_consumable_tip',
+            entitlement_ids: ['tip_jar'],
+            period_type: 'NORMAL',
+            purchased_at_ms: Date.now(),
+            event_timestamp_ms: Date.now(),
+            expiration_at_ms: Date.now() + 86400000,
+            store: 'APP_STORE',
+            environment: 'SANDBOX',
+            is_family_share: false,
+            currency: 'USD',
+            price_in_purchased_currency: 0.99,
+            subscriber_attributes: {},
+            transaction_id: 'txn_tip',
+            original_transaction_id: 'txn_tip',
+          },
+        });
+      expect(res.status).toBe(200);
+      const after = await pool.query('SELECT plan FROM users WHERE id = $1', [user.id]);
+      expect(after.rows[0].plan).toBe('free');
+    });
+
+    // Ch03-F003: null expiration_at_ms means lifetime — must persist far-future.
+    it('treats null expiration_at_ms as lifetime entitlement', async () => {
+      const { user } = await createTestUser({ email: 'lifetime@test.com' });
+      const res = await request(app)
+        .post('/api/v1/webhooks/revenuecat')
+        .set('Authorization', getRevenueCatAuthHeader())
+        .send({
+          api_version: '1.0',
+          event: {
+            type: 'INITIAL_PURCHASE',
+            id: 'evt_lifetime',
+            app_user_id: user.id,
+            original_app_user_id: user.id,
+            aliases: [],
+            product_id: 'havenkeep_lifetime',
+            entitlement_ids: ['premium'],
+            period_type: 'NORMAL',
+            purchased_at_ms: Date.now(),
+            event_timestamp_ms: Date.now(),
+            expiration_at_ms: null,
+            store: 'APP_STORE',
+            environment: 'SANDBOX',
+            is_family_share: false,
+            currency: 'USD',
+            price_in_purchased_currency: 99.99,
+            subscriber_attributes: {},
+            transaction_id: 'txn_lifetime',
+            original_transaction_id: 'txn_lifetime',
+          },
+        });
+      expect(res.status).toBe(200);
+      const after = await pool.query(
+        'SELECT plan, plan_expires_at FROM users WHERE id = $1',
+        [user.id],
+      );
+      expect(after.rows[0].plan).toBe('premium');
+      expect(new Date(after.rows[0].plan_expires_at).getUTCFullYear()).toBe(9999);
+    });
+
+    // Ch03-F007: a non-UUID app_user_id used to crash pg. Now we acknowledge
+    // and skip without writing the failed status.
+    it('acknowledges non-UUID app_user_id without crashing pg', async () => {
+      const res = await request(app)
+        .post('/api/v1/webhooks/revenuecat')
+        .set('Authorization', getRevenueCatAuthHeader())
+        .send({
+          api_version: '1.0',
+          event: {
+            type: 'INITIAL_PURCHASE',
+            id: 'evt_non_uuid',
+            app_user_id: '$RCAnonymousID:abc123',
+            original_app_user_id: '$RCAnonymousID:abc123',
+            aliases: [],
+            product_id: 'havenkeep_premium_monthly',
+            entitlement_ids: ['premium'],
+            period_type: 'NORMAL',
+            purchased_at_ms: Date.now(),
+            event_timestamp_ms: Date.now(),
+            expiration_at_ms: Date.now() + 86400000,
+            store: 'APP_STORE',
+            environment: 'SANDBOX',
+            is_family_share: false,
+            currency: 'USD',
+            price_in_purchased_currency: 4.99,
+            subscriber_attributes: {},
+            transaction_id: 'txn_anon',
+            original_transaction_id: 'txn_anon',
+          },
+        });
+      expect(res.status).toBe(200);
+      expect(res.body.ignored).toBe('non-uuid-app-user-id');
     });
 
     it('should handle CANCELLATION without downgrading user', async () => {

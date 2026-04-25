@@ -8,17 +8,21 @@ class EmailScannerRepository {
 
   EmailScannerRepository(this._client);
 
-  /// Start a new email scan.
+  /// Start a new email scan. The mobile client forwards the OAuth `code` +
+  /// `redirectUri` to the API, which exchanges them server-side for an
+  /// access + refresh token. The mobile client never holds an access token.
   Future<EmailScan> initiateScan({
     required String provider,
-    required String accessToken,
+    required String code,
+    required String redirectUri,
     DateTime? dateRangeStart,
     DateTime? dateRangeEnd,
   }) async {
     try {
       final body = <String, dynamic>{
         'provider': provider,
-        'access_token': accessToken,
+        'code': code,
+        'redirect_uri': redirectUri,
       };
       if (dateRangeStart != null) {
         body['date_range_start'] = dateRangeStart.toIso8601String();
@@ -27,7 +31,10 @@ class EmailScannerRepository {
         body['date_range_end'] = dateRangeEnd.toIso8601String();
       }
 
-      final data = await _client.post('/api/v1/email-scanner/scan', body: body);
+      final data = await _client.post(
+        pathSegments: const ['api', 'v1', 'email-scanner', 'scan'],
+        body: body,
+      );
       final responseData = data['data'];
       if (responseData == null) {
         throw StateError('Email scan response missing "data" field');
@@ -42,7 +49,9 @@ class EmailScannerRepository {
   /// Get scan history for the current user.
   Future<List<EmailScan>> getScans() async {
     try {
-      final data = await _client.get('/api/v1/email-scanner/scans');
+      final data = await _client.get(
+        pathSegments: const ['api', 'v1', 'email-scanner', 'scans'],
+      );
       final responseData = data['data'];
       if (responseData == null) {
         throw StateError('Email scans response missing "data" field');
@@ -60,7 +69,9 @@ class EmailScannerRepository {
   /// Get scan status by ID.
   Future<EmailScan> getScanById(String id) async {
     try {
-      final data = await _client.get('/api/v1/email-scanner/scans/$id');
+      final data = await _client.get(
+        pathSegments: ['api', 'v1', 'email-scanner', 'scans', id],
+      );
       final responseData = data['data'];
       if (responseData == null) {
         throw StateError('Email scan response missing "data" field for scan $id');

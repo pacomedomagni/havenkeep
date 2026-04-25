@@ -17,8 +17,10 @@ class DocumentsRepository {
   /// Get all documents for an item.
   Future<List<Document>> getDocumentsForItem(String itemId) async {
     try {
-      final data = await _client.get('/api/v1/documents',
-          queryParams: {'item_id': itemId});
+      final data = await _client.get(
+        pathSegments: const ['api', 'v1', 'documents'],
+        queryParams: {'item_id': itemId},
+      );
 
       final docs = data['data'] as List;
       return docs
@@ -33,7 +35,9 @@ class DocumentsRepository {
   /// Get all documents for the current user.
   Future<List<Document>> getAllDocuments() async {
     try {
-      final data = await _client.get('/api/v1/documents');
+      final data = await _client.get(
+        pathSegments: const ['api', 'v1', 'documents'],
+      );
       final docs = data['data'] as List;
       return docs
           .map((json) => Document.fromJson(json as Map<String, dynamic>))
@@ -60,7 +64,7 @@ class DocumentsRepository {
       final file = File(filePath);
 
       final data = await _client.upload(
-        '/api/v1/documents/upload',
+        pathSegments: const ['api', 'v1', 'documents', 'upload'],
         file: file,
         fieldName: 'files',
         fields: {
@@ -84,7 +88,9 @@ class DocumentsRepository {
   /// Delete a document (both storage file and DB record).
   Future<void> deleteDocument(String documentId) async {
     try {
-      await _client.delete('/api/v1/documents/$documentId');
+      await _client.delete(
+        pathSegments: ['api', 'v1', 'documents', documentId],
+      );
     } catch (e) {
       debugPrint('[DocumentsRepository] deleteDocument failed: $e');
       rethrow;

@@ -5,10 +5,20 @@ import { AppError } from '../utils/errors';
 import { logger } from '../utils/logger';
 import { addMonthsSafe } from '../utils/dates';
 import { validate } from '../middleware/validate';
-import { createItemSchema, updateItemSchema, paginationSchema, uuidParamSchema } from '../validators';
+import {
+  createItemSchema,
+  updateItemSchema,
+  paginationSchema,
+  uuidParamSchema,
+  csvExportQuerySchema,
+} from '../validators';
 import { AuditService } from '../services/audit.service';
 import { config } from '../config';
-import { writeRateLimiter } from '../middleware/rateLimiter';
+import {
+  writeRateLimiter,
+  itemsListRateLimiter,
+  csvExportRateLimiter,
+} from '../middleware/rateLimiter';
 import { asyncHandler } from '../utils/async-handler';
 import { sendSuccess, sendMessage } from '../utils/response';
 
@@ -26,26 +36,110 @@ const ALLOWED_UPDATE_FIELDS = new Set([
   'home_id', 'installation_date', 'last_maintenance_date', 'next_maintenance_due',
 ]);
 
-// Export all items as CSV (streaming — avoids buffering all rows in memory)
-// NOTE: This handler keeps a manual try/catch because it needs to call res.destroy()
-// when headers are already sent, which asyncHandler cannot handle.
-router.get('/export.csv', async (req: AuthRequest, res, next) => {
+// Audit Ch02-F005/F006: explicit column allowlist; drives both the list
+// SELECT and the per-row payload shape so list/detail can't drift.
+const ITEM_LIST_COLUMNS = `
+  id, user_id, home_id, name, brand, model_number, serial_number,
+  category, room, purchase_date, store, price,
+  warranty_months, warranty_end_date, warranty_type, warranty_provider,
+  notes, is_archived, archived_at, product_image_url, barcode, added_via,
+  installation_date, last_maintenance_date, next_maintenance_due,
+  expected_lifespan_years, created_at, updated_at
+`;
+
+// Default expected lifespan (in years) by category, used when the item has no explicit value
+const CATEGORY_DEFAULT_LIFESPAN: Record<string, number> = {
+  appliance: 12,
+  electronics: 5,
+  furniture: 15,
+  hvac: 15,
+  plumbing: 20,
+  roofing: 25,
+  flooring: 15,
+  outdoor: 10,
+  other: 10,
+};
+
+// Audit Ch02-F020: switch from local-TZ ms division (which drifts at DST and
+// at year boundaries) to a UTC-aware day count and integer-month arithmetic.
+function computeLifespanPercentage(item: any): number | null {
+  const expectedLifespan: number | null =
+    item.expected_lifespan_years ??
+    CATEGORY_DEFAULT_LIFESPAN[item.category] ??
+    null;
+  if (!expectedLifespan || !item.purchase_date) return null;
+  const purchaseDate = new Date(item.purchase_date);
+  if (Number.isNaN(purchaseDate.getTime())) return null;
+  const nowUtcDay = Date.UTC(
+    new Date().getUTCFullYear(),
+    new Date().getUTCMonth(),
+    new Date().getUTCDate(),
+  );
+  const purchaseUtcDay = Date.UTC(
+    purchaseDate.getUTCFullYear(),
+    purchaseDate.getUTCMonth(),
+    purchaseDate.getUTCDate(),
+  );
+  const daysSincePurchase = Math.max(0, (nowUtcDay - purchaseUtcDay) / 86_400_000);
+  const yearsSincePurchase = daysSincePurchase / 365.2425;
+  return Math.min(100, Math.round((yearsSincePurchase / expectedLifespan) * 100));
+}
+
+// Audit Ch02-F062/F063: dates leave the API at second precision (toISOString
+// strips microseconds; archived_at and updated_at follow the same shape).
+function normalizeItemRow(row: any): any {
+  if (!row) return row;
+  const out = { ...row };
+  for (const k of ['created_at', 'updated_at', 'archived_at'] as const) {
+    if (out[k] != null) {
+      const d = new Date(out[k]);
+      if (!Number.isNaN(d.getTime())) {
+        out[k] = d.toISOString().replace(/\.\d{3}Z$/, 'Z');
+      }
+    }
+  }
+  return out;
+}
+
+// Audit Ch02-F052: prefix any cell starting with `=,+,-,@`, tab, or CR with a
+// single quote so spreadsheet apps don't interpret it as a formula.
+function escapeCsv(val: any): string {
+  if (val == null) return '';
+  let str = String(val);
+  if (/^[=+\-@\t\r]/.test(str)) {
+    str = `'${str}`;
+  }
+  if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+}
+
+// Audit Ch02-F049/F050/F052/F053/F066: keyset CSV stream with explicit
+// archive flag, formula-injection prefix, hard-cap timeout, and dedicated
+// rate limiter.
+router.get(
+  '/export.csv',
+  csvExportRateLimiter,
+  validate(csvExportQuerySchema, 'query'),
+  async (req: AuthRequest, res, next) => {
+  // Hard timeout so a runaway export can't pin a connection. 60s is enough
+  // for a few million rows under the keyset stream below.
+  const EXPORT_TIMEOUT_MS = 60_000;
+  const timeout = setTimeout(() => {
+    logger.warn({ userId: req.user?.id }, 'CSV export timed out');
+    if (!res.headersSent) {
+      res.status(504).json({ error: 'Export timed out' });
+    } else {
+      res.destroy();
+    }
+  }, EXPORT_TIMEOUT_MS);
   try {
     const headers = [
       'Name', 'Brand', 'Category', 'Room', 'Model Number', 'Serial Number',
       'Purchase Date', 'Store', 'Price', 'Warranty Type', 'Warranty Months',
       'Warranty End Date', 'Notes', 'Archived', 'Added Via', 'Created At',
     ];
-
-    // Simple CSV serialization with RFC 4180 quoting
-    function escapeCsv(val: any): string {
-      if (val == null) return '';
-      const str = String(val);
-      if (str.includes(',') || str.includes('"') || str.includes('\n')) {
-        return `"${str.replace(/"/g, '""')}"`;
-      }
-      return str;
-    }
 
     function formatRow(item: any): string {
       return [
@@ -76,55 +170,71 @@ router.get('/export.csv', async (req: AuthRequest, res, next) => {
     res.setHeader('Transfer-Encoding', 'chunked');
 
     // Audit log the export
+    const archivedFlag = (req.query.archived as string | undefined) ?? 'false';
     await AuditService.logFromRequest(req, 'item.export', {
       resourceType: 'item',
       description: 'User exported items as CSV',
+      metadata: { archived: archivedFlag },
     });
 
     // Write BOM + header row
-    res.write('\uFEFF' + headers.join(',') + '\r\n');
+    res.write('﻿' + headers.join(',') + '\r\n');
 
-    // Stream rows in chunks using LIMIT/OFFSET to avoid loading all into memory
+    // Audit Ch02-F049: keyset stream by (created_at, id) so deep exports are
+    // O(N) rather than O(N²) for OFFSET. Cursor is `(created_at, id)` so
+    // ties on created_at are deterministic.
     const CHUNK_SIZE = 500;
-    let offset = 0;
-    let hasMore = true;
+    let lastCreatedAt: string | null = null;
+    let lastId: string | null = null;
+    let archivedClause = ' AND is_archived = FALSE';
+    if (archivedFlag === 'true') archivedClause = ' AND is_archived = TRUE';
+    if (archivedFlag === 'all') archivedClause = '';
 
-    while (hasMore) {
-      const result = await query(
-        `SELECT name, brand, category, room, model_number, serial_number,
-                purchase_date, store, price, warranty_type, warranty_months,
-                warranty_end_date, notes, is_archived, added_via, created_at
-         FROM items
-         WHERE user_id = $1
-         ORDER BY is_archived ASC, warranty_end_date ASC NULLS LAST
-         LIMIT $2 OFFSET $3`,
-        [req.user!.id, CHUNK_SIZE, offset]
-      );
+    while (true) {
+      const params: any[] = [req.user!.id];
+      let sql = `SELECT name, brand, category, room, model_number, serial_number,
+                        purchase_date, store, price, warranty_type, warranty_months,
+                        warranty_end_date, notes, is_archived, added_via, created_at, id
+                 FROM items
+                 WHERE user_id = $1${archivedClause}`;
+      if (lastCreatedAt && lastId) {
+        sql += ` AND (created_at, id) < ($2, $3)`;
+        params.push(lastCreatedAt, lastId);
+      }
+      sql += ` ORDER BY created_at DESC, id DESC LIMIT $${params.length + 1}`;
+      params.push(CHUNK_SIZE);
+
+      const result = await query(sql, params);
 
       for (const row of result.rows) {
         res.write(formatRow(row) + '\r\n');
       }
 
       if (result.rows.length < CHUNK_SIZE) {
-        hasMore = false;
-      } else {
-        offset += CHUNK_SIZE;
+        break;
       }
+      const last = result.rows[result.rows.length - 1];
+      lastCreatedAt = last.created_at;
+      lastId = last.id;
     }
 
     res.end();
   } catch (error) {
-    // If headers already sent, destroy the response; otherwise pass to error handler
     if (res.headersSent) {
       res.destroy();
     } else {
       next(error);
     }
+  } finally {
+    clearTimeout(timeout);
   }
 });
 
 // Get active item count (for free plan limit check)
 router.get('/count', asyncHandler(async (req: AuthRequest, res) => {
+  // Audit Ch02-F010: count and the create-time check both use
+  // is_archived = FALSE so the user-facing "X / 5 used" stays in sync with
+  // the limit enforced inside the create transaction.
   const result = await query(
     `SELECT COUNT(*) FROM items WHERE user_id = $1 AND is_archived = FALSE`,
     [req.user!.id]
@@ -134,18 +244,28 @@ router.get('/count', asyncHandler(async (req: AuthRequest, res) => {
 }));
 
 // Get all items for user (with pagination)
-router.get('/', validate(paginationSchema, 'query'), asyncHandler(async (req: AuthRequest, res) => {
-  const { homeId, archived, addedVia, page, limit } = req.query as any;
+router.get(
+  '/',
+  itemsListRateLimiter,
+  validate(paginationSchema, 'query'),
+  asyncHandler(async (req: AuthRequest, res) => {
+  const { homeId, archived, addedVia, page, limit, sort, order, cursor } = req.query as any;
 
-  // BE-1/2/3: Explicitly convert and clamp pagination params to safe integers
-  const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
-  const limitNum = Math.min(100, Math.max(1, parseInt(limit as string, 10) || 20));
+  // Audit Ch12-T044: defence-in-depth clamping in case validate() is bypassed
+  // (e.g. body-parser strips an unknown route). Joi already enforces these;
+  // do not trust the type assertions blindly.
+  const pageNum = Math.max(1, parseInt(String(page ?? '1'), 10) || 1);
+  const limitNum = Math.min(100, Math.max(1, parseInt(String(limit ?? '20'), 10) || 20));
   const offset = (pageNum - 1) * limitNum;
 
-  let sql = `
-    SELECT * FROM items
-    WHERE user_id = $1
-  `;
+  // Audit Ch12-T043: sort/order are constrained by paginationSchema; keep a
+  // belt-and-braces allowlist here so a future caller can't pass them
+  // raw without going through the validator.
+  const SORT_COLUMNS = new Set(['warranty_end_date', 'created_at', 'name', 'price']);
+  const safeSort = SORT_COLUMNS.has(String(sort)) ? String(sort) : 'warranty_end_date';
+  const safeOrder = String(order) === 'desc' ? 'DESC' : 'ASC';
+
+  let sql = `SELECT ${ITEM_LIST_COLUMNS} FROM items WHERE user_id = $1`;
   const params: any[] = [req.user!.id];
 
   if (homeId) {
@@ -164,61 +284,94 @@ router.get('/', validate(paginationSchema, 'query'), asyncHandler(async (req: Au
     params.push(addedVia);
   }
 
-  sql += ` ORDER BY warranty_end_date ASC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
-  params.push(limitNum, offset);
-
-  // Get total count
-  let countSql = `SELECT COUNT(*) FROM items WHERE user_id = $1`;
-  const countParams: any[] = [req.user!.id];
-  if (homeId) {
-    countSql += ` AND home_id = $${countParams.length + 1}`;
-    countParams.push(homeId);
-  }
-  if (archived !== undefined) {
-    const isArchived = archived === 'true' || archived === true;
-    countSql += ` AND is_archived = $${countParams.length + 1}`;
-    countParams.push(isArchived);
-  }
-  if (addedVia) {
-    countSql += ` AND added_via = $${countParams.length + 1}`;
-    countParams.push(addedVia);
+  // Audit Ch02-F008/F009: keyset pagination via opaque cursor when supplied;
+  // fall back to OFFSET only for callers still on legacy `page` mode.
+  let useCursor = false;
+  if (typeof cursor === 'string' && cursor.length > 0) {
+    try {
+      const decoded = Buffer.from(cursor, 'base64url').toString('utf8');
+      const parsed = JSON.parse(decoded);
+      if (parsed && typeof parsed.k !== 'undefined' && typeof parsed.id === 'string') {
+        const cmp = safeOrder === 'DESC' ? '<' : '>';
+        sql += ` AND (${safeSort}, id) ${cmp} ($${params.length + 1}, $${params.length + 2})`;
+        params.push(parsed.k, parsed.id);
+        useCursor = true;
+      }
+    } catch {
+      throw new AppError('Invalid pagination cursor', 400);
+    }
   }
 
-  const [result, countResult] = await Promise.all([
-    query(sql, params),
-    query(countSql, countParams),
-  ]);
+  sql += ` ORDER BY ${safeSort} ${safeOrder}, id ${safeOrder} LIMIT $${params.length + 1}`;
+  params.push(limitNum + 1); // fetch one extra row to detect "has more"
+  if (!useCursor) {
+    sql += ` OFFSET $${params.length + 1}`;
+    params.push(offset);
+  }
 
-  const total = parseInt(countResult.rows[0].count, 10);
+  // Get total count in parallel with the page fetch so first-page renders
+  // have an accurate total. Subsequent keyset pages skip the count.
+  const countPromise = useCursor
+    ? Promise.resolve({ rows: [{ count: '0' }] } as any)
+    : (async () => {
+        let countSql = `SELECT COUNT(*) FROM items WHERE user_id = $1`;
+        const countParams: any[] = [req.user!.id];
+        if (homeId) {
+          countSql += ` AND home_id = $${countParams.length + 1}`;
+          countParams.push(homeId);
+        }
+        if (archived !== undefined) {
+          const isArchived = archived === 'true' || archived === true;
+          countSql += ` AND is_archived = $${countParams.length + 1}`;
+          countParams.push(isArchived);
+        }
+        if (addedVia) {
+          countSql += ` AND added_via = $${countParams.length + 1}`;
+          countParams.push(addedVia);
+        }
+        return query(countSql, countParams);
+      })();
 
-  // BE-10: Division by zero is safe here because limitNum >= 1 (clamped above)
-  sendSuccess(res, result.rows, {
+  const [result, countResult] = await Promise.all([query(sql, params), countPromise]);
+
+  const hasMore = result.rows.length > limitNum;
+  const pageRows = hasMore ? result.rows.slice(0, limitNum) : result.rows;
+  const total = useCursor ? null : parseInt(countResult.rows[0].count, 10);
+
+  // Audit Ch02-F064: emit lifespan_percentage on every list row so callers
+  // don't have to round-trip per-item GETs to render progress bars.
+  const enriched = pageRows.map((row: any) =>
+    normalizeItemRow({
+      ...row,
+      lifespan_percentage: computeLifespanPercentage(row),
+    }),
+  );
+
+  // Build next cursor from the tail of the page when there's more.
+  let nextCursor: string | null = null;
+  if (hasMore && pageRows.length > 0) {
+    const last = pageRows[pageRows.length - 1];
+    nextCursor = Buffer.from(
+      JSON.stringify({ k: last[safeSort], id: last.id }),
+    ).toString('base64url');
+  }
+
+  sendSuccess(res, enriched, {
     pagination: {
       page: pageNum,
       limit: limitNum,
       total,
-      total_pages: Math.ceil(total / limitNum),
+      total_pages: total != null ? Math.ceil(total / limitNum) : null,
+      next_cursor: nextCursor,
+      has_more: hasMore,
     },
   });
 }));
 
-// Default expected lifespan (in years) by category, used when the item has no explicit value
-const CATEGORY_DEFAULT_LIFESPAN: Record<string, number> = {
-  appliance: 12,
-  electronics: 5,
-  furniture: 15,
-  hvac: 15,
-  plumbing: 20,
-  roofing: 25,
-  flooring: 15,
-  outdoor: 10,
-  other: 10,
-};
-
 // Get single item
 router.get('/:id', validate(uuidParamSchema, 'params'), asyncHandler(async (req: AuthRequest, res) => {
   const result = await query(
-    `SELECT * FROM items WHERE id = $1 AND user_id = $2`,
+    `SELECT ${ITEM_LIST_COLUMNS} FROM items WHERE id = $1 AND user_id = $2`,
     [req.params.id, req.user!.id]
   );
 
@@ -227,28 +380,16 @@ router.get('/:id', validate(uuidParamSchema, 'params'), asyncHandler(async (req:
   }
 
   const item = result.rows[0];
-
-  // Compute lifespan percentage
   const expectedLifespan: number | null =
     item.expected_lifespan_years ??
     CATEGORY_DEFAULT_LIFESPAN[item.category] ??
     null;
 
-  let lifespanPercentage: number | null = null;
-
-  if (expectedLifespan && item.purchase_date) {
-    const purchaseDate = new Date(item.purchase_date);
-    const now = new Date();
-    const yearsSincePurchase =
-      (now.getTime() - purchaseDate.getTime()) / (1000 * 60 * 60 * 24 * 365.25);
-    lifespanPercentage = Math.min(100, Math.round((yearsSincePurchase / expectedLifespan) * 100));
-  }
-
-  sendSuccess(res, {
+  sendSuccess(res, normalizeItemRow({
     ...item,
     expected_lifespan_years: expectedLifespan,
-    lifespan_percentage: lifespanPercentage,
-  });
+    lifespan_percentage: computeLifespanPercentage(item),
+  }));
 }));
 
 // Create item
@@ -319,7 +460,7 @@ router.post('/', writeRateLimiter, validate(createItemSchema), asyncHandler(asyn
         product_image_url, barcode, added_via,
         installation_date, last_maintenance_date, next_maintenance_due
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
-      RETURNING *`,
+      RETURNING ${ITEM_LIST_COLUMNS}`,
       [
         req.user!.id, homeId, name, brand, modelNumber, serialNumber,
         category, room, purchaseDate, store, price,
@@ -352,7 +493,7 @@ router.post('/', writeRateLimiter, validate(createItemSchema), asyncHandler(asyn
       },
     });
 
-    sendSuccess(res, item, { status: 201 });
+    sendSuccess(res, normalizeItemRow(item), { status: 201 });
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;
@@ -361,17 +502,14 @@ router.post('/', writeRateLimiter, validate(createItemSchema), asyncHandler(asyn
   }
 }));
 
-// Update item - FIXED SQL INJECTION
+// Update item — keyed-allowlist update, atomic warranty recompute, ownership
+// check on home_id moves (audit Ch02-F011/F012/F017/F018).
 router.put('/:id', writeRateLimiter, validate(uuidParamSchema, 'params'), validate(updateItemSchema), asyncHandler(async (req: AuthRequest, res) => {
   const { id } = req.params;
   const updates = req.body;
 
-  // Whitelist-based field validation to prevent SQL injection
-  const fields: string[] = [];
-  const values: any[] = [];
-  let paramCount = 1;
-
-  // Map camelCase to snake_case and validate
+  // Audit Ch02-F017: column generation now drives off a single source of
+  // truth (the field map). Adding a column means adding it once.
   const fieldMapping: Record<string, string> = {
     homeId: 'home_id',
     name: 'name',
@@ -396,121 +534,121 @@ router.put('/:id', writeRateLimiter, validate(uuidParamSchema, 'params'), valida
     // addedVia intentionally excluded — write-once audit field
   };
 
-  for (const [camelKey, value] of Object.entries(updates)) {
-    const dbField = fieldMapping[camelKey];
-    if (dbField && ALLOWED_UPDATE_FIELDS.has(dbField)) {
-      fields.push(`${dbField} = $${paramCount}`);
-      values.push(value);
-      paramCount++;
+  const client = await getClient();
+  try {
+    await client.query('BEGIN');
+
+    // Audit Ch02-F012: when home_id changes, verify the target home belongs
+    // to the same user. Performed inside the txn so a concurrent home
+    // delete can't slip through after the check.
+    if (updates.homeId !== undefined) {
+      const homeRes = await client.query(
+        `SELECT id FROM homes WHERE id = $1 AND user_id = $2 FOR SHARE`,
+        [updates.homeId, req.user!.id],
+      );
+      if (homeRes.rows.length === 0) {
+        throw new AppError('Home not found', 404);
+      }
     }
-  }
 
-  if (fields.length === 0) {
-    throw new AppError('No valid fields to update', 400);
-  }
+    const fields: string[] = [];
+    const values: any[] = [];
+    let paramCount = 1;
 
-  // Recalculate warranty_end_date when warrantyMonths or purchaseDate changes
-  if (updates.warrantyMonths !== undefined || updates.purchaseDate !== undefined) {
-    // BE-28: If purchaseDate is explicitly set to null/empty, also clear warranty_end_date
-    if (updates.purchaseDate === null || updates.purchaseDate === '' || (updates.purchaseDate === undefined && updates.warrantyMonths !== undefined)) {
-      // Only clear if purchaseDate is explicitly null/empty
+    for (const [camelKey, value] of Object.entries(updates)) {
+      const dbField = fieldMapping[camelKey];
+      if (dbField && ALLOWED_UPDATE_FIELDS.has(dbField)) {
+        fields.push(`${dbField} = $${paramCount}`);
+        values.push(value);
+        paramCount++;
+      }
+    }
+
+    if (fields.length === 0) {
+      throw new AppError('No valid fields to update', 400);
+    }
+
+    // Audit Ch02-F011: warranty recompute lives in the same txn, no extra
+    // round-trip outside.
+    if (updates.warrantyMonths !== undefined || updates.purchaseDate !== undefined) {
       if (updates.purchaseDate === null || updates.purchaseDate === '') {
+        // Caller cleared purchase_date → wipe warranty_end_date too.
         fields.push(`warranty_end_date = $${paramCount}`);
         values.push(null);
         paramCount++;
       } else {
-        // warrantyMonths changed but purchaseDate was not provided — fetch existing
-        const existing = await query(
-          `SELECT purchase_date, warranty_months FROM items WHERE id = $1 AND user_id = $2`,
-          [id, req.user!.id]
-        );
-        if (existing.rows.length > 0 && existing.rows[0].purchase_date) {
-          const purchaseDateForCalc = new Date(existing.rows[0].purchase_date);
-          const warrantyMonthsForCalc = updates.warrantyMonths;
+        let purchaseDateForCalc: Date | null = updates.purchaseDate
+          ? new Date(updates.purchaseDate)
+          : null;
+        let warrantyMonthsForCalc: number | null =
+          updates.warrantyMonths !== undefined ? updates.warrantyMonths : null;
+
+        if (!purchaseDateForCalc || warrantyMonthsForCalc === null) {
+          const existing = await client.query(
+            `SELECT purchase_date, warranty_months FROM items
+             WHERE id = $1 AND user_id = $2 FOR UPDATE`,
+            [id, req.user!.id],
+          );
+          if (existing.rows.length > 0) {
+            if (!purchaseDateForCalc && existing.rows[0].purchase_date) {
+              purchaseDateForCalc = new Date(existing.rows[0].purchase_date);
+            }
+            if (warrantyMonthsForCalc === null) {
+              warrantyMonthsForCalc = existing.rows[0].warranty_months;
+            }
+          }
+        }
+
+        if (purchaseDateForCalc && warrantyMonthsForCalc !== null) {
           const warrantyEndDate = addMonthsSafe(purchaseDateForCalc, warrantyMonthsForCalc);
           fields.push(`warranty_end_date = $${paramCount}`);
           values.push(warrantyEndDate);
           paramCount++;
         }
       }
-    } else {
-      // purchaseDate is provided and truthy — recalculate
-      let purchaseDateForCalc: Date | null = null;
-      let warrantyMonthsForCalc: number | null = null;
-
-      if (updates.purchaseDate) {
-        purchaseDateForCalc = new Date(updates.purchaseDate);
-      }
-      if (updates.warrantyMonths !== undefined) {
-        warrantyMonthsForCalc = updates.warrantyMonths;
-      }
-
-      // If we only have one value, fetch the other from the existing item
-      if (!purchaseDateForCalc || warrantyMonthsForCalc === null) {
-        const existing = await query(
-          `SELECT purchase_date, warranty_months FROM items WHERE id = $1 AND user_id = $2`,
-          [id, req.user!.id]
-        );
-        if (existing.rows.length > 0) {
-          if (!purchaseDateForCalc) {
-            purchaseDateForCalc = new Date(existing.rows[0].purchase_date);
-          }
-          if (warrantyMonthsForCalc === null) {
-            warrantyMonthsForCalc = existing.rows[0].warranty_months;
-          }
-        }
-      }
-
-      if (purchaseDateForCalc && warrantyMonthsForCalc !== null) {
-        const warrantyEndDate = addMonthsSafe(purchaseDateForCalc, warrantyMonthsForCalc);
-        fields.push(`warranty_end_date = $${paramCount}`);
-        values.push(warrantyEndDate);
-        paramCount++;
-      }
     }
-  }
 
-  // Always update the timestamp
-  fields.push('updated_at = NOW()');
-
-  // BE-16: archived_at is kept in sync with is_archived here.
-  // The DB should also have a CHECK constraint enforcing:
-  //   (is_archived = FALSE AND archived_at IS NULL) OR (is_archived = TRUE AND archived_at IS NOT NULL)
-  // which is being added in the migration.
-  if (updates.isArchived !== undefined) {
-    if (updates.isArchived) {
-      fields.push('archived_at = NOW()');
-    } else {
-      fields.push('archived_at = NULL');
+    // Audit Ch02-F018: updated_at and archived_at are appended once. Don't
+    // assign updated_at twice (would raise 42701 "duplicate column").
+    fields.push('updated_at = NOW()');
+    if (updates.isArchived !== undefined) {
+      fields.push(updates.isArchived ? 'archived_at = NOW()' : 'archived_at = NULL');
     }
+
+    values.push(id, req.user!.id);
+
+    const result = await client.query(
+      `UPDATE items SET ${fields.join(', ')}
+       WHERE id = $${paramCount} AND user_id = $${paramCount + 1}
+       RETURNING ${ITEM_LIST_COLUMNS}`,
+      values,
+    );
+
+    if (result.rows.length === 0) {
+      throw new AppError('Item not found', 404);
+    }
+
+    await client.query('COMMIT');
+
+    const item = result.rows[0];
+
+    // Audit log: item updated (outside txn — best-effort)
+    await AuditService.logFromRequest(req, 'item.update', {
+      resourceType: 'item',
+      resourceId: item.id,
+      description: `Updated item: ${item.name}`,
+      metadata: {
+        updated_fields: Object.keys(updates),
+      },
+    });
+
+    sendSuccess(res, normalizeItemRow(item));
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
   }
-
-  values.push(id, req.user!.id);
-
-  const result = await query(
-    `UPDATE items SET ${fields.join(', ')}
-     WHERE id = $${paramCount} AND user_id = $${paramCount + 1}
-     RETURNING *`,
-    values
-  );
-
-  if (result.rows.length === 0) {
-    throw new AppError('Item not found', 404);
-  }
-
-  const item = result.rows[0];
-
-  // Audit log: item updated
-  await AuditService.logFromRequest(req, 'item.update', {
-    resourceType: 'item',
-    resourceId: item.id,
-    description: `Updated item: ${item.name}`,
-    metadata: {
-      updated_fields: Object.keys(updates),
-    },
-  });
-
-  sendSuccess(res, item);
 }));
 
 // Delete item

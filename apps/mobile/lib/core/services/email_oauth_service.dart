@@ -4,43 +4,69 @@ import 'dart:math';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_web_auth_2/flutter_web_auth_2.dart';
-import 'package:google_sign_in/google_sign_in.dart';
-import 'package:http/http.dart' as http;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../main.dart';
 
-/// Handles OAuth flows to retrieve access tokens for email scanning.
+/// Result of an OAuth code-grant flow used by the email scanner.
+///
+/// The mobile client never holds the access token. It forwards [code] +
+/// [redirectUri] to the HavenKeep API which exchanges them for the access
+/// and refresh tokens server-side and stores the refresh token encrypted.
+class EmailOAuthCode {
+  const EmailOAuthCode({required this.code, required this.redirectUri});
+
+  final String code;
+  final String redirectUri;
+}
+
+/// Drives OAuth authorization-code flows for the email scanner.
 class EmailOAuthService {
   final Ref _ref;
 
   EmailOAuthService(this._ref);
 
-  /// Get a Gmail access token with read-only mailbox scope.
-  Future<String> getGmailAccessToken() async {
-    final googleSignIn = GoogleSignIn(
-      scopes: const [
-        'email',
-        'https://www.googleapis.com/auth/gmail.readonly',
-      ],
-    );
-
-    final account = await googleSignIn.signIn();
-    if (account == null) {
-      throw StateError('Gmail sign-in cancelled');
+  /// Get a Gmail OAuth `code` via the system browser. The redirect URI is
+  /// the custom scheme the platform OAuth app is registered with.
+  Future<EmailOAuthCode> getGmailAuthorizationCode() async {
+    final config = _ref.read(environmentConfigProvider);
+    if (config.googleServerClientId.isEmpty) {
+      throw StateError('Google OAuth client is not configured');
+    }
+    if (config.gmailRedirectUri.isEmpty) {
+      throw StateError('Gmail OAuth redirect URI is not configured');
     }
 
-    final auth = await account.authentication;
-    final token = auth.accessToken;
-    if (token == null || token.isEmpty) {
-      throw StateError('Failed to obtain Gmail access token');
-    }
+    final authUri = Uri.https('accounts.google.com', '/o/oauth2/v2/auth', {
+      'client_id': config.googleServerClientId,
+      'response_type': 'code',
+      'redirect_uri': config.gmailRedirectUri,
+      'scope': 'email https://www.googleapis.com/auth/gmail.readonly',
+      'access_type': 'offline',
+      'prompt': 'consent',
+    });
 
-    return token;
+    try {
+      final result = await FlutterWebAuth2.authenticate(
+        url: authUri.toString(),
+        callbackUrlScheme: Uri.parse(config.gmailRedirectUri).scheme,
+      );
+
+      final code = Uri.parse(result).queryParameters['code'];
+      if (code == null || code.isEmpty) {
+        throw StateError('Gmail authorization failed');
+      }
+
+      return EmailOAuthCode(code: code, redirectUri: config.gmailRedirectUri);
+    } catch (e) {
+      debugPrint('[EmailOAuth] Gmail authorize failed: $e');
+      rethrow;
+    }
   }
 
-  /// Get an Outlook access token via OAuth PKCE.
-  Future<String> getOutlookAccessToken() async {
+  /// Get an Outlook OAuth `code` via PKCE. Mobile no longer exchanges the
+  /// code for an access token — it forwards code + redirect URI to the API.
+  Future<EmailOAuthCode> getOutlookAuthorizationCode() async {
     final config = _ref.read(environmentConfigProvider);
     if (config.outlookClientId.isEmpty || config.outlookRedirectUri.isEmpty) {
       throw StateError('Outlook OAuth is not configured');
@@ -64,46 +90,22 @@ class EmailOAuthService {
       },
     );
 
-    final result = await FlutterWebAuth2.authenticate(
-      url: authUri.toString(),
-      callbackUrlScheme: Uri.parse(config.outlookRedirectUri).scheme,
-    );
+    try {
+      final result = await FlutterWebAuth2.authenticate(
+        url: authUri.toString(),
+        callbackUrlScheme: Uri.parse(config.outlookRedirectUri).scheme,
+      );
 
-    final code = Uri.parse(result).queryParameters['code'];
-    if (code == null || code.isEmpty) {
-      throw StateError('Outlook authorization failed');
+      final code = Uri.parse(result).queryParameters['code'];
+      if (code == null || code.isEmpty) {
+        throw StateError('Outlook authorization failed');
+      }
+
+      return EmailOAuthCode(code: code, redirectUri: config.outlookRedirectUri);
+    } catch (e) {
+      debugPrint('[EmailOAuth] Outlook authorize failed: $e');
+      rethrow;
     }
-
-    final tokenUri = Uri.https(
-      'login.microsoftonline.com',
-      '/$tenant/oauth2/v2.0/token',
-    );
-
-    final tokenResponse = await http.post(
-      tokenUri,
-      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-      body: {
-        'client_id': config.outlookClientId,
-        'grant_type': 'authorization_code',
-        'code': code,
-        'redirect_uri': config.outlookRedirectUri,
-        'code_verifier': codeVerifier,
-        'scope': 'offline_access https://graph.microsoft.com/Mail.Read',
-      },
-    );
-
-    if (tokenResponse.statusCode < 200 || tokenResponse.statusCode >= 300) {
-      debugPrint('[EmailOAuth] Outlook token exchange failed: ${tokenResponse.statusCode}');
-      throw StateError('Outlook token exchange failed');
-    }
-
-    final json = jsonDecode(tokenResponse.body) as Map<String, dynamic>;
-    final accessToken = json['access_token'] as String?;
-    if (accessToken == null || accessToken.isEmpty) {
-      throw StateError('Outlook access token missing');
-    }
-
-    return accessToken;
   }
 
   String _generateCodeVerifier() {

@@ -9,6 +9,27 @@ import { EmailService } from './email.service';
 import { generateUniqueReferralCode } from '../utils/referral-code';
 import { getRedisClient } from '../utils/redis';
 import { addMonthsSafe } from '../utils/dates';
+import { commissionCents, dollarsToCents, centsToDecimalString } from '../utils/money';
+
+/**
+ * Activation codes are 64 bits of entropy, formatted XXXX-XXXX-XXXX-XXXX
+ * (16 hex chars + 3 dashes). Stored hashed (SHA-256) in
+ * partner_gifts.activation_code_hash and verified by hashing the user input
+ * before lookup. Plaintext is held in `activation_code` only long enough to
+ * be embedded in the activation email and URL — Phase 5 follow-up nulls
+ * `activation_code` once the email has shipped.
+ */
+function generateActivationCode(): { plaintext: string; hash: string } {
+  const raw = crypto.randomBytes(8).toString('hex').toUpperCase(); // 16 hex
+  const plaintext = `${raw.slice(0, 4)}-${raw.slice(4, 8)}-${raw.slice(8, 12)}-${raw.slice(12, 16)}`;
+  return { plaintext, hash: hashActivationCode(plaintext) };
+}
+
+export function hashActivationCode(code: string): string {
+  // Normalise: uppercase, strip dashes/whitespace, then SHA-256 hex.
+  const normalized = code.replace(/[\s-]/g, '').toUpperCase();
+  return crypto.createHash('sha256').update(normalized).digest('hex');
+}
 
 const stripe = new Stripe(config.stripe.secretKey, {
   apiVersion: '2023-10-16',
@@ -18,6 +39,17 @@ const stripe = new Stripe(config.stripe.secretKey, {
 const TIER_PRICING: Record<string, number> = JSON.parse(
   process.env.PARTNER_TIER_PRICING || '{"basic":99,"premium":149,"platinum":249}'
 );
+
+/**
+ * Commission rates per tier (Ch03-F019, Ch12-T037). Locked here and in the
+ * /partners/tiers route — diverging the two would let the dashboard
+ * advertise a rate the API never pays. Tests guard the values explicitly.
+ */
+export const TIER_COMMISSION_RATES: Record<string, number> = {
+  basic: 0.1,
+  premium: 0.15,
+  platinum: 0.2,
+};
 
 
 // MED-7: User-friendly messages for common Stripe decline codes
@@ -406,9 +438,32 @@ export class PartnersService {
       }
       partner = partnerResult.rows[0];
 
-      const partnerUser = await reserveClient.query('SELECT email, stripe_customer_id FROM users WHERE id = $1', [userId]);
-      if (partnerUser.rows[0]?.email?.toLowerCase() === data.homebuyerEmail.toLowerCase()) {
+      const partnerUser = await reserveClient.query(
+        'SELECT email, stripe_customer_id, referral_code FROM users WHERE id = $1',
+        [userId],
+      );
+      const partnerEmail = partnerUser.rows[0]?.email?.toLowerCase();
+      const homebuyerEmailLower = data.homebuyerEmail.toLowerCase();
+
+      if (partnerEmail === homebuyerEmailLower) {
         throw new AppError('Cannot send a gift to your own email address', 400);
+      }
+      // Block obvious self-gift via referred users: if the homebuyer email is
+      // already attached to a user that the partner referred, the gift is
+      // funneling the partner's referral commission back to themselves.
+      const referredCheck = await reserveClient.query(
+        `SELECT 1
+           FROM users
+          WHERE LOWER(email) = $1
+            AND referred_by = $2
+          LIMIT 1`,
+        [homebuyerEmailLower, userId],
+      );
+      if (referredCheck.rows.length > 0) {
+        throw new AppError(
+          'This recipient is already part of your referral network. Self-gifting is not allowed.',
+          400,
+        );
       }
       if (!partnerUser.rows[0]?.stripe_customer_id) {
         throw new AppError('Payment method required. Please add a payment method in your settings before creating gifts.', 402);
@@ -421,35 +476,71 @@ export class PartnersService {
       amountCharged = tierAmount;
 
       const premiumMonths = data.premiumMonths || partner.default_premium_months || 6;
-      const expiresAt = addMonthsSafe(new Date(), 6);
+      // Gift activation window mirrors the premium grant length so a 12-month
+      // gift can't be activated 6 months in (audit Ch03-F040).
+      const expiresAt = addMonthsSafe(new Date(), premiumMonths);
 
-      const rawCode = crypto.randomBytes(4).toString('hex').toUpperCase();
-      const activationCode = `${rawCode.slice(0, 4)}-${rawCode.slice(4, 8)}`;
-      const activationUrl = `${config.app.frontendUrl}/gifts/activate?code=${activationCode}`;
-
-      const giftResult = await reserveClient.query(
-        `INSERT INTO partner_gifts (
-          partner_id, homebuyer_email, homebuyer_name, homebuyer_phone,
-          home_address, closing_date, premium_months, custom_message,
-          amount_charged, stripe_charge_id, expires_at, status,
-          activation_code, activation_url
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL, $10, 'pending_payment', $11, $12)
-        RETURNING *`,
-        [
-          partner.id,
-          data.homebuyerEmail.toLowerCase(),
-          data.homebuyerName,
-          data.homebuyerPhone,
-          data.homeAddress,
-          data.closingDate,
-          premiumMonths,
-          data.customMessage || partner.default_message,
-          amountCharged,
-          expiresAt,
-          activationCode,
-          activationUrl,
-        ],
-      );
+      // Activation-code creation can collide on the unique hash index under
+      // birthday-paradox conditions (Ch03-F062, F105). Retry up to N times
+      // with a fresh code; surface 409 if we exhaust the budget so the
+      // caller can re-attempt instead of getting a raw 23505 500.
+      const MAX_CODE_ATTEMPTS = 5;
+      let giftResult: import('pg').QueryResult | null = null;
+      let activationCode = '';
+      let activationCodeHash = '';
+      for (let attempt = 0; attempt < MAX_CODE_ATTEMPTS; attempt++) {
+        const generated = generateActivationCode();
+        activationCode = generated.plaintext;
+        activationCodeHash = generated.hash;
+        const activationUrl = `${config.app.frontendUrl}/gifts/activate?code=${encodeURIComponent(activationCode)}`;
+        try {
+          giftResult = await reserveClient.query(
+            `INSERT INTO partner_gifts (
+              partner_id, homebuyer_email, homebuyer_name, homebuyer_phone,
+              home_address, closing_date, premium_months, custom_message,
+              amount_charged, stripe_charge_id, expires_at, status,
+              activation_code, activation_code_hash, activation_url
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL, $10, 'pending_payment', $11, $12, $13)
+            RETURNING *`,
+            [
+              partner.id,
+              data.homebuyerEmail.toLowerCase(),
+              data.homebuyerName,
+              data.homebuyerPhone,
+              data.homeAddress,
+              data.closingDate,
+              premiumMonths,
+              data.customMessage || partner.default_message,
+              amountCharged,
+              expiresAt,
+              activationCode,
+              activationCodeHash,
+              activationUrl,
+            ],
+          );
+          break;
+        } catch (insertErr: any) {
+          // 23505 = unique_violation. Retry on the activation-code unique only.
+          if (
+            insertErr?.code === '23505' &&
+            (insertErr?.constraint === 'idx_partner_gifts_activation_code_hash' ||
+              insertErr?.constraint === 'uq_partner_gifts_activation_code')
+          ) {
+            logger.warn(
+              { attempt, partnerId: partner.id },
+              'Activation code collision — retrying with a fresh code',
+            );
+            continue;
+          }
+          throw insertErr;
+        }
+      }
+      if (!giftResult) {
+        throw new AppError(
+          'Could not allocate a unique activation code — please retry the request',
+          409,
+        );
+      }
       gift = giftResult.rows[0];
       await reserveClient.query('COMMIT');
     } catch (error) {
@@ -472,9 +563,14 @@ export class PartnersService {
 
     let stripeChargeId: string;
     try {
+      // Centralised dollar→cents conversion (Ch03-F020, F117).
+      const amountCents = dollarsToCents(amountCharged);
+      if (amountCents <= 0) {
+        throw new AppError('Tier amount is invalid', 500);
+      }
       const paymentIntent = await stripe.paymentIntents.create(
         {
-          amount: amountCharged * 100,
+          amount: amountCents,
           currency: 'usd',
           customer: stripeCustomerId,
           description: `Closing gift for ${data.homebuyerName}`,
@@ -528,13 +624,23 @@ export class PartnersService {
          WHERE id = $2`,
         [stripeChargeId, gift.id],
       );
-      const commissionRate = 0.15;
-      const commissionAmount = Math.round(amountCharged * commissionRate * 100) / 100;
+      // Tier-driven commission rate (Ch03-F019, Ch12-T037, Ch03-F116). Rates
+      // are locked to 0.10 / 0.15 / 0.20 for basic / premium / platinum.
+      // The DB has dropped the column DEFAULT (migration 041) so a missing
+      // value would now violate NOT NULL — the rate must be passed explicitly.
+      const commissionRate = TIER_COMMISSION_RATES[partner.subscription_tier];
+      if (commissionRate === undefined) {
+        throw new AppError(`Unknown subscription tier: ${partner.subscription_tier}`, 400);
+      }
+      const amountCentsForCommission = dollarsToCents(amountCharged);
+      const commissionAmountStr = centsToDecimalString(
+        commissionCents(amountCentsForCommission, commissionRate),
+      );
       await promoteClient.query(
         `INSERT INTO partner_commissions (
           partner_id, type, amount, commission_rate, status, reference_id, reference_type
         ) VALUES ($1, 'gift', $2, $3, 'pending', $4, 'partner_gift')`,
-        [partner.id, commissionAmount, commissionRate, gift.id],
+        [partner.id, commissionAmountStr, commissionRate, gift.id],
       );
       await promoteClient.query('COMMIT');
     } catch (dbErr) {
@@ -716,22 +822,45 @@ export class PartnersService {
   }
 
   /**
-   * Verify activation code and return gift ID
+   * Verify activation code + email and return gift ID.
+   *
+   * Requires the homebuyer email as a second factor (Ch09-FlowC-T-C3): without
+   * it, the endpoint is a code-enumeration oracle since a valid code always
+   * 200s and a bogus code 404s. Both arms now return the same opaque error;
+   * a successful verify only returns the gift id when both code AND email
+   * match. The lookup is by hash (Ch09-FlowC-T-C16) so the DB never holds the
+   * code in plaintext past the activation email's send window.
    */
-  static async verifyActivationCode(code: string): Promise<{ gift_id: string }> {
+  static async verifyActivationCode(
+    code: string,
+    homebuyerEmail: string,
+  ): Promise<{ gift_id: string }> {
     try {
+      const hash = hashActivationCode(code);
       const result = await pool.query(
-        `SELECT id FROM partner_gifts WHERE activation_code = $1`,
-        [code.toUpperCase()]
+        `SELECT id, homebuyer_email
+           FROM partner_gifts
+          WHERE activation_code_hash = $1
+            AND status IN ('created', 'sent')
+            AND (expires_at IS NULL OR expires_at > NOW())`,
+        [hash],
       );
 
-      if (result.rows.length === 0) {
-        throw new AppError('Invalid activation code', 404);
+      const giftRow = result.rows[0];
+      // Use a generic error so an attacker cannot distinguish "code unknown"
+      // from "code valid but wrong email" or "expired".
+      if (
+        !giftRow ||
+        giftRow.homebuyer_email.toLowerCase() !== homebuyerEmail.trim().toLowerCase()
+      ) {
+        throw new AppError('Invalid activation code or email', 404);
       }
 
-      return { gift_id: result.rows[0].id };
+      return { gift_id: giftRow.id };
     } catch (error) {
-      logger.error({ error, code }, 'Error verifying activation code');
+      if (!(error instanceof AppError)) {
+        logger.error({ error }, 'Error verifying activation code');
+      }
       throw error;
     }
   }
@@ -769,6 +898,28 @@ export class PartnersService {
         throw new AppError('This gift was not issued to your email address', 403);
       }
 
+      // Require email_verified before redeeming. Otherwise a partner could
+      // self-gift to an unverified email they sign up to, then activate, and
+      // earn commission on themselves (audit Ch09-FlowC-T-C5).
+      const userRow = await client.query(
+        `SELECT email_verified, plan FROM users WHERE id = $1 FOR UPDATE`,
+        [newUserId],
+      );
+      if (userRow.rows.length === 0) {
+        throw new AppError('User not found', 404);
+      }
+      if (!userRow.rows[0].email_verified) {
+        throw new AppError(
+          'Your email must be verified before activating a gift. Please confirm the address in your inbox first.',
+          403,
+        );
+      }
+      if (userRow.rows[0].plan === 'suspended') {
+        // Suspended users cannot regain access to premium via gift activation;
+        // an admin must unsuspend first (audit Ch03-F039).
+        throw new AppError('Account is suspended; contact support before activating a gift', 403);
+      }
+
       if (gift.status !== 'created' && gift.status !== 'sent') {
         if (gift.is_activated || gift.status === 'activated') {
           throw new AppError('Gift already activated', 400);
@@ -780,15 +931,26 @@ export class PartnersService {
         throw new AppError('Gift has expired', 400);
       }
 
-      await client.query(
+      // Race-safe activation (Ch03-F094). Two simultaneous sign-ups for the
+      // same homebuyer email would otherwise both pass the FOR UPDATE check
+      // and the second one's UPDATE would silently overwrite the first
+      // activated_user_id. Guard the UPDATE with `activated_user_id IS NULL`
+      // so only the first writer wins; the second sees 0 affected rows and
+      // we surface a 409.
+      const updateResult = await client.query(
         `UPDATE partner_gifts
          SET is_activated = TRUE,
              activated_at = NOW(),
              activated_user_id = $2,
              status = 'activated'
-         WHERE id = $1`,
+         WHERE id = $1
+           AND activated_user_id IS NULL
+           AND is_activated = FALSE`,
         [giftId, newUserId]
       );
+      if (updateResult.rowCount === 0) {
+        throw new AppError('Gift was activated by another account; redemption denied', 409);
+      }
 
       // Stack premium months on top of any existing future expiry so
       // multiple gifts accumulate correctly instead of the later/shorter
@@ -945,11 +1107,15 @@ export class PartnersService {
           ? (parseInt(stats.activated_gifts) / parseInt(stats.total_gifts)) * 100
           : 0;
 
-      // Get commission stats
+      // Get commission stats. paid_commissions only counts rows where the
+      // Stripe transfer id is non-null — a 'paid' DB flag without a transfer
+      // is a stuck row, not money the partner has received (audit F054).
+      // Reversal rows (negative amount, status='reversed') subtract from the
+      // paid total automatically since SUM is signed.
       const commissionStats = await pool.query(
         `SELECT
            SUM(amount) FILTER (WHERE status = 'pending') as pending_commissions,
-           SUM(amount) FILTER (WHERE status = 'paid') as paid_commissions,
+           SUM(amount) FILTER (WHERE status = 'paid' AND stripe_transfer_id IS NOT NULL) as paid_commissions,
            SUM(amount) as total_commissions
          FROM partner_commissions
          WHERE partner_id = $1${commissionDateFilter}`,

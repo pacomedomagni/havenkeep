@@ -1,10 +1,22 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { updatePartnerProfile } from './actions';
-import { apiClient } from '@/lib/api';
+import { apiClient, ApiError } from '@/lib/api';
+import { isSafeLogoUrl } from '@/lib/utils';
+
+const STRIPE_HOSTS = new Set([
+  'stripe.com',
+  'connect.stripe.com',
+  'dashboard.stripe.com',
+  'checkout.stripe.com',
+]);
 
 export default function SettingsPage() {
+  const router = useRouter();
+  const inflight = useRef<AbortController | null>(null);
+
   const [companyName, setCompanyName] = useState('');
   const [partnerType, setPartnerType] = useState('realtor');
   const [phone, setPhone] = useState('');
@@ -15,6 +27,7 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [success, setSuccess] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Stripe Connect state
@@ -24,81 +37,149 @@ export default function SettingsPage() {
   const [stripeError, setStripeError] = useState<string | null>(null);
 
   useEffect(() => {
-    loadProfile();
-    loadStripeStatus();
-    // Stripe Connect onboarding opens in a new tab; when the partner comes
-    // back (window regains focus) re-fetch the status so "Connect" doesn't
-    // keep pretending the account isn't linked.
-    const refetch = () => loadStripeStatus();
+    bootstrap();
+    const refetch = () => {
+      void loadStripeStatus();
+    };
     window.addEventListener('focus', refetch);
-    return () => window.removeEventListener('focus', refetch);
+    return () => {
+      window.removeEventListener('focus', refetch);
+      inflight.current?.abort();
+      inflight.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /**
+   * Audit Ch10-W033: load profile + stripe in parallel via allSettled so a
+   * 5xx on one doesn't blank the entire page. Each result has its own UI
+   * surface for the failure.
+   *
+   * Audit Ch10-W034: a 401 on profile fetch (the user's session has expired)
+   * is forwarded to /login rather than rendered as a generic error.
+   */
+  async function bootstrap() {
+    inflight.current?.abort();
+    const controller = new AbortController();
+    inflight.current = controller;
+    const [profileResult, stripeResult] = await Promise.allSettled([
+      loadProfileInner(),
+      loadStripeStatusInner(),
+    ]);
+    if (controller.signal.aborted) return;
+
+    if (profileResult.status === 'rejected') {
+      const reason = profileResult.reason;
+      if (reason instanceof ApiError && reason.status === 401) {
+        router.push('/login');
+        return;
+      }
+      setProfileError(
+        reason instanceof ApiError
+          ? reason.message
+          : 'Could not load your partner profile. Refresh to try again.'
+      );
+    }
+    if (stripeResult.status === 'rejected') {
+      const reason = stripeResult.reason;
+      if (reason instanceof ApiError && reason.status === 401) {
+        router.push('/login');
+        return;
+      }
+      setStripeError(
+        reason instanceof ApiError
+          ? reason.message
+          : 'Could not load Stripe connection status.'
+      );
+    }
+    setInitialLoading(false);
+  }
 
   async function loadProfile() {
     try {
-      const result = await apiClient('/api/v1/partners/me');
-      const data = result.data as any;
-
-      if (data) {
-        setCompanyName(data.company_name || '');
-        setPartnerType(data.partner_type || 'realtor');
-        setPhone(data.phone || '');
-        setServiceAreas(Array.isArray(data.service_areas) ? data.service_areas.join(', ') : '');
-        setBrandColor(data.brand_color || '#6C63FF');
-        setLogoUrl(data.logo_url || '');
-        setLicenseNumber(data.license_number || '');
-      }
+      await loadProfileInner();
     } catch (err) {
-      console.error('Error loading profile:', err);
-      setError('Could not load your partner profile. Refresh to try again.');
-    } finally {
-      setInitialLoading(false);
+      if (err instanceof ApiError && err.status === 401) {
+        router.push('/login');
+        return;
+      }
+      setProfileError(
+        err instanceof ApiError
+          ? err.message
+          : 'Could not load your partner profile. Refresh to try again.'
+      );
+    }
+  }
+
+  async function loadProfileInner() {
+    const result = await apiClient('/api/v1/partners/me');
+    const data = result.data as Record<string, unknown> | undefined;
+    if (data) {
+      setCompanyName((data.company_name as string) || '');
+      setPartnerType((data.partner_type as string) || 'realtor');
+      setPhone((data.phone as string) || '');
+      setServiceAreas(
+        Array.isArray(data.service_areas) ? (data.service_areas as string[]).join(', ') : ''
+      );
+      setBrandColor((data.brand_color as string) || '#6C63FF');
+      setLogoUrl((data.logo_url as string) || '');
+      setLicenseNumber((data.license_number as string) || '');
     }
   }
 
   async function loadStripeStatus() {
     try {
-      const result = await apiClient('/api/v1/partners/stripe-connect/status');
-      const data = result.data as any;
-      if (data) {
-        setStripeConnected(data.connected);
-        setStripeOnboarded(data.onboarded);
-      }
+      await loadStripeStatusInner();
     } catch (err) {
-      console.error('Error loading Stripe status:', err);
+      if (err instanceof ApiError && err.status === 401) {
+        router.push('/login');
+        return;
+      }
+      // Soft failure — leave the existing state alone.
+    }
+  }
+
+  async function loadStripeStatusInner() {
+    const result = await apiClient('/api/v1/partners/stripe-connect/status');
+    const data = result.data as { connected?: boolean; onboarded?: boolean } | undefined;
+    if (data) {
+      setStripeConnected(!!data.connected);
+      setStripeOnboarded(!!data.onboarded);
     }
   }
 
   async function handleStripeConnect() {
     setStripeLoading(true);
     setStripeError(null);
-
     try {
       const result = await apiClient('/api/v1/partners/stripe-connect/onboard', {
         method: 'POST',
       });
-      const data = result.data as any;
-      if (data?.url) {
-        // Validate host is an exact Stripe-owned hostname. `endsWith('.stripe.com')`
-        // was unsafe: `stripe.com.attacker.com` matched.
-        const STRIPE_HOSTS = new Set([
-          'stripe.com',
-          'connect.stripe.com',
-          'dashboard.stripe.com',
-          'checkout.stripe.com',
-        ]);
-        try {
-          const redirectUrl = new URL(data.url);
-          if (redirectUrl.protocol !== 'https:' || !STRIPE_HOSTS.has(redirectUrl.hostname)) {
-            throw new Error('Invalid redirect URL');
-          }
-          window.location.href = data.url;
-        } catch {
-          setStripeError('Received an invalid onboarding URL. Please try again.');
-        }
+      const data = result.data as { url?: string } | undefined;
+      const target = data?.url;
+      if (!target) {
+        setStripeError('The server did not return a Stripe URL. Please try again.');
+        return;
       }
-    } catch (err: any) {
-      setStripeError(err.message || 'Failed to start Stripe onboarding');
+      // Audit Ch10-W022: validate that the URL is HTTPS *and* that its host
+      // is on a small allowlist of Stripe-owned hostnames. The previous
+      // `endsWith('.stripe.com')` check matched `stripe.com.attacker.com`.
+      let parsed: URL;
+      try {
+        parsed = new URL(target);
+      } catch {
+        setStripeError('The server returned a malformed Stripe URL.');
+        return;
+      }
+      if (parsed.protocol !== 'https:' || !STRIPE_HOSTS.has(parsed.hostname)) {
+        setStripeError('Received an invalid onboarding URL. Please try again.');
+        return;
+      }
+      window.location.href = parsed.toString();
+    } catch (err) {
+      setStripeError(
+        err instanceof ApiError ? err.message : 'Failed to start Stripe onboarding'
+      );
     } finally {
       setStripeLoading(false);
     }
@@ -110,8 +191,22 @@ export default function SettingsPage() {
     setError(null);
     setSuccess(false);
 
+    if (!companyName.trim()) {
+      setError('Company name is required.');
+      setLoading(false);
+      return;
+    }
+
+    if (logoUrl && !isSafeLogoUrl(logoUrl)) {
+      // Audit Ch10-W024: reject the logo URL on the way in rather than
+      // rendering an unsafe `<img src>` later.
+      setError('Logo URL must be an http or https URL.');
+      setLoading(false);
+      return;
+    }
+
     const formData = new FormData();
-    formData.set('companyName', companyName);
+    formData.set('companyName', companyName.trim());
     formData.set('partnerType', partnerType);
     formData.set('phone', phone);
     formData.set('serviceAreas', serviceAreas);
@@ -131,8 +226,8 @@ export default function SettingsPage() {
 
   if (initialLoading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-haven-primary"></div>
+      <div className="flex items-center justify-center h-64" aria-busy="true">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-haven-primary" />
       </div>
     );
   }
@@ -147,7 +242,22 @@ export default function SettingsPage() {
         </p>
       </div>
 
-      {/* Profile Form */}
+      {profileError && (
+        <div className="bg-haven-error/10 border border-haven-error/30 rounded-lg px-4 py-3 text-sm text-haven-error flex items-center justify-between">
+          <span>{profileError}</span>
+          <button
+            type="button"
+            className="underline ml-3"
+            onClick={() => {
+              setProfileError(null);
+              void loadProfile();
+            }}
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
       <div className="card">
         <h2 className="text-lg font-semibold text-white mb-6">Partner Profile</h2>
 
@@ -223,9 +333,6 @@ export default function SettingsPage() {
               placeholder="e.g. DRE#01234567"
               maxLength={100}
             />
-            <p className="text-xs text-haven-text-tertiary mt-1">
-              Your professional license or registration number
-            </p>
           </div>
 
           <div>
@@ -265,6 +372,7 @@ export default function SettingsPage() {
                 placeholder="#6C63FF"
                 pattern="^#[0-9A-Fa-f]{6}$"
                 maxLength={7}
+                aria-label="Brand color hex"
               />
             </div>
             <p className="text-xs text-haven-text-tertiary mt-1">
@@ -285,15 +393,15 @@ export default function SettingsPage() {
               placeholder="https://example.com/logo.png"
             />
             <p className="text-xs text-haven-text-tertiary mt-1">
-              Displayed in gift emails sent to homebuyers
+              Must be an https URL. Displayed in gift emails sent to homebuyers.
             </p>
           </div>
 
           <div className="pt-2">
-            <button type="submit" disabled={loading} className="btn-primary">
+            <button type="submit" disabled={loading} className="btn-primary" aria-busy={loading}>
               {loading ? (
                 <span className="inline-flex items-center gap-2">
-                  <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                  <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" aria-hidden="true">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                   </svg>
@@ -307,7 +415,6 @@ export default function SettingsPage() {
         </form>
       </div>
 
-      {/* Payments — Stripe Connect */}
       <div className="card">
         <h2 className="text-lg font-semibold text-white mb-6">Payments</h2>
 
@@ -320,7 +427,7 @@ export default function SettingsPage() {
         {stripeOnboarded ? (
           <div className="flex items-center gap-3">
             <span className="inline-flex items-center gap-1.5 rounded-full bg-haven-active/15 px-3 py-1 text-sm font-medium text-haven-active">
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
               </svg>
               Stripe Connected
@@ -344,17 +451,7 @@ export default function SettingsPage() {
               disabled={stripeLoading}
               className="btn-primary"
             >
-              {stripeLoading ? (
-                <span className="inline-flex items-center gap-2">
-                  <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                  </svg>
-                  Connecting...
-                </span>
-              ) : (
-                'Continue Stripe Setup'
-              )}
+              {stripeLoading ? 'Connecting…' : 'Continue Stripe Setup'}
             </button>
           </div>
         ) : (
@@ -367,22 +464,11 @@ export default function SettingsPage() {
               disabled={stripeLoading}
               className="btn-primary"
             >
-              {stripeLoading ? (
-                <span className="inline-flex items-center gap-2">
-                  <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                  </svg>
-                  Connecting...
-                </span>
-              ) : (
-                'Connect Stripe Account'
-              )}
+              {stripeLoading ? 'Connecting…' : 'Connect Stripe Account'}
             </button>
           </div>
         )}
       </div>
-
     </div>
   );
 }

@@ -13,6 +13,7 @@ import { config } from '../config';
 import { logger } from '../utils/logger';
 import { AuditService } from '../services/audit.service';
 import { EmailService } from '../services/email.service';
+import { EmailScannerService } from '../services/email-scanner.service';
 import { verifyPremiumRateLimiter, passwordChangeRateLimiter, writeRateLimiter } from '../middleware/rateLimiter';
 import { asyncHandler } from '../utils/async-handler';
 import { sendSuccess, sendMessage } from '../utils/response';
@@ -20,11 +21,19 @@ import { sendSuccess, sendMessage } from '../utils/response';
 const router = Router();
 router.use(authenticate);
 
-// Get current user profile
+// Get current user profile.
+//
+// Ch08-User-D003 / D004: deleted_at + deletion_scheduled_for are returned so
+// the client can render the "your account is scheduled for deletion in N days"
+// banner and the recover button. They're NULL outside the cooling-off window.
+//
+// Ch08-User-D005: stripe_customer_id is intentionally NOT in the SELECT — it's
+// internal billing plumbing the client has no business reading.
 router.get('/me', asyncHandler(async (req, res) => {
   const result = await query(
     `SELECT id, email, full_name, avatar_url, auth_provider, plan, plan_expires_at,
-            referred_by, referral_code, email_verified, apple_user_id, is_admin, created_at, updated_at,
+            referred_by, referral_code, email_verified, apple_user_id, is_admin,
+            deleted_at, deletion_scheduled_for, created_at, updated_at,
             (EXISTS(SELECT 1 FROM partners p WHERE p.user_id = users.id AND p.is_active = TRUE)) as is_partner
      FROM users WHERE id = $1`,
     [req.user!.id]
@@ -66,7 +75,8 @@ router.put('/me', writeRateLimiter, validate(updateUserSchema), asyncHandler(asy
       updated_at = NOW()
      WHERE id = $${paramIndex}
      RETURNING id, email, full_name, avatar_url, auth_provider, plan, plan_expires_at,
-               referred_by, referral_code, email_verified, apple_user_id, is_admin, created_at, updated_at,
+               referred_by, referral_code, email_verified, apple_user_id, is_admin,
+               deleted_at, deletion_scheduled_for, created_at, updated_at,
                (EXISTS(SELECT 1 FROM partners p WHERE p.user_id = users.id AND p.is_active = TRUE)) as is_partner`,
     values
   );
@@ -405,14 +415,21 @@ router.delete('/me', validate(deleteAccountSchema), asyncHandler(async (req, res
   try {
     await client.query('BEGIN');
 
+    // Capture the prior plan so /me/recover can restore it later. We move
+    // the user to 'suspended' for the 30-day grace window — recover swaps
+    // back to plan_before_delete.
     await client.query(
       `UPDATE users
-       SET deleted_at = NOW(),
-           deletion_scheduled_for = NOW() + INTERVAL '30 days',
-           plan = 'suspended',
-           updated_at = NOW()
-       WHERE id = $1`,
-      [req.user!.id]
+          SET plan_before_delete = CASE
+                                     WHEN plan <> 'suspended' THEN plan
+                                     ELSE plan_before_delete
+                                   END,
+              deleted_at = NOW(),
+              deletion_scheduled_for = NOW() + INTERVAL '30 days',
+              plan = 'suspended',
+              updated_at = NOW()
+        WHERE id = $1`,
+      [req.user!.id],
     );
 
     // Invalidate all refresh tokens to log the user out everywhere
@@ -424,6 +441,16 @@ router.delete('/me', validate(deleteAccountSchema), asyncHandler(async (req, res
     throw txError;
   } finally {
     client.release();
+  }
+
+  // Revoke any stored OAuth integrations (Gmail/Outlook scanner). Done
+  // outside the txn because it touches a separate concern (provider auth)
+  // and we don't want a missing oauth-integrations table to roll back the
+  // primary user soft-delete in older test environments.
+  try {
+    await EmailScannerService.revokeIntegration(req.user!.id);
+  } catch (revokeErr) {
+    logger.warn({ error: revokeErr, userId: req.user!.id }, 'Failed to revoke OAuth integrations on delete');
   }
 
   // Blacklist the current access token
@@ -470,15 +497,19 @@ router.post('/me/recover', asyncHandler(async (req, res) => {
     throw new AppError('Account is not scheduled for deletion', 400);
   }
 
-  // Clear soft-delete markers and restore to free plan
-  await query(
+  // Clear soft-delete markers and restore the prior plan captured at delete
+  // time. Falls back to 'free' only when no prior plan was captured (e.g.
+  // user soft-deleted before plan_before_delete shipped).
+  const recovered = await query(
     `UPDATE users
-     SET deleted_at = NULL,
-         deletion_scheduled_for = NULL,
-         plan = 'free',
-         updated_at = NOW()
-     WHERE id = $1`,
-    [req.user!.id]
+        SET deleted_at = NULL,
+            deletion_scheduled_for = NULL,
+            plan = COALESCE(plan_before_delete, 'free'),
+            plan_before_delete = NULL,
+            updated_at = NOW()
+      WHERE id = $1
+      RETURNING plan`,
+    [req.user!.id],
   );
 
   await AuditService.logFromRequest(req, 'user.update', {
@@ -487,7 +518,7 @@ router.post('/me/recover', asyncHandler(async (req, res) => {
     description: 'User recovered account from scheduled deletion',
   });
 
-  sendMessage(res, 'Account recovered successfully. Your plan has been set to free.');
+  sendMessage(res, `Account recovered successfully. Your plan has been restored to ${recovered.rows[0]?.plan || 'free'}.`);
 }));
 
 export default router;

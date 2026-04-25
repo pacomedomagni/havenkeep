@@ -1,5 +1,20 @@
+import type { PoolClient } from 'pg';
 import { pool } from '../db';
 import { Request } from 'express';
+
+// F091: only trust X-Forwarded-For when the request actually traversed our
+// known proxy count. Anything beyond `trustProxyHops` is upstream we don't
+// control, so we fall back to the socket address.
+const TRUST_PROXY_HOPS = Math.max(0, Number(process.env.TRUST_PROXY_HOPS ?? '1'));
+
+// F092: deep OFFSET pagination scans the entire table; cap so an attacker
+// can't DoS us with /audit/logs?offset=1000000.
+const MAX_AUDIT_OFFSET = 1000;
+
+// F094: metadata payload size cap. Mirrors the CHECK installed in
+// migration 065 so service-side rejects are friendly (400) instead of
+// surfacing as a Postgres constraint violation.
+const MAX_METADATA_BYTES = 8 * 1024;
 
 export type AuditAction =
   // Authentication
@@ -130,6 +145,15 @@ export class AuditService {
       errorMessage,
     } = params;
 
+    // F094: cap metadata at 8KB. The DB has a CHECK as a safety net, but
+    // returning a useful message here is friendlier than surfacing a raw
+    // 23514 to a service caller. Truncating silently would lose data the
+    // caller wanted persisted, so we hard-fail.
+    const metadataJson = metadata ? JSON.stringify(metadata) : null;
+    if (metadataJson && Buffer.byteLength(metadataJson, 'utf8') > MAX_METADATA_BYTES) {
+      throw new Error(`audit log metadata exceeds ${MAX_METADATA_BYTES} bytes`);
+    }
+
     const values = [
       userId || null,
       userEmail || null,
@@ -138,7 +162,7 @@ export class AuditService {
       resourceType || null,
       resourceId || null,
       description || null,
-      metadata ? JSON.stringify(metadata) : null,
+      metadataJson,
       ipAddress || null,
       userAgent || null,
       endpoint || null,
@@ -206,6 +230,55 @@ export class AuditService {
       success: options.success,
       errorMessage: options.errorMessage,
     });
+  }
+
+  /**
+   * Create audit log inside an existing transaction. Audit Ch02-F036:
+   * `documents.upload` writes the audit row with the same client that wrote
+   * the document rows so a rollback also rolls back the audit. No retries
+   * here — caller's transaction owns the failure path.
+   */
+  static async logFromRequestWithClient(
+    client: PoolClient,
+    req: Request,
+    action: AuditAction,
+    options: {
+      severity?: AuditSeverity;
+      resourceType?: string;
+      resourceId?: string;
+      description?: string;
+      metadata?: Record<string, any>;
+      success?: boolean;
+      errorMessage?: string;
+    } = {},
+  ): Promise<AuditLogEntry> {
+    const user = (req as any).user;
+    const result = await client.query<AuditLogEntry>(
+      `INSERT INTO audit_logs (
+        user_id, user_email, action, severity,
+        resource_type, resource_id, description, metadata,
+        ip_address, user_agent, endpoint, http_method,
+        success, error_message
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+      RETURNING *`,
+      [
+        user?.id ?? null,
+        user?.email ?? null,
+        action,
+        options.severity ?? 'info',
+        options.resourceType ?? null,
+        options.resourceId ?? null,
+        options.description ?? null,
+        options.metadata ? JSON.stringify(options.metadata) : null,
+        this.getIpAddress(req),
+        req.get('user-agent') ?? null,
+        req.path,
+        req.method,
+        options.success ?? true,
+        options.errorMessage ?? null,
+      ],
+    );
+    return result.rows[0];
   }
 
   /**
@@ -318,6 +391,13 @@ export class AuditService {
       limit = 100,
       offset = 0,
     } = filters;
+
+    // F092: deny deep OFFSET reads. Page through with sensible windows or
+    // use a cursor (createdAt + id) — not implemented here yet, but this
+    // guard means a misbehaving client can't lock a table scan.
+    if (offset > MAX_AUDIT_OFFSET) {
+      throw new Error(`audit log offset exceeds max allowed (${MAX_AUDIT_OFFSET})`);
+    }
 
     const conditions: string[] = [];
     const params: any[] = [];
@@ -522,14 +602,37 @@ export class AuditService {
   }
 
   /**
-   * Helper: Extract IP address from request
+   * F095: verify the audit hash chain installed by migration 065. Returns
+   * the array of broken rows (created_at + id). Empty array = chain intact.
+   * Designed for an admin-only diagnostic endpoint or a periodic audit job.
+   */
+  static async verifyHashChain(): Promise<Array<{ broken_at: Date; broken_id: string }>> {
+    const result = await pool.query<{ broken_at: Date; broken_id: string }>(
+      `SELECT broken_at, broken_id FROM verify_audit_chain()`,
+    );
+    return result.rows;
+  }
+
+  /**
+   * F091: extract the client IP from the request, but only honor
+   * X-Forwarded-For up to `TRUST_PROXY_HOPS` entries. Anything past that
+   * count is attacker-controlled (a bare client can claim arbitrary XFF
+   * values). The implementation walks the XFF list from right to left,
+   * dropping `TRUST_PROXY_HOPS` proxies, and returns whatever's left — or
+   * the socket address if XFF is absent / fully consumed.
    */
   private static getIpAddress(req: Request): string {
-    return (
-      (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
-      (req.headers['x-real-ip'] as string) ||
-      req.socket.remoteAddress ||
-      'unknown'
-    );
+    const raw = req.headers['x-forwarded-for'];
+    if (typeof raw === 'string' && raw.length > 0) {
+      // XFF order is "client, proxy1, proxy2, ..., closestProxy". Strip the
+      // configured proxy count from the right; whatever sits at that index
+      // is the closest hop we'll trust as the client.
+      const parts = raw.split(',').map((s) => s.trim()).filter(Boolean);
+      const idx = parts.length - 1 - TRUST_PROXY_HOPS;
+      if (idx >= 0 && parts[idx]) {
+        return parts[idx];
+      }
+    }
+    return req.socket.remoteAddress || 'unknown';
   }
 }

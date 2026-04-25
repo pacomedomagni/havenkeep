@@ -208,8 +208,6 @@ void main() {
             .thenAnswer((_) async => [originalItem]);
         when(mockRepository.updateItem(any))
             .thenAnswer((_) async => updatedItem);
-        when(mockRepository.getItemById('item-1'))
-            .thenAnswer((_) async => updatedItem);
 
         container = createContainer();
         await readItems(container);
@@ -219,6 +217,8 @@ void main() {
         final items = container.read(itemsProvider).value;
         expect(items, hasLength(1));
         expect(items![0].name, 'Updated');
+        // C113 — no follow-up GET should fire after the PUT.
+        verifyNever(mockRepository.getItemById(any));
       });
 
       test('maintains list order when updating', () async {
@@ -235,8 +235,6 @@ void main() {
         when(mockRepository.getItemsWithStatus())
             .thenAnswer((_) async => items);
         when(mockRepository.updateItem(any))
-            .thenAnswer((_) async => updatedItem);
-        when(mockRepository.getItemById('item-2'))
             .thenAnswer((_) async => updatedItem);
 
         container = createContainer();

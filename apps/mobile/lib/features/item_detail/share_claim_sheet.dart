@@ -44,11 +44,9 @@ class ShareClaimSheet extends StatelessWidget {
       'Serial: ${item.serialNumber ?? '\u2014'}',
     );
     buffer.writeln('Purchased: ${_formatDate(item.purchaseDate)}');
-    if (item.warrantyEndDate != null) {
-      buffer.writeln(
-        'Warranty expires: ${_formatDate(item.warrantyEndDate!)}',
-      );
-    }
+    buffer.writeln(
+      'Warranty expires: ${_formatDate(item.warrantyEndDate)}',
+    );
     buffer.writeln('Store: ${item.store ?? '\u2014'}');
     buffer.writeln('Price: ${Money.format(item.price)}');
     buffer.writeln(
@@ -119,9 +117,7 @@ class ShareClaimSheet extends StatelessWidget {
                   _InfoLine('Purchased', _formatDate(item.purchaseDate)),
                   _InfoLine(
                     'Warranty expires',
-                    item.warrantyEndDate != null
-                        ? _formatDate(item.warrantyEndDate!)
-                        : null,
+                    _formatDate(item.warrantyEndDate),
                   ),
                   _InfoLine('Store', item.store),
                   _InfoLine(

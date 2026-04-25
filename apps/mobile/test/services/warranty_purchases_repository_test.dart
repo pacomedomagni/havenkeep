@@ -48,15 +48,13 @@ void main() {
   group('WarrantyPurchasesRepository', () {
     group('getPurchases', () {
       test('calls correct endpoint with pagination params', () async {
-        when(mockClient.get(
-          '/api/v1/warranty-purchases',
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'warranty-purchases'],
           queryParams: anyNamed('queryParams'),
         )).thenAnswer((_) async => {'data': []});
 
         await repository.getPurchases();
 
-        final captured = verify(mockClient.get(
-          '/api/v1/warranty-purchases',
+        final captured = verify(mockClient.get(pathSegments: const ['api', 'v1', 'warranty-purchases'],
           queryParams: captureAnyNamed('queryParams'),
         )).captured.single as Map<String, String>;
         expect(captured['limit'], '100');
@@ -65,15 +63,13 @@ void main() {
 
       test('sends item_id and status query params when filters provided',
           () async {
-        when(mockClient.get(
-          '/api/v1/warranty-purchases',
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'warranty-purchases'],
           queryParams: anyNamed('queryParams'),
         )).thenAnswer((_) async => {'data': []});
 
         await repository.getPurchases(itemId: 'item-42', status: 'active');
 
-        final captured = verify(mockClient.get(
-          '/api/v1/warranty-purchases',
+        final captured = verify(mockClient.get(pathSegments: const ['api', 'v1', 'warranty-purchases'],
           queryParams: captureAnyNamed('queryParams'),
         )).captured.single as Map<String, String>;
         expect(captured['item_id'], 'item-42');
@@ -81,15 +77,13 @@ void main() {
       });
 
       test('does not send filters when not provided', () async {
-        when(mockClient.get(
-          '/api/v1/warranty-purchases',
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'warranty-purchases'],
           queryParams: anyNamed('queryParams'),
         )).thenAnswer((_) async => {'data': []});
 
         await repository.getPurchases();
 
-        final captured = verify(mockClient.get(
-          '/api/v1/warranty-purchases',
+        final captured = verify(mockClient.get(pathSegments: const ['api', 'v1', 'warranty-purchases'],
           queryParams: captureAnyNamed('queryParams'),
         )).captured.single as Map<String, String>;
         expect(captured.containsKey('item_id'), isFalse);
@@ -97,8 +91,7 @@ void main() {
       });
 
       test('returns parsed list of purchases', () async {
-        when(mockClient.get(
-          '/api/v1/warranty-purchases',
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'warranty-purchases'],
           queryParams: anyNamed('queryParams'),
         )).thenAnswer((_) async => {
               'data': [
@@ -116,8 +109,7 @@ void main() {
       });
 
       test('rethrows errors from API client', () async {
-        when(mockClient.get(
-          '/api/v1/warranty-purchases',
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'warranty-purchases'],
           queryParams: anyNamed('queryParams'),
         )).thenThrow(ApiException(500, 'Server error'));
 
@@ -149,8 +141,7 @@ void main() {
           updatedAt: now,
         );
 
-        when(mockClient.post(
-          '/api/v1/warranty-purchases',
+        when(mockClient.post(pathSegments: const ['api', 'v1', 'warranty-purchases'],
           body: anyNamed('body'),
         )).thenAnswer((_) async => {
               'data': purchaseJson(id: 'server-id'),
@@ -159,8 +150,7 @@ void main() {
         final created = await repository.createPurchase(purchase);
 
         expect(created.id, 'server-id');
-        verify(mockClient.post(
-          '/api/v1/warranty-purchases',
+        verify(mockClient.post(pathSegments: const ['api', 'v1', 'warranty-purchases'],
           body: anyNamed('body'),
         )).called(1);
       });
@@ -168,8 +158,7 @@ void main() {
 
     group('cancelPurchase', () {
       test('sends POST to cancel endpoint with reason', () async {
-        when(mockClient.post(
-          '/api/v1/warranty-purchases/purchase-1/cancel',
+        when(mockClient.post(pathSegments: const ['api', 'v1', 'warranty-purchases', 'purchase-1', 'cancel'],
           body: anyNamed('body'),
         )).thenAnswer((_) async => {
               'data': purchaseJson(id: 'purchase-1', status: 'cancelled'),
@@ -182,16 +171,14 @@ void main() {
 
         expect(result.status, WarrantyPurchaseStatus.cancelled);
 
-        final captured = verify(mockClient.post(
-          '/api/v1/warranty-purchases/purchase-1/cancel',
+        final captured = verify(mockClient.post(pathSegments: const ['api', 'v1', 'warranty-purchases', 'purchase-1', 'cancel'],
           body: captureAnyNamed('body'),
         )).captured.single as Map<String, dynamic>;
         expect(captured['reason'], 'No longer needed');
       });
 
       test('sends POST to cancel endpoint without reason', () async {
-        when(mockClient.post(
-          '/api/v1/warranty-purchases/purchase-2/cancel',
+        when(mockClient.post(pathSegments: const ['api', 'v1', 'warranty-purchases', 'purchase-2', 'cancel'],
           body: anyNamed('body'),
         )).thenAnswer((_) async => {
               'data': purchaseJson(id: 'purchase-2', status: 'cancelled'),
@@ -200,8 +187,7 @@ void main() {
         final result = await repository.cancelPurchase('purchase-2');
 
         expect(result.status, WarrantyPurchaseStatus.cancelled);
-        verify(mockClient.post(
-          '/api/v1/warranty-purchases/purchase-2/cancel',
+        verify(mockClient.post(pathSegments: const ['api', 'v1', 'warranty-purchases', 'purchase-2', 'cancel'],
           body: anyNamed('body'),
         )).called(1);
       });

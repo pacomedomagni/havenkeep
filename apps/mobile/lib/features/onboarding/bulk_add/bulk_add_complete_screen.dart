@@ -67,6 +67,10 @@ class _BulkAddCompleteScreenState
           room: bulkItem.room,
           purchaseDate: bulkItem.purchaseDate,
           warrantyMonths: bulkItem.warrantyMonths,
+          warrantyEndDate: Item.computeWarrantyEndDate(
+            bulkItem.purchaseDate,
+            bulkItem.warrantyMonths,
+          ),
           addedVia: ItemAddedVia.bulk_setup,
           createdAt: DateTime.now(),
           updatedAt: DateTime.now(),
@@ -117,6 +121,10 @@ class _BulkAddCompleteScreenState
           room: bulkItem.room,
           purchaseDate: bulkItem.purchaseDate,
           warrantyMonths: bulkItem.warrantyMonths,
+          warrantyEndDate: Item.computeWarrantyEndDate(
+            bulkItem.purchaseDate,
+            bulkItem.warrantyMonths,
+          ),
           addedVia: ItemAddedVia.bulk_setup,
           createdAt: DateTime.now(),
           updatedAt: DateTime.now(),

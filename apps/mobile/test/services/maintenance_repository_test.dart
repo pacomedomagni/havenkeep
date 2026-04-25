@@ -18,6 +18,9 @@ void main() {
   });
 
   /// Helper to build a valid maintenance schedule JSON.
+  ///
+  /// Mirrors the API contract after Phase 8: `updated_at` is now NOT
+  /// NULL on the wire (Ch08-MaintenanceSchedule).
   Map<String, dynamic> scheduleJson({
     String id = 'sched-1',
     String category = 'refrigerator',
@@ -30,6 +33,7 @@ void main() {
       'task_name': taskName,
       'frequency_months': frequencyMonths,
       'created_at': '2026-01-01T00:00:00.000Z',
+      'updated_at': '2026-01-01T00:00:00.000Z',
     };
   }
 
@@ -64,18 +68,18 @@ void main() {
   group('MaintenanceRepository', () {
     group('getDueTasks', () {
       test('calls correct endpoint', () async {
-        when(mockClient.get('/api/v1/maintenance/due'))
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'maintenance', 'due']))
             .thenAnswer((_) async => {
                   'data': dueSummaryJson(),
                 });
 
         await repository.getDueTasks();
 
-        verify(mockClient.get('/api/v1/maintenance/due')).called(1);
+        verify(mockClient.get(pathSegments: const ['api', 'v1', 'maintenance', 'due'])).called(1);
       });
 
       test('returns parsed MaintenanceDueSummary', () async {
-        when(mockClient.get('/api/v1/maintenance/due'))
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'maintenance', 'due']))
             .thenAnswer((_) async => {
                   'data': dueSummaryJson(totalDue: 5, totalOverdue: 2),
                 });
@@ -88,7 +92,7 @@ void main() {
       });
 
       test('rethrows errors from API client', () async {
-        when(mockClient.get('/api/v1/maintenance/due'))
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'maintenance', 'due']))
             .thenThrow(ApiException(500, 'Server error'));
 
         expect(
@@ -100,17 +104,17 @@ void main() {
 
     group('getSchedules', () {
       test('includes category in URL path', () async {
-        when(mockClient.get('/api/v1/maintenance/schedules/refrigerator'))
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'maintenance', 'schedules', 'refrigerator']))
             .thenAnswer((_) async => {'data': []});
 
         await repository.getSchedules('refrigerator');
 
-        verify(mockClient.get('/api/v1/maintenance/schedules/refrigerator'))
+        verify(mockClient.get(pathSegments: const ['api', 'v1', 'maintenance', 'schedules', 'refrigerator']))
             .called(1);
       });
 
       test('returns parsed list of schedules', () async {
-        when(mockClient.get('/api/v1/maintenance/schedules/hvac'))
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'maintenance', 'schedules', 'hvac']))
             .thenAnswer((_) async => {
                   'data': [
                     scheduleJson(
@@ -147,8 +151,7 @@ void main() {
           createdAt: now,
         );
 
-        when(mockClient.post(
-          '/api/v1/maintenance/log',
+        when(mockClient.post(pathSegments: const ['api', 'v1', 'maintenance', 'log'],
           body: anyNamed('body'),
         )).thenAnswer((_) async => {
               'data': historyJson(id: 'created-hist', taskName: 'Replaced water filter'),
@@ -158,8 +161,7 @@ void main() {
 
         expect(logged.id, 'created-hist');
         expect(logged.taskName, 'Replaced water filter');
-        verify(mockClient.post(
-          '/api/v1/maintenance/log',
+        verify(mockClient.post(pathSegments: const ['api', 'v1', 'maintenance', 'log'],
           body: anyNamed('body'),
         )).called(1);
       });
@@ -167,15 +169,13 @@ void main() {
 
     group('getHistory', () {
       test('calls correct endpoint with pagination params', () async {
-        when(mockClient.get(
-          '/api/v1/maintenance/history',
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'maintenance', 'history'],
           queryParams: anyNamed('queryParams'),
         )).thenAnswer((_) async => {'data': []});
 
         await repository.getHistory();
 
-        final captured = verify(mockClient.get(
-          '/api/v1/maintenance/history',
+        final captured = verify(mockClient.get(pathSegments: const ['api', 'v1', 'maintenance', 'history'],
           queryParams: captureAnyNamed('queryParams'),
         )).captured.single as Map<String, String>;
         expect(captured['page'], '1');
@@ -183,23 +183,20 @@ void main() {
       });
 
       test('sends item_id query param when itemId is provided', () async {
-        when(mockClient.get(
-          '/api/v1/maintenance/history',
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'maintenance', 'history'],
           queryParams: anyNamed('queryParams'),
         )).thenAnswer((_) async => {'data': []});
 
         await repository.getHistory(itemId: 'item-55');
 
-        final captured = verify(mockClient.get(
-          '/api/v1/maintenance/history',
+        final captured = verify(mockClient.get(pathSegments: const ['api', 'v1', 'maintenance', 'history'],
           queryParams: captureAnyNamed('queryParams'),
         )).captured.single as Map<String, String>;
         expect(captured['item_id'], 'item-55');
       });
 
       test('returns parsed list of history entries', () async {
-        when(mockClient.get(
-          '/api/v1/maintenance/history',
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'maintenance', 'history'],
           queryParams: anyNamed('queryParams'),
         )).thenAnswer((_) async => {
               'data': [
@@ -218,17 +215,17 @@ void main() {
 
     group('deleteLog', () {
       test('sends DELETE to correct endpoint with ID', () async {
-        when(mockClient.delete('/api/v1/maintenance/history/hist-99'))
+        when(mockClient.delete(pathSegments: const ['api', 'v1', 'maintenance', 'history', 'hist-99']))
             .thenAnswer((_) async => {});
 
         await repository.deleteLog('hist-99');
 
-        verify(mockClient.delete('/api/v1/maintenance/history/hist-99'))
+        verify(mockClient.delete(pathSegments: const ['api', 'v1', 'maintenance', 'history', 'hist-99']))
             .called(1);
       });
 
       test('rethrows errors on delete failure', () async {
-        when(mockClient.delete('/api/v1/maintenance/history/hist-1'))
+        when(mockClient.delete(pathSegments: const ['api', 'v1', 'maintenance', 'history', 'hist-1']))
             .thenThrow(ApiException(404, 'Not found'));
 
         expect(
@@ -240,7 +237,7 @@ void main() {
 
     group('getSavings', () {
       test('calls correct endpoint and returns parsed data', () async {
-        when(mockClient.get('/api/v1/maintenance/savings'))
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'maintenance', 'savings']))
             .thenAnswer((_) async => {
                   'data': {
                     'total_saved': 800.0,
@@ -252,7 +249,7 @@ void main() {
 
         expect(savings['total_saved'], 800.0);
         expect(savings['task_count'], 12);
-        verify(mockClient.get('/api/v1/maintenance/savings')).called(1);
+        verify(mockClient.get(pathSegments: const ['api', 'v1', 'maintenance', 'savings'])).called(1);
       });
     });
   });

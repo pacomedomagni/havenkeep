@@ -9,16 +9,26 @@ export function getTestApp() {
   return createApp();
 }
 
-export function getAuthToken(userId: string, extra: Record<string, any> = {}) {
+/**
+ * Sign a JWT for the given user. The `email` claim is required so the token
+ * matches what the user row actually carries — without it the auth middleware
+ * sees a drift between JWT.email and DB.email and refuses the request, which
+ * masked real activation/refresh-token bugs in the audit.
+ */
+export function getAuthToken(
+  userId: string,
+  claims: { email: string; isAdmin?: boolean; isPartner?: boolean; [k: string]: any }
+) {
+  const { email, isAdmin = false, isPartner = false, ...rest } = claims;
   return jwt.sign(
-    { userId, email: `user-${userId}@test.com`, isAdmin: false, isPartner: false, ...extra },
+    { userId, email, isAdmin, isPartner, ...rest },
     config.jwt.secret,
     { expiresIn: '1h' }
   );
 }
 
-export function getAdminToken(userId: string) {
-  return getAuthToken(userId, { isAdmin: true });
+export function getAdminToken(userId: string, email: string) {
+  return getAuthToken(userId, { email, isAdmin: true });
 }
 
 export async function createTestUser(overrides: Record<string, any> = {}) {
@@ -29,14 +39,26 @@ export async function createTestUser(overrides: Record<string, any> = {}) {
   const plan = overrides.plan || 'free';
 
   const result = await pool.query(
-    `INSERT INTO users (email, password_hash, full_name, is_admin, plan, referral_code)
-     VALUES ($1, $2, $3, $4, $5, $6)
+    `INSERT INTO users (email, password_hash, full_name, is_admin, plan, referral_code, email_verified)
+     VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, FALSE))
      RETURNING *`,
-    [email, passwordHash, fullName, isAdmin, plan, crypto.randomUUID().slice(0, 8)]
+    [
+      email,
+      passwordHash,
+      fullName,
+      isAdmin,
+      plan,
+      crypto.randomUUID().slice(0, 8),
+      overrides.emailVerified ?? true,
+    ]
   );
 
   const user = result.rows[0];
-  const token = getAuthToken(user.id, { email: user.email, isAdmin: user.is_admin });
+  const token = getAuthToken(user.id, {
+    email: user.email,
+    isAdmin: user.is_admin,
+    isPartner: !!overrides.isPartner,
+  });
 
   return { user, token };
 }

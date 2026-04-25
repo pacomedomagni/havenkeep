@@ -1,28 +1,47 @@
 import { NextResponse, type NextRequest } from 'next/server'
 
-const API_URL = process.env.API_URL || 'http://localhost:3000' // Must match lib/config.ts
+// API_URL must be configured outside of test/dev. Edge middleware can't import
+// from `@/lib/config` (Edge runtime can't run the throw-on-load there), so the
+// guard is duplicated here for clarity.
+const API_URL = (() => {
+  const value = process.env.API_URL
+  if (value && value.trim().length > 0) return value
+  if (process.env.NODE_ENV === 'test' || process.env.NODE_ENV === 'development') {
+    return 'http://localhost:3000'
+  }
+  // In a misconfigured production we'd rather hard-redirect everyone to /login
+  // than silently route refresh calls into the void. Returning an unreachable
+  // host triggers the catch path below on every middleware run.
+  return 'http://api.invalid'
+})()
 
-// NOTE: ACCESS_TOKEN_COOKIE and REFRESH_TOKEN_COOKIE are also defined in src/lib/auth.ts.
-// We cannot import from @/lib/auth here because auth.ts imports server-only modules
-// (cookies from next/headers, redirect from next/navigation) at the top level,
-// which are not available in the Edge runtime used by middleware.
+// NOTE: ACCESS_TOKEN_COOKIE / REFRESH_TOKEN_COOKIE / CSRF_COOKIE are also
+// defined in src/lib/auth.ts. We can't import that here because auth.ts pulls
+// in `next/headers` and `next/navigation` at the top level, which the Edge
+// runtime forbids.
 const ACCESS_TOKEN_COOKIE = 'hk_access_token'
 const REFRESH_TOKEN_COOKIE = 'hk_refresh_token'
+const CSRF_COOKIE = 'csrf_token'
 
-// NOTE: decodeJwtPayload is also defined in src/lib/auth.ts with a narrower return type.
-// We cannot import it here for the same Edge runtime reason described above.
-// This version includes isAdmin/isPartner fields needed for role-based routing.
-// Decodes JWT payload WITHOUT signature verification.
-// This is intentional — Edge middleware cannot use Node.js crypto for signature verification.
-// Security is enforced server-side: all API calls go through the Express authenticate middleware
-// which verifies JWT signatures. This middleware only handles client-side routing.
+const REFRESH_TIMEOUT_MS = 5_000
+
+// Edge-runtime decoder. The Express API is the only signature verifier — this
+// path only short-circuits obvious tampering and drives client-side routing
+// (audit Ch10-W008).
+function looksLikeJwt(token: string): boolean {
+  if (token.length === 0 || token.length > 4096) return false
+  const parts = token.split('.')
+  if (parts.length !== 3) return false
+  const re = /^[A-Za-z0-9_-]+$/
+  return parts.every((p) => p.length > 0 && re.test(p))
+}
+
 function decodeJwtPayload(
   token: string
 ): { userId: string; email: string; exp: number; isAdmin?: boolean; isPartner?: boolean } | null {
+  if (!looksLikeJwt(token)) return null
   try {
-    const parts = token.split('.')
-    if (parts.length !== 3) return null
-    return JSON.parse(Buffer.from(parts[1], 'base64url').toString())
+    return JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString())
   } catch {
     return null
   }
@@ -30,15 +49,36 @@ function decodeJwtPayload(
 
 function isTokenExpired(token: string): boolean {
   const payload = decodeJwtPayload(token)
-  if (!payload || !payload.exp) return true
-  // Consider expired 30 seconds early to avoid edge cases
-  return payload.exp * 1000 < Date.now() + 30000
+  if (!payload || typeof payload.exp !== 'number') return true
+  return payload.exp * 1000 < Date.now() + 30_000
+}
+
+/**
+ * Generate a CSRF token cookie if one isn't set. The proxy enforces
+ * double-submit on every mutation, so the cookie has to exist before the
+ * first form submit (audit Ch10-W028).
+ */
+function ensureCsrfCookie(response: NextResponse, request: NextRequest) {
+  const existing = request.cookies.get(CSRF_COOKIE)?.value
+  if (existing && existing.length >= 16) return
+  const bytes = new Uint8Array(24)
+  crypto.getRandomValues(bytes)
+  const token = Buffer.from(bytes).toString('base64url')
+  const isProduction = process.env.NODE_ENV === 'production'
+  response.cookies.set(CSRF_COOKIE, token, {
+    httpOnly: false, // double-submit pattern needs JS read access
+    secure: isProduction,
+    sameSite: 'lax',
+    path: '/',
+    maxAge: 60 * 60 * 24 * 7,
+  })
 }
 
 function redirectToLogin(request: NextRequest): NextResponse {
   const response = NextResponse.redirect(new URL('/login', request.url))
   response.cookies.delete(ACCESS_TOKEN_COOKIE)
   response.cookies.delete(REFRESH_TOKEN_COOKIE)
+  response.cookies.delete(CSRF_COOKIE)
   return response
 }
 
@@ -72,7 +112,7 @@ export async function middleware(request: NextRequest) {
     pathname === '/login' ||
     pathname === '/signup' ||
     pathname === '/forgot-password' ||
-    pathname === '/reset-password' ||
+    pathname.startsWith('/reset-password') ||
     pathname === '/unauthorized'
 
   const accessToken = request.cookies.get(ACCESS_TOKEN_COOKIE)?.value
@@ -80,7 +120,11 @@ export async function middleware(request: NextRequest) {
 
   // No tokens at all
   if (!accessToken && !refreshToken) {
-    if (isPublicRoute) return NextResponse.next()
+    if (isPublicRoute) {
+      const res = NextResponse.next()
+      ensureCsrfCookie(res, request)
+      return res
+    }
     return NextResponse.redirect(new URL('/login', request.url))
   }
 
@@ -91,14 +135,25 @@ export async function middleware(request: NextRequest) {
   if (!accessToken || isTokenExpired(accessToken)) {
     if (refreshToken) {
       try {
+        // Hard timeout on the refresh fetch — without it, a stuck upstream
+        // would hang every page request indefinitely (audit Ch10-W007).
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), REFRESH_TIMEOUT_MS)
         const refreshResponse = await fetch(`${API_URL}/api/v1/auth/refresh`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ refreshToken }),
-        })
+          signal: controller.signal,
+        }).finally(() => clearTimeout(timeoutId))
 
         if (refreshResponse.ok) {
-          const data = await refreshResponse.json()
+          const data = await refreshResponse.json().catch(() => ({}))
+          // Validate the refresh response before persisting (audit Ch10-W009).
+          // Anything that doesn't look like a JWT goes back to the login page;
+          // we'd rather force a re-login than store junk in a cookie.
+          if (typeof data.accessToken !== 'string' || !looksLikeJwt(data.accessToken)) {
+            return redirectToLogin(request)
+          }
           currentAccessToken = data.accessToken
 
           response = NextResponse.next()
@@ -113,7 +168,7 @@ export async function middleware(request: NextRequest) {
           })
 
           // Store the rotated refresh token (API uses token rotation)
-          if (data.refreshToken) {
+          if (typeof data.refreshToken === 'string' && looksLikeJwt(data.refreshToken)) {
             response.cookies.set(REFRESH_TOKEN_COOKIE, data.refreshToken, {
               httpOnly: true,
               secure: isProduction,
@@ -123,15 +178,27 @@ export async function middleware(request: NextRequest) {
             })
           }
         } else {
-          if (isPublicRoute) return NextResponse.next()
+          if (isPublicRoute) {
+            const res = NextResponse.next()
+            ensureCsrfCookie(res, request)
+            return res
+          }
           return redirectToLogin(request)
         }
       } catch {
-        if (isPublicRoute) return NextResponse.next()
+        if (isPublicRoute) {
+          const res = NextResponse.next()
+          ensureCsrfCookie(res, request)
+          return res
+        }
         return redirectToLogin(request)
       }
     } else {
-      if (isPublicRoute) return NextResponse.next()
+      if (isPublicRoute) {
+        const res = NextResponse.next()
+        ensureCsrfCookie(res, request)
+        return res
+      }
       return redirectToLogin(request)
     }
   }
@@ -144,7 +211,10 @@ export async function middleware(request: NextRequest) {
 
   // Non-admin/non-partner users cannot access the dashboard
   if (!payload.isAdmin && !payload.isPartner) {
-    if (isPublicRoute) return NextResponse.next()
+    if (isPublicRoute) {
+      ensureCsrfCookie(response, request)
+      return response
+    }
     return redirectToLogin(request)
   }
 
@@ -166,6 +236,7 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL('/unauthorized', request.url))
   }
 
+  ensureCsrfCookie(response, request)
   return response
 }
 

@@ -15,7 +15,9 @@ class HomesRepository {
   /// Get all homes for the current user.
   Future<List<Home>> getHomes() async {
     try {
-      final data = await _client.get('/api/v1/homes');
+      final data = await _client.get(
+        pathSegments: const ['api', 'v1', 'homes'],
+      );
       final homes = data['data'] as List;
       return homes
           .map((json) => Home.fromJson(json as Map<String, dynamic>))
@@ -29,7 +31,9 @@ class HomesRepository {
   /// Get a single home by ID.
   Future<Home> getHomeById(String id) async {
     try {
-      final data = await _client.get('/api/v1/homes/$id');
+      final data = await _client.get(
+        pathSegments: ['api', 'v1', 'homes', id],
+      );
       return Home.fromJson(data['data'] as Map<String, dynamic>);
     } catch (e) {
       debugPrint('[HomesRepository] getHomeById failed: $e');
@@ -52,13 +56,15 @@ class HomesRepository {
   // CREATE
   // ============================================
 
-  /// Create a new home.
+  /// Create a new home. Uses [Home.toCreateJson] which already strips id +
+  /// server-managed timestamps so the server can't be tricked into honoring
+  /// a client-supplied `created_at` (Ch08-Home-D007).
   Future<Home> createHome(Home home) async {
     try {
-      final json = home.toJson();
-      json.remove('id');
-
-      final data = await _client.post('/api/v1/homes', body: json);
+      final data = await _client.post(
+        pathSegments: const ['api', 'v1', 'homes'],
+        body: home.toCreateJson(),
+      );
       return Home.fromJson(data['data'] as Map<String, dynamic>);
     } catch (e) {
       debugPrint('[HomesRepository] createHome failed: $e');
@@ -70,14 +76,14 @@ class HomesRepository {
   // UPDATE
   // ============================================
 
-  /// Update an existing home.
+  /// Update an existing home. Same shape as create — server-managed fields
+  /// stripped (Ch08-Home-D007).
   Future<Home> updateHome(Home home) async {
     try {
-      final json = home.toJson();
-      json.remove('created_at');
-      json.remove('id');
-
-      final data = await _client.put('/api/v1/homes/${home.id}', body: json);
+      final data = await _client.put(
+        pathSegments: ['api', 'v1', 'homes', home.id],
+        body: home.toCreateJson(),
+      );
       return Home.fromJson(data['data'] as Map<String, dynamic>);
     } catch (e) {
       debugPrint('[HomesRepository] updateHome failed: $e');
@@ -92,7 +98,9 @@ class HomesRepository {
   /// Delete a home and all its items (cascade).
   Future<void> deleteHome(String id) async {
     try {
-      await _client.delete('/api/v1/homes/$id');
+      await _client.delete(
+        pathSegments: ['api', 'v1', 'homes', id],
+      );
     } catch (e) {
       debugPrint('[HomesRepository] deleteHome failed: $e');
       rethrow;

@@ -189,10 +189,14 @@ class EmailScannerScreen extends ConsumerWidget {
     try {
       progress.advance('Connecting to $provider…');
       final notifier = ref.read(emailScansProvider.notifier);
-      final token = await notifier.getAccessToken(provider);
+      final auth = await notifier.getAuthorizationCode(provider);
 
       progress.advance('Searching your inbox for receipts…');
-      await notifier.startScan(provider: provider, accessToken: token);
+      await notifier.startScan(
+        provider: provider,
+        code: auth.code,
+        redirectUri: auth.redirectUri,
+      );
 
       progress.advance('Importing found receipts…');
       // Brief pause so the user can read the final stage.

@@ -17,7 +17,10 @@ class WarrantyClaimsRepository {
       };
       if (itemId != null) params['item_id'] = itemId;
 
-      final data = await _client.get('/api/v1/warranty-claims', queryParams: params);
+      final data = await _client.get(
+        pathSegments: const ['api', 'v1', 'warranty-claims'],
+        queryParams: params,
+      );
       final claims = (data['data'] as List)
           .map((json) => WarrantyClaim.fromJson(json as Map<String, dynamic>))
           .toList();
@@ -32,7 +35,9 @@ class WarrantyClaimsRepository {
   /// Get a single claim by ID.
   Future<WarrantyClaim> getClaimById(String id) async {
     try {
-      final data = await _client.get('/api/v1/warranty-claims/$id');
+      final data = await _client.get(
+        pathSegments: ['api', 'v1', 'warranty-claims', id],
+      );
       return WarrantyClaim.fromJson(data['data'] as Map<String, dynamic>);
     } catch (e) {
       debugPrint('[WarrantyClaimsRepository] getClaimById failed: $e');
@@ -44,7 +49,7 @@ class WarrantyClaimsRepository {
   Future<WarrantyClaim> createClaim(WarrantyClaim claim) async {
     try {
       final data = await _client.post(
-        '/api/v1/warranty-claims',
+        pathSegments: const ['api', 'v1', 'warranty-claims'],
         body: claim.toCreateJson(),
       );
       return WarrantyClaim.fromJson(data['data'] as Map<String, dynamic>);
@@ -57,7 +62,10 @@ class WarrantyClaimsRepository {
   /// Update an existing claim.
   Future<WarrantyClaim> updateClaim(String id, Map<String, dynamic> updates) async {
     try {
-      final data = await _client.put('/api/v1/warranty-claims/$id', body: updates);
+      final data = await _client.put(
+        pathSegments: ['api', 'v1', 'warranty-claims', id],
+        body: updates,
+      );
       return WarrantyClaim.fromJson(data['data'] as Map<String, dynamic>);
     } catch (e) {
       debugPrint('[WarrantyClaimsRepository] updateClaim failed: $e');
@@ -68,7 +76,9 @@ class WarrantyClaimsRepository {
   /// Delete a claim.
   Future<void> deleteClaim(String id) async {
     try {
-      await _client.delete('/api/v1/warranty-claims/$id');
+      await _client.delete(
+        pathSegments: ['api', 'v1', 'warranty-claims', id],
+      );
     } catch (e) {
       debugPrint('[WarrantyClaimsRepository] deleteClaim failed: $e');
       rethrow;
@@ -78,7 +88,9 @@ class WarrantyClaimsRepository {
   /// Get total savings from warranty claims.
   Future<Map<String, dynamic>> getSavings() async {
     try {
-      final data = await _client.get('/api/v1/warranty-claims/savings');
+      final data = await _client.get(
+        pathSegments: const ['api', 'v1', 'warranty-claims', 'savings'],
+      );
       return data['data'] as Map<String, dynamic>;
     } catch (e) {
       debugPrint('[WarrantyClaimsRepository] getSavings failed: $e');
@@ -90,7 +102,7 @@ class WarrantyClaimsRepository {
   Future<List<Map<String, dynamic>>> getSavingsFeed({int limit = 10}) async {
     try {
       final data = await _client.get(
-        '/api/v1/warranty-claims/feed',
+        pathSegments: const ['api', 'v1', 'warranty-claims', 'feed'],
         queryParams: {'limit': '$limit'},
       );
       return List<Map<String, dynamic>>.from(data['data'] as List);

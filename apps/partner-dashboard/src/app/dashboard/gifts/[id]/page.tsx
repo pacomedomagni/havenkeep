@@ -1,8 +1,23 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import { apiClient } from '@/lib/api';
+import { apiClient, ApiError } from '@/lib/api';
+import { isSafeActivationUrl } from '@/lib/utils';
+
+function safeDateString(value: string | null | undefined): string {
+  if (!value) return '—';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString();
+}
+
+function safeDateTimeString(value: string | null | undefined): string {
+  if (!value) return '—';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '—';
+  return `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+}
 
 interface Gift {
   id: string;
@@ -29,7 +44,8 @@ interface Gift {
 export default function GiftDetailPage() {
   const router = useRouter();
   const params = useParams();
-  const giftId = params.id as string;
+  const giftId = (params?.id as string) || '';
+  const inflight = useRef<AbortController | null>(null);
 
   const [gift, setGift] = useState<Gift | null>(null);
   const [loading, setLoading] = useState(true);
@@ -38,33 +54,50 @@ export default function GiftDetailPage() {
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState(false);
   const [resending, setResending] = useState(false);
+  const [copyError, setCopyError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchGift();
+    return () => {
+      inflight.current?.abort();
+      inflight.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [giftId]);
 
   const fetchGift = async () => {
+    inflight.current?.abort();
+    const controller = new AbortController();
+    inflight.current = controller;
     try {
-      const data = await apiClient<Gift>(`/api/v1/partners/gifts/${giftId}`);
+      const data = await apiClient<Gift>(
+        `/api/v1/partners/gifts/${encodeURIComponent(giftId)}`,
+      );
+      if (controller.signal.aborted) return;
       if (data.success && data.data) {
         setGift(data.data);
       } else {
         setError(data.message || 'Failed to load gift');
       }
-    } catch (err: any) {
-      setError(err.message || 'An error occurred while loading the gift');
+    } catch (err: unknown) {
+      if (controller.signal.aborted) return;
+      setError(err instanceof ApiError ? err.message : 'An error occurred while loading the gift');
     } finally {
-      setLoading(false);
+      if (!controller.signal.aborted) setLoading(false);
     }
   };
 
   const [resendSuccess, setResendSuccess] = useState<string | null>(null);
+
   const handleResendEmail = async () => {
+    // Audit Ch10-W031: ignore re-entry while a resend is already in flight.
+    if (resending) return;
     setResending(true);
     try {
-      const data = await apiClient(`/api/v1/partners/gifts/${giftId}/resend`, {
-        method: 'POST',
-      });
+      const data = await apiClient(
+        `/api/v1/partners/gifts/${encodeURIComponent(giftId)}/resend`,
+        { method: 'POST' },
+      );
       if (data.success) {
         setShowResendModal(false);
         setResendSuccess(`Gift email re-sent to ${gift?.homebuyer_email ?? 'recipient'}.`);
@@ -72,26 +105,37 @@ export default function GiftDetailPage() {
       } else {
         setError(data.message || 'Failed to resend email');
       }
-    } catch (err: any) {
-      setError(err.message || 'An error occurred. Please try again.');
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : 'An error occurred. Please try again.');
     } finally {
       setResending(false);
     }
   };
 
   const copyToClipboard = async (text: string, type: 'code' | 'url') => {
+    setCopyError(null);
+    if (type === 'url' && !isSafeActivationUrl(text)) {
+      // Audit Ch10-W030: never put a URL we can't validate into the user's
+      // clipboard. A tampered upstream response could otherwise seed a
+      // phishing link.
+      setCopyError('That activation URL failed validation and was not copied.');
+      return;
+    }
     try {
       await navigator.clipboard.writeText(text);
     } catch {
-      // Fallback for older browsers
+      // Fallback for older browsers / insecure contexts.
       const textarea = document.createElement('textarea');
       textarea.value = text;
       textarea.style.position = 'fixed';
       textarea.style.opacity = '0';
       document.body.appendChild(textarea);
       textarea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textarea);
+      try {
+        document.execCommand('copy');
+      } finally {
+        document.body.removeChild(textarea);
+      }
     }
     if (type === 'code') {
       setCopiedCode(true);
@@ -165,7 +209,7 @@ export default function GiftDetailPage() {
           <div>
             <h1 className="text-2xl font-bold text-white">Gift Details</h1>
             <p className="text-haven-text-secondary text-sm mt-1">
-              Created {new Date(gift.created_at).toLocaleDateString()}
+              Created {safeDateString(gift.created_at)}
             </p>
           </div>
           {getStatusBadge(gift.status, gift.is_activated)}
@@ -194,7 +238,7 @@ export default function GiftDetailPage() {
               <div>
                 <label className="block text-sm font-medium text-haven-text-tertiary mb-1">Closing Date</label>
                 <p className="text-white">
-                  {gift.closing_date ? new Date(gift.closing_date).toLocaleDateString() : '\u2014'}
+                  {safeDateString(gift.closing_date)}
                 </p>
               </div>
               <div className="md:col-span-2">
@@ -287,10 +331,14 @@ export default function GiftDetailPage() {
                     <button
                       onClick={() => copyToClipboard(gift.activation_url!, 'url')}
                       className="btn-primary px-3"
+                      disabled={!isSafeActivationUrl(gift.activation_url)}
                     >
                       {copiedUrl ? 'Copied' : 'Copy'}
                     </button>
                   </div>
+                  {copyError && (
+                    <p className="text-xs text-haven-error mt-2">{copyError}</p>
+                  )}
                 </div>
               )}
 
@@ -370,7 +418,7 @@ export default function GiftDetailPage() {
                     </p>
                     {date ? (
                       <p className="text-xs text-haven-text-tertiary">
-                        {new Date(date).toLocaleDateString()} {new Date(date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        {safeDateTimeString(date)}
                       </p>
                     ) : !always ? (
                       <p className="text-xs text-haven-text-tertiary/50">Not yet</p>
@@ -386,7 +434,7 @@ export default function GiftDetailPage() {
             <h3 className="text-lg font-semibold text-white mb-4">Actions</h3>
             <div className="space-y-2">
               <button
-                onClick={() => window.open(`mailto:${gift.homebuyer_email}`, '_blank')}
+                onClick={() => window.open(`mailto:${encodeURIComponent(gift.homebuyer_email)}`, '_blank')}
                 className="btn-secondary w-full flex items-center justify-center gap-2"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -396,7 +444,7 @@ export default function GiftDetailPage() {
               </button>
               {gift.homebuyer_phone && (
                 <button
-                  onClick={() => window.open(`tel:${gift.homebuyer_phone}`, '_blank')}
+                  onClick={() => window.open(`tel:${encodeURIComponent(gift.homebuyer_phone || '')}`, '_blank')}
                   className="btn-secondary w-full flex items-center justify-center gap-2"
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

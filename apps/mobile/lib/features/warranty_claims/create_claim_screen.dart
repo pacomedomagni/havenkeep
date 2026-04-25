@@ -100,9 +100,8 @@ class _CreateClaimScreenState extends ConsumerState<CreateClaimScreen> {
             : _repairController.text.trim(),
         repairCost: double.tryParse(_repairCostController.text) ?? 0,
         amountSaved: double.tryParse(_amountSavedController.text) ?? 0,
-        outOfPocket: _outOfPocketController.text.trim().isEmpty
-            ? null
-            : double.tryParse(_outOfPocketController.text),
+        outOfPocket:
+            double.tryParse(_outOfPocketController.text.trim()) ?? 0,
         status: _status,
         filedWith: _filedWithController.text.trim().isEmpty
             ? null

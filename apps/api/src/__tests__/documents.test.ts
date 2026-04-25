@@ -19,6 +19,9 @@ jest.mock('../middleware/rateLimiter', () => {
     receiptScanRateLimiter: pass,
     newsletterRateLimiter: pass,
     contactRateLimiter: pass,
+    itemsListRateLimiter: pass,
+    csvExportRateLimiter: pass,
+    readRateLimiter: pass,
     initializeRateLimiter: jest.fn().mockResolvedValue(undefined),
     shutdownRateLimiter: jest.fn().mockResolvedValue(undefined),
   };
@@ -35,12 +38,21 @@ jest.mock('../config/minio', () => ({
     (userId: string, itemId: string, filename: string) =>
       `documents/${userId}/${itemId}/${filename}`
   ),
+  generateAvatarKey: jest.fn(
+    (userId: string, ext: string) => `avatars/${userId}/test.${ext}`,
+  ),
+  generateItemImageKey: jest.fn(
+    (userId: string, itemId: string, ext: string) =>
+      `item-images/${userId}/${itemId}/test.${ext}`,
+  ),
   getPublicUrl: jest.fn(
     (key: string) => `http://localhost:9000/test-bucket/${key}`
   ),
 }));
 
-// Mock sharp — image processing is unavailable without real binary files in tests
+// Mock sharp — image processing is unavailable without real binary files in tests.
+// Phase 6 added module-level `sharp.cache(false)` + `sharp.concurrency(1)` calls
+// that the bare jest.fn() doesn't expose, so we wire those as no-ops too.
 jest.mock('sharp', () => {
   const chain = {
     resize: jest.fn().mockReturnThis(),
@@ -49,7 +61,9 @@ jest.mock('sharp', () => {
     cover: jest.fn().mockReturnThis(),
     fit: jest.fn().mockReturnThis(),
   };
-  const sharpMock = jest.fn(() => chain);
+  const sharpMock: any = jest.fn(() => chain);
+  sharpMock.cache = jest.fn();
+  sharpMock.concurrency = jest.fn();
   return sharpMock;
 });
 
@@ -62,14 +76,14 @@ async function insertDocument(
   overrides: Record<string, any> = {}
 ) {
   const result = await pool.query(
-    `INSERT INTO documents (user_id, item_id, type, file_url, file_name, file_size, mime_type)
+    `INSERT INTO documents (user_id, item_id, type, object_key, file_name, file_size, mime_type)
      VALUES ($1, $2, $3, $4, $5, $6, $7)
      RETURNING *`,
     [
       userId,
       itemId,
       overrides.type || 'receipt',
-      overrides.file_url || `http://localhost:9000/test-bucket/documents/${userId}/${itemId}/test.pdf`,
+      overrides.object_key || `documents/${userId}/${itemId}/test.pdf`,
       overrides.file_name || 'test.pdf',
       overrides.file_size || 1024,
       overrides.mime_type || 'application/pdf',
@@ -212,6 +226,46 @@ describe('Documents Routes', () => {
         .field('itemId', itemId);
 
       expect(res.status).toBe(400);
+    });
+
+    // Audit Ch12-T010: bytes are PDF, MIME claimed as image/png — must 400.
+    it('should reject magic-byte mismatch (PDF posted as image/png)', async () => {
+      const pdfBytes = Buffer.from('%PDF-1.4\n%fake-bytes', 'utf8');
+      const res = await request(app)
+        .post('/api/v1/documents/upload')
+        .set('Authorization', `Bearer ${token}`)
+        .field('itemId', itemId)
+        .attach('files', pdfBytes, { filename: 'fake.png', contentType: 'image/png' });
+
+      expect(res.status).toBe(400);
+    });
+
+    // Audit Ch12-T011: oversized + bad MIME — multer fileFilter rejects.
+    it('should reject oversized file with disallowed MIME', async () => {
+      const big = Buffer.alloc(11 * 1024 * 1024, 0); // 11MB
+      const res = await request(app)
+        .post('/api/v1/documents/upload')
+        .set('Authorization', `Bearer ${token}`)
+        .field('itemId', itemId)
+        .attach('files', big, { filename: 'big.exe', contentType: 'application/octet-stream' });
+
+      // 400 (fileFilter) or 413 (size) or 500 (multer wrap). Either way: not 2xx.
+      expect(res.status).toBeGreaterThanOrEqual(400);
+    });
+
+    // Audit Ch12-T053: cross-user upload to A's itemId must 404.
+    it('should not allow user B to upload to user A item', async () => {
+      const png = Buffer.from([
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+        0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+      ]);
+      const res = await request(app)
+        .post('/api/v1/documents/upload')
+        .set('Authorization', `Bearer ${otherToken}`)
+        .field('itemId', itemId)
+        .attach('files', png, { filename: 'p.png', contentType: 'image/png' });
+
+      expect(res.status).toBe(404);
     });
   });
 });

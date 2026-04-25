@@ -180,12 +180,11 @@ router.get(
     let category: string;
 
     if (tipsResult.rows.length > 0) {
-      // Rotate tips by day of year
+      // F045: rotate tips by UTC day-of-year so a server in a non-UTC zone
+      // doesn't tip an extra day across DST. Same epoch on every replica.
       const now = new Date();
-      const startOfYear = new Date(now.getFullYear(), 0, 0);
-      const dayOfYear = Math.floor(
-        (now.getTime() - startOfYear.getTime()) / (1000 * 60 * 60 * 24)
-      );
+      const utcStartOfYear = Date.UTC(now.getUTCFullYear(), 0, 0);
+      const dayOfYear = Math.floor((now.getTime() - utcStartOfYear) / 86_400_000);
       const selected = tipsResult.rows[dayOfYear % tipsResult.rows.length];
       tip = selected.content;
       category = selected.category;

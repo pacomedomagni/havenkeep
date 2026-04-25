@@ -131,6 +131,10 @@ class _QuickAddScreenState extends ConsumerState<QuickAddScreen> {
             _storeController.text.trim().isNotEmpty ? _storeController.text.trim() : null,
         price: price,
         warrantyMonths: _warrantyMonths,
+        // Mirror the server formula (Ch08-Item-D010) so the new item's
+        // expiry preview lines up with the row we'll get back.
+        warrantyEndDate:
+            Item.computeWarrantyEndDate(_purchaseDate!, _warrantyMonths),
         addedVia: ItemAddedVia.quick_add,
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),

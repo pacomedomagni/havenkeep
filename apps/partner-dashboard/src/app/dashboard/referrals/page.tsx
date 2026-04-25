@@ -28,7 +28,7 @@ export default function ReferralsPage() {
   const fetchReferrals = async () => {
     try {
       setError(null);
-      const data = await apiClient('/api/v1/partners/referrals?limit=50');
+      const data = await apiClient<any[]>('/api/v1/partners/referrals?limit=50');
       if (data.success) {
         const mapped: Referral[] = (data.data || []).map((r: any) => ({
           id: r.id,

@@ -55,7 +55,7 @@ describe('Audit API - /api/v1/audit', () => {
   describe('GET /api/v1/audit/security', () => {
     it('should allow admin to access security events', async () => {
       const { user } = await createTestUser({ isAdmin: true });
-      const adminToken = getAdminToken(user.id);
+      const adminToken = getAdminToken(user.id, user.email);
 
       const res = await request(app)
         .get('/api/v1/audit/security')
@@ -82,7 +82,7 @@ describe('Audit API - /api/v1/audit', () => {
   describe('GET /api/v1/audit/stats', () => {
     it('should allow admin to get audit stats', async () => {
       const { user } = await createTestUser({ isAdmin: true });
-      const adminToken = getAdminToken(user.id);
+      const adminToken = getAdminToken(user.id, user.email);
 
       const res = await request(app)
         .get('/api/v1/audit/stats')
@@ -109,7 +109,7 @@ describe('Audit API - /api/v1/audit', () => {
   describe('GET /api/v1/audit/activity-summary', () => {
     it('should allow admin to get activity summary', async () => {
       const { user } = await createTestUser({ isAdmin: true });
-      const adminToken = getAdminToken(user.id);
+      const adminToken = getAdminToken(user.id, user.email);
 
       const res = await request(app)
         .get('/api/v1/audit/activity-summary')
@@ -136,7 +136,7 @@ describe('Audit API - /api/v1/audit', () => {
   describe('POST /api/v1/audit/cleanup', () => {
     it('should allow admin to trigger cleanup', async () => {
       const { user } = await createTestUser({ isAdmin: true });
-      const adminToken = getAdminToken(user.id);
+      const adminToken = getAdminToken(user.id, user.email);
 
       const res = await request(app)
         .post('/api/v1/audit/cleanup')

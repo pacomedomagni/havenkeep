@@ -53,7 +53,6 @@ class OfflineSyncService {
 
   StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
   bool _isSyncing = false;
-  bool _pendingSync = false;
 
   OfflineSyncService(this._db, this._ref);
 
@@ -65,13 +64,12 @@ class OfflineSyncService {
     _connectivitySub = Connectivity().onConnectivityChanged.listen(
       (results) {
         final isOnline = results.any((r) => r != ConnectivityResult.none);
+        // The `_isSyncing` flag inside [syncPendingChanges] is the only
+        // re-entry guard we need — kicking off a new call while one is
+        // running is a no-op, and the in-progress run will pick up any
+        // entries enqueued before it finishes.
         if (isOnline) {
-          if (_isSyncing) {
-            // A sync is already running; flag that we need another pass when done.
-            _pendingSync = true;
-          } else {
-            syncPendingChanges();
-          }
+          syncPendingChanges();
         }
       },
       onError: (e) {
@@ -143,7 +141,12 @@ class OfflineSyncService {
     }
 
     _isSyncing = true;
-    _pendingSync = false;
+
+    // Track which entity domains were touched so we can invalidate the
+    // matching notifiers once the sync run finishes. Without this, queue
+    // entries that succeed server-side don't reach the UI until the user
+    // pulls to refresh — see C107.
+    final touched = <_SyncedDomain>{};
 
     try {
       // Remove stale entries older than _kMaxQueueEntryAgeDays days
@@ -163,6 +166,8 @@ class OfflineSyncService {
         try {
           await _processEntry(entry);
           await _db.markActionSynced(entry.id);
+          final domain = _domainFor(entry.action);
+          if (domain != null) touched.add(domain);
         } on NonRetriableError catch (e) {
           // Non-retriable errors (e.g., missing local file) — mark as permanently failed
           debugPrint('[OfflineSync] Non-retriable error for entry ${entry.id}: $e');
@@ -171,13 +176,14 @@ class OfflineSyncService {
           debugPrint('[OfflineSync] Failed to sync entry ${entry.id}: $e');
 
           // 401 Unauthorized: attempt one retry — the ApiClient auto-refresh
-          // may resolve the token issue. Only mark as permanently failed if
-          // the retry also fails.
+          // may resolve the token issue. Bump the attempt counter and keep
+          // the row in `pending` with a single UPDATE so we never write a
+          // transient `failed` we'd immediately flip back.
           if (e.statusCode == 401) {
             if (entry.attempts == 0) {
               debugPrint('[OfflineSync] 401 on entry ${entry.id} — scheduling one retry');
-              await _db.markActionFailed(entry.id, entry.attempts + 1);
-              await _db.retryAction(entry.id);
+              await _db.reschedulePending(entry.id, entry.attempts + 1);
+              await Future.delayed(_backoffDelay(entry.attempts + 1));
             } else {
               debugPrint('[OfflineSync] 401 retry failed for entry ${entry.id} — marking permanently failed');
               await _db.markActionFailed(entry.id, _kMaxRetries);
@@ -192,35 +198,72 @@ class OfflineSyncService {
             continue;
           }
 
-          await _db.markActionFailed(entry.id, entry.attempts + 1);
-
-          // If it's a retriable error (5xx / network), re-queue for later
-          if (entry.attempts + 1 < _kMaxRetries) {
-            await _db.retryAction(entry.id);
+          // Retriable error (5xx / network): reschedule with bumped attempt
+          // count using a single update, then back off before processing
+          // the next entry. Backoff is scoped to THIS entry's retry only.
+          final nextAttempts = entry.attempts + 1;
+          if (nextAttempts < _kMaxRetries) {
+            await _db.reschedulePending(entry.id, nextAttempts);
+            await Future.delayed(_backoffDelay(nextAttempts));
+          } else {
+            await _db.markActionFailed(entry.id, nextAttempts);
           }
         } catch (e) {
           debugPrint('[OfflineSync] Failed to sync entry ${entry.id}: $e');
-          await _db.markActionFailed(entry.id, entry.attempts + 1);
-
-          // Network errors are retriable
-          if (entry.attempts + 1 < _kMaxRetries) {
-            await _db.retryAction(entry.id);
+          final nextAttempts = entry.attempts + 1;
+          if (nextAttempts < _kMaxRetries) {
+            await _db.reschedulePending(entry.id, nextAttempts);
+            await Future.delayed(_backoffDelay(nextAttempts));
+          } else {
+            await _db.markActionFailed(entry.id, nextAttempts);
           }
         }
-
-        // Exponential backoff delay between entries
-        await Future.delayed(_backoffDelay(entry.attempts));
       }
 
       // Clean up synced entries
       await _db.clearSyncedActions();
     } finally {
       _isSyncing = false;
+      _invalidateTouched(touched);
+    }
+  }
 
-      // If an online event fired while we were syncing, run again.
-      if (_pendingSync) {
-        _pendingSync = false;
-        syncPendingChanges();
+  /// Map an [OfflineAction] string to the notifier-domain it mutates so
+  /// the sync loop knows which providers to invalidate (C107).
+  _SyncedDomain? _domainFor(String actionJson) {
+    final action = OfflineAction.fromJson(actionJson);
+    switch (action) {
+      case OfflineAction.create_item:
+      case OfflineAction.update_item:
+      case OfflineAction.delete_item:
+        return _SyncedDomain.items;
+      case OfflineAction.create_document:
+        return _SyncedDomain.documents;
+      case OfflineAction.update_preferences:
+        return _SyncedDomain.notificationPreferences;
+    }
+  }
+
+  /// Invalidate the matching notifier(s) so the UI reflects mutations
+  /// that landed server-side via the queue. Each invalidation is wrapped
+  /// in a try/catch so a notifier that hasn't been read this session
+  /// can't break the sync loop's clean shutdown.
+  void _invalidateTouched(Set<_SyncedDomain> domains) {
+    for (final domain in domains) {
+      try {
+        switch (domain) {
+          case _SyncedDomain.items:
+            _ref.invalidate(itemsProvider);
+            break;
+          case _SyncedDomain.documents:
+            _ref.invalidate(allDocumentsProvider);
+            break;
+          case _SyncedDomain.notificationPreferences:
+            _ref.invalidate(notificationPreferencesProvider);
+            break;
+        }
+      } catch (e) {
+        debugPrint('[OfflineSync] Invalidate $domain failed: $e');
       }
     }
   }
@@ -249,8 +292,10 @@ class OfflineSyncService {
           await _ref.read(itemsRepositoryProvider).updateItem(item);
         } on ApiException catch (e) {
           if (e.isConflict) {
-            // 409 Conflict: server version differs — resolve using ConflictResolver
-            await _resolveUpdateConflict(item);
+            // 409 Conflict: server version differs — park the divergence
+            // for the user to resolve. We deliberately do NOT silently
+            // last-write-wins.
+            await _parkUpdateConflict(item);
           } else {
             rethrow;
           }
@@ -274,18 +319,16 @@ class OfflineSyncService {
     }
   }
 
-  /// Resolve a 409 conflict for an update_item action using ConflictResolver.
-  Future<void> _resolveUpdateConflict(Item localItem) async {
+  /// Park a 409 conflict for an update_item action so the user can
+  /// resolve it manually. If the timestamps actually match (server
+  /// already accepted our version), simply retry the push.
+  Future<void> _parkUpdateConflict(Item localItem) async {
     try {
-      // Fetch the current server version
       final serverItem = await _ref
           .read(itemsRepositoryProvider)
           .getItemById(localItem.id);
 
-      // Verify there's an actual conflict by comparing timestamps
       if (!ConflictResolver.hasConflict(localItem, serverItem)) {
-        // No real conflict — server accepted our version or timestamps match.
-        // Just push the local version again.
         await _ref.read(itemsRepositoryProvider).updateItem(localItem);
         debugPrint(
           '[OfflineSync] No actual conflict for item ${localItem.id} — retried update.',
@@ -293,27 +336,23 @@ class OfflineSyncService {
         return;
       }
 
-      final conflict = Conflict<Item>(
-        localVersion: localItem,
-        serverVersion: serverItem,
+      await _db.recordConflict(
+        entityType: 'item',
+        entityId: localItem.id,
+        localVersion: localItem.toJson(),
+        serverVersion: serverItem.toJson(),
       );
 
-      // Choose strategy: if auto-resolvable (non-overlapping fields), use merge;
-      // otherwise fall back to mostRecent
-      final strategy = ConflictResolver.canAutoResolve(conflict)
-          ? ConflictResolutionStrategy.merge
-          : ConflictResolutionStrategy.mostRecent;
-
-      final resolved = ConflictResolver.resolveItem(conflict, strategy);
-
-      // Push the resolved version to the server
-      await _ref.read(itemsRepositoryProvider).updateItem(resolved);
+      // Bump the unread-conflict signal so the UI can surface a banner.
+      _ref
+          .read(syncConflictCountProvider.notifier)
+          .state = await _db.getConflictCount();
 
       debugPrint(
-        '[OfflineSync] Conflict resolved for item ${localItem.id} using $strategy strategy.',
+        '[OfflineSync] Parked conflict for item ${localItem.id} — awaiting user resolution.',
       );
     } catch (e) {
-      debugPrint('[OfflineSync] Conflict resolution failed for item ${localItem.id}: $e');
+      debugPrint('[OfflineSync] Failed to park conflict for item ${localItem.id}: $e');
       rethrow;
     }
   }
@@ -374,3 +413,16 @@ final offlineSyncServiceProvider = Provider<OfflineSyncService>((ref) {
 final isSyncingProvider = Provider<bool>((ref) {
   return ref.watch(offlineSyncServiceProvider).isSyncing;
 });
+
+/// Number of parked sync conflicts awaiting user resolution.
+///
+/// Updated by [OfflineSyncService] when a 409 is parked, and by the UI
+/// after the user resolves a conflict. Initial value is 0; the UI may
+/// hydrate it on startup by calling
+/// `ref.read(localDatabaseProvider).getConflictCount()`.
+final syncConflictCountProvider = StateProvider<int>((ref) => 0);
+
+/// Per-domain invalidation buckets used by [OfflineSyncService] so the
+/// service can map queued actions to the providers that hold their
+/// reactive cache and refresh exactly those when the run finishes.
+enum _SyncedDomain { items, documents, notificationPreferences }

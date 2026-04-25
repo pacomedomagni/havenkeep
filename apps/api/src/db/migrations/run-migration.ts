@@ -1,28 +1,77 @@
 import { Pool } from 'pg';
+import { createHash } from 'crypto';
 import { readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { logger } from '../../utils/logger';
 import { config } from '../../config';
+
+// Statements that must NOT be wrapped in BEGIN/COMMIT. Detection is line-prefix
+// based — if any line of the file (ignoring leading whitespace and `--`
+// comments) starts with one of these, the runner runs the file outside a
+// transaction. The tradeoff: those files lose atomicity, so they must be
+// idempotent (use IF EXISTS / IF NOT EXISTS / ON CONFLICT) to be safe to
+// retry after a partial failure.
+const NON_TXN_PATTERNS: RegExp[] = [
+  /^\s*ALTER\s+TYPE\s+\w+\s+ADD\s+VALUE\b/i,                 // Ch00-DB002
+  /^\s*CREATE\s+(UNIQUE\s+)?INDEX\s+CONCURRENTLY\b/i,        // Ch00-DB025
+  /^\s*DROP\s+INDEX\s+CONCURRENTLY\b/i,
+  /^\s*REINDEX\s+(TABLE|DATABASE|SCHEMA)\s+CONCURRENTLY\b/i,
+];
 
 const pool = new Pool({
   connectionString: config.database.url,
   ssl: config.database.ssl ? { rejectUnauthorized: false } : undefined,
 });
 
+function fileNeedsAutoCommit(sql: string): boolean {
+  // Strip block comments first so a SQL keyword inside /* ... */ doesn't trip
+  // detection.
+  const stripped = sql.replace(/\/\*[\s\S]*?\*\//g, '');
+  return NON_TXN_PATTERNS.some((re) => re.test(stripped));
+}
+
 async function ensureMigrationsTable() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
       id SERIAL PRIMARY KEY,
       filename VARCHAR(255) NOT NULL UNIQUE,
+      sha256 CHAR(64),
       executed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
+  // Backfill the sha256 column on existing installations.
+  await pool.query(`
+    ALTER TABLE schema_migrations
+      ADD COLUMN IF NOT EXISTS sha256 CHAR(64)
+  `);
 }
 
+/**
+ * The base schema.sql runs on a brand-new DB. Detection used to be "does the
+ * users table exist?" which races a partial bootstrap (Ch00-DB003). After
+ * migration 045 ships, the canonical signal is the `schema_version` row with
+ * phase='base'; until then we fall back to the table-presence check.
+ */
 async function ensureBaseSchema() {
-  const result = await pool.query(`SELECT to_regclass('public.users') AS users_table`);
-  if (result.rows[0]?.users_table) {
-    return;
+  const versionTable = await pool.query(
+    `SELECT to_regclass('public.schema_version') AS v`,
+  );
+  if (versionTable.rows[0]?.v) {
+    const baseRow = await pool.query(
+      `SELECT 1 FROM schema_version WHERE phase = 'base' LIMIT 1`,
+    );
+    if (baseRow.rows.length > 0) return;
+  } else {
+    // Pre-045 installations: a populated users + items + partners trio is
+    // strong-enough evidence the base schema is in place.
+    const probe = await pool.query(
+      `SELECT to_regclass('public.users') AS u,
+              to_regclass('public.items') AS i,
+              to_regclass('public.partners') AS p`,
+    );
+    if (probe.rows[0]?.u && probe.rows[0]?.i && probe.rows[0]?.p) {
+      return;
+    }
   }
 
   const schemaSql = readFileSync(join(__dirname, '..', 'schema.sql'), 'utf-8');
@@ -30,34 +79,67 @@ async function ensureBaseSchema() {
   await pool.query(schemaSql);
 }
 
-async function getExecutedMigrations(): Promise<Set<string>> {
-  const result = await pool.query('SELECT filename FROM schema_migrations ORDER BY filename');
-  return new Set(result.rows.map((r: { filename: string }) => r.filename));
+async function getExecutedMigrations(): Promise<Map<string, string | null>> {
+  const result = await pool.query<{ filename: string; sha256: string | null }>(
+    'SELECT filename, sha256 FROM schema_migrations ORDER BY filename',
+  );
+  const map = new Map<string, string | null>();
+  for (const row of result.rows) map.set(row.filename, row.sha256);
+  return map;
 }
 
 async function runMigration(migrationFile: string) {
+  const sql = readFileSync(join(__dirname, migrationFile), 'utf-8');
+  const sha = createHash('sha256').update(sql).digest('hex');
+  const skipTxn = fileNeedsAutoCommit(sql);
+
   const client = await pool.connect();
-
   try {
-    logger.info(`Running migration: ${migrationFile}`);
+    logger.info({ file: migrationFile, autoCommit: skipTxn }, 'Running migration');
 
-    const sql = readFileSync(join(__dirname, migrationFile), 'utf-8');
+    if (skipTxn) {
+      // Each statement runs in its own implicit transaction. Files in this
+      // mode MUST be idempotent (IF NOT EXISTS, ON CONFLICT, DROP IF EXISTS)
+      // because a mid-file failure leaves partial state.
+      await client.query(sql);
+      await client.query(
+        `INSERT INTO schema_migrations (filename, sha256) VALUES ($1, $2)
+           ON CONFLICT (filename) DO UPDATE SET sha256 = EXCLUDED.sha256`,
+        [migrationFile, sha],
+      );
+    } else {
+      await client.query('BEGIN');
+      await client.query(sql);
+      await client.query(
+        `INSERT INTO schema_migrations (filename, sha256) VALUES ($1, $2)`,
+        [migrationFile, sha],
+      );
+      await client.query('COMMIT');
+    }
 
-    await client.query('BEGIN');
-    await client.query(sql);
-    await client.query(
-      'INSERT INTO schema_migrations (filename) VALUES ($1)',
-      [migrationFile]
-    );
-    await client.query('COMMIT');
-
-    logger.info(`Migration ${migrationFile} completed successfully`);
+    logger.info({ file: migrationFile }, 'Migration completed');
   } catch (error) {
-    await client.query('ROLLBACK');
-    logger.error({ error, migrationFile }, `Migration ${migrationFile} failed`);
+    if (!skipTxn) {
+      await client.query('ROLLBACK').catch(() => {});
+    }
+    logger.error({ error, file: migrationFile }, 'Migration failed');
     throw error;
   } finally {
     client.release();
+  }
+}
+
+async function runAnalyzeAfterSeed(file: string): Promise<void> {
+  // Ch00-DB054: seeds inflate stats; ANALYZE the touched tables so the
+  // planner's row estimates aren't stuck at zero. We pick targets by name
+  // convention — files containing 'seed' analyze every table they touch
+  // (cheap; ANALYZE is non-blocking).
+  if (!/seed/i.test(file)) return;
+  try {
+    await pool.query('ANALYZE');
+    logger.info({ file }, 'ANALYZE completed after seed migration');
+  } catch (err) {
+    logger.warn({ err, file }, 'ANALYZE after seed failed (non-fatal)');
   }
 }
 
@@ -67,27 +149,35 @@ async function main() {
     await ensureMigrationsTable();
     const executed = await getExecutedMigrations();
 
-    // Discover all .sql migration files, sorted by name
     const files = readdirSync(__dirname)
       .filter((f) => f.endsWith('.sql'))
       .sort();
 
-    let ranCount = 0;
+    let ran = 0;
     for (const file of files) {
       if (executed.has(file)) {
-        logger.info(`Skipping already-executed migration: ${file}`);
+        // Drift detection: if the file's content has changed since it was
+        // recorded, surface a warning. We never re-run because that would
+        // double-apply (most migrations aren't idempotent).
+        const sha = createHash('sha256')
+          .update(readFileSync(join(__dirname, file), 'utf-8'))
+          .digest('hex');
+        const recordedSha = executed.get(file);
+        if (recordedSha && recordedSha !== sha) {
+          logger.warn(
+            { file, recorded: recordedSha.slice(0, 12), current: sha.slice(0, 12) },
+            'Migration file SHA differs from schema_migrations record — manual reconciliation may be needed',
+          );
+        }
+        logger.info({ file }, 'Skipping already-executed migration');
         continue;
       }
       await runMigration(file);
-      ranCount++;
+      await runAnalyzeAfterSeed(file);
+      ran++;
     }
 
-    if (ranCount === 0) {
-      logger.info('No pending migrations');
-    } else {
-      logger.info(`${ranCount} migration(s) completed successfully`);
-    }
-
+    logger.info({ ran }, ran === 0 ? 'No pending migrations' : 'Migrations completed');
     process.exit(0);
   } catch (error) {
     logger.error({ error }, 'Migration failed');
@@ -101,4 +191,4 @@ if (require.main === module) {
   main();
 }
 
-export { runMigration };
+export { runMigration, fileNeedsAutoCommit };

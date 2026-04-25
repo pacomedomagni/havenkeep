@@ -44,7 +44,10 @@ class AuthRepository {
       body['referralCode'] = referralCode;
     }
 
-    final data = await _client.post('/api/v1/auth/register', body: body);
+    final data = await _client.post(
+      pathSegments: const ['api', 'v1', 'auth', 'register'],
+      body: body,
+    );
 
     final user = _extractUserAndTokens(data);
     return user;
@@ -55,10 +58,13 @@ class AuthRepository {
     required String email,
     required String password,
   }) async {
-    final data = await _client.post('/api/v1/auth/login', body: {
-      'email': email,
-      'password': password,
-    });
+    final data = await _client.post(
+      pathSegments: const ['api', 'v1', 'auth', 'login'],
+      body: {
+        'email': email,
+        'password': password,
+      },
+    );
 
     final user = _extractUserAndTokens(data);
     return user;
@@ -66,9 +72,12 @@ class AuthRepository {
 
   /// Sign in with Google. Accepts the Google ID token from the platform SDK.
   Future<models.User?> signInWithGoogle({required String idToken}) async {
-    final data = await _client.post('/api/v1/auth/google', body: {
-      'idToken': idToken,
-    });
+    final data = await _client.post(
+      pathSegments: const ['api', 'v1', 'auth', 'google'],
+      body: {
+        'idToken': idToken,
+      },
+    );
 
     final user = _extractUserAndTokens(data);
     return user;
@@ -82,7 +91,10 @@ class AuthRepository {
     final body = <String, dynamic>{'idToken': idToken};
     if (fullName != null) body['fullName'] = fullName;
 
-    final data = await _client.post('/api/v1/auth/apple', body: body);
+    final data = await _client.post(
+      pathSegments: const ['api', 'v1', 'auth', 'apple'],
+      body: body,
+    );
 
     final user = _extractUserAndTokens(data);
     return user;
@@ -91,15 +103,29 @@ class AuthRepository {
   /// Sign out the current user.
   ///
   /// If the API call fails, retries once after a short delay before
-  /// clearing tokens locally.
+  /// clearing tokens locally. Reads `refresh_token` ONCE up front so a
+  /// retry can never race with the keychain delete in the `finally`
+  /// branch (C111) — a missing refresh token would silently let the
+  /// server keep the session live.
   Future<void> signOut() async {
+    const storage = FlutterSecureStorage(
+      aOptions: AndroidOptions(encryptedSharedPreferences: true),
+      iOptions: IOSOptions(accessibility: KeychainAccessibility.first_unlock),
+    );
+    String? refreshToken;
     try {
-      await _signOutApiCall();
+      refreshToken = await storage.read(key: 'refresh_token');
+    } catch (e) {
+      debugPrint('[Auth] Reading refresh token before logout failed: $e');
+    }
+
+    try {
+      await _signOutApiCall(refreshToken);
     } catch (e) {
       debugPrint('[Auth] Logout API call failed, retrying once: $e');
       try {
         await Future.delayed(const Duration(seconds: 1));
-        await _signOutApiCall();
+        await _signOutApiCall(refreshToken);
       } catch (retryError) {
         debugPrint('[Auth] Logout API retry also failed: $retryError');
       }
@@ -108,22 +134,24 @@ class AuthRepository {
     }
   }
 
-  /// Performs the actual logout API call.
-  Future<void> _signOutApiCall() async {
-    const storage = FlutterSecureStorage(
-      aOptions: AndroidOptions(encryptedSharedPreferences: true),
-      iOptions: IOSOptions(accessibility: KeychainAccessibility.first_unlock),
+  /// Performs the actual logout API call. Receives the refresh token as
+  /// a parameter so concurrent keychain access can't race against the
+  /// post-logout `clearTokens` (see [signOut]).
+  Future<void> _signOutApiCall(String? refreshToken) async {
+    await _client.post(
+      pathSegments: const ['api', 'v1', 'auth', 'logout'],
+      body: {
+        if (refreshToken != null) 'refreshToken': refreshToken,
+      },
     );
-    final refreshToken = await storage.read(key: 'refresh_token');
-    await _client.post('/api/v1/auth/logout', body: {
-      if (refreshToken != null) 'refreshToken': refreshToken,
-    });
   }
 
   /// Sign out from all devices.
   Future<void> signOutAll() async {
     try {
-      await _client.post('/api/v1/auth/logout-all');
+      await _client.post(
+        pathSegments: const ['api', 'v1', 'auth', 'logout-all'],
+      );
     } catch (e) {
       debugPrint('[Auth] Logout-all API call failed: $e');
     } finally {
@@ -140,7 +168,9 @@ class AuthRepository {
     if (!_client.isAuthenticated) return null;
 
     try {
-      final data = await _client.get('/api/v1/users/me');
+      final data = await _client.get(
+        pathSegments: const ['api', 'v1', 'users', 'me'],
+      );
       final userJson = data['data'];
       if (userJson is! Map<String, dynamic>) return null;
       return models.User.fromJson(userJson);
@@ -159,7 +189,10 @@ class AuthRepository {
     if (fullName != null) updates['fullName'] = fullName;
     if (avatarUrl != null) updates['avatarUrl'] = avatarUrl;
 
-    final data = await _client.put('/api/v1/users/me', body: updates);
+    final data = await _client.put(
+      pathSegments: const ['api', 'v1', 'users', 'me'],
+      body: updates,
+    );
     final userJson = data['data'];
     if (userJson is! Map<String, dynamic>) {
       throw ApiException(500, 'Invalid response format');
@@ -173,9 +206,12 @@ class AuthRepository {
 
   /// Request a password reset email.
   Future<void> forgotPassword({required String email}) async {
-    await _client.post('/api/v1/auth/forgot-password', body: {
-      'email': email,
-    });
+    await _client.post(
+      pathSegments: const ['api', 'v1', 'auth', 'forgot-password'],
+      body: {
+        'email': email,
+      },
+    );
   }
 
   /// Reset password with a token (from email link).
@@ -183,10 +219,13 @@ class AuthRepository {
     required String token,
     required String newPassword,
   }) async {
-    await _client.post('/api/v1/auth/reset-password', body: {
-      'token': token,
-      'newPassword': newPassword,
-    });
+    await _client.post(
+      pathSegments: const ['api', 'v1', 'auth', 'reset-password'],
+      body: {
+        'token': token,
+        'newPassword': newPassword,
+      },
+    );
   }
 
   /// Change password for the current user (authenticated).
@@ -194,10 +233,13 @@ class AuthRepository {
     required String currentPassword,
     required String newPassword,
   }) async {
-    await _client.put('/api/v1/users/me/password', body: {
-      'currentPassword': currentPassword,
-      'newPassword': newPassword,
-    });
+    await _client.put(
+      pathSegments: const ['api', 'v1', 'users', 'me', 'password'],
+      body: {
+        'currentPassword': currentPassword,
+        'newPassword': newPassword,
+      },
+    );
   }
 
   // ============================================
@@ -209,10 +251,13 @@ class AuthRepository {
     required String newEmail,
     required String password,
   }) async {
-    await _client.post('/api/v1/users/me/change-email', body: {
-      'newEmail': newEmail,
-      'password': password,
-    });
+    await _client.post(
+      pathSegments: const ['api', 'v1', 'users', 'me', 'change-email'],
+      body: {
+        'newEmail': newEmail,
+        'password': password,
+      },
+    );
   }
 
   // ============================================
@@ -221,38 +266,50 @@ class AuthRepository {
 
   /// Delete the current user's account permanently.
   Future<void> deleteAccount({required String password}) async {
-    await _client.delete('/api/v1/users/me', body: {
-      'password': password,
-    });
+    await _client.delete(
+      pathSegments: const ['api', 'v1', 'users', 'me'],
+      body: {
+        'password': password,
+      },
+    );
     await _client.clearTokens();
   }
 
   /// Delete an OAuth user's account (no password required).
   Future<void> deleteOAuthAccount() async {
-    await _client.delete('/api/v1/users/me', body: {
-      'confirmDelete': true,
-    });
+    await _client.delete(
+      pathSegments: const ['api', 'v1', 'users', 'me'],
+      body: {
+        'confirmDelete': true,
+      },
+    );
     await _client.clearTokens();
   }
 
-  /// Safely extract tokens and user from auth response body.
-  /// Accepts both the standardized envelope `{ success, data: { ... } }` and
-  /// the legacy flat shape for backwards compatibility during rollouts.
+  /// Safely extract tokens and user from an auth response body.
+  ///
+  /// The API has standardized on `{ success, data: { ... } }` for every
+  /// auth endpoint. Anything that doesn't match the envelope is rejected
+  /// with a specific error code so we don't fall back to a legacy flat
+  /// shape and produce a misleading parse failure (C112).
   Future<models.User?> _extractUserAndTokens(Map<String, dynamic> body) async {
-    final inner = body['data'] is Map<String, dynamic>
-        ? body['data'] as Map<String, dynamic>
-        : body;
+    final inner = body['data'];
+    if (inner is! Map<String, dynamic>) {
+      throw ApiException(500, 'Auth response missing `data` envelope');
+    }
     final accessToken = inner['accessToken'];
     final refreshToken = inner['refreshToken'];
     final userRaw = inner['user'];
 
-    if (accessToken is! String || refreshToken is! String || userRaw is! Map<String, dynamic>) {
-      throw ApiException(500, 'Invalid auth response format');
+    if (accessToken is! String ||
+        refreshToken is! String ||
+        userRaw is! Map<String, dynamic>) {
+      throw ApiException(500, 'Auth response missing accessToken/refreshToken/user');
     }
 
     final userId = userRaw['id'];
     if (userId is! String) {
-      throw ApiException(500, 'Invalid auth response format');
+      throw ApiException(500, 'Auth response missing user.id');
     }
 
     await _client.saveTokens(
@@ -261,19 +318,6 @@ class AuthRepository {
       userId: userId,
     );
 
-    return models.User.fromJson(_normalizeUserJson(userRaw));
-  }
-
-  /// Normalize API user response to match the User model's fromJson expectations.
-  Map<String, dynamic> _normalizeUserJson(Map<String, dynamic> json) {
-    return {
-      ...json,
-      if (json.containsKey('fullName') && !json.containsKey('full_name'))
-        'full_name': json['fullName'],
-      if (json.containsKey('isAdmin') && !json.containsKey('is_admin'))
-        'is_admin': json['isAdmin'],
-      if (json.containsKey('isPartner') && !json.containsKey('is_partner'))
-        'is_partner': json['isPartner'],
-    };
+    return models.User.fromJson(userRaw);
   }
 }

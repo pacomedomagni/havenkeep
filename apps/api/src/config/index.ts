@@ -6,6 +6,19 @@ import path from 'path';
 // Load environment variables
 dotenv.config({ path: path.join(__dirname, '../../.env') });
 
+/**
+ * Parse `process.env[name]` as a positive integer.  If the env var is unset,
+ * empty, or not a finite number, return `fallback`.  Without this guard,
+ * `parseInt(undefined as any, 10)` returns NaN and code like `count >= NaN`
+ * silently evaluates false — disabling free-tier gates and rate-limit caps.
+ */
+function intFromEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === '') return fallback;
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+
 // Resolve a secret from either `${name}` or `${name}_FILE` (Docker secrets pattern).
 // Precedence: the `_FILE` variant wins when present, since Docker secrets mount
 // files read-only at a deterministic path.
@@ -26,12 +39,12 @@ function readSecret(name: string): string | undefined {
 
 export const config = {
   env: process.env.NODE_ENV || 'development',
-  port: parseInt(process.env.PORT || '3000', 10),
+  port: intFromEnv('PORT', 3000),
 
   database: {
     url: readSecret('DATABASE_URL') || '',
     host: process.env.DB_HOST || 'localhost',
-    port: parseInt(process.env.DB_PORT || '5432', 10),
+    port: intFromEnv('DB_PORT', 5432),
     name: process.env.DB_NAME || 'havenkeep',
     user: process.env.DB_USER || 'havenkeep',
     password: readSecret('DB_PASSWORD') || readSecret('POSTGRES_PASSWORD') || '',
@@ -76,7 +89,7 @@ export const config = {
 
   minio: {
     endpoint: process.env.MINIO_ENDPOINT || 'localhost',
-    port: parseInt(process.env.MINIO_PORT || '9000', 10),
+    port: intFromEnv('MINIO_PORT', 9000),
     useSSL: process.env.MINIO_USE_SSL === 'true',
     accessKey: readSecret('MINIO_ACCESS_KEY') || 'minioadmin',
     secretKey: readSecret('MINIO_SECRET_KEY') || 'minioadmin',
@@ -85,8 +98,21 @@ export const config = {
 
   stripe: {
     secretKey: readSecret('STRIPE_SECRET_KEY') || '',
-    webhookSecret: readSecret('STRIPE_WEBHOOK_SECRET') || '',
+    // STRIPE_WEBHOOK_SECRET is required in production. The Stripe handler
+    // refuses to start if it's empty so a misconfigured prod deploy fails
+    // loudly instead of silently accepting unsigned webhooks.
+    get webhookSecret(): string {
+      const secret = readSecret('STRIPE_WEBHOOK_SECRET');
+      if (process.env.NODE_ENV === 'production' && !secret) {
+        throw new Error('STRIPE_WEBHOOK_SECRET (or _FILE) must be set in production');
+      }
+      return secret || '';
+    },
     premiumPriceId: process.env.STRIPE_PRICE_ID_PREMIUM || '',
+    // OAuth-style server-side env to allow sandbox webhooks during local
+    // dev/test. Production never honors this flag.
+    allowSandboxWebhooks: process.env.NODE_ENV !== 'production'
+      && process.env.STRIPE_ALLOW_SANDBOX !== 'false',
   },
 
   sendgrid: {
@@ -97,6 +123,17 @@ export const config = {
 
   google: {
     clientId: process.env.GOOGLE_CLIENT_ID || '',
+    // Used by the email-scanner OAuth code exchange to mint Gmail access
+    // tokens server-side. Empty if Gmail scanning is not deployed.
+    clientSecret: readSecret('GOOGLE_CLIENT_SECRET') || '',
+  },
+
+  microsoft: {
+    clientId: process.env.MICROSOFT_CLIENT_ID || '',
+    clientSecret: readSecret('MICROSOFT_CLIENT_SECRET') || '',
+    // Tenant ID for Outlook OAuth. Defaults to 'common' so personal +
+    // school/work accounts both authenticate without per-tenant config.
+    tenant: process.env.MICROSOFT_TENANT || 'common',
   },
 
   apple: {
@@ -148,8 +185,18 @@ export const config = {
   },
 
   freeTier: {
-    itemLimit: parseInt(process.env.FREE_TIER_ITEM_LIMIT || '5', 10),
+    itemLimit: intFromEnv('FREE_TIER_ITEM_LIMIT', 5),
   },
+
+  // RevenueCat: 'PRODUCTION' webhook events are always processed. Sandbox
+  // events are only accepted when this flag is true (default: dev/test only).
+  revenuecatAllowSandboxWebhooks:
+    process.env.NODE_ENV !== 'production'
+    && process.env.REVENUECAT_ALLOW_SANDBOX !== 'false',
+
+  // OAuth refresh tokens for the email scanner are encrypted at rest with
+  // AES-256-GCM. Key derived from this secret via SHA-256 → 32-byte key.
+  oauthEncryptionSecret: readSecret('OAUTH_TOKEN_ENCRYPTION_SECRET') || '',
 
   cors: {
     origins: (process.env.CORS_ORIGINS || 'http://localhost:3000,http://localhost:3001')
@@ -161,5 +208,12 @@ export const config = {
   rateLimit: {
     windowMs: 15 * 60 * 1000, // 15 minutes
     max: 100, // limit each IP to 100 requests per windowMs
+  },
+
+  // F114: Cloudflare Turnstile secret used to validate the contact form
+  // captcha. When unset (e.g. local dev), captcha verification is skipped
+  // and a warning is logged so an unconfigured prod deploy is loud.
+  turnstile: {
+    secretKey: readSecret('TURNSTILE_SECRET_KEY') || '',
   },
 };

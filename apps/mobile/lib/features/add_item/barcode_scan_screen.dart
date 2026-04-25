@@ -114,6 +114,8 @@ class _BarcodeScanScreenState extends ConsumerState<BarcodeScanScreen> {
         } catch (_) {}
       }
 
+      final purchaseDate = DateTime.now();
+      const warrantyMonths = 12;
       final item = Item(
         id: '',
         homeId: home.id,
@@ -123,7 +125,12 @@ class _BarcodeScanScreenState extends ConsumerState<BarcodeScanScreen> {
         barcode: _lookupResult!.barcode,
         category: category,
         productImageUrl: _lookupResult!.imageUrl,
-        purchaseDate: DateTime.now(),
+        purchaseDate: purchaseDate,
+        warrantyMonths: warrantyMonths,
+        // The server overwrites this from `purchase_date + warranty_months`,
+        // but the constructor now requires a non-null value (Ch08-Item-D010).
+        warrantyEndDate:
+            Item.computeWarrantyEndDate(purchaseDate, warrantyMonths),
         addedVia: ItemAddedVia.barcode_scan,
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),

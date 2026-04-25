@@ -17,24 +17,14 @@ const _defaultOfferingId = 'default';
 
 /// Whether the current user has a premium subscription.
 ///
-/// Checks both RevenueCat entitlements (source of truth for active subscriptions)
-/// and the user.plan from the API (server-side record). A user is premium if
-/// EITHER source confirms it, but the RevenueCat entitlement takes precedence
-/// for real-time status. The server is updated asynchronously via webhooks.
+/// Single source of truth: the `plan` field on the API-side user record.
+/// That field is kept current by RevenueCat webhooks (and by the
+/// `verify-premium` round-trip after a successful local purchase), so the
+/// client never needs to OR-join two sources that can disagree.
 final isPremiumProvider = Provider<bool>((ref) {
-  final revenueCatStatus = ref.watch(revenueCatPremiumStatusProvider);
   final user = ref.watch(currentUserProvider).value;
-  final userPlanIsPremium = user?.plan == UserPlan.premium;
-
-  // RevenueCat entitlement is the source of truth for active subscriptions.
-  // The server-side plan field is updated via webhooks and verify-premium.
-  return revenueCatStatus || userPlanIsPremium;
+  return user?.plan == UserPlan.premium;
 });
-
-/// Tracks whether RevenueCat reports an active premium entitlement.
-///
-/// Updated by [PremiumService] whenever customer info changes.
-final revenueCatPremiumStatusProvider = StateProvider<bool>((ref) => false);
 
 /// Service that manages the full in-app purchase lifecycle via RevenueCat.
 ///
@@ -86,18 +76,34 @@ class PremiumService {
   /// Handle customer info updates from RevenueCat.
   ///
   /// Called whenever the subscription state changes — initial purchase, renewal,
-  /// cancellation, expiration, billing issue, etc. Updates the local premium
-  /// status provider and triggers server-side verification.
+  /// cancellation, expiration, billing issue, etc. Triggers server-side
+  /// verification so the canonical `user.plan` field is brought in sync;
+  /// the local UI then re-reads from `currentUserProvider`.
   void _onCustomerInfoUpdated(CustomerInfo customerInfo) {
     final isPremium = customerInfo.entitlements.all[_premiumEntitlementId]?.isActive ?? false;
-    _ref.read(revenueCatPremiumStatusProvider.notifier).state = isPremium;
-
     debugPrint('[Premium] Customer info updated — premium: $isPremium');
 
-    // Sync status with the backend asynchronously
+    // Sync status with the backend asynchronously, then refresh the user
+    // record so `isPremiumProvider` (derived from user.plan) sees the
+    // updated value.
     if (isPremium) {
-      _verifyPremiumWithServer();
+      _verifyPremiumWithServer().then((_) {
+        _ref.invalidate(currentUserProvider);
+      });
+    } else {
+      // Entitlement lapsed — re-fetch the user so the server-side downgrade
+      // (handled by the RC webhook) is reflected locally.
+      _ref.invalidate(currentUserProvider);
     }
+  }
+
+  /// Resolve the active offering from RevenueCat (or null if none configured).
+  Future<Offering?> getActiveOffering() async {
+    if (!_initialized) {
+      throw StateError('PremiumService not initialized. Call initialize() first.');
+    }
+    final offerings = await Purchases.getOfferings();
+    return offerings.getOffering(_defaultOfferingId) ?? offerings.current;
   }
 
   /// Subscribe to premium by displaying the available offering and initiating
@@ -145,7 +151,6 @@ class PremiumService {
     final customerInfo = await Purchases.purchasePackage(package);
 
     final isPremium = customerInfo.entitlements.all[_premiumEntitlementId]?.isActive ?? false;
-    _ref.read(revenueCatPremiumStatusProvider.notifier).state = isPremium;
 
     if (isPremium) {
       await _verifyPremiumWithServer();
@@ -167,7 +172,6 @@ class PremiumService {
     final customerInfo = await Purchases.restorePurchases();
 
     final isPremium = customerInfo.entitlements.all[_premiumEntitlementId]?.isActive ?? false;
-    _ref.read(revenueCatPremiumStatusProvider.notifier).state = isPremium;
 
     if (isPremium) {
       await _verifyPremiumWithServer();
@@ -180,17 +184,22 @@ class PremiumService {
 
   /// Check the current subscription status from RevenueCat.
   ///
-  /// Updates the local premium status provider. Called during initialization
-  /// and can be called on-demand to refresh status.
+  /// Triggers server-side verification when premium so the canonical
+  /// `user.plan` field is kept in sync. Called during initialization and
+  /// can be called on-demand to refresh status.
   Future<void> checkSubscriptionStatus() async {
     if (!_initialized) return;
 
     try {
       final customerInfo = await Purchases.getCustomerInfo();
       final isPremium = customerInfo.entitlements.all[_premiumEntitlementId]?.isActive ?? false;
-      _ref.read(revenueCatPremiumStatusProvider.notifier).state = isPremium;
 
       debugPrint('[Premium] Subscription status check — premium: $isPremium');
+
+      if (isPremium) {
+        await _verifyPremiumWithServer();
+        _ref.invalidate(currentUserProvider);
+      }
     } catch (e) {
       debugPrint('[Premium] Failed to check subscription status: $e');
     }
@@ -216,9 +225,12 @@ class PremiumService {
       final appUserId = await Purchases.appUserID;
       final client = _ref.read(apiClientProvider);
 
-      await client.post('/api/v1/users/me/verify-premium', body: {
-        'revenueCatAppUserId': appUserId,
-      });
+      await client.post(
+        pathSegments: const ['api', 'v1', 'users', 'me', 'verify-premium'],
+        body: {
+          'revenueCatAppUserId': appUserId,
+        },
+      );
 
       debugPrint('[Premium] Server-side verification completed');
     } catch (e) {
@@ -264,7 +276,6 @@ class PremiumService {
       if (!isAnonymous) {
         await Purchases.logOut();
       }
-      _ref.read(revenueCatPremiumStatusProvider.notifier).state = false;
       debugPrint('[Premium] RevenueCat user logged out');
     } catch (e) {
       debugPrint('[Premium] RevenueCat logout failed: $e');

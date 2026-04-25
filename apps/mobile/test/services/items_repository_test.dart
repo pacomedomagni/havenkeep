@@ -3,7 +3,6 @@ import 'package:mockito/annotations.dart';
 import 'package:mockito/mockito.dart';
 import 'package:havenkeep_mobile/core/services/items_repository.dart';
 import 'package:api_client/api_client.dart';
-import 'package:shared_models/shared_models.dart';
 
 import '../helpers/test_helpers.dart';
 import 'items_repository_test.mocks.dart';
@@ -19,6 +18,9 @@ void main() {
   });
 
   /// Helper to create a valid item JSON response.
+  ///
+  /// Mirrors the API contract after Ch08-Item-D010: `purchase_date` and
+  /// `warranty_end_date` are both NOT NULL on the wire.
   Map<String, dynamic> itemJson({
     String id = 'item-1',
     String name = 'Test Item',
@@ -30,7 +32,9 @@ void main() {
       'user_id': 'user-1',
       'name': name,
       'category': category,
+      'purchase_date': '2026-01-01',
       'warranty_months': 12,
+      'warranty_end_date': '2027-01-01',
       'warranty_type': 'manufacturer',
       'is_archived': false,
       'added_via': 'manual',
@@ -42,7 +46,7 @@ void main() {
   group('ItemsRepository', () {
     group('getItems', () {
       test('sends page and limit parameters', () async {
-        when(mockClient.get('/api/v1/items', queryParams: anyNamed('queryParams')))
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'items'], queryParams: anyNamed('queryParams')))
             .thenAnswer((_) async => {
                   'data': [itemJson()],
                 });
@@ -52,8 +56,7 @@ void main() {
         expect(items, hasLength(1));
 
         // Verify pagination parameters were sent
-        final captured = verify(mockClient.get(
-          '/api/v1/items',
+        final captured = verify(mockClient.get(pathSegments: const ['api', 'v1', 'items'],
           queryParams: captureAnyNamed('queryParams'),
         )).captured.single as Map<String, String>;
         expect(captured['page'], '1');
@@ -68,7 +71,7 @@ void main() {
         final page2Items = [itemJson(id: 'item-100')];
 
         var callCount = 0;
-        when(mockClient.get('/api/v1/items', queryParams: anyNamed('queryParams')))
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'items'], queryParams: anyNamed('queryParams')))
             .thenAnswer((_) async {
           callCount++;
           return {
@@ -80,32 +83,30 @@ void main() {
 
         expect(items, hasLength(101));
         // Should have been called twice (page 1 and page 2)
-        verify(mockClient.get('/api/v1/items',
+        verify(mockClient.get(pathSegments: const ['api', 'v1', 'items'],
                 queryParams: anyNamed('queryParams')))
             .called(2);
       });
 
       test('filters by homeId when provided', () async {
-        when(mockClient.get('/api/v1/items', queryParams: anyNamed('queryParams')))
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'items'], queryParams: anyNamed('queryParams')))
             .thenAnswer((_) async => {'data': []});
 
         await repository.getItems(homeId: 'home-123');
 
-        final captured = verify(mockClient.get(
-          '/api/v1/items',
+        final captured = verify(mockClient.get(pathSegments: const ['api', 'v1', 'items'],
           queryParams: captureAnyNamed('queryParams'),
         )).captured.single as Map<String, String>;
         expect(captured['home_id'], 'home-123');
       });
 
       test('includes archived when requested', () async {
-        when(mockClient.get('/api/v1/items', queryParams: anyNamed('queryParams')))
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'items'], queryParams: anyNamed('queryParams')))
             .thenAnswer((_) async => {'data': []});
 
         await repository.getItems(includeArchived: true);
 
-        final captured = verify(mockClient.get(
-          '/api/v1/items',
+        final captured = verify(mockClient.get(pathSegments: const ['api', 'v1', 'items'],
           queryParams: captureAnyNamed('queryParams'),
         )).captured.single as Map<String, String>;
         // Should NOT have 'archived': 'false' when includeArchived is true
@@ -115,7 +116,7 @@ void main() {
 
     group('getItemById', () {
       test('fetches single item by ID', () async {
-        when(mockClient.get('/api/v1/items/item-1'))
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'items', 'item-1']))
             .thenAnswer((_) async => {
                   'data': itemJson(id: 'item-1', name: 'My Fridge'),
                 });
@@ -124,13 +125,13 @@ void main() {
 
         expect(item.id, 'item-1');
         expect(item.name, 'My Fridge');
-        verify(mockClient.get('/api/v1/items/item-1')).called(1);
+        verify(mockClient.get(pathSegments: const ['api', 'v1', 'items', 'item-1'])).called(1);
       });
     });
 
     group('getItemsWithStatus', () {
       test('fetches items with pagination and non-archived filter', () async {
-        when(mockClient.get('/api/v1/items', queryParams: anyNamed('queryParams')))
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'items'], queryParams: anyNamed('queryParams')))
             .thenAnswer((_) async => {
                   'data': [
                     itemJson(id: 'item-1'),
@@ -142,8 +143,7 @@ void main() {
 
         expect(items, hasLength(2));
 
-        final captured = verify(mockClient.get(
-          '/api/v1/items',
+        final captured = verify(mockClient.get(pathSegments: const ['api', 'v1', 'items'],
           queryParams: captureAnyNamed('queryParams'),
         )).captured.single as Map<String, String>;
         expect(captured['archived'], 'false');
@@ -152,13 +152,12 @@ void main() {
       });
 
       test('filters by homeId when provided', () async {
-        when(mockClient.get('/api/v1/items', queryParams: anyNamed('queryParams')))
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'items'], queryParams: anyNamed('queryParams')))
             .thenAnswer((_) async => {'data': []});
 
         await repository.getItemsWithStatus(homeId: 'home-42');
 
-        final captured = verify(mockClient.get(
-          '/api/v1/items',
+        final captured = verify(mockClient.get(pathSegments: const ['api', 'v1', 'items'],
           queryParams: captureAnyNamed('queryParams'),
         )).captured.single as Map<String, String>;
         expect(captured['home_id'], 'home-42');
@@ -169,7 +168,7 @@ void main() {
       test('sends POST request and returns created item', () async {
         final item = TestHelpers.createTestItem(name: 'New Item');
 
-        when(mockClient.post('/api/v1/items', body: anyNamed('body')))
+        when(mockClient.post(pathSegments: const ['api', 'v1', 'items'], body: anyNamed('body')))
             .thenAnswer((_) async => {
                   'data': itemJson(id: 'created-1', name: 'New Item'),
                 });
@@ -178,7 +177,7 @@ void main() {
 
         expect(created.id, 'created-1');
         expect(created.name, 'New Item');
-        verify(mockClient.post('/api/v1/items', body: anyNamed('body')))
+        verify(mockClient.post(pathSegments: const ['api', 'v1', 'items'], body: anyNamed('body')))
             .called(1);
       });
     });
@@ -190,7 +189,7 @@ void main() {
           name: 'Updated Item',
         );
 
-        when(mockClient.put('/api/v1/items/item-1', body: anyNamed('body')))
+        when(mockClient.put(pathSegments: const ['api', 'v1', 'items', 'item-1'], body: anyNamed('body')))
             .thenAnswer((_) async => {
                   'data': itemJson(id: 'item-1', name: 'Updated Item'),
                 });
@@ -200,8 +199,7 @@ void main() {
         expect(updated.name, 'Updated Item');
 
         // Verify body does not include read-only fields
-        final captured = verify(mockClient.put(
-          '/api/v1/items/item-1',
+        final captured = verify(mockClient.put(pathSegments: const ['api', 'v1', 'items', 'item-1'],
           body: captureAnyNamed('body'),
         )).captured.single as Map<String, dynamic>;
         expect(captured.containsKey('warranty_end_date'), isFalse);
@@ -214,16 +212,16 @@ void main() {
 
     group('deleteItem', () {
       test('sends DELETE request to correct endpoint', () async {
-        when(mockClient.delete('/api/v1/items/item-1'))
+        when(mockClient.delete(pathSegments: const ['api', 'v1', 'items', 'item-1']))
             .thenAnswer((_) async => {});
 
         await repository.deleteItem('item-1');
 
-        verify(mockClient.delete('/api/v1/items/item-1')).called(1);
+        verify(mockClient.delete(pathSegments: const ['api', 'v1', 'items', 'item-1'])).called(1);
       });
 
       test('rethrows errors from API', () async {
-        when(mockClient.delete('/api/v1/items/item-1'))
+        when(mockClient.delete(pathSegments: const ['api', 'v1', 'items', 'item-1']))
             .thenThrow(ApiException(404, 'Not found'));
 
         expect(
@@ -235,12 +233,12 @@ void main() {
 
     group('archiveItem', () {
       test('sends PUT with is_archived true', () async {
-        when(mockClient.put('/api/v1/items/item-1', body: anyNamed('body')))
+        when(mockClient.put(pathSegments: const ['api', 'v1', 'items', 'item-1'], body: anyNamed('body')))
             .thenAnswer((_) async => {});
 
         await repository.archiveItem('item-1');
 
-        verify(mockClient.put('/api/v1/items/item-1', body: {
+        verify(mockClient.put(pathSegments: const ['api', 'v1', 'items', 'item-1'], body: {
           'is_archived': true,
         })).called(1);
       });
@@ -248,12 +246,12 @@ void main() {
 
     group('unarchiveItem', () {
       test('sends PUT with is_archived false', () async {
-        when(mockClient.put('/api/v1/items/item-1', body: anyNamed('body')))
+        when(mockClient.put(pathSegments: const ['api', 'v1', 'items', 'item-1'], body: anyNamed('body')))
             .thenAnswer((_) async => {});
 
         await repository.unarchiveItem('item-1');
 
-        verify(mockClient.put('/api/v1/items/item-1', body: {
+        verify(mockClient.put(pathSegments: const ['api', 'v1', 'items', 'item-1'], body: {
           'is_archived': false,
         })).called(1);
       });
@@ -261,7 +259,7 @@ void main() {
 
     group('getWarrantyStats', () {
       test('parses dashboard summary into stats map', () async {
-        when(mockClient.get('/api/v1/stats/dashboard'))
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'stats', 'dashboard']))
             .thenAnswer((_) async => {
                   'data': {
                     'active_warranties': 10,
@@ -279,7 +277,7 @@ void main() {
       });
 
       test('throws when dashboard summary is null', () async {
-        when(mockClient.get('/api/v1/stats/dashboard'))
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'stats', 'dashboard']))
             .thenAnswer((_) async => {'data': null});
 
         expect(
@@ -291,7 +289,7 @@ void main() {
 
     group('getNeedsAttention', () {
       test('fetches items needing attention with limit', () async {
-        when(mockClient.get('/api/v1/stats/items-needing-attention',
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'stats', 'items-needing-attention'],
                 queryParams: anyNamed('queryParams')))
             .thenAnswer((_) async => {
                   'data': [
@@ -308,7 +306,7 @@ void main() {
 
     group('countActiveItems', () {
       test('returns count from API', () async {
-        when(mockClient.get('/api/v1/items/count'))
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'items', 'count']))
             .thenAnswer((_) async => {
                   'data': {'count': 42},
                 });

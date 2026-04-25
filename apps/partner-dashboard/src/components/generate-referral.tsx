@@ -63,7 +63,12 @@ export default function GenerateReferral({ isOpen, onClose }: GenerateReferralPr
 
   if (!isOpen) return null;
 
-  const shareableLink = code ? `${process.env.NEXT_PUBLIC_APP_URL || 'https://havenkeep.app'}/referral/${code}` : '';
+  // Audit Ch10-W051: the previous fallback used the wrong TLD (`havenkeep.app`).
+  // The marketing site lives at `havenkeep.com`; that is the only correct
+  // public origin for referral links.
+  const shareableLink = code
+    ? `${process.env.NEXT_PUBLIC_APP_URL || 'https://havenkeep.com'}/referral/${encodeURIComponent(code)}`
+    : '';
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 px-4">

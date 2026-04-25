@@ -252,19 +252,18 @@ class _ItemDetailBody extends ConsumerWidget {
                   ),
                 ),
 
-                // Expiry date (always visible)
-                if (item.warrantyEndDate != null) ...[
-                  const SizedBox(height: HavenSpacing.sm),
-                  Text(
-                    status == WarrantyStatus.expired
-                        ? 'Expired ${_formatDate(item.warrantyEndDate!)}'
-                        : 'Expires ${_formatDate(item.warrantyEndDate!)}',
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: HavenColors.textSecondary,
-                    ),
+                // Expiry date (always visible — generated NOT NULL on the API
+                // side after Ch08-Item-D010).
+                const SizedBox(height: HavenSpacing.sm),
+                Text(
+                  status == WarrantyStatus.expired
+                      ? 'Expired ${_formatDate(item.warrantyEndDate)}'
+                      : 'Expires ${_formatDate(item.warrantyEndDate)}',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: HavenColors.textSecondary,
                   ),
-                ],
+                ),
 
                 const SizedBox(height: HavenSpacing.lg),
               ],

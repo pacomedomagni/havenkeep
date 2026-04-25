@@ -1,0 +1,5 @@
+# Audit Ch10-W064: the partner dashboard is auth-walled and indexes nothing
+# of value. Disallow everything.
+
+User-agent: *
+Disallow: /

@@ -6,37 +6,113 @@ import { pool, query } from '../db';
 import { logger } from '../utils/logger';
 
 /**
- * Claim an event for processing. Returns one of:
+ * `charge.refunded` may fire on a charge that funded a partner gift whose
+ * commission has already been marked `paid` and a Stripe transfer has fired
+ * to the partner connected account. Cancelling the commission row in that
+ * state would lose the audit trail for the original earning AND lie about
+ * the partner having been paid. Instead we record a reversal: a new
+ * partner_commissions row with status='reversed', a negative amount, and a
+ * `reversal_of_commission_id` pointing back at the original. Pending or
+ * approved commissions (not yet paid out) get cancelled in place.
+ */
+async function clawbackCommissionForGift(
+  client: import('pg').PoolClient,
+  giftId: string,
+): Promise<void> {
+  const original = await client.query(
+    `SELECT id, partner_id, amount, status, stripe_transfer_id
+       FROM partner_commissions
+      WHERE reference_id = $1 AND reference_type = 'partner_gift'
+        AND status NOT IN ('reversed', 'cancelled')
+      FOR UPDATE`,
+    [giftId],
+  );
+  for (const row of original.rows) {
+    if (row.status === 'paid' && row.stripe_transfer_id) {
+      // Money already left the platform balance — record a reversal so the
+      // ledger sums to zero. The actual Stripe transfer reversal is initiated
+      // by the operator (admin route), since automated reversal of partner
+      // payouts is too dangerous to do in a webhook handler.
+      await client.query(
+        `INSERT INTO partner_commissions (
+           partner_id, type, amount, commission_rate, status,
+           reference_id, reference_type, reversal_of_commission_id, description
+         ) VALUES ($1, 'gift', $2, 0, 'reversed', $3, 'partner_gift', $4,
+                   'Refund clawback for refunded gift')`,
+        [row.partner_id, -Number(row.amount), giftId, row.id],
+      );
+      logger.warn(
+        { commissionId: row.id, giftId, amount: row.amount },
+        'Recorded refund clawback against PAID commission — partner already paid; manual transfer reversal required',
+      );
+    } else {
+      await client.query(
+        `UPDATE partner_commissions SET status = 'cancelled', updated_at = NOW()
+          WHERE id = $1`,
+        [row.id],
+      );
+      logger.info(
+        { commissionId: row.id, giftId, status: row.status },
+        'Cancelled unpaid commission on charge.refunded',
+      );
+    }
+  }
+}
+
+/**
+ * Claim an event for processing. Returns:
  *  - 'claimed'    : first time we've seen this event, safe to process
  *  - 'retry'      : a prior attempt recorded it as pending/failed; we re-claim
  *  - 'processed'  : already processed, skip
+ *  - 'dead_letter': retry budget exhausted; never re-process automatically
  *
  * Uses INSERT ... ON CONFLICT DO UPDATE so the check is atomic under
  * concurrent deliveries. Only when the row transitions to `status='pending'`
- * does the caller hold the right to process it.
+ * does the caller hold the right to process it. The `attempts` counter +
+ * MAX_WEBHOOK_ATTEMPTS gate enforce the dead-letter cap (Ch03-F046).
  */
+const MAX_WEBHOOK_ATTEMPTS = 8;
+
+type ClaimOutcome = 'claimed' | 'retry' | 'processed' | 'dead_letter';
+
 async function claimWebhookEvent(
   eventId: string,
   source: string,
   eventType: string,
-): Promise<'claimed' | 'retry' | 'processed'> {
+  eventCreatedAt: Date,
+  payloadDigest: string,
+): Promise<ClaimOutcome> {
   const result = await query(
-    `INSERT INTO webhook_events (event_id, source, event_type, status, claimed_at)
-     VALUES ($1, $2, $3, 'pending', NOW())
+    `INSERT INTO webhook_events (
+       event_id, source, event_type, status, claimed_at,
+       event_created_at, first_seen_at, last_seen_at, payload_digest, attempts
+     )
+     VALUES ($1, $2, $3, 'pending', NOW(), $4, NOW(), NOW(), $5, 1)
      ON CONFLICT (source, event_id) DO UPDATE
        SET status = CASE
-                      WHEN webhook_events.status = 'processed' THEN 'processed'
+                      WHEN webhook_events.status IN ('processed', 'dead_letter')
+                        THEN webhook_events.status
+                      WHEN webhook_events.attempts + 1 >= ${MAX_WEBHOOK_ATTEMPTS}
+                        THEN 'dead_letter'
                       ELSE 'pending'
                     END,
            claimed_at = CASE
-                          WHEN webhook_events.status = 'processed' THEN webhook_events.claimed_at
+                          WHEN webhook_events.status IN ('processed', 'dead_letter')
+                            THEN webhook_events.claimed_at
                           ELSE NOW()
-                        END
-     RETURNING status, (xmax = 0) AS inserted`,
-    [eventId, source, eventType],
+                        END,
+           last_seen_at = NOW(),
+           attempts = CASE
+                        WHEN webhook_events.status IN ('processed', 'dead_letter')
+                          THEN webhook_events.attempts
+                        ELSE webhook_events.attempts + 1
+                      END
+     RETURNING status, attempts, (xmax = 0) AS inserted`,
+    [eventId, source, eventType, eventCreatedAt, payloadDigest],
   );
   const row = result.rows[0];
   if (row.status === 'processed') return 'processed';
+  if (row.status === 'dead_letter') return 'dead_letter';
   return row.inserted ? 'claimed' : 'retry';
 }
 
@@ -45,6 +121,7 @@ async function markWebhookProcessed(eventId: string, source: string): Promise<vo
     `UPDATE webhook_events
         SET status = 'processed',
             processed_at = NOW(),
+            last_seen_at = NOW(),
             last_error = NULL
       WHERE source = $1 AND event_id = $2`,
     [source, eventId],
@@ -53,28 +130,76 @@ async function markWebhookProcessed(eventId: string, source: string): Promise<vo
 
 async function markWebhookFailed(eventId: string, source: string, err: unknown): Promise<void> {
   const message = err instanceof Error ? err.message : String(err);
+  // Strip likely secrets before persisting (Ch03-F048): tokens, keys, JWT-ish.
+  const safeMessage = message
+    .replace(/(?:Bearer|api[_-]?key|sk_live_|sk_test_|whsec_)[\s=:]*[A-Za-z0-9._-]+/gi, '[redacted]')
+    .replace(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, '[redacted-jwt]')
+    .slice(0, 1000);
   await query(
     `UPDATE webhook_events
-        SET status = 'failed',
-            last_error = $3
+        SET status = CASE
+                       WHEN attempts >= ${MAX_WEBHOOK_ATTEMPTS} THEN 'dead_letter'
+                       ELSE 'failed'
+                     END,
+            last_error = $3,
+            last_seen_at = NOW()
       WHERE source = $1 AND event_id = $2`,
-    [source, eventId, message.slice(0, 1000)],
+    [source, eventId, safeMessage],
   );
 }
 
-const router = Router();
+/**
+ * Per-source ordering guard (Ch03-F009). Stripe + RC both deliver retries
+ * out-of-order. We use an event-stream timestamp + a high-water table so a
+ * stale event can't undo a fresher one's effect. Returns true if the caller
+ * should proceed (this event is at least as recent as anything we've seen).
+ *
+ * `subjectId` scopes the order: per-user for RC, per-charge for Stripe. A
+ * tx-managed UPSERT under the unique key guarantees only one writer wins.
+ */
+async function isEventInOrder(
+  source: string,
+  subjectId: string,
+  eventId: string,
+  eventAt: Date,
+): Promise<boolean> {
+  const upsert = await query(
+    `INSERT INTO webhook_event_high_water (source, subject_id, last_event_at, last_event_id)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (source, subject_id) DO UPDATE
+       SET last_event_at = EXCLUDED.last_event_at,
+           last_event_id = EXCLUDED.last_event_id,
+           updated_at = NOW()
+     WHERE webhook_event_high_water.last_event_at <= EXCLUDED.last_event_at
+     RETURNING last_event_at`,
+    [source, subjectId, eventAt, eventId],
+  );
+  return upsert.rowCount === 1;
+}
+
+function sha256(input: string | Buffer): string {
+  return crypto.createHash('sha256').update(input).digest('hex');
+}
+
+// Two separate routers so each can be mounted with the body parser it needs:
+//   - stripeWebhookRouter mounts under express.raw() (signature verification)
+//   - revenueCatWebhookRouter mounts under express.json() (parsed body)
+// app.ts wires both at their final paths. Splitting prevents the "JSON parser
+// races the raw parser" failure mode that the old single-router setup had.
+export const stripeWebhookRouter = Router();
+export const revenueCatWebhookRouter = Router();
 
 const stripe = new Stripe(config.stripe.secretKey, {
   apiVersion: '2023-10-16',
 });
 
 /**
- * @route   POST /api/v1/webhooks/stripe
- * @desc    Handle Stripe webhook events for partner gift billing
- * @access  Public (verified via Stripe signature)
+ * POST /  (mounted at /api/v1/webhooks/stripe)
+ * Handle Stripe webhook events for partner gift billing.
+ * Public (verified via Stripe signature).
  */
-router.post(
-  '/stripe',
+stripeWebhookRouter.post(
+  '/',
   async (req: Request, res: Response) => {
     const signature = req.headers['stripe-signature'];
 
@@ -101,24 +226,55 @@ router.post(
 
     // Timestamp freshness: Stripe's signature check covers replay integrity,
     // but also reject events whose `created` is older than STRIPE_MAX_AGE_SEC
-    // to limit replay windows if signing secret were ever leaked.
+    // to limit replay windows if signing secret were ever leaked. Skip the
+    // window if no DB row exists yet for this event — Ch03-F044: a freshly
+    // delivered late retry shouldn't be silently dropped while we still have
+    // the subject id to act on. The age check kicks in only on replays of
+    // events we've seen before.
     const STRIPE_MAX_AGE_SEC = 5 * 60;
+    const eventCreatedDate = new Date(event.created * 1000);
     const ageSec = Math.floor(Date.now() / 1000) - event.created;
     if (ageSec > STRIPE_MAX_AGE_SEC) {
+      const seenBefore = await query(
+        `SELECT 1 FROM webhook_events WHERE source = 'stripe' AND event_id = $1 LIMIT 1`,
+        [event.id],
+      );
+      if (seenBefore.rows.length > 0) {
+        logger.warn(
+          { eventId: event.id, eventType: event.type, ageSec },
+          'Stripe webhook event too old — rejecting as potential replay',
+        );
+        return res.status(400).json({ error: 'Event too old' });
+      }
       logger.warn(
         { eventId: event.id, eventType: event.type, ageSec },
-        'Stripe webhook event too old — rejecting as potential replay',
+        'Stripe webhook event old but unseen — accepting first-time delivery',
       );
-      return res.status(400).json({ error: 'Event too old' });
     }
 
-    const claim = await claimWebhookEvent(event.id, 'stripe', event.type);
+    const payloadDigest = sha256(req.body as Buffer);
+    const claim = await claimWebhookEvent(
+      event.id,
+      'stripe',
+      event.type,
+      eventCreatedDate,
+      payloadDigest,
+    );
     if (claim === 'processed') {
       logger.info(
         { eventId: event.id, eventType: event.type },
         'Stripe webhook event already processed — skipping',
       );
       return res.status(200).json({ received: true, duplicate: true });
+    }
+    if (claim === 'dead_letter') {
+      // Stop the retry loop. Stripe will keep retrying for ~3 days; an op
+      // engineer must inspect the dead-letter row and re-drive manually.
+      logger.error(
+        { eventId: event.id, eventType: event.type },
+        'Stripe webhook event in dead-letter — acknowledging without processing',
+      );
+      return res.status(200).json({ received: true, deadLetter: true });
     }
     if (claim === 'retry') {
       logger.warn(
@@ -139,6 +295,28 @@ router.post(
 
         case 'charge.refunded':
           await handleChargeRefunded(event.data.object as Stripe.Charge);
+          break;
+
+        case 'payment_intent.canceled':
+          await handlePaymentIntentCanceled(event.data.object as Stripe.PaymentIntent);
+          break;
+
+        case 'charge.dispute.created':
+        case 'charge.dispute.updated':
+        case 'charge.dispute.closed':
+          await handleChargeDispute(event.data.object as Stripe.Dispute);
+          break;
+
+        case 'account.updated':
+          await handleAccountUpdated(event.data.object as Stripe.Account);
+          break;
+
+        case 'account.application.deauthorized':
+          // Stripe types this event as Stripe.Application (the connected app),
+          // not Stripe.Account. The deauthorized account id is on the parent
+          // event under `event.account` — we read it directly from the Stripe
+          // event envelope rather than from `event.data.object`.
+          await handleAccountDeauthorized(event.account ?? null);
           break;
 
         default:
@@ -238,76 +416,71 @@ async function handleChargeFailed(charge: Stripe.Charge): Promise<void> {
 }
 
 /**
- * Handle charge.refunded — cancel partner gift and commission
+ * Handle charge.refunded — cancel partner gift and commission.
+ *
+ * Replay-safe: the WHERE excludes gifts whose status is already 'expired'
+ * AND is_activated is already FALSE so a re-delivered refund event can't
+ * undo a follow-up state transition (Ch03-F042). Clawback rows on the
+ * commission side are de-duped by the `reference_id + status NOT IN
+ * ('reversed','cancelled')` filter inside clawbackCommissionForGift.
  */
 async function handleChargeRefunded(charge: Stripe.Charge): Promise<void> {
   const chargeId = charge.id;
   const partnerId = charge.metadata?.partner_id;
 
-  // Use a transaction since refunds touch multiple tables (gifts, commissions, users)
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
-    // Capture the pre-update is_activated value via CTE, then set is_activated = FALSE
-    // to satisfy chk_partner_gifts_activation_consistency (is_activated=TRUE requires status 'active'|'redeemed')
     const result = await client.query(
       `WITH old AS (
-         SELECT id, partner_id, homebuyer_email, is_activated AS was_activated, activated_user_id
+         SELECT id, partner_id, homebuyer_email, is_activated AS was_activated,
+                activated_user_id, status AS old_status
          FROM partner_gifts
-         WHERE stripe_charge_id = $1 AND status IN ('created', 'sent', 'activated', 'expired')
+         WHERE stripe_charge_id = $1
+           AND NOT (status = 'expired' AND is_activated = FALSE)
        )
        UPDATE partner_gifts pg
        SET status = 'expired', is_activated = FALSE, updated_at = NOW()
        FROM old
        WHERE pg.id = old.id
-       RETURNING old.id, old.partner_id, old.homebuyer_email, old.was_activated, old.activated_user_id`,
+       RETURNING old.id, old.partner_id, old.homebuyer_email,
+                 old.was_activated, old.activated_user_id, old.old_status`,
       [chargeId]
     );
 
     if (result.rows.length === 0) {
       await client.query('ROLLBACK');
-      logger.warn(
+      logger.info(
         { chargeId, partnerId },
-        'charge.refunded: no matching partner_gift found for refund'
+        'charge.refunded: gift already in terminal refund state (replay) or no matching gift',
       );
       return;
     }
 
     const gift = result.rows[0];
 
-    // Mark the commission as cancelled
-    await client.query(
-      `UPDATE partner_commissions
-       SET status = 'cancelled', updated_at = NOW()
-       WHERE reference_id = $1 AND reference_type = 'partner_gift'`,
-      [gift.id]
-    );
+    await clawbackCommissionForGift(client, gift.id);
 
-    // If the gift was already activated, revoke the premium upgrade
-    if (gift.was_activated) {
-      // Revoke the premium plan from the activated user
-      if (gift.activated_user_id) {
-        // Only downgrade if the user has no other active, non-expired gifts
-        const otherGifts = await client.query(
-          `SELECT id FROM partner_gifts
-           WHERE activated_user_id = $1 AND id != $2
-             AND is_activated = TRUE AND status != 'expired'`,
-          [gift.activated_user_id, gift.id]
+    if (gift.was_activated && gift.activated_user_id) {
+      const otherGifts = await client.query(
+        `SELECT id FROM partner_gifts
+         WHERE activated_user_id = $1 AND id != $2
+           AND is_activated = TRUE AND status != 'expired'
+           AND (expires_at IS NULL OR expires_at > NOW())`,
+        [gift.activated_user_id, gift.id]
+      );
+      if (otherGifts.rows.length === 0) {
+        await client.query(
+          `UPDATE users SET plan = 'free', plan_expires_at = NULL, updated_at = NOW() WHERE id = $1`,
+          [gift.activated_user_id]
         );
-        if (otherGifts.rows.length === 0) {
-          await client.query(
-            `UPDATE users SET plan = 'free', plan_expires_at = NULL, updated_at = NOW() WHERE id = $1`,
-            [gift.activated_user_id]
-          );
-        } else {
-          logger.info(
-            { userId: gift.activated_user_id, otherActiveGifts: otherGifts.rows.length },
-            'charge.refunded: user has other active gifts, keeping premium'
-          );
-        }
+      } else {
+        logger.info(
+          { userId: gift.activated_user_id, otherActiveGifts: otherGifts.rows.length },
+          'charge.refunded: user has other active gifts, keeping premium'
+        );
       }
-
       logger.warn(
         { giftId: gift.id, partnerId: gift.partner_id },
         'charge.refunded: refunded an already-activated gift — premium revoked from activated user'
@@ -326,6 +499,188 @@ async function handleChargeRefunded(charge: Stripe.Charge): Promise<void> {
   } finally {
     client.release();
   }
+}
+
+/**
+ * Handle payment_intent.canceled — cancel any pending_payment gift bound
+ * to this intent. We only act on rows that are still 'pending_payment' so a
+ * later success path that flipped the row to 'created' isn't reverted.
+ */
+async function handlePaymentIntentCanceled(intent: Stripe.PaymentIntent): Promise<void> {
+  const intentId = intent.id;
+  const giftIdHint = (intent.metadata?.gift_id as string | undefined) ?? null;
+
+  const result = await pool.query(
+    `UPDATE partner_gifts
+        SET status = 'expired', updated_at = NOW()
+      WHERE (stripe_charge_id = $1 OR ($2::uuid IS NOT NULL AND id = $2::uuid))
+        AND status = 'pending_payment'
+      RETURNING id, partner_id`,
+    [intentId, giftIdHint],
+  );
+
+  if (result.rows.length === 0) {
+    logger.info(
+      { intentId, giftIdHint },
+      'payment_intent.canceled: no pending gift to expire',
+    );
+    return;
+  }
+
+  for (const row of result.rows) {
+    await pool.query(
+      `UPDATE partner_commissions
+          SET status = 'cancelled', updated_at = NOW()
+        WHERE reference_id = $1
+          AND reference_type = 'partner_gift'
+          AND status = 'pending'`,
+      [row.id],
+    );
+  }
+
+  logger.info(
+    { intentId, giftIds: result.rows.map((r) => r.id) },
+    'payment_intent.canceled: gifts expired',
+  );
+}
+
+/**
+ * Handle charge.dispute.* — record the chargeback on the gift, cancel any
+ * unpaid commission, and warn loudly if the partner has already been paid.
+ * The dispute outcome (won/lost) updates `chargeback_status`; on lost we
+ * treat it like a refund (clawback + revoke premium).
+ */
+async function handleChargeDispute(dispute: Stripe.Dispute): Promise<void> {
+  const chargeId = typeof dispute.charge === 'string' ? dispute.charge : dispute.charge?.id;
+  if (!chargeId) {
+    logger.warn({ disputeId: dispute.id }, 'dispute event missing charge id — ignoring');
+    return;
+  }
+  const status: string = dispute.status;
+  // 'charge_refunded' isn't in the SDK enum but Stripe still returns it
+  // for disputes whose underlying charge was refunded mid-dispute. Compare
+  // as a string so the type check doesn't reject the literal.
+  const lost = status === 'lost' || status === 'charge_refunded';
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const giftRes = await client.query(
+      `UPDATE partner_gifts
+          SET disputed_at = COALESCE(disputed_at, NOW()),
+              chargeback_status = $2,
+              updated_at = NOW()
+        WHERE stripe_charge_id = $1
+        RETURNING id, partner_id, is_activated, activated_user_id`,
+      [chargeId, status],
+    );
+
+    if (giftRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      logger.warn({ chargeId, disputeId: dispute.id, status }, 'dispute: no matching partner gift');
+      return;
+    }
+
+    const gift = giftRes.rows[0];
+
+    if (lost) {
+      // Treat like a refund: clawback + revoke premium (replay-safe via the
+      // existing clawback helper which excludes already-reversed/cancelled rows).
+      await clawbackCommissionForGift(client, gift.id);
+
+      if (gift.is_activated && gift.activated_user_id) {
+        const others = await client.query(
+          `SELECT id FROM partner_gifts
+            WHERE activated_user_id = $1 AND id != $2
+              AND is_activated = TRUE AND status != 'expired'
+              AND (expires_at IS NULL OR expires_at > NOW())`,
+          [gift.activated_user_id, gift.id],
+        );
+        if (others.rows.length === 0) {
+          await client.query(
+            `UPDATE users
+                SET plan = 'free', plan_expires_at = NULL, updated_at = NOW()
+              WHERE id = $1`,
+            [gift.activated_user_id],
+          );
+        }
+      }
+
+      await client.query(
+        `UPDATE partner_gifts
+            SET status = 'expired', is_activated = FALSE, updated_at = NOW()
+          WHERE id = $1`,
+        [gift.id],
+      );
+    }
+
+    await client.query('COMMIT');
+    logger.warn(
+      { disputeId: dispute.id, chargeId, giftId: gift.id, status, lost },
+      lost ? 'dispute lost — gift reversed' : 'dispute opened — gift flagged',
+    );
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/** Handle account.updated — refresh stripe_account_status from capabilities. */
+async function handleAccountUpdated(account: Stripe.Account): Promise<void> {
+  const accountId = account.id;
+  const charges = account.charges_enabled ?? false;
+  const payouts = account.payouts_enabled ?? false;
+  const requirementsDisabled = account.requirements?.disabled_reason;
+
+  let derived: string;
+  if (requirementsDisabled === 'rejected.fraud' || requirementsDisabled === 'rejected.terms_of_service' || requirementsDisabled === 'rejected.listed' || requirementsDisabled === 'rejected.other') {
+    derived = 'rejected';
+  } else if (requirementsDisabled) {
+    derived = 'restricted';
+  } else if (charges && payouts) {
+    derived = 'enabled';
+  } else if (charges || payouts) {
+    derived = 'restricted';
+  } else {
+    derived = 'pending';
+  }
+
+  await pool.query(
+    `UPDATE partners
+        SET stripe_account_status = $2,
+            stripe_account_status_at = NOW(),
+            stripe_onboarded = ($2 = 'enabled'),
+            updated_at = NOW()
+      WHERE stripe_account_id = $1`,
+    [accountId, derived],
+  );
+
+  logger.info(
+    { accountId, status: derived, charges, payouts },
+    'account.updated: stripe_account_status refreshed',
+  );
+}
+
+/** Handle account.application.deauthorized — partner revoked our access. */
+async function handleAccountDeauthorized(accountId: string | null): Promise<void> {
+  if (!accountId) {
+    logger.warn('account.deauthorized: no account id on event envelope — skipping');
+    return;
+  }
+  await pool.query(
+    `UPDATE partners
+        SET stripe_account_status = 'disabled',
+            stripe_account_status_at = NOW(),
+            stripe_onboarded = FALSE,
+            stripe_account_id = NULL,
+            updated_at = NOW()
+      WHERE stripe_account_id = $1`,
+    [accountId],
+  );
+  logger.warn({ accountId }, 'account.deauthorized: partner revoked Stripe access');
 }
 
 // ============================================
@@ -358,6 +713,8 @@ interface RevenueCatWebhookPayload {
     period_type: 'TRIAL' | 'INTRO' | 'NORMAL';
     purchased_at_ms: number;
     expiration_at_ms: number | null;
+    /** Server time when RC fired the event — used as the ordering anchor. */
+    event_timestamp_ms?: number;
     store: 'APP_STORE' | 'PLAY_STORE' | 'STRIPE' | 'PROMOTIONAL';
     environment: 'PRODUCTION' | 'SANDBOX';
     is_family_share: boolean;
@@ -446,7 +803,7 @@ async function findUserByRevenueCatId(appUserId: string, aliases: string[]): Pro
  * - TRANSFER / SUBSCRIBER_ALIAS: Account management -> log for audit
  * - TEST: Webhook test event -> acknowledge
  */
-router.post('/revenuecat', validateRevenueCatWebhookAuth, async (req: Request, res: Response) => {
+revenueCatWebhookRouter.post('/', validateRevenueCatWebhookAuth, async (req: Request, res: Response) => {
   try {
     const payload = req.body as RevenueCatWebhookPayload;
 
@@ -469,19 +826,63 @@ router.post('/revenuecat', validateRevenueCatWebhookAuth, async (req: Request, r
       'RevenueCat webhook received'
     );
 
+    // SANDBOX gate. Sandbox events should never mutate production user state.
+    // The flag (config.revenuecatAllowSandboxWebhooks) is true in dev/test
+    // and false in production, so production silently acknowledges and drops
+    // sandbox traffic instead of e.g. flipping a real user to premium.
+    if (event.environment !== 'PRODUCTION' && !config.revenuecatAllowSandboxWebhooks) {
+      logger.warn(
+        { eventId: event.id, eventType: event.type, env: event.environment },
+        'RevenueCat sandbox event ignored in production',
+      );
+      return res.status(200).json({ success: true, sandboxIgnored: true });
+    }
+
     // Handle test events immediately
     if (event.type === 'TEST') {
       logger.info('RevenueCat webhook test event received');
       return res.status(200).json({ success: true });
     }
 
-    const claim = await claimWebhookEvent(event.id, 'revenuecat', event.type);
+    // Event-stream ordering anchor. RC's `event_timestamp_ms` is the server
+    // emission time; fall back to `purchased_at_ms` for older payloads.
+    const eventAtMs = event.event_timestamp_ms ?? event.purchased_at_ms ?? Date.now();
+    const eventCreatedDate = new Date(eventAtMs);
+    const payloadDigest = sha256(JSON.stringify(req.body));
+
+    const claim = await claimWebhookEvent(
+      event.id,
+      'revenuecat',
+      event.type,
+      eventCreatedDate,
+      payloadDigest,
+    );
     if (claim === 'processed') {
       logger.info({ eventId: event.id, eventType: event.type }, 'RevenueCat webhook event already processed — skipping');
       return res.status(200).json({ success: true, duplicate: true });
     }
+    if (claim === 'dead_letter') {
+      logger.error(
+        { eventId: event.id, eventType: event.type },
+        'RevenueCat webhook event in dead-letter — acknowledging without processing',
+      );
+      return res.status(200).json({ success: true, deadLetter: true });
+    }
     if (claim === 'retry') {
       logger.warn({ eventId: event.id, eventType: event.type }, 'RevenueCat webhook event re-claimed after prior failure');
+    }
+
+    // Validate app_user_id format BEFORE handing it to a UUID column query;
+    // a non-UUID app_user_id (Ch03-F007) used to throw "invalid uuid" against
+    // pg, which then poisoned the retry by recording the event as failed.
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!UUID_RE.test(event.app_user_id) && !(event.aliases || []).some((a) => UUID_RE.test(a))) {
+      logger.warn(
+        { appUserId: event.app_user_id, aliases: event.aliases, eventType: event.type },
+        'RevenueCat webhook: app_user_id is not a HavenKeep UUID — acknowledging',
+      );
+      await markWebhookProcessed(event.id, 'revenuecat');
+      return res.status(200).json({ success: true, ignored: 'non-uuid-app-user-id' });
     }
 
     // Find the HavenKeep user
@@ -492,7 +893,7 @@ router.post('/revenuecat', validateRevenueCatWebhookAuth, async (req: Request, r
 
     if (!userId) {
       // User not found — can happen for sandbox testing or deleted users.
-      // Acknowledge so RevenueCat doesn't retry indefinitely.
+      // Mark processed so the event isn't re-driven; acknowledge.
       logger.warn(
         {
           appUserId: event.app_user_id,
@@ -501,18 +902,53 @@ router.post('/revenuecat', validateRevenueCatWebhookAuth, async (req: Request, r
         },
         'RevenueCat webhook: user not found'
       );
+      await markWebhookProcessed(event.id, 'revenuecat');
       return res.status(200).json({ success: true, message: 'User not found, event acknowledged' });
     }
 
-    // Calculate expiration date from millisecond timestamp
+    // Per-user ordering guard (Ch03-F009). A late-arriving stale event
+    // (e.g. a delayed CANCELLATION arriving after a RENEWAL) must not undo
+    // the fresher state. We only accept events whose stream timestamp is
+    // >= the last applied event for this user.
+    const inOrder = await isEventInOrder('revenuecat', userId, event.id, eventCreatedDate);
+    if (!inOrder) {
+      logger.warn(
+        { eventId: event.id, eventType: event.type, userId, eventAt: eventCreatedDate.toISOString() },
+        'RevenueCat webhook: out-of-order event ignored',
+      );
+      await markWebhookProcessed(event.id, 'revenuecat');
+      return res.status(200).json({ success: true, outOfOrder: true });
+    }
+
+    // Calculate expiration date from millisecond timestamp. A purchase with
+    // null expiration_at_ms is RC's way of signalling lifetime/non-expiring
+    // entitlement (Ch03-F003). We persist it as a far-future sentinel so the
+    // gate code that compares plan_expires_at < NOW() doesn't downgrade.
+    const FAR_FUTURE = new Date(Date.UTC(9999, 0, 1)).toISOString();
     const expiresAt = event.expiration_at_ms
       ? new Date(event.expiration_at_ms).toISOString()
-      : null;
+      : FAR_FUTURE;
+
+    // Entitlement gate (Ch03-F005). Only a "premium"-bearing entitlement
+    // upgrades the user. RC's `entitlement_ids` is an array of identifiers
+    // configured in the RC dashboard; we treat the literal "premium" id as
+    // the canonical premium entitlement. Empty/null means "no entitlement
+    // granted on this event" — log and skip the upgrade.
+    const grantsPremium =
+      Array.isArray(event.entitlement_ids) &&
+      event.entitlement_ids.some((eid) => eid.toLowerCase() === 'premium');
 
     switch (event.type) {
       case 'INITIAL_PURCHASE':
       case 'RENEWAL':
       case 'UNCANCELLATION': {
+        if (!grantsPremium) {
+          logger.warn(
+            { userId, productId: event.product_id, entitlements: event.entitlement_ids },
+            'RC purchase event missing premium entitlement — not upgrading',
+          );
+          break;
+        }
         await query(
           `UPDATE users SET
             plan = 'premium',
@@ -522,7 +958,13 @@ router.post('/revenuecat', validateRevenueCatWebhookAuth, async (req: Request, r
           [expiresAt, userId]
         );
         logger.info(
-          { userId, plan: 'premium', expiresAt, eventType: event.type },
+          {
+            userId,
+            plan: 'premium',
+            expiresAt,
+            eventType: event.type,
+            periodType: event.period_type,
+          },
           'User plan updated to premium'
         );
         break;
@@ -539,18 +981,40 @@ router.post('/revenuecat', validateRevenueCatWebhookAuth, async (req: Request, r
       }
 
       case 'EXPIRATION': {
-        await query(
-          `UPDATE users SET
-            plan = 'free',
-            plan_expires_at = NULL,
-            updated_at = NOW()
-           WHERE id = $1`,
-          [userId]
+        // Don't downgrade if the user still holds an active partner gift —
+        // the gift is a separate premium grant from the RC subscription and
+        // the test that codified the buggy behavior (Ch12-R001) lost paying
+        // partner-gifted users on subscription expiry. Mirror the refund
+        // path's check: any other un-expired, un-revoked gift keeps premium.
+        const activeGiftCount = await query(
+          `SELECT 1
+             FROM partner_gifts
+            WHERE activated_user_id = $1
+              AND is_activated = TRUE
+              AND status <> 'expired'
+              AND (expires_at IS NULL OR expires_at > NOW())
+            LIMIT 1`,
+          [userId],
         );
-        logger.info(
-          { userId, eventType: event.type },
-          'User plan downgraded to free (subscription expired)'
-        );
+        if (activeGiftCount.rows.length > 0) {
+          logger.info(
+            { userId, eventType: event.type },
+            'EXPIRATION: keeping premium because user holds an active partner gift',
+          );
+        } else {
+          await query(
+            `UPDATE users SET
+              plan = 'free',
+              plan_expires_at = NULL,
+              updated_at = NOW()
+             WHERE id = $1`,
+            [userId]
+          );
+          logger.info(
+            { userId, eventType: event.type },
+            'User plan downgraded to free (subscription expired)'
+          );
+        }
         break;
       }
 
@@ -566,7 +1030,15 @@ router.post('/revenuecat', validateRevenueCatWebhookAuth, async (req: Request, r
 
       case 'PRODUCT_CHANGE': {
         // User changed between subscription tiers. All paid plans map to
-        // "premium" in HavenKeep, so just update the expiry.
+        // "premium" in HavenKeep, so just update the expiry — but only if
+        // the new product still grants the premium entitlement (Ch03-F005).
+        if (!grantsPremium) {
+          logger.warn(
+            { userId, productId: event.product_id, entitlements: event.entitlement_ids },
+            'RC PRODUCT_CHANGE: new product missing premium entitlement — not extending plan',
+          );
+          break;
+        }
         await query(
           `UPDATE users SET
             plan = 'premium',
@@ -583,21 +1055,66 @@ router.post('/revenuecat', validateRevenueCatWebhookAuth, async (req: Request, r
       }
 
       case 'TRANSFER': {
+        // Transfer must move premium from the original_app_user_id to the
+        // new app_user_id (Ch03-F006). The original holder loses access.
+        // Both ids are required; if either is missing or refers to a
+        // non-existent HavenKeep user, log and skip.
+        const originalId = event.original_app_user_id;
+        if (!originalId || originalId === event.app_user_id) {
+          logger.warn(
+            { eventId: event.id, app: event.app_user_id, original: originalId },
+            'RC TRANSFER: original_app_user_id missing or equal — no-op',
+          );
+          break;
+        }
+        if (UUID_RE.test(originalId)) {
+          // Strip premium from the source account *unless* a partner gift
+          // still keeps them on premium (mirror of EXPIRATION).
+          const sourceGifts = await query(
+            `SELECT 1 FROM partner_gifts
+              WHERE activated_user_id = $1 AND is_activated = TRUE
+                AND status <> 'expired'
+                AND (expires_at IS NULL OR expires_at > NOW())
+              LIMIT 1`,
+            [originalId],
+          );
+          if (sourceGifts.rows.length === 0) {
+            await query(
+              `UPDATE users SET plan = 'free', plan_expires_at = NULL, updated_at = NOW()
+                WHERE id = $1`,
+              [originalId],
+            );
+          }
+        }
+        if (grantsPremium) {
+          await query(
+            `UPDATE users SET plan = 'premium', plan_expires_at = $1, updated_at = NOW()
+              WHERE id = $2`,
+            [expiresAt, userId],
+          );
+        }
         logger.info(
-          {
-            newOwnerAppUserId: event.app_user_id,
-            originalAppUserId: event.original_app_user_id,
-            eventType: event.type,
-          },
-          'Subscription transferred between accounts'
+          { newOwnerAppUserId: event.app_user_id, originalAppUserId: originalId },
+          'RC TRANSFER applied',
         );
         break;
       }
 
       case 'SUBSCRIBER_ALIAS': {
+        // Bind the alias so a subsequent event addressed to original_app_user_id
+        // resolves to the same HavenKeep user (Ch03-F008). We don't have a
+        // dedicated alias table; the userId resolution above already checks
+        // aliases — so the binding here is to ensure the high-water row for
+        // the alias exists and forwards to the same user.
+        const original = event.original_app_user_id;
+        if (original && UUID_RE.test(original) && original !== userId) {
+          // Touch the high-water row for the alias so future out-of-order
+          // events to that id are scoped to this user's stream.
+          await isEventInOrder('revenuecat', original, event.id, eventCreatedDate);
+        }
         logger.info(
           { appUserId: event.app_user_id, aliases: event.aliases, eventType: event.type },
-          'RevenueCat subscriber alias created'
+          'RevenueCat subscriber alias bound',
         );
         break;
       }
@@ -625,4 +1142,3 @@ router.post('/revenuecat', validateRevenueCatWebhookAuth, async (req: Request, r
   }
 });
 
-export default router;

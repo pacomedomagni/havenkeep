@@ -131,11 +131,12 @@ CREATE TABLE documents (
   item_id UUID NOT NULL REFERENCES items(id) ON DELETE CASCADE,
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   type document_type NOT NULL DEFAULT 'other',
-  file_url TEXT NOT NULL,
+  -- Bucket-relative object key. URL is built on read (audit Ch02-F040).
+  object_key TEXT NOT NULL,
   file_name VARCHAR(255) NOT NULL,
   file_size INTEGER NOT NULL DEFAULT 0,
   mime_type VARCHAR(100) NOT NULL DEFAULT 'application/octet-stream',
-  thumbnail_url TEXT,
+  thumbnail_key TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -192,25 +193,58 @@ CREATE INDEX idx_password_reset_user_id ON password_reset_tokens(user_id);
 CREATE INDEX idx_password_reset_token ON password_reset_tokens(token);
 
 -- Triggers for updated_at
+-- search_path-pinned to defeat schema-shadowing attacks (Ch00-DB006).
 CREATE OR REPLACE FUNCTION update_updated_at_column()
-RETURNS TRIGGER AS $$
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = pg_catalog, public
+AS $$
 BEGIN
   NEW.updated_at = NOW();
   RETURN NEW;
 END;
-$$ language 'plpgsql';
+$$;
 
-CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+-- DO blocks make the trigger declarations idempotent so re-running schema.sql
+-- against a partially-bootstrapped DB doesn't ERROR on duplicate triggers
+-- (Ch00-DB003). Migration 045's schema_version table is the canonical "is
+-- this done?" marker — these IF NOT EXISTS guards are belt-and-braces.
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'update_users_updated_at') THEN
+    CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users
+      FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+  END IF;
+END $$;
 
-CREATE TRIGGER update_homes_updated_at BEFORE UPDATE ON homes
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'update_homes_updated_at') THEN
+    CREATE TRIGGER update_homes_updated_at BEFORE UPDATE ON homes
+      FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+  END IF;
+END $$;
 
-CREATE TRIGGER update_items_updated_at BEFORE UPDATE ON items
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'update_items_updated_at') THEN
+    CREATE TRIGGER update_items_updated_at BEFORE UPDATE ON items
+      FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+  END IF;
+END $$;
 
-CREATE TRIGGER update_user_push_tokens_updated_at BEFORE UPDATE ON user_push_tokens
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'update_user_push_tokens_updated_at') THEN
+    CREATE TRIGGER update_user_push_tokens_updated_at BEFORE UPDATE ON user_push_tokens
+      FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+  END IF;
+END $$;
+
+-- Ch00-DB001: documents.updated_at trigger was missing from schema.sql.
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'update_documents_updated_at') THEN
+    CREATE TRIGGER update_documents_updated_at BEFORE UPDATE ON documents
+      FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+  END IF;
+END $$;
 
 -- Views for analytics
 CREATE OR REPLACE VIEW user_stats AS

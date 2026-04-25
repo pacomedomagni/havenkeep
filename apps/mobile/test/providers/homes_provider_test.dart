@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/annotations.dart';
 import 'package:mockito/mockito.dart';
@@ -288,7 +290,7 @@ void main() {
       await readHomes(container);
 
       final hasHome = container.read(hasHomeProvider);
-      expect(hasHome, isFalse);
+      expect(hasHome.valueOrNull, isFalse);
     });
 
     test('returns true when homes exist', () async {
@@ -299,7 +301,25 @@ void main() {
       await readHomes(container);
 
       final hasHome = container.read(hasHomeProvider);
-      expect(hasHome, isTrue);
+      expect(hasHome.valueOrNull, isTrue);
+    });
+
+    test('stays in AsyncLoading until homes resolve (C101)', () async {
+      // Repository never resolves — provider must remain loading.
+      final completer = Completer<List<Home>>();
+      when(mockRepository.getHomes())
+          .thenAnswer((_) => completer.future);
+
+      container = createContainer();
+      // Kick off a read so the AsyncNotifier starts building.
+      // ignore: unawaited_futures
+      container.read(homesProvider.future);
+
+      final hasHome = container.read(hasHomeProvider);
+      expect(hasHome.isLoading, isTrue);
+      expect(hasHome.valueOrNull, isNull);
+
+      completer.complete([]);
     });
   });
 }

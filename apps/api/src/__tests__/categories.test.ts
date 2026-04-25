@@ -63,15 +63,18 @@ describe('Categories API - /api/v1/categories', () => {
       expect(Array.isArray(res.body.data)).toBe(true);
     });
 
-    it('should return 500 for an invalid enum category value', async () => {
+    // Audit Ch12-R006: an unknown enum value MUST surface as 400, not 500.
+    // The route now validates the category against an allowlist before the
+    // query runs (Ch01-F096), so the previous "expect 500" was codifying a
+    // bug that has since been fixed.
+    it('returns 400 for an invalid enum category value (audit Ch12-R006)', async () => {
       const { token } = await createTestUser();
 
       const res = await request(app)
         .get('/api/v1/categories/unknown_category_xyz/brands')
         .set('Authorization', `Bearer ${token}`);
 
-      // PostgreSQL rejects unknown enum values
-      expect(res.status).toBe(500);
+      expect(res.status).toBe(400);
     });
   });
 });

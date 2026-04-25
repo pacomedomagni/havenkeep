@@ -4,11 +4,19 @@ import { AuditService, AuditAction, AuditSeverity } from '../services/audit.serv
 import { AppError } from '../utils/errors';
 import { asyncHandler } from '../utils/async-handler';
 import { sendSuccess, sendMessage } from '../utils/response';
+import { readRateLimiter } from '../middleware/rateLimiter';
 
 const router = Router();
 
 // All audit routes require authentication
 router.use(authenticate);
+
+// F089: per-IP cap on read endpoints. /audit/logs returns admin-grade data
+// and the join is expensive — keep it from doubling as a scraper API.
+router.use((req, res, next) => {
+  if (req.method === 'GET') return readRateLimiter(req, res, next);
+  return next();
+});
 
 /**
  * GET /api/v1/audit/logs
@@ -176,7 +184,16 @@ router.get('/activity-summary', asyncHandler(async (req: Request, res: Response)
 
 /**
  * POST /api/v1/audit/cleanup
- * Manually trigger audit log cleanup (admin only)
+ * Manually trigger audit log cleanup (admin only).
+ *
+ * Cleanup is irreversible — it deletes years of audit history — so this
+ * route requires the caller to supply both:
+ *   - confirm: 'PURGE'             (string token typed in by the operator)
+ *   - confirmation_phrase: any 64+ char operator-typed phrase that matches
+ *     the configured CLEANUP_CONFIRMATION_PHRASE env var (HMAC-compared).
+ * The audit row produced for the cleanup itself is logged BEFORE running so
+ * the trail of *who triggered* survives even though the trigger removes
+ * older info-level entries.
  */
 router.post('/cleanup', asyncHandler(async (req: Request, res: Response) => {
   const user = req.user!;
@@ -185,12 +202,39 @@ router.post('/cleanup', asyncHandler(async (req: Request, res: Response) => {
     throw new AppError('Unauthorized - Admin access required', 403);
   }
 
-  await AuditService.cleanup();
+  const { confirm, confirmation_phrase } = req.body ?? {};
+  if (confirm !== 'PURGE') {
+    throw new AppError(
+      "Audit cleanup requires `confirm: 'PURGE'` in the request body",
+      400,
+    );
+  }
+  const expected = process.env.AUDIT_CLEANUP_CONFIRMATION_PHRASE;
+  if (!expected || expected.length < 32) {
+    throw new AppError(
+      'Audit cleanup not configured: AUDIT_CLEANUP_CONFIRMATION_PHRASE env var must be set (>=32 chars)',
+      503,
+    );
+  }
+  const a = Buffer.from(String(confirmation_phrase ?? ''), 'utf8');
+  const b = Buffer.from(expected, 'utf8');
+  // Constant-time compare; reject if length mismatches.
+  const equalLen = a.length === b.length;
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const crypto = require('crypto') as typeof import('crypto');
+  if (!equalLen || !crypto.timingSafeEqual(a, b)) {
+    throw new AppError('Confirmation phrase does not match', 403);
+  }
 
-  // Log the cleanup action
+  // Log BEFORE running so the actor is captured even if the cleanup wipes
+  // older info-level rows.
   await AuditService.logFromRequest(req, 'system.maintenance_start', {
-    description: 'Audit log cleanup triggered manually',
+    severity: 'critical',
+    description: 'Audit log cleanup triggered manually (irreversible)',
+    metadata: { confirmed: true },
   });
+
+  await AuditService.cleanup();
 
   sendMessage(res, 'Audit log cleanup completed');
 }));

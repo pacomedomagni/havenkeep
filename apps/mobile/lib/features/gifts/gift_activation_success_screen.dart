@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:confetti/confetti.dart';
 import 'package:shared_ui/shared_ui.dart';
+import '../../core/utils/dates.dart';
 import '../../core/widgets/havenkeep_logo.dart';
 
 class GiftActivationSuccessScreen extends StatefulWidget {
@@ -40,8 +41,7 @@ class _GiftActivationSuccessScreenState
 
   @override
   Widget build(BuildContext context) {
-    final now = DateTime.now();
-    final expiryDate = DateTime(now.year, now.month + widget.premiumMonths, now.day);
+    final expiryDate = addMonthsSafe(DateTime.now(), widget.premiumMonths);
     final formattedDate = '${expiryDate.month}/${expiryDate.day}/${expiryDate.year}';
 
     return Scaffold(

@@ -8,7 +8,12 @@ class WarrantyClaim {
   final String? repairDescription;
   final double repairCost;
   final double amountSaved;
-  final double? outOfPocket;
+
+  /// `out_of_pocket` is `NUMERIC NOT NULL DEFAULT 0` on the API
+  /// (Ch08-WarrantyClaim-D023). Always populated; defaults to 0 for legacy
+  /// rows that pre-date the column.
+  final double outOfPocket;
+
   final ClaimStatus status;
   final String? filedWith;
   final String? claimNumber;
@@ -29,7 +34,7 @@ class WarrantyClaim {
     this.repairDescription,
     required this.repairCost,
     required this.amountSaved,
-    this.outOfPocket,
+    this.outOfPocket = 0,
     this.status = ClaimStatus.pending,
     this.filedWith,
     this.claimNumber,
@@ -45,20 +50,21 @@ class WarrantyClaim {
       id: json['id'] as String? ?? '',
       userId: json['user_id'] as String? ?? '',
       itemId: json['item_id'] as String? ?? '',
-      claimDate: DateTime.tryParse(json['claim_date'] as String? ?? '') ?? DateTime.now(),
+      // Ch08-WarrantyClaim-D025: NO DateTime.now() fallback. The API never
+      // returns a row without claim_date set; if it's absent the row is
+      // garbage and we'd rather throw than invent a date.
+      claimDate: _parseDate(json['claim_date'])!,
       issueDescription: json['issue_description'] as String?,
       repairDescription: json['repair_description'] as String?,
       repairCost: (json['repair_cost'] as num?)?.toDouble() ?? 0,
       amountSaved: (json['amount_saved'] as num?)?.toDouble() ?? 0,
-      outOfPocket: json['out_of_pocket'] != null
-          ? (json['out_of_pocket'] as num).toDouble()
-          : null,
+      outOfPocket: (json['out_of_pocket'] as num?)?.toDouble() ?? 0,
       status: ClaimStatus.fromJson(json['status'] as String? ?? 'pending'),
       filedWith: json['filed_with'] as String?,
       claimNumber: json['claim_number'] as String?,
       notes: json['notes'] as String?,
-      createdAt: DateTime.tryParse(json['created_at'] as String? ?? '') ?? DateTime.now(),
-      updatedAt: DateTime.tryParse(json['updated_at'] as String? ?? '') ?? DateTime.now(),
+      createdAt: _parseDate(json['created_at'])!,
+      updatedAt: _parseDate(json['updated_at'])!,
       itemName: json['item_name'] as String?,
       itemBrand: json['item_brand'] as String?,
     );
@@ -90,7 +96,7 @@ class WarrantyClaim {
         if (repairDescription != null) 'repair_description': repairDescription,
         'repair_cost': repairCost,
         'amount_saved': amountSaved,
-        if (outOfPocket != null) 'out_of_pocket': outOfPocket,
+        'out_of_pocket': outOfPocket,
         'status': status.toJson(),
         if (filedWith != null) 'filed_with': filedWith,
         if (claimNumber != null) 'claim_number': claimNumber,
@@ -98,7 +104,8 @@ class WarrantyClaim {
       };
 }
 
-/// Status of a warranty claim.
+/// Status of a warranty claim. Wire format is snake_case to match the
+/// Postgres `claim_status` enum (Ch08-WarrantyClaim-D024).
 enum ClaimStatus {
   pending,
   submitted,
@@ -108,16 +115,23 @@ enum ClaimStatus {
   completed,
   cancelled;
 
+  static const Map<String, ClaimStatus> _byName = {
+    'pending': ClaimStatus.pending,
+    'submitted': ClaimStatus.submitted,
+    'in_review': ClaimStatus.inReview,
+    'approved': ClaimStatus.approved,
+    'denied': ClaimStatus.denied,
+    'completed': ClaimStatus.completed,
+    'cancelled': ClaimStatus.cancelled,
+  };
+
   factory ClaimStatus.fromJson(String value) {
-    // Handle snake_case from API (e.g. 'in_review')
-    final mapped = switch (value) {
-      'in_review' => ClaimStatus.inReview,
-      _ => ClaimStatus.values.firstWhere(
-        (e) => e.name == value,
-        orElse: () => ClaimStatus.pending,
-      ),
-    };
-    return mapped;
+    final mapped = _byName[value];
+    if (mapped != null) return mapped;
+    // Unknown value: assume pending so the UI doesn't blow up, but the
+    // server-side enum should never produce a non-_byName string. Phase 9
+    // hooks Sentry on enum drift.
+    return ClaimStatus.pending;
   }
 
   String toJson() => switch (this) {
@@ -134,4 +148,11 @@ enum ClaimStatus {
         ClaimStatus.completed => 'Completed',
         ClaimStatus.cancelled => 'Cancelled',
       };
+}
+
+DateTime? _parseDate(Object? value) {
+  if (value == null) return null;
+  if (value is DateTime) return value;
+  if (value is String) return DateTime.tryParse(value);
+  return null;
 }

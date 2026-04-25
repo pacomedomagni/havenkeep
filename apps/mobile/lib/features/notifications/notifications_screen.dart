@@ -220,44 +220,41 @@ class _NotificationCard extends ConsumerWidget {
   }
 
   void _handleTap(BuildContext context, WidgetRef ref) {
-    // Navigate based on action type, then mark as read after successful navigation
-    if (notification.actionType == NotificationAction.view_item &&
-        notification.actionData != null) {
-      final itemId = notification.actionData!['item_id'] as String?;
+    // Ch08-Notification-D047: navigation is driven off [type] + [data] now.
+    // The server doesn't emit a separate `action_type` column — the action
+    // is implied by the notification's category, with the optional payload
+    // in `data` providing the resource id.
+    final itemId = notification.itemId ?? notification.data['item_id'] as String?;
+    final type = notification.type;
+    bool navigated = false;
+
+    if (type == NotificationType.warranty_expiring ||
+        type == NotificationType.warranty_expired ||
+        type == NotificationType.warranty_extended ||
+        type == NotificationType.maintenance_due ||
+        type == NotificationType.item_added ||
+        type == NotificationType.claim_update) {
       if (itemId != null) {
         context.push('/items/$itemId');
-        if (!notification.isRead) {
-          ref.read(notificationsProvider.notifier).markAsRead(notification.id);
-        }
-        return;
+        navigated = true;
       }
-    }
-
-    // For protection actions, navigate to premium screen
-    if (notification.actionType == NotificationAction.get_protection) {
+    } else if (type == NotificationType.claim_opportunity) {
+      // Free users get protection upsells, premium users get item detail.
       context.push('/premium');
-      if (!notification.isRead) {
-        ref.read(notificationsProvider.notifier).markAsRead(notification.id);
-      }
-      return;
+      navigated = true;
+    } else if (type == NotificationType.gift_received ||
+        type == NotificationType.gift_activated) {
+      context.push('/premium');
+      navigated = true;
     }
 
-    // For repair actions, open search for repair services
-    if (notification.actionType == NotificationAction.find_repair) {
-      final itemId = notification.actionData?['item_id'] as String?;
-      if (itemId != null) {
-        context.push('/items/$itemId');
-        if (!notification.isRead) {
-          ref.read(notificationsProvider.notifier).markAsRead(notification.id);
-        }
-        return;
-      }
-    }
-
-    // For non-navigable notifications, still mark as read on tap
     if (!notification.isRead) {
       ref.read(notificationsProvider.notifier).markAsRead(notification.id);
     }
+
+    // Silence the unused-local lint when the if-chain falls through with
+    // no navigation target (system / promotional / tip notifications).
+    if (!navigated) return;
   }
 
   @override
@@ -345,9 +342,9 @@ class _NotificationCard extends ConsumerWidget {
                 ),
               ),
 
-              // Chevron only for navigable actions (view_item)
-              if (notification.actionType == NotificationAction.view_item &&
-                  notification.actionData != null)
+              // Chevron only when there's a known navigation target derived
+              // from the notification type (Ch08-Notification-D047).
+              if (_navigates(notification))
                 const Icon(
                   Icons.chevron_right,
                   color: HavenColors.textTertiary,
@@ -358,6 +355,31 @@ class _NotificationCard extends ConsumerWidget {
         ),
       ),
     );
+  }
+}
+
+/// True if the notification's [type] (and required `data` keys) implies a
+/// navigation target. Mirrors the switch in `_NotificationCard._handleTap`.
+bool _navigates(AppNotification notification) {
+  switch (notification.type) {
+    case NotificationType.warranty_expiring:
+    case NotificationType.warranty_expired:
+    case NotificationType.warranty_extended:
+    case NotificationType.maintenance_due:
+    case NotificationType.item_added:
+    case NotificationType.claim_update:
+      return notification.itemId != null ||
+          notification.data['item_id'] != null;
+    case NotificationType.claim_opportunity:
+    case NotificationType.gift_received:
+    case NotificationType.gift_activated:
+      return true;
+    case NotificationType.health_score_update:
+    case NotificationType.partner_commission:
+    case NotificationType.promotional:
+    case NotificationType.tip:
+    case NotificationType.system:
+      return false;
   }
 }
 

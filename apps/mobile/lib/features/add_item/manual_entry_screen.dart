@@ -136,6 +136,12 @@ class _ManualEntryScreenState extends ConsumerState<ManualEntryScreen> {
             : null,
         price: price,
         warrantyMonths: _warrantyMonths,
+        // Server overwrites this on insert (GENERATED column on the
+        // `items` table), but the constructor now requires it
+        // (Ch08-Item-D010). Keep the client value in sync with the API
+        // formula so the optimistic preview matches the server response.
+        warrantyEndDate:
+            Item.computeWarrantyEndDate(_purchaseDate!, _warrantyMonths),
         warrantyType: _warrantyType,
         warrantyProvider: _warrantyProviderController.text.isNotEmpty
             ? _warrantyProviderController.text.trim()

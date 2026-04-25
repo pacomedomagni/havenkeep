@@ -4,8 +4,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:api_client/api_client.dart';
 import 'package:shared_models/shared_models.dart';
+import '../database/database.dart';
 import '../services/auth_repository.dart';
 import '../services/push_notification_service.dart';
+import '../services/secure_storage_service.dart';
 import 'demo_mode_provider.dart';
 import 'documents_provider.dart';
 import 'items_provider.dart';
@@ -118,6 +120,7 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
 
       // Register push token after signup
       if (user != null) {
+        await _bindActiveUser(user.id);
         _registerPushToken(user.id);
       }
 
@@ -146,6 +149,7 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
 
       // Register push token after login
       if (user != null) {
+        await _bindActiveUser(user.id);
         _registerPushToken(user.id);
 
         // Log in to RevenueCat with authenticated user
@@ -174,6 +178,7 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
       state = AsyncValue.data(user);
 
       if (user != null) {
+        await _bindActiveUser(user.id);
         _registerPushToken(user.id);
 
         // Log in to RevenueCat with authenticated user
@@ -208,6 +213,7 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
       state = AsyncValue.data(user);
 
       if (user != null) {
+        await _bindActiveUser(user.id);
         _registerPushToken(user.id);
 
         // Log in to RevenueCat with authenticated user
@@ -227,6 +233,8 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
 
   /// Sign out.
   Future<void> signOut() async {
+    final userId = state.valueOrNull?.id;
+
     try {
       await ref.read(authRepositoryProvider).signOut();
     } catch (e) {
@@ -246,6 +254,10 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
       debugPrint('[Auth] RevenueCat logout failed (non-fatal): $e');
     }
 
+    // Wipe local state BEFORE invalidating providers so any disposers
+    // that grab the DB find an empty file (or no file at all).
+    await _wipeLocalState(userId: userId);
+
     // Invalidate all data providers to prevent stale data between accounts
     _safeInvalidateAll();
 
@@ -254,15 +266,28 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
   }
 
   /// Update profile.
+  ///
+  /// Keeps the current user value visible during the PUT instead of
+  /// flapping every consumer (dashboard / settings / claims) through an
+  /// `AsyncLoading` state — see C117. On failure we rethrow so callers
+  /// can show a snackbar without losing the previously rendered profile.
   Future<void> updateProfile({String? fullName, String? avatarUrl}) async {
-    state = const AsyncValue.loading();
-    state = await AsyncValue.guard(() async {
+    final previous = state.valueOrNull;
+    try {
       final user = await ref.read(authRepositoryProvider).updateProfile(
             fullName: fullName,
             avatarUrl: avatarUrl,
           );
-      return user;
-    });
+      _skipNextRebuild = true;
+      state = AsyncValue.data(user);
+    } catch (e, st) {
+      // Restore the previously rendered user so the UI keeps showing
+      // the old name/avatar instead of flashing an empty profile.
+      state = previous == null
+          ? AsyncValue.error(e, st)
+          : AsyncValue.data(previous);
+      rethrow;
+    }
   }
 
   /// Request a password reset email.
@@ -294,20 +319,28 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
 
   /// Delete the current user's account permanently.
   Future<void> deleteAccount({required String password}) async {
+    final userId = state.valueOrNull?.id;
     await ref.read(authRepositoryProvider).deleteAccount(password: password);
+    await _wipeLocalState(userId: userId);
+    _safeInvalidateAll();
     _skipNextRebuild = false;
     state = const AsyncValue.data(null);
   }
 
   /// Delete an OAuth user's account (no password required).
   Future<void> deleteOAuthAccount() async {
+    final userId = state.valueOrNull?.id;
     await ref.read(authRepositoryProvider).deleteOAuthAccount();
+    await _wipeLocalState(userId: userId);
+    _safeInvalidateAll();
     _skipNextRebuild = false;
     state = const AsyncValue.data(null);
   }
 
   /// Sign out from all devices.
   Future<void> signOutAll() async {
+    final userId = state.valueOrNull?.id;
+
     try {
       await ref.read(authRepositoryProvider).signOutAll();
     } catch (e) {
@@ -327,11 +360,71 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
       debugPrint('[Auth] RevenueCat logout failed (non-fatal): $e');
     }
 
+    await _wipeLocalState(userId: userId);
+
     // Invalidate all data providers to prevent stale data between accounts
     _safeInvalidateAll();
 
     _skipNextRebuild = false;
     state = const AsyncValue.data(null);
+  }
+
+  /// Wipe every piece of local state tied to [userId] (or the currently
+  /// active user when null): the per-user encrypted DB file, the in-memory
+  /// caches, the offline queue, all secure-storage keys (tokens, biometric
+  /// pref, push token, DB encryption key, etc.), and the active-user
+  /// pointer used by the database opener.
+  ///
+  /// Catches and logs each failure so a partial wipe never blocks logout
+  /// — but keeps going through the rest of the cleanup.
+  Future<void> _wipeLocalState({required String? userId}) async {
+    final effectiveUserId =
+        userId ?? await SecureStorageService.getActiveUserId();
+
+    // 1. Drop in-memory caches and close + delete the per-user DB file.
+    try {
+      final db = ref.read(localDatabaseProvider);
+      await db.clearAllItems();
+      await db.clearAllQueueEntries();
+      await db.clearAllConflicts();
+      await db.close();
+    } catch (e) {
+      debugPrint('[Auth] DB wipe failed (non-fatal): $e');
+    }
+
+    try {
+      await deleteDatabaseFile(userId: effectiveUserId);
+    } catch (e) {
+      debugPrint('[Auth] DB file delete failed (non-fatal): $e');
+    }
+
+    // 2. Clear ALL secure-storage entries — tokens, encryption key, biometric
+    //    pref, etc. The next sign-in will regenerate what it needs.
+    try {
+      await SecureStorageService.clearAll();
+    } catch (e) {
+      debugPrint('[Auth] SecureStorage clear failed (non-fatal): $e');
+    }
+
+    // 3. Drop the active-user pointer the DB opener consults.
+    setActiveDatabaseUser(null);
+
+    // 4. Force the next [localDatabaseProvider] read to reconstruct against
+    //    the (now empty) state.
+    try {
+      ref.invalidate(localDatabaseProvider);
+    } catch (_) {}
+  }
+
+  /// Persist the active user id so the database opener can scope per user
+  /// across cold starts.
+  Future<void> _bindActiveUser(String userId) async {
+    setActiveDatabaseUser(userId);
+    await SecureStorageService.setActiveUserId(userId);
+    // Force a fresh DB instance bound to this user's file.
+    try {
+      ref.invalidate(localDatabaseProvider);
+    } catch (_) {}
   }
 
   /// Safely invalidate all data providers (won't crash if any fail).

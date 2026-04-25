@@ -19,7 +19,7 @@ export default function CommissionsPage() {
   const fetchCommissions = async () => {
     try {
       setError(null);
-      const data = await apiClient('/api/v1/partners/commissions');
+      const data = await apiClient<any[]>('/api/v1/partners/commissions');
       if (data.success) {
         const mapped: Commission[] = (data.data || []).map((c: any) => ({
           id: c.id,

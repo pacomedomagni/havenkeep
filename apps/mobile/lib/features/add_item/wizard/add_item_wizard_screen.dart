@@ -95,6 +95,12 @@ class _AddItemWizardScreenState extends ConsumerState<AddItemWizardScreen> {
         category: _data.category!,
         room: _data.room,
         purchaseDate: _data.purchaseDate!,
+        // Server recomputes server-side; client keeps the formula synced
+        // so optimistic UI matches the response (Ch08-Item-D010).
+        warrantyEndDate: Item.computeWarrantyEndDate(
+          _data.purchaseDate!,
+          _data.warrantyMonths!,
+        ),
         store: _data.store,
         price: _data.price,
         warrantyMonths: _data.warrantyMonths!,

@@ -21,7 +21,7 @@ void main() {
   group('HomesRepository', () {
     group('getHomes', () {
       test('calls correct endpoint and parses response', () async {
-        when(mockClient.get('/api/v1/homes'))
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'homes']))
             .thenAnswer((_) async => {
                   'data': [
                     {
@@ -53,11 +53,11 @@ void main() {
         expect(homes[1].name, 'Beach House');
         expect(homes[1].homeType, HomeType.condo);
 
-        verify(mockClient.get('/api/v1/homes')).called(1);
+        verify(mockClient.get(pathSegments: const ['api', 'v1', 'homes'])).called(1);
       });
 
       test('returns empty list when no homes', () async {
-        when(mockClient.get('/api/v1/homes'))
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'homes']))
             .thenAnswer((_) async => {'data': []});
 
         final homes = await repository.getHomes();
@@ -66,7 +66,7 @@ void main() {
       });
 
       test('rethrows errors from API client', () async {
-        when(mockClient.get('/api/v1/homes'))
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'homes']))
             .thenThrow(ApiException(500, 'Server error'));
 
         expect(
@@ -78,7 +78,7 @@ void main() {
 
     group('getHomeById', () {
       test('calls correct endpoint with home ID', () async {
-        when(mockClient.get('/api/v1/homes/home-1'))
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'homes', 'home-1']))
             .thenAnswer((_) async => {
                   'data': {
                     'id': 'home-1',
@@ -101,7 +101,7 @@ void main() {
         expect(home.address, '123 Main St');
         expect(home.city, 'Springfield');
 
-        verify(mockClient.get('/api/v1/homes/home-1')).called(1);
+        verify(mockClient.get(pathSegments: const ['api', 'v1', 'homes', 'home-1'])).called(1);
       });
     });
 
@@ -112,7 +112,7 @@ void main() {
           name: 'New Home',
         );
 
-        when(mockClient.post('/api/v1/homes', body: anyNamed('body')))
+        when(mockClient.post(pathSegments: const ['api', 'v1', 'homes'], body: anyNamed('body')))
             .thenAnswer((_) async => {
                   'data': {
                     'id': 'server-id',
@@ -131,7 +131,7 @@ void main() {
 
         // Verify the body was sent without 'id' field
         final captured = verify(
-          mockClient.post('/api/v1/homes', body: captureAnyNamed('body')),
+          mockClient.post(pathSegments: const ['api', 'v1', 'homes'], body: captureAnyNamed('body')),
         ).captured.single as Map<String, dynamic>;
         expect(captured.containsKey('id'), isFalse);
         expect(captured['name'], 'New Home');
@@ -145,7 +145,7 @@ void main() {
           name: 'Updated Home',
         );
 
-        when(mockClient.put('/api/v1/homes/home-1', body: anyNamed('body')))
+        when(mockClient.put(pathSegments: const ['api', 'v1', 'homes', 'home-1'], body: anyNamed('body')))
             .thenAnswer((_) async => {
                   'data': {
                     'id': 'home-1',
@@ -164,7 +164,7 @@ void main() {
 
         // Verify body excludes 'id' and 'created_at'
         final captured = verify(
-          mockClient.put('/api/v1/homes/home-1', body: captureAnyNamed('body')),
+          mockClient.put(pathSegments: const ['api', 'v1', 'homes', 'home-1'], body: captureAnyNamed('body')),
         ).captured.single as Map<String, dynamic>;
         expect(captured.containsKey('id'), isFalse);
         expect(captured.containsKey('created_at'), isFalse);
@@ -173,16 +173,16 @@ void main() {
 
     group('deleteHome', () {
       test('sends DELETE to correct endpoint', () async {
-        when(mockClient.delete('/api/v1/homes/home-1'))
+        when(mockClient.delete(pathSegments: const ['api', 'v1', 'homes', 'home-1']))
             .thenAnswer((_) async => {});
 
         await repository.deleteHome('home-1');
 
-        verify(mockClient.delete('/api/v1/homes/home-1')).called(1);
+        verify(mockClient.delete(pathSegments: const ['api', 'v1', 'homes', 'home-1'])).called(1);
       });
 
       test('rethrows error on delete failure', () async {
-        when(mockClient.delete('/api/v1/homes/home-1'))
+        when(mockClient.delete(pathSegments: const ['api', 'v1', 'homes', 'home-1']))
             .thenThrow(ApiException(404, 'Not found'));
 
         expect(
@@ -194,7 +194,7 @@ void main() {
 
     group('getDefaultHome', () {
       test('returns first home when homes exist', () async {
-        when(mockClient.get('/api/v1/homes'))
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'homes']))
             .thenAnswer((_) async => {
                   'data': [
                     {
@@ -223,7 +223,7 @@ void main() {
       });
 
       test('returns null when no homes exist', () async {
-        when(mockClient.get('/api/v1/homes'))
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'homes']))
             .thenAnswer((_) async => {'data': []});
 
         final home = await repository.getDefaultHome();

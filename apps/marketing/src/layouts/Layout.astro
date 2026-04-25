@@ -1,14 +1,42 @@
 ---
 import '../styles/global.css';
+// Audit Ch10-W074: self-host Inter so visitor IPs are not leaked to Google
+// Fonts and a strict CSP doesn't have to allow `fonts.googleapis.com`.
+import '@fontsource/inter/400.css';
+import '@fontsource/inter/500.css';
+import '@fontsource/inter/600.css';
+import '@fontsource/inter/700.css';
+import '@fontsource/inter/800.css';
 
 interface Props {
   title: string;
   description?: string;
   canonicalPath?: string;
+  /**
+   * Per-page OG image. Defaults to the site-wide hero. Audit Ch10-W076.
+   * The asset must live under `/public/og/` so Astro emits it as a static
+   * resource. The fallback is left as SVG with a TODO marker for the
+   * 1200x630 PNG sweep (Ch10-W075).
+   */
+  ogImage?: string;
 }
 
-const { title, description = 'Americans lose $16 billion yearly on forgotten warranties. HavenKeep tracks expiration dates, stores receipts, and reminds you before it\'s too late. Free to start.', canonicalPath } = Astro.props;
-const canonicalUrl = canonicalPath ? `https://havenkeep.com${canonicalPath}` : `https://havenkeep.com${Astro.url.pathname}`;
+const {
+  title,
+  description = "Americans lose $16 billion yearly on forgotten warranties. HavenKeep tracks expiration dates, stores receipts, and reminds you before it's too late. Free to start.",
+  canonicalPath,
+  ogImage = '/og-image.svg',
+} = Astro.props;
+
+// Audit Ch10-W077: title format is "<page> • HavenKeep" — the bullet
+// reads better than a pipe and the brand never appears twice.
+const fullTitle = title.includes('HavenKeep') ? title : `${title} • HavenKeep`;
+const canonicalUrl = canonicalPath
+  ? `https://havenkeep.com${canonicalPath}`
+  : `https://havenkeep.com${Astro.url.pathname}`;
+const absoluteOgImage = ogImage.startsWith('http')
+  ? ogImage
+  : `https://havenkeep.com${ogImage}`;
 ---
 
 <!doctype html>
@@ -22,31 +50,41 @@ const canonicalUrl = canonicalPath ? `https://havenkeep.com${canonicalPath}` : `
     <meta name="generator" content={Astro.generator} />
 
     <!-- Primary Meta Tags -->
-    <title>{title} | HavenKeep</title>
-    <meta name="title" content={`${title} | HavenKeep`} />
+    <title>{fullTitle}</title>
+    <meta name="title" content={fullTitle} />
     <meta name="description" content={description} />
     <link rel="canonical" href={canonicalUrl} />
 
     <!-- Open Graph / Facebook -->
     <meta property="og:type" content="website" />
     <meta property="og:url" content={canonicalUrl} />
-    <meta property="og:title" content={`${title} | HavenKeep`} />
+    <meta property="og:title" content={fullTitle} />
     <meta property="og:description" content={description} />
-    <meta property="og:image" content="https://havenkeep.com/images/logo.svg" />
+    <meta property="og:image" content={absoluteOgImage} />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
 
     <!-- Twitter -->
     <meta property="twitter:card" content="summary_large_image" />
     <meta property="twitter:url" content={canonicalUrl} />
-    <meta property="twitter:title" content={`${title} | HavenKeep`} />
+    <meta property="twitter:title" content={fullTitle} />
     <meta property="twitter:description" content={description} />
-    <meta property="twitter:image" content="https://havenkeep.com/images/logo.svg" />
+    <meta property="twitter:image" content={absoluteOgImage} />
 
-    <!-- Fonts -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- RSS feed (audit Ch10-W106) -->
+    <link rel="alternate" type="application/rss+xml" title="HavenKeep blog" href="/rss.xml" />
+
+    <!-- prefers-reduced-motion + minimum global hardening (audit Ch10-W079) -->
+    <style>
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after {
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.01ms !important;
+          scroll-behavior: auto !important;
+        }
+      }
+    </style>
   </head>
   <body class="bg-gray-900 text-gray-100">
     <slot />

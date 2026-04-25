@@ -29,10 +29,20 @@ export const logMaintenanceSchema = Joi.object({
   itemId: Joi.string().uuid().required(),
   scheduleId: Joi.string().uuid().optional().allow(null),
   taskName: Joi.string().max(255).required(),
-  completedDate: Joi.date().iso().optional().max('now'),
+  // Ch08-MaintenanceLog-D030: completed_date is required on the Dart side
+  // so make Joi match. The DB column has DEFAULT CURRENT_DATE but every
+  // history entry should carry an explicit completion timestamp from the
+  // client so audit logs reflect "when the user said it was done", not
+  // "when the row landed in Postgres".
+  completedDate: Joi.date().iso().max('now').required(),
   notes: Joi.string().max(5000).optional().allow(null),
   durationMinutes: Joi.number().integer().min(0).max(10000).optional().allow(null),
-  cost: Joi.number().min(0).max(1000000).optional(),
+  // F032: align with items.price ceiling so a maintenance cost can't exceed
+  // the most expensive item we accept ($999,999.99). The previous $1M flat
+  // ceiling was implausible for a single repair.
+  // Ch08-MaintenanceLog-D031: tri-state cost (null = unknown, 0 = explicit
+  // zero, >0 = real cost). `.allow(null)` keeps "unknown" first-class.
+  cost: Joi.number().min(0).max(999999.99).optional().allow(null),
 })
   // Accept snake_case from mobile clients
   .rename('item_id', 'itemId', { ignoreUndefined: true, override: false })

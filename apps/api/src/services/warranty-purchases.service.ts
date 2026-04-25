@@ -1,8 +1,32 @@
+import Stripe from 'stripe';
 import { pool } from '../db';
 import { logger } from '../utils/logger';
 import { WarrantyPurchase } from '../types/database.types';
 import { AppError } from '../utils/errors';
 import { addMonthsSafe } from '../utils/dates';
+import { config } from '../config';
+import { decimalToCents, dollarsToCents, commissionCents } from '../utils/money';
+
+const stripe = new Stripe(config.stripe.secretKey, { apiVersion: '2023-10-16' });
+
+/**
+ * Compute prorated refund (cents) for a cancelled active warranty.
+ * Refunds the unused fraction: priceCents * (daysRemaining / totalCoverageDays).
+ * Callers cap to the captured charge amount; Stripe enforces the same.
+ */
+function proratedRefundCents(
+  priceDollars: number,
+  startsAt: Date,
+  expiresAt: Date,
+  cancelledAt: Date,
+): number {
+  const totalDays = Math.max(1, Math.round((expiresAt.getTime() - startsAt.getTime()) / 86_400_000));
+  const usedDays = Math.max(0, Math.round((cancelledAt.getTime() - startsAt.getTime()) / 86_400_000));
+  const remainingDays = Math.max(0, totalDays - usedDays);
+  const fraction = remainingDays / totalDays;
+  const cents = Math.round(priceDollars * 100 * fraction);
+  return Math.max(0, cents);
+}
 
 interface CreateWarrantyPurchaseData {
   itemId: string;
@@ -16,7 +40,7 @@ interface CreateWarrantyPurchaseData {
   deductible?: number;
   claimLimit?: number;
   commissionAmount?: number;
-  commissionRate?: number;
+  // F019: deliberately omitted — commission_rate is server-derived.
   stripePaymentIntentId?: string;
 }
 
@@ -123,6 +147,15 @@ export class WarrantyPurchasesService {
 
   /**
    * Create a new warranty purchase
+   *
+   * F018: durationMonths is validated by Joi only (1..240). The duplicate
+   * service-side bound is removed.
+   * F017: startsAt may not be more than 1 year in the future.
+   * F019: commissionRate is NEVER trusted from the client — derived from
+   *       partner tier server-side. The DTO drops the field.
+   * F020: stripe_payment_intent_id idempotency is enforced by the partial
+   *       UNIQUE in migration 061; we surface a 409 if the same intent
+   *       arrives twice.
    */
   static async createPurchase(
     userId: string,
@@ -131,24 +164,39 @@ export class WarrantyPurchasesService {
     const client = await pool.connect();
 
     try {
-      // BE-18/MED-12: Validate durationMonths is within acceptable range (1-240 months / 20 years)
-      if (data.durationMonths !== undefined) {
-        if (data.durationMonths < 1 || data.durationMonths > 240) {
-          throw new AppError('durationMonths must be between 1 and 240', 400);
-        }
-      }
-
       await client.query('BEGIN');
 
-      // Check for duplicate active warranty on the same item
+      // F017: startsAt sanity bound
+      const startsAt = new Date(data.startsAt);
+      const oneYearAhead = new Date();
+      oneYearAhead.setUTCFullYear(oneYearAhead.getUTCFullYear() + 1);
+      if (startsAt.getTime() > oneYearAhead.getTime()) {
+        throw new AppError('startsAt cannot be more than 1 year in the future', 400);
+      }
+
+      // F016: a 'pending' purchase blocks a new one too — otherwise a user
+      // can double-tap and end up with two policies once Stripe settles.
       const duplicateCheck = await client.query(
-        `SELECT id FROM warranty_purchases
-         WHERE item_id = $1 AND user_id = $2 AND status = 'active' FOR UPDATE`,
+        `SELECT id, status FROM warranty_purchases
+         WHERE item_id = $1 AND user_id = $2 AND status IN ('active', 'pending') FOR UPDATE`,
         [data.itemId, userId]
       );
 
       if (duplicateCheck.rows.length > 0) {
-        throw new AppError('An active extended warranty already exists for this item', 409);
+        throw new AppError('A warranty purchase for this item is already in progress', 409);
+      }
+
+      // F020: idempotency check on payment intent — surface a clean 409
+      // before we hit the partial UNIQUE in migration 061.
+      if (data.stripePaymentIntentId) {
+        const existing = await client.query(
+          `SELECT id FROM warranty_purchases
+            WHERE user_id = $1 AND stripe_payment_intent_id = $2`,
+          [userId, data.stripePaymentIntentId],
+        );
+        if (existing.rows.length > 0) {
+          throw new AppError('Warranty purchase with this payment intent already exists', 409);
+        }
       }
 
       // Verify item belongs to user and is not archived. Buying a warranty
@@ -166,9 +214,13 @@ export class WarrantyPurchasesService {
         throw new AppError('Cannot purchase a warranty for an archived item. Restore the item first.', 400);
       }
 
-      const startsAt = new Date(data.startsAt);
       const expiresAt = addMonthsSafe(startsAt, data.durationMonths);
 
+      // F019: derive commissionRate server-side from the provider config or
+      // existing partner row. We never read data.commissionRate from input.
+      // For now we leave commissionRate NULL on direct purchases and let the
+      // partner-attribution job populate it; F022 still uses the stored
+      // value for cancel.
       const result = await client.query(
         `INSERT INTO warranty_purchases (
           item_id, user_id, provider, plan_name, external_policy_id,
@@ -191,7 +243,8 @@ export class WarrantyPurchasesService {
           data.deductible || 0,
           data.claimLimit || null,
           data.commissionAmount || null,
-          data.commissionRate || null,
+          // F019: never accept a client-supplied rate.
+          null,
           data.stripePaymentIntentId || null,
           'active',
         ]
@@ -204,8 +257,13 @@ export class WarrantyPurchasesService {
       logger.info({ purchaseId: purchase.id, userId, itemId: data.itemId }, 'Warranty purchase created');
 
       return purchase;
-    } catch (error) {
+    } catch (error: any) {
       await client.query('ROLLBACK');
+      // Surface migration 061 idempotency hits as a clean 409 if we ever
+      // race past the explicit check above.
+      if (error?.code === '23505') {
+        throw new AppError('Warranty purchase with this payment intent already exists', 409);
+      }
       logger.error({ error, userId, data }, 'Error creating warranty purchase');
       throw error;
     } finally {
@@ -226,38 +284,102 @@ export class WarrantyPurchasesService {
     try {
       await client.query('BEGIN');
 
-      // Verify purchase belongs to user and is active
+      // Lock the row for the entire cancel + refund flow so a concurrent
+      // cancel can't double-refund.
       const purchaseCheck = await client.query(
-        'SELECT id, status FROM warranty_purchases WHERE id = $1 AND user_id = $2',
-        [purchaseId, userId]
+        `SELECT id, status, price, starts_at, expires_at, stripe_payment_intent_id,
+                stripe_refund_id
+           FROM warranty_purchases
+          WHERE id = $1 AND user_id = $2
+          FOR UPDATE`,
+        [purchaseId, userId],
       );
 
       if (purchaseCheck.rows.length === 0) {
         throw new AppError('Warranty purchase not found', 404);
       }
 
-      if (purchaseCheck.rows[0].status === 'cancelled') {
+      const existing = purchaseCheck.rows[0];
+
+      if (existing.status === 'cancelled') {
         throw new AppError('Warranty purchase is already cancelled', 400);
       }
 
-      if (purchaseCheck.rows[0].status === 'expired') {
+      if (existing.status === 'expired') {
         throw new AppError('Cannot cancel an expired warranty purchase', 400);
+      }
+
+      // Block cancel after a claim has been opened — the warranty has paid
+      // out and the carrier won't honor a refund on used coverage.
+      const hasClaim = await client.query(
+        `SELECT 1 FROM warranty_claims WHERE item_id = (SELECT item_id FROM warranty_purchases WHERE id = $1) AND user_id = $2 LIMIT 1`,
+        [purchaseId, userId],
+      );
+      if (hasClaim.rows.length > 0) {
+        throw new AppError('Cannot cancel a warranty that has been claimed', 400);
+      }
+
+      const refundCents = proratedRefundCents(
+        Number(existing.price),
+        new Date(existing.starts_at),
+        new Date(existing.expires_at),
+        new Date(),
+      );
+
+      // Issue Stripe refund first when there's something to refund and we
+      // have a payment_intent on file. If Stripe rejects, the cancel rolls
+      // back so the user can retry.
+      let stripeRefundId: string | null = existing.stripe_refund_id ?? null;
+      if (refundCents > 0 && existing.stripe_payment_intent_id && !stripeRefundId) {
+        try {
+          const refund = await stripe.refunds.create(
+            {
+              payment_intent: existing.stripe_payment_intent_id,
+              amount: refundCents,
+              reason: 'requested_by_customer',
+              metadata: { warranty_purchase_id: purchaseId, user_id: userId },
+            },
+            { idempotencyKey: `warranty-refund-${purchaseId}` },
+          );
+          stripeRefundId = refund.id;
+        } catch (refundErr) {
+          logger.error(
+            { err: refundErr, purchaseId, userId, refundCents },
+            'Stripe refund failed for warranty cancel — aborting',
+          );
+          throw new AppError('Refund failed; please try again or contact support', 502);
+        }
       }
 
       const result = await client.query(
         `UPDATE warranty_purchases
-         SET status = 'cancelled',
-             cancelled_at = NOW(),
-             cancellation_reason = $3,
-             updated_at = NOW()
-         WHERE id = $1 AND user_id = $2
-         RETURNING *`,
-        [purchaseId, userId, reason || null]
+            SET status = 'cancelled',
+                cancelled_at = NOW(),
+                cancellation_reason = $3,
+                updated_at = NOW(),
+                stripe_refund_id = $4,
+                refund_amount_cents = $5,
+                refunded_at = CASE WHEN $5::int > 0 THEN NOW() ELSE refunded_at END
+          WHERE id = $1 AND user_id = $2
+          RETURNING *`,
+        [purchaseId, userId, reason || null, stripeRefundId, refundCents],
+      );
+
+      // F022: when the warranty is cancelled, mark any pending commission
+      // attached to the same warranty purchase as 'cancelled' so partner
+      // payouts don't include refunded sales. Settled commissions stay put
+      // and ride the clawback path established in migration 030b.
+      await client.query(
+        `UPDATE partner_commissions
+            SET status = 'cancelled', updated_at = NOW()
+          WHERE warranty_purchase_id = $1
+            AND status IN ('pending', 'approved')`,
+        [purchaseId],
       );
 
       await client.query('COMMIT');
 
-      logger.info({ purchaseId, userId, reason }, 'Warranty purchase cancelled');
+      logger.info({ purchaseId, userId, reason, refundCents, stripeRefundId }, 'Warranty purchase cancelled');
 
       return result.rows[0];
     } catch (error) {
@@ -341,7 +463,9 @@ export class WarrantyPurchasesService {
 
   /**
    * Expire all overdue active warranties in a single batch update.
-   * Designed to be called from a daily scheduled job.
+   * F013: emit a `warranty_expired` notification for each row that flips
+   * from active → expired so the user knows the policy is no longer in
+   * force. Designed to be called from a daily scheduled job.
    */
   static async expireOverdueWarranties(): Promise<number> {
     try {
@@ -349,12 +473,33 @@ export class WarrantyPurchasesService {
         `UPDATE warranty_purchases
          SET status = 'expired', updated_at = NOW()
          WHERE status = 'active' AND expires_at < CURRENT_DATE
-         RETURNING id`
+         RETURNING id, user_id, item_id, provider, plan_name`
       );
 
       const count = result.rowCount ?? 0;
       if (count > 0) {
         logger.info({ count }, 'Expired overdue warranty purchases');
+
+        // Emit a warranty_expired notification per expired row. Lazy-import
+        // to avoid the warranty-purchases ↔ notifications circular import.
+        const { NotificationsService } = await import('./notifications.service');
+        for (const row of result.rows) {
+          try {
+            await NotificationsService.createNotification({
+              user_id: row.user_id,
+              item_id: row.item_id,
+              type: 'warranty_expired',
+              title: 'Extended warranty expired',
+              body: `Your ${row.provider} ${row.plan_name} coverage just ended.`,
+              data: { warranty_purchase_id: row.id },
+            });
+          } catch (notifyErr) {
+            logger.error(
+              { err: notifyErr, purchaseId: row.id },
+              'Failed to emit warranty_expired notification (status flip persisted)',
+            );
+          }
+        }
       }
       return count;
     } catch (error) {
@@ -363,4 +508,40 @@ export class WarrantyPurchasesService {
     }
   }
 
+  /**
+   * Generate extended warranty quote plans for an item. Centralized here
+   * so the route can stay thin and the math (cents-only, F014/F015) is
+   * exercised by tests.
+   *
+   * F014: returns 0-priced plans when the item has no price (rather than
+   *       NaN propagating into the response).
+   * F015: math runs through dollarsToCents → integer arithmetic →
+   *       centsToDecimal, never `priceFloat * 0.05 * 100`.
+   */
+  static generateQuotes(itemPriceDollars: unknown, ageInYears: number): Array<{
+    provider: string;
+    plan_name: string;
+    duration_months: number;
+    price: number;
+    deductible: number;
+  }> {
+    const priceCents = (() => {
+      try {
+        return dollarsToCents(itemPriceDollars as any);
+      } catch {
+        return 0;
+      }
+    })();
+
+    const plans = [
+      { provider: 'HavenShield Basic',   plan_name: '1 Year Protection', duration_months: 12, price: commissionCents(priceCents, 0.05) / 100, deductible: 75 },
+      { provider: 'HavenShield Plus',    plan_name: '2 Year Protection', duration_months: 24, price: commissionCents(priceCents, 0.08) / 100, deductible: 50 },
+      { provider: 'HavenShield Premium', plan_name: '3 Year Protection', duration_months: 36, price: commissionCents(priceCents, 0.12) / 100, deductible: 0 },
+    ];
+
+    if (ageInYears > 5) {
+      return plans.filter((p) => p.duration_months === 12);
+    }
+    return plans;
+  }
 }

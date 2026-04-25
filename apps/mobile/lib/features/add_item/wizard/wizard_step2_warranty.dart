@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:shared_ui/shared_ui.dart';
 
 import 'add_item_wizard_screen.dart';
+import '../../../core/utils/dates.dart';
 import '../../../core/utils/haven_haptics.dart';
 
 /// Step 2: Warranty (purchase date, warranty length) - ~20 seconds.
@@ -66,19 +67,6 @@ class _WizardStep2WarrantyState extends State<WizardStep2Warranty> {
 
   String _formatDate(DateTime date) {
     return DateFormat('MMMM d, y').format(date);
-  }
-
-  /// Add months safely, clamping the day to avoid overflow
-  /// (e.g., Jan 31 + 1 month = Feb 28, not Mar 3).
-  DateTime _addMonthsSafe(DateTime date, int months) {
-    final targetYear = date.year + (date.month + months - 1) ~/ 12;
-    final targetMonth = (date.month + months - 1) % 12 + 1;
-    final result = DateTime(targetYear, targetMonth, date.day);
-    // If the day overflowed into the next month, clamp to last day of target month
-    if (result.month != targetMonth) {
-      return DateTime(targetYear, targetMonth + 1, 0);
-    }
-    return result;
   }
 
   bool get _canContinue =>
@@ -227,7 +215,7 @@ class _WizardStep2WarrantyState extends State<WizardStep2Warranty> {
                                 ),
                                 const SizedBox(height: 2),
                                 Text(
-                                  _formatDate(_addMonthsSafe(widget.data.purchaseDate!, widget.data.warrantyMonths!)),
+                                  _formatDate(addMonthsSafe(widget.data.purchaseDate!, widget.data.warrantyMonths!)),
                                   style: const TextStyle(
                                     fontSize: 16,
                                     fontWeight: FontWeight.bold,

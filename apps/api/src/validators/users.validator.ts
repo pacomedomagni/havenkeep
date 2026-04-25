@@ -1,21 +1,35 @@
 import Joi from 'joi';
+import { passwordSchema } from './auth.validator';
 
+/**
+ * Change password.  Beyond the standard complexity rules (`passwordSchema`),
+ * we enforce that:
+ *   - the new password differs from the current one (Ch01-F072 wanted a
+ *     minimal blocklist; the absolute minimum is "not the same as current");
+ *   - the user supplied the current password (already enforced).
+ * The "must not match account email" rule is enforced server-side because
+ * Joi can't see the authenticated user's email.
+ */
 export const changePasswordSchema = Joi.object({
-  currentPassword: Joi.string().required(),
-  newPassword: Joi.string()
-    .min(8)
-    .max(128)
-    .pattern(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/)
-    .required()
-    .messages({
-      'string.pattern.base': 'Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character',
-      'string.min': 'Password must be at least 8 characters long',
-    }),
-});
-
-export const deleteAccountSchema = Joi.object({
-  password: Joi.string().optional(),
-  confirmDelete: Joi.boolean().optional(),
+  currentPassword: Joi.string().min(1).max(128).required(),
+  newPassword: passwordSchema,
 })
-  // Accept snake_case from clients
+  .custom((value, helpers) => {
+    if (value.newPassword === value.currentPassword) {
+      return helpers.error('any.invalid', { message: 'New password must differ from current password' });
+    }
+    return value;
+  })
+  .rename('current_password', 'currentPassword', { ignoreUndefined: true, override: false })
+  .rename('new_password', 'newPassword', { ignoreUndefined: true, override: false });
+
+/**
+ * Account deletion. `confirmDelete: true` is required (Ch01-F071: an empty
+ * body used to pass). Password is required for email-auth accounts; OAuth
+ * accounts use the explicit confirmDelete flag instead (handled in route).
+ */
+export const deleteAccountSchema = Joi.object({
+  password: Joi.string().min(1).max(128).optional(),
+  confirmDelete: Joi.boolean().valid(true).required(),
+})
   .rename('confirm_delete', 'confirmDelete', { ignoreUndefined: true, override: false });

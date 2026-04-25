@@ -5,6 +5,12 @@ import { logger } from '../utils/logger';
 import { AppError } from '../utils/errors';
 import { config } from '../config';
 import { EmailScan } from '../types/database.types';
+import { addMonthsSafe } from '../utils/dates';
+import {
+  decryptToken,
+  encryptToken,
+  isOAuthEncryptionConfigured,
+} from '../utils/oauth-encryption';
 
 /**
  * Mask PII (credit cards, SSNs, phone numbers) before sending text to external APIs.
@@ -58,69 +64,192 @@ interface ExtractedReceipt {
   category?: string;
   emailSubject?: string;
   emailDate?: string;
+  // Sender email used for trusted-domain gating + review-queue rows.
+  senderAddress?: string;
+  senderDomain?: string;
+  // Confidence score (0..1) returned by OpenAI; defaults to 0 when missing.
+  confidence?: number;
+}
+
+export type EmailScannerProvider = 'gmail' | 'outlook';
+
+/**
+ * Trusted retailer domains. Mail received FROM these domains is allowed to
+ * auto-create items when OpenAI returns a high-confidence extraction.
+ * Anything else is parked in the review queue. This is intentionally tight —
+ * it is an allowlist, not a tag list. Keep additions deliberate.
+ */
+const TRUSTED_RETAILER_DOMAINS: ReadonlySet<string> = new Set([
+  'amazon.com',
+  'bestbuy.com',
+  'costco.com',
+  'frys.com',
+  'homedepot.com',
+  'lowes.com',
+  'samsclub.com',
+  'target.com',
+  'walmart.com',
+  'wayfair.com',
+]);
+
+/** Confidence threshold (inclusive) at which a trusted-domain match auto-creates. */
+const AUTO_CREATE_CONFIDENCE_THRESHOLD = 0.85;
+
+/** Approx Google access-token lifetime; cache slightly under to avoid edge expiry. */
+const ACCESS_TOKEN_TTL_SECONDS = 50 * 60;
+
+const GMAIL_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly';
+const OUTLOOK_SCOPE = 'offline_access https://graph.microsoft.com/Mail.Read';
+
+// F064: hard timeout for axios (Outlook list + OpenAI extract) so a hung
+// upstream can't park the scan worker indefinitely.
+const HTTP_TIMEOUT_MS = 30_000;
+
+// F063: per-user-day OpenAI cost cap (USD micro-cents). 100 cents/day per
+// user limits worst-case cost from a runaway scanner run. Tunable via env.
+const OPENAI_DAILY_CAP_MICROS = Math.max(
+  1,
+  Number(process.env.OPENAI_DAILY_CAP_MICROS ?? 100_000_000),
+);
+
+// F063: max OpenAI retries on 429/5xx before we give up on a single email.
+const OPENAI_MAX_ATTEMPTS = 3;
+
+interface OAuthTokenSet {
+  accessToken: string;
+  refreshToken?: string;
+  expiresInSeconds: number;
+  scope?: string;
+}
+
+interface OAuthIntegrationRow {
+  id: string;
+  user_id: string;
+  provider: EmailScannerProvider;
+  provider_email: string;
+  refresh_token_ciphertext: string;
+  refresh_token_iv: string;
+  refresh_token_tag: string;
+  access_token_ciphertext: string | null;
+  access_token_iv: string | null;
+  access_token_tag: string | null;
+  access_token_expires_at: Date | null;
+  granted_scope: string;
+  revoked_at: Date | null;
+}
+
+export interface ReviewQueueRow {
+  id: string;
+  user_id: string;
+  email_scan_id: string;
+  sender_address: string;
+  sender_domain: string;
+  subject: string | null;
+  suggested_item: ExtractedReceipt;
+  confidence_score: string | number;
+  state: 'pending' | 'approved' | 'rejected';
+  rejection_reason: string | null;
+  rejected_by_pattern: string | null;
+  reviewed_at: Date | null;
+  applied_item_id: string | null;
+  created_at: Date;
+}
+
+function extractDomain(senderAddress: string | undefined | null): string {
+  if (!senderAddress) return '';
+  // The Gmail "From" header is often `"Display Name" <addr@host>`.
+  const match = senderAddress.match(/<([^>]+)>/);
+  const cleanAddr = (match ? match[1] : senderAddress).trim().toLowerCase();
+  const at = cleanAddr.lastIndexOf('@');
+  if (at < 0) return '';
+  const domain = cleanAddr.slice(at + 1);
+  // Treat sub-domains as the registrable domain for allowlisting purposes.
+  // This is a coarse heuristic — fine for retailers in TRUSTED_RETAILER_DOMAINS.
+  const parts = domain.split('.');
+  if (parts.length >= 2) {
+    return parts.slice(-2).join('.');
+  }
+  return domain;
+}
+
+function senderEmail(senderHeader: string | undefined | null): string {
+  if (!senderHeader) return '';
+  const match = senderHeader.match(/<([^>]+)>/);
+  return (match ? match[1] : senderHeader).trim().toLowerCase();
 }
 
 export class EmailScannerService {
   /**
-   * Initiate email scan
+   * Initiate an email scan from an OAuth authorization `code`.
+   *
+   * Server-side flow:
+   *   1. Exchange `code` + `redirect_uri` with the provider for access +
+   *      refresh tokens.
+   *   2. Verify the resulting account email matches the authenticated user.
+   *   3. Encrypt the refresh token (AES-256-GCM) and persist in
+   *      `user_oauth_integrations`. Cache the access token in the same row.
+   *   4. Run the scan in the background using the just-minted access token.
+   *
+   * The mobile/web client never sends an access token to this endpoint.
    */
   static async initiateScan(
     userId: string,
-    provider: 'gmail' | 'outlook',
-    accessToken: string,
+    provider: EmailScannerProvider,
+    code: string,
+    redirectUri: string,
     options: {
       dateRangeStart?: string;
       dateRangeEnd?: string;
     } = {}
   ): Promise<EmailScan> {
-    // Ownership check: confirm the OAuth token belongs to the authenticated
-    // user's email. Stops a malicious/accidental cross-account scan.
-    await this.assertOAuthTokenOwnership(userId, provider, accessToken);
+    if (!isOAuthEncryptionConfigured()) {
+      throw new AppError('OAuth integration not configured', 503);
+    }
+
+    // Exchange code → tokens at the provider, then verify ownership.
+    const tokenSet = await this.exchangeAuthorizationCode(provider, code, redirectUri);
+
+    // F060: verify the granted scope actually contains what we need. Some
+    // OAuth flows let the user uncheck individual scopes on the consent
+    // screen; without this guard we'd carry the integration forward and
+    // fail mysteriously on the first list call.
+    this.assertGrantedScope(provider, tokenSet.scope);
+
+    const providerEmail = await this.fetchProviderEmail(provider, tokenSet.accessToken);
+    await this.assertProviderEmailMatchesUser(userId, providerEmail);
+
+    if (!tokenSet.refreshToken) {
+      // Without a refresh token we cannot run scans on a future schedule.
+      // Force the client to re-prompt with the consent screen so Google/MS
+      // returns a refresh token.
+      throw new AppError(
+        'OAuth provider did not return a refresh token. Re-grant access with offline scope.',
+        400,
+      );
+    }
+
+    await this.upsertIntegration(userId, provider, providerEmail, tokenSet);
 
     const client = await pool.connect();
-
+    let scan: EmailScan;
     try {
       await client.query('BEGIN');
 
       const scanResult = await client.query(
-        `INSERT INTO email_scans (user_id, provider, status, date_range_start, date_range_end)
-         VALUES ($1, $2, 'pending', $3, $4)
+        `INSERT INTO email_scans (user_id, provider, provider_email, status, date_range_start, date_range_end)
+         VALUES ($1, $2, $3, 'pending', $4, $5)
          RETURNING *`,
         [
           userId,
           provider,
+          providerEmail,
           options.dateRangeStart || null,
           options.dateRangeEnd || null,
         ]
       );
-
-      const scan = scanResult.rows[0];
+      scan = scanResult.rows[0];
 
       await client.query('COMMIT');
-
-      // Start scan with timeout and abort support
-      const abortController = new AbortController();
-      const scanPromise = this.performScan(scan.id, userId, provider, accessToken, options, abortController.signal);
-      const timeoutPromise = new Promise<void>((_, reject) =>
-        setTimeout(() => {
-          abortController.abort();
-          reject(new Error('Email scan timed out after 5 minutes'));
-        }, 5 * 60 * 1000)
-      );
-
-      Promise.race([scanPromise, timeoutPromise]).catch(async (error) => {
-        logger.error({ errorMessage: (error as Error).message, scanId: scan.id }, 'Background email scan failed');
-        try {
-          await pool.query(
-            `UPDATE email_scans SET status = 'failed', error_message = $2, completed_at = NOW() WHERE id = $1 AND status != 'completed'`,
-            [scan.id, (error as Error).message || 'Unknown error']
-          );
-        } catch (updateError) {
-          logger.error({ updateError, scanId: scan.id }, 'Failed to update scan status after error');
-        }
-      });
-
-      return scan;
     } catch (error) {
       await client.query('ROLLBACK');
       logger.error({ error, userId, provider }, 'Error initiating email scan');
@@ -128,54 +257,435 @@ export class EmailScannerService {
     } finally {
       client.release();
     }
+
+    // Run the scan in the background using the freshly minted access token.
+    const abortController = new AbortController();
+    const scanPromise = this.performScan(
+      scan.id,
+      userId,
+      provider,
+      tokenSet.accessToken,
+      options,
+      abortController.signal,
+    );
+    const timeoutPromise = new Promise<void>((_, reject) =>
+      setTimeout(() => {
+        abortController.abort();
+        reject(new Error('Email scan timed out after 5 minutes'));
+      }, 5 * 60 * 1000),
+    );
+
+    Promise.race([scanPromise, timeoutPromise]).catch(async (error) => {
+      logger.error(
+        { errorMessage: (error as Error).message, scanId: scan.id },
+        'Background email scan failed',
+      );
+      try {
+        await pool.query(
+          `UPDATE email_scans SET status = 'failed', error_message = $2, completed_at = NOW() WHERE id = $1 AND status != 'completed'`,
+          [scan.id, (error as Error).message || 'Unknown error'],
+        );
+      } catch (updateError) {
+        logger.error({ updateError, scanId: scan.id }, 'Failed to update scan status after error');
+      }
+    });
+
+    return scan;
   }
 
   /**
-   * Verify that the provided OAuth access token belongs to the authenticated
-   * HavenKeep user by comparing the authenticated user's email with the
-   * email attached to the token at the provider. Prevents a user from
-   * submitting someone else's OAuth token to scan that person's inbox.
+   * Revoke a stored OAuth integration. Called from the user-delete pipeline
+   * so deleted users no longer have refresh tokens lingering server-side.
+   * Soft-marks the row with revoked_at; the row itself is kept for audit.
    */
-  private static async assertOAuthTokenOwnership(
+  static async revokeIntegration(
     userId: string,
-    provider: 'gmail' | 'outlook',
+    provider?: EmailScannerProvider,
+  ): Promise<void> {
+    if (provider) {
+      await pool.query(
+        `UPDATE user_oauth_integrations
+            SET revoked_at = NOW(),
+                access_token_ciphertext = NULL,
+                access_token_iv = NULL,
+                access_token_tag = NULL,
+                access_token_expires_at = NULL
+          WHERE user_id = $1 AND provider = $2 AND revoked_at IS NULL`,
+        [userId, provider],
+      );
+    } else {
+      await pool.query(
+        `UPDATE user_oauth_integrations
+            SET revoked_at = NOW(),
+                access_token_ciphertext = NULL,
+                access_token_iv = NULL,
+                access_token_tag = NULL,
+                access_token_expires_at = NULL
+          WHERE user_id = $1 AND revoked_at IS NULL`,
+        [userId],
+      );
+    }
+  }
+
+  /**
+   * Exchange the OAuth `code` with the provider for an access + refresh token.
+   */
+  private static async exchangeAuthorizationCode(
+    provider: EmailScannerProvider,
+    code: string,
+    redirectUri: string,
+  ): Promise<OAuthTokenSet> {
+    if (provider === 'gmail') {
+      const clientId = config.google.clientId;
+      const clientSecret = config.google.clientSecret;
+      if (!clientId || !clientSecret) {
+        throw new AppError('Google OAuth client credentials not configured', 503);
+      }
+
+      const params = new URLSearchParams({
+        code,
+        client_id: clientId,
+        client_secret: clientSecret,
+        redirect_uri: redirectUri,
+        grant_type: 'authorization_code',
+      });
+
+      const resp = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: params.toString(),
+      });
+
+      if (!resp.ok) {
+        const text = await resp.text().catch(() => '');
+        logger.warn(
+          { status: resp.status, body: text.slice(0, 200) },
+          'Google OAuth code exchange failed',
+        );
+        throw new AppError('Failed to exchange Google OAuth code', 401);
+      }
+
+      const json = (await resp.json()) as {
+        access_token?: string;
+        refresh_token?: string;
+        expires_in?: number;
+        scope?: string;
+      };
+
+      if (!json.access_token) {
+        throw new AppError('Google OAuth response missing access_token', 502);
+      }
+
+      return {
+        accessToken: json.access_token,
+        refreshToken: json.refresh_token,
+        expiresInSeconds: json.expires_in ?? ACCESS_TOKEN_TTL_SECONDS,
+        scope: json.scope,
+      };
+    }
+
+    // Outlook / Microsoft Graph
+    const clientId = config.microsoft.clientId;
+    const clientSecret = config.microsoft.clientSecret;
+    const tenant = config.microsoft.tenant;
+    if (!clientId || !clientSecret) {
+      throw new AppError('Microsoft OAuth client credentials not configured', 503);
+    }
+
+    const params = new URLSearchParams({
+      code,
+      client_id: clientId,
+      client_secret: clientSecret,
+      redirect_uri: redirectUri,
+      grant_type: 'authorization_code',
+      scope: OUTLOOK_SCOPE,
+    });
+
+    const resp = await fetch(
+      `https://login.microsoftonline.com/${encodeURIComponent(tenant)}/oauth2/v2.0/token`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: params.toString(),
+      },
+    );
+
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => '');
+      logger.warn(
+        { status: resp.status, body: text.slice(0, 200) },
+        'Microsoft OAuth code exchange failed',
+      );
+      throw new AppError('Failed to exchange Microsoft OAuth code', 401);
+    }
+
+    const json = (await resp.json()) as {
+      access_token?: string;
+      refresh_token?: string;
+      expires_in?: number;
+      scope?: string;
+    };
+
+    if (!json.access_token) {
+      throw new AppError('Microsoft OAuth response missing access_token', 502);
+    }
+
+    return {
+      accessToken: json.access_token,
+      refreshToken: json.refresh_token,
+      expiresInSeconds: json.expires_in ?? ACCESS_TOKEN_TTL_SECONDS,
+      scope: json.scope,
+    };
+  }
+
+  /**
+   * Refresh a stored access token using the encrypted refresh token. Updates
+   * the integration row's cached access token + expiry.
+   */
+  private static async refreshAccessTokenForIntegration(
+    integration: OAuthIntegrationRow,
+  ): Promise<string> {
+    const refreshToken = decryptToken({
+      ciphertext: integration.refresh_token_ciphertext,
+      iv: integration.refresh_token_iv,
+      tag: integration.refresh_token_tag,
+    });
+
+    let json: { access_token?: string; expires_in?: number };
+
+    if (integration.provider === 'gmail') {
+      const clientId = config.google.clientId;
+      const clientSecret = config.google.clientSecret;
+      if (!clientId || !clientSecret) {
+        throw new AppError('Google OAuth client credentials not configured', 503);
+      }
+      const params = new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        refresh_token: refreshToken,
+        grant_type: 'refresh_token',
+      });
+      const resp = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: params.toString(),
+      });
+      if (!resp.ok) {
+        throw new AppError('Failed to refresh Google access token', 401);
+      }
+      json = (await resp.json()) as { access_token?: string; expires_in?: number };
+    } else {
+      const clientId = config.microsoft.clientId;
+      const clientSecret = config.microsoft.clientSecret;
+      const tenant = config.microsoft.tenant;
+      if (!clientId || !clientSecret) {
+        throw new AppError('Microsoft OAuth client credentials not configured', 503);
+      }
+      const params = new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        refresh_token: refreshToken,
+        grant_type: 'refresh_token',
+        scope: OUTLOOK_SCOPE,
+      });
+      const resp = await fetch(
+        `https://login.microsoftonline.com/${encodeURIComponent(tenant)}/oauth2/v2.0/token`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: params.toString(),
+        },
+      );
+      if (!resp.ok) {
+        throw new AppError('Failed to refresh Microsoft access token', 401);
+      }
+      json = (await resp.json()) as { access_token?: string; expires_in?: number };
+    }
+
+    if (!json.access_token) {
+      throw new AppError('OAuth refresh response missing access_token', 502);
+    }
+
+    const ttl = Math.min(json.expires_in ?? ACCESS_TOKEN_TTL_SECONDS, ACCESS_TOKEN_TTL_SECONDS);
+    const cached = encryptToken(json.access_token);
+    const expiresAt = new Date(Date.now() + ttl * 1000);
+
+    await pool.query(
+      `UPDATE user_oauth_integrations
+          SET access_token_ciphertext = $2,
+              access_token_iv = $3,
+              access_token_tag = $4,
+              access_token_expires_at = $5,
+              updated_at = NOW()
+        WHERE id = $1`,
+      [integration.id, cached.ciphertext, cached.iv, cached.tag, expiresAt],
+    );
+
+    return json.access_token;
+  }
+
+  /**
+   * Retrieve a usable access token for an existing integration. Returns the
+   * cached token if it has time left, otherwise refreshes via the provider.
+   * Exposed primarily for future scheduled scans; the route uses the freshly
+   * minted token from initiateScan instead.
+   */
+  static async getAccessToken(
+    userId: string,
+    provider: EmailScannerProvider,
+  ): Promise<string> {
+    if (!isOAuthEncryptionConfigured()) {
+      throw new AppError('OAuth integration not configured', 503);
+    }
+
+    const result = await pool.query<OAuthIntegrationRow>(
+      `SELECT * FROM user_oauth_integrations
+        WHERE user_id = $1 AND provider = $2 AND revoked_at IS NULL
+        ORDER BY updated_at DESC
+        LIMIT 1`,
+      [userId, provider],
+    );
+    const integration = result.rows[0];
+    if (!integration) {
+      throw new AppError('OAuth integration not found for user', 404);
+    }
+
+    const now = Date.now();
+    const expiresAt = integration.access_token_expires_at?.getTime() ?? 0;
+    if (
+      integration.access_token_ciphertext &&
+      integration.access_token_iv &&
+      integration.access_token_tag &&
+      expiresAt > now + 60_000
+    ) {
+      return decryptToken({
+        ciphertext: integration.access_token_ciphertext,
+        iv: integration.access_token_iv,
+        tag: integration.access_token_tag,
+      });
+    }
+
+    return this.refreshAccessTokenForIntegration(integration);
+  }
+
+  private static async upsertIntegration(
+    userId: string,
+    provider: EmailScannerProvider,
+    providerEmail: string,
+    tokenSet: OAuthTokenSet,
+  ): Promise<void> {
+    if (!tokenSet.refreshToken) {
+      throw new AppError('Provider did not return a refresh token', 400);
+    }
+
+    const refresh = encryptToken(tokenSet.refreshToken);
+    const access = encryptToken(tokenSet.accessToken);
+    const ttl = Math.min(tokenSet.expiresInSeconds, ACCESS_TOKEN_TTL_SECONDS);
+    const accessExpiresAt = new Date(Date.now() + ttl * 1000);
+    const grantedScope = tokenSet.scope || (provider === 'gmail' ? GMAIL_SCOPE : OUTLOOK_SCOPE);
+
+    await pool.query(
+      `INSERT INTO user_oauth_integrations (
+         user_id, provider, provider_email,
+         refresh_token_ciphertext, refresh_token_iv, refresh_token_tag,
+         access_token_ciphertext, access_token_iv, access_token_tag,
+         access_token_expires_at, granted_scope, revoked_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NULL)
+       ON CONFLICT (user_id, provider, provider_email)
+       DO UPDATE SET
+         refresh_token_ciphertext = EXCLUDED.refresh_token_ciphertext,
+         refresh_token_iv         = EXCLUDED.refresh_token_iv,
+         refresh_token_tag        = EXCLUDED.refresh_token_tag,
+         access_token_ciphertext  = EXCLUDED.access_token_ciphertext,
+         access_token_iv          = EXCLUDED.access_token_iv,
+         access_token_tag         = EXCLUDED.access_token_tag,
+         access_token_expires_at  = EXCLUDED.access_token_expires_at,
+         granted_scope            = EXCLUDED.granted_scope,
+         revoked_at               = NULL,
+         updated_at               = NOW()`,
+      [
+        userId,
+        provider,
+        providerEmail,
+        refresh.ciphertext,
+        refresh.iv,
+        refresh.tag,
+        access.ciphertext,
+        access.iv,
+        access.tag,
+        accessExpiresAt,
+        grantedScope,
+      ],
+    );
+  }
+
+  private static async fetchProviderEmail(
+    provider: EmailScannerProvider,
     accessToken: string,
+  ): Promise<string> {
+    if (provider === 'gmail') {
+      const resp = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!resp.ok) {
+        throw new AppError('Unable to verify Google access token', 401);
+      }
+      const info = (await resp.json()) as { email?: string };
+      const email = info.email?.toLowerCase();
+      if (!email) {
+        throw new AppError('Google did not return an account email', 502);
+      }
+      return email;
+    }
+
+    const resp = await fetch('https://graph.microsoft.com/v1.0/me', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!resp.ok) {
+      throw new AppError('Unable to verify Microsoft access token', 401);
+    }
+    const info = (await resp.json()) as { mail?: string; userPrincipalName?: string };
+    const email = (info.mail || info.userPrincipalName || '').toLowerCase();
+    if (!email) {
+      throw new AppError('Microsoft did not return an account email', 502);
+    }
+    return email;
+  }
+
+  /**
+   * F060: enforce that the OAuth provider actually granted the scope we
+   * asked for. Token-exchange responses include `scope` as a
+   * space-separated list (Gmail) or with offline_access prefix (Outlook).
+   */
+  private static assertGrantedScope(
+    provider: EmailScannerProvider,
+    grantedScope: string | undefined,
+  ): void {
+    const required = provider === 'gmail' ? GMAIL_SCOPE : 'https://graph.microsoft.com/Mail.Read';
+    const granted = (grantedScope || '').split(/\s+/).filter(Boolean);
+    if (!granted.includes(required)) {
+      throw new AppError(
+        `OAuth grant is missing required scope "${required}". Re-grant access with the requested permission.`,
+        403,
+      );
+    }
+  }
+
+  private static async assertProviderEmailMatchesUser(
+    userId: string,
+    providerEmail: string,
   ): Promise<void> {
     const userRes = await pool.query('SELECT email FROM users WHERE id = $1', [userId]);
     const havenkeepEmail = userRes.rows[0]?.email?.toLowerCase();
     if (!havenkeepEmail) {
       throw new AppError('User not found', 404);
     }
-
-    let tokenEmail: string | null = null;
-    try {
-      if (provider === 'gmail') {
-        const resp = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
-        if (!resp.ok) throw new AppError('Unable to verify Google access token', 401);
-        const info = (await resp.json()) as { email?: string };
-        tokenEmail = info.email?.toLowerCase() ?? null;
-      } else {
-        const resp = await fetch('https://graph.microsoft.com/v1.0/me', {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
-        if (!resp.ok) throw new AppError('Unable to verify Microsoft access token', 401);
-        const info = (await resp.json()) as { mail?: string; userPrincipalName?: string };
-        tokenEmail = (info.mail || info.userPrincipalName || '').toLowerCase() || null;
-      }
-    } catch (err) {
-      if (err instanceof AppError) throw err;
-      logger.error({ err, userId, provider }, 'Email scanner: provider userinfo failed');
-      throw new AppError('Unable to verify OAuth token', 502);
-    }
-
-    if (!tokenEmail || tokenEmail !== havenkeepEmail) {
+    if (providerEmail !== havenkeepEmail) {
       logger.warn(
-        { userId, provider, havenkeepEmail, tokenEmail },
-        'Email scanner: OAuth token email does not match authenticated user',
+        { userId, providerEmail, havenkeepEmail },
+        'Email scanner: OAuth account email does not match authenticated user',
       );
-      throw new AppError('The OAuth token does not belong to this account', 403);
+      throw new AppError('The OAuth account does not belong to this HavenKeep user', 403);
     }
   }
 
@@ -185,7 +695,7 @@ export class EmailScannerService {
   private static async performScan(
     scanId: string,
     userId: string,
-    provider: 'gmail' | 'outlook',
+    provider: EmailScannerProvider,
     accessToken: string,
     options: {
       dateRangeStart?: string;
@@ -213,25 +723,49 @@ export class EmailScannerService {
         [scanId]
       );
 
-      let receipts: ExtractedReceipt[] = [];
-
-      if (provider === 'gmail') {
-        receipts = await this.scanGmail(accessToken, options, signal);
-      } else if (provider === 'outlook') {
-        receipts = await this.scanOutlook(accessToken, options, signal);
+      // F063: short-circuit the scan if the user has already burned the
+      // daily OpenAI budget. The dedup table still gets seeded so the
+      // partial scan resumes cleanly tomorrow.
+      if (!(await this.withinOpenAIBudget(userId, 'email_scan'))) {
+        await pool.query(
+          `UPDATE email_scans
+              SET status = 'failed',
+                  error_message = $2,
+                  completed_at = NOW()
+            WHERE id = $1`,
+          [scanId, 'Daily OpenAI budget exhausted; try again tomorrow'],
+        );
+        logger.warn({ userId, scanId }, 'Email scan aborted: OpenAI daily budget exhausted');
+        return;
       }
+
+      const receipts: ExtractedReceipt[] =
+        provider === 'gmail'
+          ? await this.scanGmail(userId, scanId, accessToken, options, signal)
+          : await this.scanOutlook(userId, scanId, accessToken, options, signal);
 
       logger.info({ scanId, receiptsFound: receipts.length }, 'Email scan completed');
 
-      // Filter for appliances and electronics
       const relevantReceipts = receipts.filter((r) =>
         this.isRelevantPurchase(r.productName, r.category)
       );
 
-      // Import items
       let importedCount = 0;
+      let queuedCount = 0;
       let skippedDueToLimit = 0;
+
       for (const receipt of relevantReceipts) {
+        const domain = receipt.senderDomain || '';
+        const trusted = TRUSTED_RETAILER_DOMAINS.has(domain);
+        const confidence = typeof receipt.confidence === 'number' ? receipt.confidence : 0;
+        const autoCreate = trusted && confidence >= AUTO_CREATE_CONFIDENCE_THRESHOLD;
+
+        if (!autoCreate) {
+          await this.enqueueReview(userId, scanId, receipt, confidence);
+          queuedCount++;
+          continue;
+        }
+
         try {
           const created = await this.createItemFromReceipt(userId, receipt, scanId);
           if (created) {
@@ -240,17 +774,23 @@ export class EmailScannerService {
             skippedDueToLimit++;
           }
         } catch (error) {
-          logger.warn({ error, receipt }, 'Failed to import receipt');
+          logger.warn({ error, productName: receipt.productName }, 'Failed to import receipt');
         }
       }
 
-      // If items were silently dropped due to the free plan limit, surface a warning
-      // in the error_message column so the mobile UI can show it on the completed scan card.
-      const limitWarning = skippedDueToLimit > 0
-        ? `${skippedDueToLimit} item${skippedDueToLimit === 1 ? '' : 's'} skipped — free plan limit reached. Upgrade to Premium to import all items.`
-        : null;
+      const messages: string[] = [];
+      if (skippedDueToLimit > 0) {
+        messages.push(
+          `${skippedDueToLimit} item${skippedDueToLimit === 1 ? '' : 's'} skipped — free plan limit reached. Upgrade to Premium to import all items.`,
+        );
+      }
+      if (queuedCount > 0) {
+        messages.push(
+          `${queuedCount} item${queuedCount === 1 ? '' : 's'} pending your review.`,
+        );
+      }
+      const completedMessage = messages.length ? messages.join(' ') : null;
 
-      // Update scan record
       await pool.query(
         `UPDATE email_scans
          SET status = 'completed',
@@ -260,22 +800,26 @@ export class EmailScannerService {
              error_message = $5,
              completed_at = NOW()
          WHERE id = $1`,
-        [scanId, receipts.length, relevantReceipts.length, importedCount, limitWarning]
+        [scanId, receipts.length, relevantReceipts.length, importedCount, completedMessage]
       );
 
-      // Update user analytics
+      // F065: only count a scan as "completed" in user analytics when it
+      // actually returned at least one inspected email. A no-op scan (zero
+      // emails matched the trusted-sender filter) shouldn't tip the
+      // engagement-flag UI to "you've scanned" — it never read anything.
+      const scanCounted = receipts.length > 0;
       await pool.query(
         `UPDATE user_analytics
-         SET email_scans_completed = email_scans_completed + 1,
+         SET email_scans_completed = email_scans_completed + CASE WHEN $3::bool THEN 1 ELSE 0 END,
              items_added_via_email = items_added_via_email + $2,
-             has_scanned_email = TRUE,
+             has_scanned_email     = COALESCE(has_scanned_email, FALSE) OR $3::bool,
              updated_at = NOW()
          WHERE user_id = $1`,
-        [userId, importedCount]
+        [userId, importedCount, scanCounted]
       );
 
       logger.info(
-        { scanId, userId, importedCount },
+        { scanId, userId, importedCount, queuedCount },
         'Email scan completed successfully'
       );
     } catch (error) {
@@ -293,9 +837,14 @@ export class EmailScannerService {
   }
 
   /**
-   * Scan Gmail for receipts
+   * Scan Gmail for receipts. Only queries explicitly trusted retailer
+   * senders — the legacy generic catch-all (`receipt OR purchase OR order`)
+   * is removed because a spoofed sender + prompt injection in the email body
+   * could otherwise auto-create items in the user's account.
    */
   private static async scanGmail(
+    userId: string,
+    scanId: string,
     accessToken: string,
     options: { dateRangeStart?: string; dateRangeEnd?: string },
     signal?: AbortSignal
@@ -307,19 +856,11 @@ export class EmailScannerService {
 
     const receipts: ExtractedReceipt[] = [];
 
-    // Define search queries for major retailers
-    const queries = [
-      'from:(orders@amazon.com OR auto-confirm@amazon.com) subject:(order OR receipt)',
-      'from:bestbuy.com subject:(receipt OR order OR purchase)',
-      'from:homedepot.com subject:(receipt OR order)',
-      'from:lowes.com subject:(order OR receipt)',
-      'from:target.com subject:(receipt OR order)',
-      'from:walmart.com subject:(order OR receipt)',
-      'from:costco.com subject:(receipt OR order)',
-      'from:samsclub.com subject:(receipt OR order)',
-      'from:wayfair.com subject:(order OR receipt)',
-      'receipt OR purchase OR order', // General search
-    ];
+    // Only mail FROM trusted retailer domains is scanned. Generic keyword
+    // searches without a sender filter are intentionally not used (Ch09-FlowB-T-B7).
+    const queries = Array.from(TRUSTED_RETAILER_DOMAINS).map(
+      (domain) => `from:${domain} subject:(receipt OR order OR purchase)`,
+    );
 
     // Build date query
     let dateQuery = '';
@@ -349,6 +890,21 @@ export class EmailScannerService {
         for (const message of messages.slice(0, 50)) {
           if (signal?.aborted) break;
 
+          // F067: skip messages we've already extracted from. Two of our
+          // sender-domain queries can match the same Gmail message (e.g.
+          // amazon.com order confirmation also contains "purchase" in the
+          // subject) and without this guard we'd hit OpenAI twice and
+          // double-bill the user's daily cap.
+          const seenInsert = await pool.query(
+            `INSERT INTO email_scanner_seen_messages
+               (user_id, provider, provider_message_id, first_seen_scan_id)
+             VALUES ($1, 'gmail', $2, $3)
+             ON CONFLICT (user_id, provider, provider_message_id) DO NOTHING
+             RETURNING user_id`,
+            [userId, message.id!, scanId],
+          );
+          if (seenInsert.rowCount === 0) continue;
+
           // Limit to 50 per query
           try {
             const messageData = await gmail.users.messages.get({
@@ -376,26 +932,34 @@ export class EmailScannerService {
   }
 
   /**
-   * Scan Outlook for receipts
+   * Scan Outlook for receipts. Only queries trusted retailer senders — same
+   * rationale as Gmail.
    */
   private static async scanOutlook(
+    userId: string,
+    scanId: string,
     accessToken: string,
     options: { dateRangeStart?: string; dateRangeEnd?: string },
     signal?: AbortSignal
   ): Promise<ExtractedReceipt[]> {
     const receipts: ExtractedReceipt[] = [];
 
+    // Build a sender clause: from/emailAddress/address ENDSWITH each trusted domain.
+    const fromClauses = Array.from(TRUSTED_RETAILER_DOMAINS).map(
+      (domain) => `endswith(from/emailAddress/address, '@${domain}')`,
+    );
+    let filter = `(${fromClauses.join(' or ')})`;
+    filter += ` and (contains(subject, 'receipt') or contains(subject, 'order') or contains(subject, 'purchase'))`;
+
+    if (options.dateRangeStart) {
+      filter += ` and receivedDateTime ge ${new Date(options.dateRangeStart).toISOString()}`;
+    }
+    if (options.dateRangeEnd) {
+      filter += ` and receivedDateTime le ${new Date(options.dateRangeEnd).toISOString()}`;
+    }
+
     try {
-      // Build filter query
-      let filter = `contains(subject, 'receipt') or contains(subject, 'order') or contains(subject, 'purchase')`;
-
-      if (options.dateRangeStart) {
-        filter += ` and receivedDateTime ge ${new Date(options.dateRangeStart).toISOString()}`;
-      }
-      if (options.dateRangeEnd) {
-        filter += ` and receivedDateTime le ${new Date(options.dateRangeEnd).toISOString()}`;
-      }
-
+      // F064: 30s timeout so a hung Outlook tenant doesn't park the worker.
       const response = await axios.get('https://graph.microsoft.com/v1.0/me/messages', {
         headers: {
           Authorization: `Bearer ${accessToken}`,
@@ -406,6 +970,7 @@ export class EmailScannerService {
           $select: 'subject,from,receivedDateTime,body',
         },
         signal,
+        timeout: HTTP_TIMEOUT_MS,
       });
 
       const messages = response.data.value || [];
@@ -413,10 +978,26 @@ export class EmailScannerService {
       for (const message of messages.slice(0, 50)) {
         if (signal?.aborted) break;
 
+        // F067: dedup. Outlook's `id` is the closest analog to Gmail's
+        // message id and is stable per-mailbox.
+        if (message.id) {
+          const seenInsert = await pool.query(
+            `INSERT INTO email_scanner_seen_messages
+               (user_id, provider, provider_message_id, first_seen_scan_id)
+             VALUES ($1, 'outlook', $2, $3)
+             ON CONFLICT (user_id, provider, provider_message_id) DO NOTHING
+             RETURNING user_id`,
+            [userId, message.id, scanId],
+          );
+          if (seenInsert.rowCount === 0) continue;
+        }
+
         try {
+          const fromAddress: string =
+            message.from?.emailAddress?.address || '';
           const emailData = {
             subject: message.subject,
-            from: message.from?.emailAddress?.address || '',
+            from: fromAddress,
             date: message.receivedDateTime,
             body: message.body?.content || '',
           };
@@ -469,9 +1050,27 @@ export class EmailScannerService {
   }
 
   /**
+   * F063: per-user-per-day OpenAI spend check. Returns true when the user
+   * is still under the daily cap. Uses the openai_user_daily_cost view
+   * landed in migration 067.
+   */
+  private static async withinOpenAIBudget(userId: string, feature: string): Promise<boolean> {
+    const result = await pool.query<{ cost_micros: string }>(
+      `SELECT COALESCE(SUM(cost_micros), 0)::text AS cost_micros
+         FROM openai_user_daily_cost
+        WHERE user_id = $1
+          AND day = (NOW() AT TIME ZONE 'UTC')::date
+          AND feature = $2`,
+      [userId, feature],
+    );
+    const used = Number(result.rows[0]?.cost_micros ?? '0');
+    return used < OPENAI_DAILY_CAP_MICROS;
+  }
+
+  /**
    * Extract receipt data using AI (OpenAI or Anthropic)
    *
-   * PRIVACY NOTE: Email body content (up to 2000 chars) is sent to OpenAI for
+   * PRIVACY NOTE: Email body content (up to 4000 chars) is sent to OpenAI for
    * receipt extraction. Ensure users are informed of this in the app's privacy
    * policy and terms of service. The access token is used only for email access
    * and is not stored.
@@ -482,16 +1081,12 @@ export class EmailScannerService {
     date: string;
     body: string;
   }, signal?: AbortSignal): Promise<ExtractedReceipt | null> {
-    try {
-      // Use OpenAI (or Anthropic) to extract structured data
-      const response = await axios.post(
-        'https://api.openai.com/v1/chat/completions',
+    const requestBody = {
+      model: 'gpt-4o-mini', // Cheaper, faster model
+      messages: [
         {
-          model: 'gpt-4o-mini', // Cheaper, faster model
-          messages: [
-            {
-              role: 'system',
-              content: `You are an AI that extracts purchase information from receipt emails.
+          role: 'system',
+          content: `You are an AI that extracts purchase information from receipt emails.
 Extract the following information and return as JSON:
 - productName: Name of the product (if multiple, pick the most expensive/important appliance or electronic)
 - brand: Brand name
@@ -502,62 +1097,121 @@ Extract the following information and return as JSON:
 - modelNumber: Model number if available
 - serialNumber: Serial number if available
 - category: Best matching category (refrigerator, dishwasher, washer, dryer, oven_range, microwave, hvac, water_heater, tv, computer, other)
+- confidence: Float 0..1 — how sure you are this is a real, parseable purchase receipt for a physical product (0 = not a receipt or unsure, 1 = definitely a receipt)
 
 Only extract if this is clearly a purchase receipt for a physical product.
 Focus on appliances, electronics, HVAC, and home systems.
 Return null if this is not a product purchase receipt.`,
-            },
-            {
-              role: 'user',
-              content: `Subject: ${maskPII(emailData.subject)}
+        },
+        {
+          role: 'user',
+          content: `Subject: ${maskPII(emailData.subject)}
 From: ${emailData.from}
 Date: ${emailData.date}
 
 Body:
 ${maskPII(stripHtmlTags(emailData.body).substring(0, 4000))}`,
-            },
-          ],
-          response_format: { type: 'json_object' },
-          temperature: 0,
         },
-        {
-          headers: {
-            'Authorization': `Bearer ${config.openai?.apiKey}`,
-            'Content-Type': 'application/json',
-          },
-          signal,
-        }
-      );
+      ],
+      response_format: { type: 'json_object' },
+      temperature: 0,
+    };
+    const requestConfig = {
+      headers: {
+        'Authorization': `Bearer ${config.openai?.apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      signal,
+      // F064: 30s ceiling — anything longer is a hung OpenAI request and
+      // the per-scan budget is already counting against the user.
+      timeout: HTTP_TIMEOUT_MS,
+    } as const;
 
-      let extracted;
+    // F063: retry on 429 / 5xx with exponential backoff. Permanent 4xx
+    // (auth, malformed payload) bails immediately so we don't burn the
+    // budget on a guaranteed-fail prompt.
+    let response: any;
+    let attempt = 0;
+    let lastErr: any;
+    while (attempt < OPENAI_MAX_ATTEMPTS) {
+      attempt++;
       try {
-        extracted = JSON.parse(response.data.choices[0].message.content);
-      } catch (parseError) {
-        logger.warn({ parseError, subject: emailData.subject }, 'Failed to parse AI response as JSON');
-        return null;
+        response = await axios.post('https://api.openai.com/v1/chat/completions', requestBody, requestConfig);
+        lastErr = null;
+        break;
+      } catch (err: any) {
+        lastErr = err;
+        const status = err?.response?.status;
+        const transient = status === 429 || (typeof status === 'number' && status >= 500);
+        if (!transient || attempt >= OPENAI_MAX_ATTEMPTS) break;
+        const backoff = 250 * Math.pow(2, attempt - 1);
+        await new Promise((r) => setTimeout(r, backoff));
       }
-
-      if (!extracted || !extracted.productName) {
-        return null;
-      }
-
-      return {
-        ...extracted,
-        emailSubject: emailData.subject,
-        emailDate: emailData.date,
-      };
-    } catch (error: any) {
-      // CRIT-3: Never log the full error object from axios as it may contain
-      // request headers (including the OpenAI API key in the Authorization header).
-      // Only log the status code and message.
+    }
+    if (lastErr || !response) {
+      // Never log the full axios error — it may contain the Authorization
+      // header. Surface only status + message.
       const safeError = {
-        message: error?.message,
-        statusCode: error?.response?.status,
-        responseMessage: error?.response?.data?.error?.message,
+        message: lastErr?.message,
+        statusCode: lastErr?.response?.status,
+        responseMessage: lastErr?.response?.data?.error?.message,
       };
       logger.warn({ error: safeError, subject: emailData.subject }, 'Failed to extract receipt data with AI');
       return null;
     }
+
+    let extracted: any;
+    try {
+      extracted = JSON.parse(response.data.choices[0].message.content);
+    } catch (parseError) {
+      logger.warn({ parseError, subject: emailData.subject }, 'Failed to parse AI response as JSON');
+      return null;
+    }
+
+    if (!extracted || !extracted.productName) {
+      return null;
+    }
+
+    const confidence = typeof extracted.confidence === 'number'
+      ? Math.max(0, Math.min(1, extracted.confidence))
+      : 0;
+
+    return {
+      ...extracted,
+      confidence,
+      emailSubject: emailData.subject,
+      emailDate: emailData.date,
+      senderAddress: senderEmail(emailData.from),
+      senderDomain: extractDomain(emailData.from),
+    };
+  }
+
+  /**
+   * Insert a receipt into the review queue. Used when the sender is not on
+   * the trusted-retailer allowlist OR confidence is below the auto-create
+   * threshold.
+   */
+  private static async enqueueReview(
+    userId: string,
+    scanId: string,
+    receipt: ExtractedReceipt,
+    confidence: number,
+  ): Promise<void> {
+    await pool.query(
+      `INSERT INTO email_scanner_review_queue
+        (user_id, email_scan_id, sender_address, sender_domain, subject,
+         suggested_item, confidence_score, state)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, 'pending')`,
+      [
+        userId,
+        scanId,
+        receipt.senderAddress || '',
+        receipt.senderDomain || '',
+        receipt.emailSubject || null,
+        JSON.stringify(receipt),
+        confidence,
+      ],
+    );
   }
 
   /**
@@ -613,89 +1267,42 @@ ${maskPII(stripHtmlTags(emailData.body).substring(0, 4000))}`,
   /**
    * Create item from extracted receipt.
    * Returns true if item was created, false if skipped due to free plan limit.
+   * If `targetClient` is supplied, the caller owns the transaction (used by
+   * the review-queue approve handler so the queue + item rows commit atomically).
+   * Returns the created item id when supplied with a target client, so the
+   * review queue can record `applied_item_id`.
    */
   private static async createItemFromReceipt(
     userId: string,
     receipt: ExtractedReceipt,
-    scanId: string
-  ): Promise<boolean> {
-    const client = await pool.connect();
+    scanId: string,
+  ): Promise<boolean>;
+  private static async createItemFromReceipt(
+    userId: string,
+    receipt: ExtractedReceipt,
+    scanId: string,
+    targetClient: { query: (...args: any[]) => Promise<any> },
+  ): Promise<string | null>;
+  private static async createItemFromReceipt(
+    userId: string,
+    receipt: ExtractedReceipt,
+    scanId: string,
+    targetClient?: { query: (...args: any[]) => Promise<any> },
+  ): Promise<boolean | string | null> {
+    if (targetClient) {
+      const itemId = await this.createItemUsing(targetClient, userId, receipt, scanId, false);
+      return itemId;
+    }
 
+    const client = await pool.connect();
     try {
       await client.query('BEGIN');
-
-      // Check free plan limit inside the transaction with row lock to prevent TOCTOU races
-      const userResult = await client.query(
-        'SELECT plan FROM users WHERE id = $1 FOR UPDATE',
-        [userId]
-      );
-      if (userResult.rows[0]?.plan === 'free') {
-        const countResult = await client.query(
-          'SELECT COUNT(*) FROM items WHERE user_id = $1 AND is_archived = FALSE',
-          [userId]
-        );
-        if (parseInt(countResult.rows[0].count, 10) >= 5) {
-          await client.query('ROLLBACK');
-          client.release();
-          logger.info({ userId, scanId }, 'Skipping item import: free plan limit reached');
-          return false; // Signal to caller that this was skipped
-        }
+      const itemId = await this.createItemUsing(client, userId, receipt, scanId, true);
+      if (itemId === null) {
+        await client.query('ROLLBACK');
+        return false;
       }
-
-      // Get user's default home
-      const homeResult = await client.query(
-        'SELECT id FROM homes WHERE user_id = $1 ORDER BY created_at ASC LIMIT 1',
-        [userId]
-      );
-
-      if (homeResult.rows.length === 0) {
-        throw new AppError('User has no home', 400);
-      }
-
-      const homeId = homeResult.rows[0].id;
-
-      const purchaseDate = receipt.purchaseDate
-        ? new Date(receipt.purchaseDate)
-        : new Date(receipt.emailDate || Date.now());
-
-      const warrantyMonths = receipt.warrantyPeriod || 12;
-      const warrantyEndDate = new Date(purchaseDate);
-      const expectedMonth = (warrantyEndDate.getMonth() + warrantyMonths) % 12;
-      warrantyEndDate.setMonth(warrantyEndDate.getMonth() + warrantyMonths);
-      if (warrantyEndDate.getMonth() !== expectedMonth) {
-        warrantyEndDate.setDate(0);
-      }
-
-      // Create item
-      await client.query(
-        `INSERT INTO items (
-          home_id, user_id, name, brand, model_number, serial_number,
-          category, purchase_date, store, price,
-          warranty_months, warranty_end_date, warranty_type,
-          notes, added_via
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
-        [
-          homeId,
-          userId,
-          receipt.productName,
-          receipt.brand,
-          receipt.modelNumber,
-          receipt.serialNumber,
-          receipt.category || 'other',
-          purchaseDate,
-          receipt.store,
-          receipt.price,
-          warrantyMonths,
-          warrantyEndDate,
-          'manufacturer',
-          `Imported from email: ${receipt.emailSubject}`,
-          'email',
-        ]
-      );
-
       await client.query('COMMIT');
-
-      logger.info({ userId, scanId, productName: receipt.productName }, 'Item created from receipt');
       return true;
     } catch (error) {
       await client.query('ROLLBACK');
@@ -703,6 +1310,92 @@ ${maskPII(stripHtmlTags(emailData.body).substring(0, 4000))}`,
     } finally {
       client.release();
     }
+  }
+
+  private static async createItemUsing(
+    db: { query: (...args: any[]) => Promise<any> },
+    userId: string,
+    receipt: ExtractedReceipt,
+    scanId: string,
+    enforceFreeLimit: boolean,
+  ): Promise<string | null> {
+    if (enforceFreeLimit) {
+      const userResult = await db.query(
+        'SELECT plan FROM users WHERE id = $1 FOR UPDATE',
+        [userId],
+      );
+      if (userResult.rows[0]?.plan === 'free') {
+        const countResult = await db.query(
+          'SELECT COUNT(*) FROM items WHERE user_id = $1 AND is_archived = FALSE',
+          [userId],
+        );
+        const limit = config.freeTier.itemLimit;
+        if (parseInt(countResult.rows[0].count, 10) >= limit) {
+          logger.info({ userId, scanId }, 'Skipping item import: free plan limit reached');
+          return null;
+        }
+      }
+    }
+
+    const homeResult = await db.query(
+      'SELECT id FROM homes WHERE user_id = $1 ORDER BY created_at ASC LIMIT 1',
+      [userId],
+    );
+
+    if (homeResult.rows.length === 0) {
+      throw new AppError('User has no home', 400);
+    }
+
+    const homeId = homeResult.rows[0].id;
+
+    const purchaseDate = receipt.purchaseDate
+      ? new Date(receipt.purchaseDate)
+      : new Date(receipt.emailDate || Date.now());
+
+    // F066: prefer category_defaults.warranty_months over the hardcoded
+    // 12. The model-extracted value wins when present (it parsed the email
+    // body); the category default is a sensible fallback so a TV import
+    // doesn't get a 12-month warranty when the store implies 24.
+    const category = receipt.category || 'other';
+    const defaultsRow = await db.query(
+      'SELECT warranty_months FROM category_defaults WHERE category = $1',
+      [category],
+    );
+    const fallbackMonths = (defaultsRow.rows[0]?.warranty_months as number | undefined) ?? 12;
+    const warrantyMonths = receipt.warrantyPeriod || fallbackMonths;
+
+    const warrantyEndDate = addMonthsSafe(purchaseDate, warrantyMonths);
+
+    const insert = await db.query(
+      `INSERT INTO items (
+        home_id, user_id, name, brand, model_number, serial_number,
+        category, purchase_date, store, price,
+        warranty_months, warranty_end_date, warranty_type,
+        notes, added_via
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+      RETURNING id`,
+      [
+        homeId,
+        userId,
+        receipt.productName,
+        receipt.brand,
+        receipt.modelNumber,
+        receipt.serialNumber,
+        receipt.category || 'other',
+        purchaseDate,
+        receipt.store,
+        receipt.price,
+        warrantyMonths,
+        warrantyEndDate,
+        'manufacturer',
+        `Imported from email: ${receipt.emailSubject}`,
+        'email',
+      ],
+    );
+
+    const itemId = insert.rows[0]?.id as string;
+    logger.info({ userId, scanId, productName: receipt.productName, itemId }, 'Item created from receipt');
+    return itemId;
   }
 
   /**
@@ -743,6 +1436,104 @@ ${maskPII(stripHtmlTags(emailData.body).substring(0, 4000))}`,
     } catch (error) {
       logger.error({ error, userId }, 'Error fetching user scans');
       throw error;
+    }
+  }
+
+  /**
+   * List a user's pending review queue rows.
+   */
+  static async listPendingReviews(userId: string): Promise<ReviewQueueRow[]> {
+    const result = await pool.query<ReviewQueueRow>(
+      `SELECT * FROM email_scanner_review_queue
+        WHERE user_id = $1 AND state = 'pending'
+        ORDER BY created_at DESC
+        LIMIT 200`,
+      [userId],
+    );
+    return result.rows;
+  }
+
+  /**
+   * Approve a queued review row: create the item and mark the row applied.
+   */
+  static async approveReview(userId: string, reviewId: string): Promise<{ item_id: string }> {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      const lock = await client.query<ReviewQueueRow>(
+        `SELECT * FROM email_scanner_review_queue
+          WHERE id = $1 AND user_id = $2
+          FOR UPDATE`,
+        [reviewId, userId],
+      );
+
+      if (lock.rows.length === 0) {
+        throw new AppError('Review not found', 404);
+      }
+
+      const row = lock.rows[0];
+      if (row.state !== 'pending') {
+        throw new AppError(`Review already ${row.state}`, 409);
+      }
+
+      const itemId = await this.createItemFromReceipt(
+        userId,
+        row.suggested_item as ExtractedReceipt,
+        row.email_scan_id,
+        client,
+      );
+
+      if (!itemId) {
+        throw new AppError('Unable to create item from review', 500);
+      }
+
+      await client.query(
+        `UPDATE email_scanner_review_queue
+            SET state = 'approved',
+                applied_item_id = $2,
+                reviewed_at = NOW()
+          WHERE id = $1`,
+        [reviewId, itemId],
+      );
+
+      await client.query('COMMIT');
+      return { item_id: itemId };
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Reject a queued review row.
+   */
+  static async rejectReview(
+    userId: string,
+    reviewId: string,
+    reason?: string,
+  ): Promise<void> {
+    const result = await pool.query(
+      `UPDATE email_scanner_review_queue
+          SET state = 'rejected',
+              rejection_reason = $3,
+              reviewed_at = NOW()
+        WHERE id = $1 AND user_id = $2 AND state = 'pending'`,
+      [reviewId, userId, reason || null],
+    );
+
+    if (result.rowCount === 0) {
+      // Either not found or already reviewed.
+      const existing = await pool.query(
+        'SELECT state FROM email_scanner_review_queue WHERE id = $1 AND user_id = $2',
+        [reviewId, userId],
+      );
+      if (existing.rows.length === 0) {
+        throw new AppError('Review not found', 404);
+      }
+      throw new AppError(`Review already ${existing.rows[0].state}`, 409);
     }
   }
 }

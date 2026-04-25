@@ -103,7 +103,7 @@ router.post(
   '/gifts/verify-code',
   activationCodeRateLimiter,
   asyncHandler(async (req, res) => {
-    const { activation_code } = req.body;
+    const { activation_code, homebuyer_email } = req.body;
 
     if (!activation_code || typeof activation_code !== 'string') {
       return res.status(400).json({
@@ -112,23 +112,33 @@ router.post(
       });
     }
 
-    // Validate activation code format (alphanumeric, reasonable length)
-    if (activation_code.length < 6 || activation_code.length > 64 || !/^[A-Za-z0-9_-]+$/.test(activation_code)) {
+    if (!homebuyer_email || typeof homebuyer_email !== 'string') {
+      // Email is the second factor that closes the enumeration oracle.
+      return res.status(400).json({
+        success: false,
+        message: 'homebuyer_email is required',
+      });
+    }
+
+    // Validate activation code format (16 hex with optional dashes — older
+    // 8-char codes are still accepted for the pre-rotation cohort).
+    if (activation_code.length < 6 || activation_code.length > 32 || !/^[A-Za-z0-9_-]+$/.test(activation_code)) {
       return res.status(400).json({
         success: false,
         message: 'Invalid activation code format',
       });
     }
 
-    const normalized = activation_code.toUpperCase();
+    const normalized = activation_code.replace(/-/g, '').toUpperCase();
     await assertCodeNotLocked(normalized);
 
     try {
-      const result = await PartnersService.verifyActivationCode(activation_code);
+      const result = await PartnersService.verifyActivationCode(activation_code, homebuyer_email);
       await clearCodeAttempts(normalized);
       sendSuccess(res, result);
     } catch (err) {
-      // 404 => invalid code; count it as a failed attempt for per-code lockout.
+      // 404 => invalid code or wrong email; both count as a failed attempt
+      // for the per-code lockout (the route doesn't distinguish them).
       if (err instanceof AppError && err.statusCode === 404) {
         await recordCodeAttempt(normalized);
       }
@@ -146,18 +156,16 @@ router.get(
   '/gifts/:id/track/email-open',
   validate(uuidParamSchema, 'params'),
   asyncHandler(async (req, res) => {
-    const result = await pool.query(
+    // Constant-200: don't reveal whether the gift exists. The UPDATE happens
+    // best-effort; whether or not it matched a row, we still ship the pixel
+    // (Ch03-F029). A scraper hitting this endpoint with a UUID guess gets
+    // an indistinguishable response.
+    await pool.query(
       `UPDATE partner_gifts
        SET email_opened_at = COALESCE(email_opened_at, NOW())
-       WHERE id = $1
-       RETURNING id`,
+       WHERE id = $1`,
       [req.params.id]
     );
-    if (result.rows.length === 0) {
-      res.status(404).end();
-      return;
-    }
-    // Return a 1x1 transparent GIF
     const pixel = Buffer.from(
       'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
       'base64'
@@ -177,16 +185,13 @@ router.post(
   '/gifts/:id/track/app-download',
   validate(uuidParamSchema, 'params'),
   asyncHandler(async (req, res) => {
-    const result = await pool.query(
+    // Constant-200 to close the enumeration oracle (Ch03-F029).
+    await pool.query(
       `UPDATE partner_gifts
        SET app_download_at = COALESCE(app_download_at, NOW())
-       WHERE id = $1
-       RETURNING id`,
+       WHERE id = $1`,
       [req.params.id]
     );
-    if (result.rows.length === 0) {
-      throw new AppError('Gift not found', 404);
-    }
     sendMessage(res, 'App download tracked');
   })
 );
@@ -478,16 +483,16 @@ router.post(
   '/gifts/:id/track/first-item',
   validate(uuidParamSchema, 'params'),
   asyncHandler(async (req, res) => {
-    const result = await pool.query(
+    // Constant-200 (Ch03-F030). The UPDATE only matches when activated_user_id
+    // matches the caller — if the caller is wrong, we silently no-op rather
+    // than 404'ing, which would distinguish "gift exists but belongs to
+    // someone else" from "gift doesn't exist".
+    await pool.query(
       `UPDATE partner_gifts
        SET first_item_added_at = COALESCE(first_item_added_at, NOW())
-       WHERE id = $1 AND activated_user_id = $2
-       RETURNING id`,
+       WHERE id = $1 AND activated_user_id = $2`,
       [req.params.id, req.user!.id]
     );
-    if (result.rows.length === 0) {
-      throw new AppError('Gift not found', 404);
-    }
     sendMessage(res, 'First item tracked');
   })
 );
@@ -565,6 +570,15 @@ router.get(
  * @route   POST /api/v1/partners/stripe-connect/onboard
  * @desc    Create a Stripe Connect Express account and return onboarding URL
  * @access  Private (Partner only)
+ *
+ * Hardening (Ch03-F063..F066, F113):
+ * - Email comes from the typed `users` row, not `(partner as any).email`.
+ * - `stripe.accounts.create` is idempotent on the partner id so retries
+ *   don't spawn duplicate connected accounts.
+ * - Already-onboarded (status='enabled') partners get a refresh-only link
+ *   instead of an onboarding link they don't need.
+ * - `stripe_account_status` (set by webhook) is the source of truth; the
+ *   sticky `stripe_onboarded` flag is only updated alongside it.
  */
 router.post(
   '/stripe-connect/onboard',
@@ -573,31 +587,52 @@ router.post(
     const userId = req.user!.id;
     const partner = await PartnersService.getPartner(userId);
 
+    // Resolve the partner's email via the typed users row.
+    const userResult = await pool.query<{ email: string }>(
+      'SELECT email FROM users WHERE id = $1',
+      [userId],
+    );
+    if (userResult.rows.length === 0) {
+      throw new AppError('User not found', 404);
+    }
+    const partnerEmail = userResult.rows[0].email;
+
     let stripeAccountId = partner.stripe_account_id;
 
-    // Create a new Stripe Connect Express account if the partner doesn't have one yet
     if (!stripeAccountId) {
-      const account = await stripe.accounts.create({
-        type: 'express',
-        email: (partner as any).email,
-        metadata: { partner_id: partner.id },
-      });
+      const account = await stripe.accounts.create(
+        {
+          type: 'express',
+          email: partnerEmail,
+          metadata: { partner_id: partner.id, hk_user_id: userId },
+        },
+        { idempotencyKey: `partner-connect-${partner.id}` },
+      );
 
       stripeAccountId = account.id;
 
-      // Store the stripe_account_id on the partner record
       await pool.query(
-        `UPDATE partners SET stripe_account_id = $1, updated_at = NOW() WHERE id = $2`,
-        [stripeAccountId, partner.id]
+        `UPDATE partners
+            SET stripe_account_id = $1,
+                stripe_account_status = 'pending',
+                stripe_account_status_at = NOW(),
+                updated_at = NOW()
+          WHERE id = $2`,
+        [stripeAccountId, partner.id],
       );
     }
 
-    // Create an onboarding link
+    // If the partner is already enabled, hand them a refresh-only link.
+    const linkType =
+      partner.stripe_account_status === 'enabled'
+        ? 'account_update'
+        : 'account_onboarding';
+
     const accountLink = await stripe.accountLinks.create({
       account: stripeAccountId,
       refresh_url: `${config.app.dashboardUrl}/dashboard/settings?stripe=refresh`,
       return_url: `${config.app.dashboardUrl}/dashboard/settings?stripe=success`,
-      type: 'account_onboarding',
+      type: linkType,
     });
 
     sendSuccess(res, { url: accountLink.url });
@@ -606,8 +641,15 @@ router.post(
 
 /**
  * @route   GET /api/v1/partners/stripe-connect/status
- * @desc    Check Stripe Connect account status
+ * @desc    Check Stripe Connect account status (live read from Stripe).
  * @access  Private (Partner only)
+ *
+ * The DB tracks `stripe_account_status` driven by `account.updated` /
+ * `account.application.deauthorized` webhooks (Ch03-F066, F113). This
+ * endpoint also pings Stripe live so a UI hit shows up-to-the-second state,
+ * and the result is reflected back into the DB. We do NOT keep
+ * `stripe_onboarded` sticky in the deactivation case — it tracks the
+ * derived `enabled` state.
  */
 router.get(
   '/stripe-connect/status',
@@ -622,20 +664,43 @@ router.get(
         charges_enabled: false,
         payouts_enabled: false,
         onboarded: false,
+        status: 'unknown',
       });
     }
 
-    // Retrieve the account details from Stripe
     const account = await stripe.accounts.retrieve(partner.stripe_account_id);
 
     const chargesEnabled = account.charges_enabled ?? false;
     const payoutsEnabled = account.payouts_enabled ?? false;
+    const requirementsDisabled = account.requirements?.disabled_reason;
 
-    // If both capabilities are enabled and partner isn't marked as onboarded yet, update DB
-    if (chargesEnabled && payoutsEnabled && !partner.stripe_onboarded) {
+    let derived: 'unknown' | 'pending' | 'enabled' | 'restricted' | 'disabled' | 'rejected';
+    if (
+      requirementsDisabled === 'rejected.fraud' ||
+      requirementsDisabled === 'rejected.terms_of_service' ||
+      requirementsDisabled === 'rejected.listed' ||
+      requirementsDisabled === 'rejected.other'
+    ) {
+      derived = 'rejected';
+    } else if (requirementsDisabled) {
+      derived = 'restricted';
+    } else if (chargesEnabled && payoutsEnabled) {
+      derived = 'enabled';
+    } else if (chargesEnabled || payoutsEnabled) {
+      derived = 'restricted';
+    } else {
+      derived = 'pending';
+    }
+
+    if (derived !== partner.stripe_account_status) {
       await pool.query(
-        `UPDATE partners SET stripe_onboarded = TRUE, updated_at = NOW() WHERE id = $1`,
-        [partner.id]
+        `UPDATE partners
+            SET stripe_account_status = $2,
+                stripe_account_status_at = NOW(),
+                stripe_onboarded = ($2 = 'enabled'),
+                updated_at = NOW()
+          WHERE id = $1`,
+        [partner.id, derived],
       );
     }
 
@@ -643,7 +708,8 @@ router.get(
       connected: true,
       charges_enabled: chargesEnabled,
       payouts_enabled: payoutsEnabled,
-      onboarded: (chargesEnabled && payoutsEnabled) || partner.stripe_onboarded,
+      onboarded: derived === 'enabled',
+      status: derived,
     });
   })
 );
@@ -702,31 +768,83 @@ router.put(
   asyncHandler(async (req, res) => {
     const { id } = req.params;
 
+    // Fetch commission + partner connect-account in one round trip.
     const current = await pool.query(
-      `SELECT id, status FROM partner_commissions WHERE id = $1`,
-      [id]
+      `SELECT pc.id, pc.status, pc.amount, pc.partner_id,
+              p.stripe_account_id, p.stripe_account_status
+         FROM partner_commissions pc
+         JOIN partners p ON p.id = pc.partner_id
+        WHERE pc.id = $1`,
+      [id],
     );
 
     if (current.rows.length === 0) {
       throw new AppError('Commission not found', 404);
     }
+    const commission = current.rows[0];
 
-    if (current.rows[0].status !== 'approved') {
+    if (commission.status !== 'approved') {
       throw new AppError(
-        `Cannot pay commission with status '${current.rows[0].status}'. Only 'approved' commissions can be paid.`,
-        400
+        `Cannot pay commission with status '${commission.status}'. Only 'approved' commissions can be paid.`,
+        400,
       );
     }
 
-    const result = await pool.query(
-      `UPDATE partner_commissions
-       SET status = 'paid', paid_at = NOW(), updated_at = NOW()
-       WHERE id = $1
-       RETURNING *`,
-      [id]
+    // Only `enabled` accounts can receive transfers. `restricted`, `pending`,
+    // `disabled`, `rejected`, `unknown` all block payouts so a deauthorized
+    // partner doesn't keep getting paid (Ch03-F113).
+    if (!commission.stripe_account_id || commission.stripe_account_status !== 'enabled') {
+      throw new AppError(
+        `Partner Stripe Connect account is not in 'enabled' state (current: '${commission.stripe_account_status}'). Payouts are blocked until the partner re-onboards.`,
+        409,
+      );
+    }
+
+    const amountCents = Math.round(Number(commission.amount) * 100);
+    if (!Number.isFinite(amountCents) || amountCents <= 0) {
+      throw new AppError('Commission amount is invalid', 400);
+    }
+
+    // Fire the Stripe transfer with an idempotency key derived from the
+    // commission id. If retried (network blip, admin double-click) Stripe
+    // returns the same transfer instead of duplicating the payout.
+    const transfer = await stripe.transfers.create(
+      {
+        amount: amountCents,
+        currency: 'usd',
+        destination: commission.stripe_account_id,
+        metadata: {
+          commission_id: commission.id,
+          partner_id: commission.partner_id,
+        },
+      },
+      { idempotencyKey: `commission-pay-${commission.id}` },
     );
 
-    sendSuccess(res, result.rows[0], { message: 'Commission marked as paid' });
+    // Atomic state transition: only succeed if the row is still 'approved'.
+    // A concurrent pay attempt that already flipped it to 'paid' will see 0
+    // rows here and we'll return 409 instead of double-paying (audit F013).
+    const result = await pool.query(
+      `UPDATE partner_commissions
+          SET status = 'paid',
+              paid_at = NOW(),
+              updated_at = NOW(),
+              stripe_transfer_id = $2
+        WHERE id = $1 AND status = 'approved'
+        RETURNING *`,
+      [commission.id, transfer.id],
+    );
+
+    if (result.rows.length === 0) {
+      // The DB UPDATE didn't happen but the transfer did. Surface the
+      // transfer id so an operator can reconcile manually.
+      throw new AppError(
+        `Commission state changed concurrently — Stripe transfer ${transfer.id} succeeded; reconcile manually`,
+        409,
+      );
+    }
+
+    sendSuccess(res, result.rows[0], { message: 'Commission paid via Stripe transfer' });
   })
 );
 

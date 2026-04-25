@@ -15,6 +15,16 @@ function createFakeJwt(payload: Record<string, unknown>): string {
 // Mocks — must be declared before importing the module under test
 // ---------------------------------------------------------------------------
 
+// React's cache() is a server-component primitive — vitest's stubbed React
+// module doesn't expose it, so we shim the simplest possible identity wrapper.
+vi.mock('react', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react')>();
+  return {
+    ...actual,
+    cache: <T extends (...args: unknown[]) => unknown>(fn: T): T => fn,
+  };
+});
+
 // Mock next/headers – cookies()
 const mockCookieStore = {
   get: vi.fn(),
@@ -192,7 +202,11 @@ describe('getUser', () => {
     expect(user).toBeNull();
   });
 
-  it('returns null when fetch throws a network error', async () => {
+  // Audit Ch10-W047: getUser used to silently return null on a 5xx /
+  // network error, which manifested as a "session expired" bounce on every
+  // backend hiccup. The new contract throws ApiUnavailableError so the
+  // caller can render a real error UI.
+  it('throws ApiUnavailableError when fetch throws a network error', async () => {
     mockCookieStore.get.mockImplementation((name: string) => {
       if (name === ACCESS_TOKEN_COOKIE) return { value: validAccessToken };
       if (name === REFRESH_TOKEN_COOKIE) return { value: 'refresh-tok' };
@@ -201,8 +215,7 @@ describe('getUser', () => {
 
     mockFetch.mockRejectedValueOnce(new Error('Network failure'));
 
-    const user = await getUser();
-    expect(user).toBeNull();
+    await expect(getUser()).rejects.toThrow('API unavailable');
   });
 });
 

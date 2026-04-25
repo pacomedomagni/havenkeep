@@ -60,7 +60,13 @@ class TestHelpers {
       warrantyMonths: effectiveWarrantyMonths,
       warrantyType: warrantyType ?? WarrantyType.manufacturer,
       warrantyProvider: warrantyProvider,
-      warrantyEndDate: warrantyEndDate,
+      // The DB column is now NOT NULL (Ch08-Item-D010). Default to the
+      // server-side formula so test items have consistent expiry data.
+      warrantyEndDate: warrantyEndDate ??
+          Item.computeWarrantyEndDate(
+            effectivePurchaseDate,
+            effectiveWarrantyMonths,
+          ),
       daysRemaining: daysRemaining,
       notes: notes,
       isArchived: isArchived ?? false,

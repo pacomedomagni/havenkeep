@@ -1,10 +1,18 @@
 import 'enums.dart';
 
 /// A pre-populated brand suggestion for a given item category.
+///
+/// `brand` is bound to 255 chars on the API (`VARCHAR(255)`); the docstring
+/// records the cap so callers don't ship longer values that the server will
+/// truncate (Ch08-Category-D087).
 class BrandSuggestion {
   final String id;
   final ItemCategory category;
+
+  /// Brand name. Max length 255 chars (mirrors `brand_suggestions.brand`
+  /// VARCHAR(255) on the server).
   final String brand;
+
   final int sortOrder;
 
   const BrandSuggestion({

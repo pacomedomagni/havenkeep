@@ -45,7 +45,7 @@ class ImageUploadService {
     debugPrint('[ImageUpload] Uploading avatar via API');
 
     final data = await client.upload(
-      '/api/v1/uploads/avatar',
+      pathSegments: const ['api', 'v1', 'uploads', 'avatar'],
       file: imageFile,
       fieldName: 'file',
     );
@@ -88,7 +88,7 @@ class ImageUploadService {
     debugPrint('[ImageUpload] Uploading item image via API');
 
     final data = await client.upload(
-      '/api/v1/uploads/item-image',
+      pathSegments: const ['api', 'v1', 'uploads', 'item-image'],
       file: imageFile,
       fieldName: 'file',
       fields: {'itemId': itemId},

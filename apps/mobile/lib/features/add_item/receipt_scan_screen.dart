@@ -140,6 +140,7 @@ class _ReceiptScanScreenState extends ConsumerState<ReceiptScanScreen> {
 
       final price = double.tryParse(_priceController.text);
 
+      const warrantyMonths = 12;
       final item = Item(
         id: '', // DB generates
         homeId: home.id,
@@ -149,6 +150,11 @@ class _ReceiptScanScreenState extends ConsumerState<ReceiptScanScreen> {
         category: _category,
         purchaseDate: _purchaseDate,
         price: price,
+        warrantyMonths: warrantyMonths,
+        // Server overwrites on insert (Ch08-Item-D010); keep the optimistic
+        // value in sync with the API formula.
+        warrantyEndDate:
+            Item.computeWarrantyEndDate(_purchaseDate, warrantyMonths),
         addedVia: ItemAddedVia.receipt_scan,
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),

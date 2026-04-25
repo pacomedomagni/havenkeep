@@ -6,6 +6,7 @@ import 'package:shared_ui/shared_ui.dart';
 
 import '../../core/providers/items_provider.dart';
 import '../../core/providers/warranty_purchases_provider.dart';
+import '../../core/utils/dates.dart';
 import '../../core/utils/error_handler.dart';
 import '../../core/widgets/haven_loader.dart';
 
@@ -237,7 +238,7 @@ class _AddWarrantyPurchaseScreenState
             : null,
         durationMonths: duration,
         startsAt: _startDate,
-        expiresAt: _startDate,
+        expiresAt: addMonthsSafe(_startDate, duration),
         coverageDetails: null,
         price: price,
         deductible: deductible,

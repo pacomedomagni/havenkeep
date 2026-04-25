@@ -40,14 +40,14 @@ class Home {
       homeType: json['home_type'] != null
           ? HomeType.fromJson(json['home_type'] as String)
           : HomeType.house,
-      moveInDate: json['move_in_date'] != null
-          ? DateTime.tryParse(json['move_in_date'] as String)
-          : null,
-      createdAt: DateTime.tryParse(json['created_at'] as String? ?? '') ?? DateTime.now(),
-      updatedAt: DateTime.tryParse(json['updated_at'] as String? ?? '') ?? DateTime.now(),
+      moveInDate: _parseDate(json['move_in_date']),
+      createdAt: _parseDate(json['created_at'])!,
+      updatedAt: _parseDate(json['updated_at'])!,
     );
   }
 
+  /// Full JSON for reads. The server-managed timestamps are emitted so
+  /// `Home.fromJson(home.toJson()).toJson() == home.toJson()` round-trips.
   Map<String, dynamic> toJson() {
     return {
       'id': id,
@@ -61,6 +61,21 @@ class Home {
       'move_in_date': moveInDate?.toIso8601String().split('T').first,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
+    };
+  }
+
+  /// JSON for POST/PUT bodies. Strips id + server-managed timestamps so the
+  /// client can't accidentally overwrite them (Ch08-Home-D007).
+  Map<String, dynamic> toCreateJson() {
+    return {
+      'name': name,
+      if (address != null) 'address': address,
+      if (city != null) 'city': city,
+      if (state != null) 'state': state,
+      if (zip != null) 'zip': zip,
+      'home_type': homeType.toJson(),
+      if (moveInDate != null)
+        'move_in_date': moveInDate!.toIso8601String().split('T').first,
     };
   }
 
@@ -114,4 +129,11 @@ class Home {
 
   @override
   int get hashCode => id.hashCode;
+}
+
+DateTime? _parseDate(Object? value) {
+  if (value == null) return null;
+  if (value is DateTime) return value;
+  if (value is String) return DateTime.tryParse(value);
+  return null;
 }

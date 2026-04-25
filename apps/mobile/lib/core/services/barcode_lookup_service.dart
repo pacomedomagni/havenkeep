@@ -17,7 +17,7 @@ class BarcodeLookupService {
     try {
       final client = _ref.read(apiClientProvider);
       final data = await client.post(
-        '/api/v1/barcode/lookup',
+        pathSegments: const ['api', 'v1', 'barcode', 'lookup'],
         body: {'barcode': barcode},
       );
 

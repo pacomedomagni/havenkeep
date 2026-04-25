@@ -82,9 +82,7 @@ class AutoArchiveService {
   }
 
   bool _isExpiredBefore(Item item, DateTime cutoff) {
-    final end = item.warrantyEndDate;
-    if (end == null) return false;
-    return end.isBefore(cutoff);
+    return item.warrantyEndDate.isBefore(cutoff);
   }
 
   /// User-facing toggle. Default is enabled.

@@ -5,6 +5,76 @@ import { AppError } from '../utils/errors';
 import { EmailService } from './email.service';
 import { FcmService } from './fcm.service';
 
+// F035: only these actions can be recorded against a notification — anything
+// else gets rejected. Keep the set tight; growth lives in the validator.
+const ALLOWED_NOTIFICATION_ACTIONS: ReadonlySet<string> = new Set<string>([
+  'opened',
+  'dismissed',
+  'snoozed',
+  'cta_clicked',
+  'cta_dismissed',
+  'unsubscribed',
+]);
+
+/**
+ * F033: server-side quiet-hours check. Returns true when `now` falls inside
+ * the user's [quiet_start, quiet_end] window in their reported timezone.
+ * Wraps over midnight when end < start.
+ */
+function isInQuietHours(
+  now: Date,
+  prefs: { quiet_hours_start?: string | null; quiet_hours_end?: string | null; timezone?: string | null },
+): boolean {
+  const start = prefs.quiet_hours_start;
+  const end = prefs.quiet_hours_end;
+  if (!start || !end) return false;
+  const [sh, sm] = start.split(':').map(Number);
+  const [eh, em] = end.split(':').map(Number);
+  if (!Number.isFinite(sh) || !Number.isFinite(eh)) return false;
+
+  const tz = prefs.timezone || 'UTC';
+  let nowH = now.getUTCHours();
+  let nowM = now.getUTCMinutes();
+  try {
+    const fmt = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false,
+    });
+    const parts = fmt.formatToParts(now);
+    nowH = Number(parts.find((p) => p.type === 'hour')?.value ?? nowH);
+    nowM = Number(parts.find((p) => p.type === 'minute')?.value ?? nowM);
+  } catch {
+    // Bad timezone string → fall back to UTC, already initialized.
+  }
+
+  const cur = nowH * 60 + nowM;
+  const startMin = sh * 60 + (sm || 0);
+  const endMin = eh * 60 + (em || 0);
+  if (startMin === endMin) return false;
+  if (startMin < endMin) {
+    return cur >= startMin && cur < endMin;
+  }
+  // Wraps midnight: e.g. 22:00 → 07:00.
+  return cur >= startMin || cur < endMin;
+}
+
+/**
+ * F037 / F045: day-of-year computed in UTC so a server in a non-UTC zone
+ * can't tip the rotation an extra day across DST.
+ */
+function dayOfYearUTC(d: Date): number {
+  const start = Date.UTC(d.getUTCFullYear(), 0, 0);
+  const diff = d.getTime() - start;
+  return Math.floor(diff / 86_400_000);
+}
+
+/**
+ * F034: bucket the current minute into 5-minute slots so digest sends are
+ * batched. Used by the cron path to coalesce sub-minute repeated triggers.
+ */
+function digestBucket(d: Date, bucketMinutes = 5): number {
+  return Math.floor((d.getUTCHours() * 60 + d.getUTCMinutes()) / bucketMinutes);
+}
+
 type NotificationType =
   | 'warranty_expiring'
   | 'warranty_expired'
@@ -70,6 +140,9 @@ export class NotificationsService {
     const { limit = 50, offset = 0, type, unread } = options;
 
     try {
+      // F038: hide rows that FCM/email rejected — the user should never see
+      // a notification we couldn't actually deliver. 'pending' + 'delivered'
+      // are surfaced; 'failed' + 'skipped' are not.
       let query = `
         SELECT nh.*,
                nt.name as template_name,
@@ -78,6 +151,7 @@ export class NotificationsService {
         LEFT JOIN notification_templates nt ON nt.id = nh.template_id
         LEFT JOIN items i ON i.id = nh.item_id
         WHERE nh.user_id = $1
+          AND nh.delivery_status IN ('pending', 'delivered')
       `;
       const params: any[] = [userId];
 
@@ -99,7 +173,10 @@ export class NotificationsService {
       const result = await pool.query(query, params);
 
       // Get total count with same filters
-      let countQuery = `SELECT COUNT(*) FROM notification_history WHERE user_id = $1`;
+      let countQuery = `
+        SELECT COUNT(*) FROM notification_history
+        WHERE user_id = $1 AND delivery_status IN ('pending', 'delivered')
+      `;
       const countParams: any[] = [userId];
 
       if (type) {
@@ -130,9 +207,13 @@ export class NotificationsService {
    */
   static async getUnreadCount(userId: string): Promise<number> {
     try {
+      // F038: only count notifications that were actually delivered (or are
+      // still pending delivery) — failed sends shouldn't dirty the badge.
       const result = await pool.query(
         `SELECT COUNT(*) FROM notification_history
-         WHERE user_id = $1 AND opened_at IS NULL`,
+         WHERE user_id = $1
+           AND opened_at IS NULL
+           AND delivery_status IN ('pending', 'delivered')`,
         [userId]
       );
 
@@ -231,6 +312,11 @@ export class NotificationsService {
     userId: string,
     action: string
   ): Promise<NotificationHistoryRow> {
+    // F035: enforce the allowlist server-side so a tampered client can't
+    // stamp arbitrary `action_taken` strings into the audit/analytics path.
+    if (!ALLOWED_NOTIFICATION_ACTIONS.has(action)) {
+      throw new AppError(`Unsupported notification action: ${action}`, 400);
+    }
     try {
       // Mark as read if not already, and record action
       const result = await pool.query(
@@ -257,15 +343,44 @@ export class NotificationsService {
   }
 
   /**
-   * Create a notification directly
+   * Create a notification directly.
+   *
+   * F040: respects user notification_preferences. A 'tip' arriving for a
+   * user who turned tips off, or a 'claim_opportunity' for one who turned
+   * warranty offers off, is recorded with delivery_status='skipped' rather
+   * than silently muted (the audit trail is preserved).
    */
   static async createNotification(data: CreateNotificationData): Promise<NotificationHistoryRow> {
     try {
+      const prefsResult = await pool.query(
+        `SELECT reminders_enabled, warranty_offers_enabled, tips_enabled
+           FROM notification_preferences WHERE user_id = $1`,
+        [data.user_id],
+      );
+      const prefs = prefsResult.rows[0] || null;
+
+      // Map type → enabled-flag. Defaults to TRUE when prefs row missing
+      // (the upsert path defaults reminders_enabled = TRUE).
+      const allowed = (() => {
+        if (!prefs) return true;
+        switch (data.type) {
+          case 'tip':                return prefs.tips_enabled !== false;
+          case 'claim_opportunity':
+          case 'promotional':        return prefs.warranty_offers_enabled !== false;
+          case 'maintenance_due':
+          case 'warranty_expiring':
+          case 'warranty_expired':   return prefs.reminders_enabled !== false;
+          default:                   return true;
+        }
+      })();
+
+      const status = allowed ? 'pending' : 'skipped';
+
       const result = await pool.query(
         `INSERT INTO notification_history (
           user_id, template_id, item_id, gift_id, type, title, body,
-          data, platform, fcm_message_id, sent_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
+          data, platform, fcm_message_id, delivery_status, sent_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
         RETURNING *`,
         [
           data.user_id,
@@ -278,11 +393,12 @@ export class NotificationsService {
           JSON.stringify(data.data || {}),
           data.platform || null,
           data.fcm_message_id || null,
+          status,
         ]
       );
 
       logger.info(
-        { notificationId: result.rows[0].id, userId: data.user_id, type: data.type },
+        { notificationId: result.rows[0].id, userId: data.user_id, type: data.type, status },
         'Notification created'
       );
 
@@ -291,6 +407,22 @@ export class NotificationsService {
       logger.error({ error, data }, 'Error creating notification');
       throw error;
     }
+  }
+
+  /**
+   * F033: returns true when the user is currently in their quiet-hours
+   * window. Caller should skip push (and optionally email) delivery while
+   * this is true. Safe to call without a preferences row — returns false.
+   */
+  static async isUserInQuietHours(userId: string, now: Date = new Date()): Promise<boolean> {
+    const result = await pool.query(
+      `SELECT quiet_hours_start, quiet_hours_end, timezone
+         FROM notification_preferences WHERE user_id = $1`,
+      [userId],
+    );
+    const row = result.rows[0];
+    if (!row) return false;
+    return isInQuietHours(now, row);
   }
 
   /**
@@ -523,8 +655,11 @@ export class NotificationsService {
             body: `Your warranty for ${itemLabel} expires on ${expiryDate}.`,
           });
 
-          // Send FCM push notification (only if user has push enabled)
-          if (row.push_enabled !== false) {
+          // Send FCM push notification (only if push enabled AND not in
+          // quiet hours — F033). Notification row stays in 'pending'
+          // delivery_status when we skip; the cron re-runs daily and the
+          // NOT EXISTS dedup keeps it from re-emitting within 24h.
+          if (row.push_enabled !== false && !(await NotificationsService.isUserInQuietHours(row.user_id))) {
             try {
               const sent = await FcmService.sendToUser(row.user_id, {
                 title: 'Warranty Expiring Soon',
@@ -533,12 +668,25 @@ export class NotificationsService {
               });
               if (sent > 0) {
                 await pool.query(
-                  `UPDATE notification_history SET delivered_at = NOW() WHERE id = $1`,
+                  `UPDATE notification_history
+                      SET delivered_at = NOW(), delivery_status = 'delivered'
+                    WHERE id = $1`,
+                  [notification.id]
+                );
+              } else {
+                // F038: zero successes = no live tokens; tag as failed so
+                // the user doesn't see an "undelivered" notification.
+                await pool.query(
+                  `UPDATE notification_history SET delivery_status = 'failed' WHERE id = $1`,
                   [notification.id]
                 );
               }
             } catch (fcmError) {
               logger.error({ error: fcmError, userId: row.user_id }, 'FCM push failed (warranty_expiring)');
+              await pool.query(
+                `UPDATE notification_history SET delivery_status = 'failed' WHERE id = $1`,
+                [notification.id]
+              );
             }
           }
 
@@ -649,8 +797,8 @@ export class NotificationsService {
             data: { schedule_id: row.schedule_id, task_name: row.task_name },
           });
 
-          // Send FCM push notification (only if user has push enabled)
-          if (row.push_enabled !== false) {
+          // F033: skip push during quiet hours; F038: tag delivery_status.
+          if (row.push_enabled !== false && !(await NotificationsService.isUserInQuietHours(row.user_id))) {
             try {
               const sent = await FcmService.sendToUser(row.user_id, {
                 title: 'Maintenance Due',
@@ -659,12 +807,23 @@ export class NotificationsService {
               });
               if (sent > 0) {
                 await pool.query(
-                  `UPDATE notification_history SET delivered_at = NOW() WHERE id = $1`,
+                  `UPDATE notification_history
+                      SET delivered_at = NOW(), delivery_status = 'delivered'
+                    WHERE id = $1`,
+                  [notification.id]
+                );
+              } else {
+                await pool.query(
+                  `UPDATE notification_history SET delivery_status = 'failed' WHERE id = $1`,
                   [notification.id]
                 );
               }
             } catch (fcmError) {
               logger.error({ error: fcmError, userId: row.user_id }, 'FCM push failed (maintenance_due)');
+              await pool.query(
+                `UPDATE notification_history SET delivery_status = 'failed' WHERE id = $1`,
+                [notification.id]
+              );
             }
           }
 
@@ -769,8 +928,8 @@ export class NotificationsService {
             data: { price: row.price, brand: row.brand },
           });
 
-          // Send FCM push notification (only if user has push enabled)
-          if (row.push_enabled !== false) {
+          // F033: respect quiet hours; F038: persist delivery_status.
+          if (row.push_enabled !== false && !(await NotificationsService.isUserInQuietHours(row.user_id))) {
             try {
               const sent = await FcmService.sendToUser(row.user_id, {
                 title: `Protect your ${row.item_name}`,
@@ -779,12 +938,23 @@ export class NotificationsService {
               });
               if (sent > 0) {
                 await pool.query(
-                  `UPDATE notification_history SET delivered_at = NOW() WHERE id = $1`,
+                  `UPDATE notification_history
+                      SET delivered_at = NOW(), delivery_status = 'delivered'
+                    WHERE id = $1`,
+                  [notification.id]
+                );
+              } else {
+                await pool.query(
+                  `UPDATE notification_history SET delivery_status = 'failed' WHERE id = $1`,
                   [notification.id]
                 );
               }
             } catch (fcmError) {
               logger.error({ error: fcmError, userId: row.user_id }, 'FCM push failed (claim_opportunity)');
+              await pool.query(
+                `UPDATE notification_history SET delivery_status = 'failed' WHERE id = $1`,
+                [notification.id]
+              );
             }
           }
 

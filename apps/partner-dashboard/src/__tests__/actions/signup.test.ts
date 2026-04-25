@@ -29,6 +29,8 @@ vi.mock('@/lib/auth', () => ({
 
 vi.mock('@/lib/config', () => ({
   API_URL: 'http://localhost:3000',
+  PROXY_FETCH_TIMEOUT_MS: 30_000,
+  CLIENT_FETCH_TIMEOUT_MS: 25_000,
 }));
 
 const mockFetch = vi.fn();
@@ -111,13 +113,13 @@ describe('signUp', () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it('returns error on API failure', async () => {
+  it('returns generic conflict message on 409 (audit Ch10-W011)', async () => {
     mockFetch.mockResolvedValueOnce(
-      makeResponse(409, { error: 'Email already registered' })
+      makeResponse(409, { error: 'Some upstream message we should not surface' })
     );
     const fd = makeFormData(VALID_FIELDS);
     const result = await signUp(fd);
-    expect(result).toEqual({ error: 'Email already registered' });
+    expect(result).toEqual({ error: 'An account with that email already exists.' });
   });
 
   it('returns error on network failure', async () => {
@@ -140,21 +142,18 @@ describe('signUp', () => {
     expect(mockRedirect).toHaveBeenCalledWith('/onboarding');
   });
 
-  it('uses the email prefix as fullName when fullName is not provided', async () => {
-    mockFetch.mockResolvedValueOnce(
-      makeResponse(201, { accessToken: 'at', refreshToken: 'rt' })
-    );
+  // Audit Ch10-W013: explicit fullName is required — we no longer auto-derive
+  // it from the email local-part, which had two problems: it leaked the email
+  // prefix into product copy, and it accepted accounts with no human-readable
+  // name on file.
+  it('rejects signup when fullName is missing', async () => {
     const fd = makeFormData({
       email: 'janedoe@example.com',
       password: 'Secret1!',
       confirmPassword: 'Secret1!',
-      // fullName intentionally omitted
     });
-
-    await expect(signUp(fd)).rejects.toThrow('NEXT_REDIRECT');
-
-    const [, opts] = mockFetch.mock.calls[0] as [string, RequestInit];
-    const body = JSON.parse(opts.body as string);
-    expect(body.fullName).toBe('janedoe');
+    const result = await signUp(fd);
+    expect(result).toEqual({ error: 'Full name is required' });
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 });

@@ -2,10 +2,17 @@ import 'enums.dart';
 
 /// Default settings for an item category (room, warranty, icon).
 /// Populated from the category_defaults reference table.
+///
+/// `icon` was bumped to VARCHAR(64) by migration 070 so multi-codepoint
+/// emoji (e.g. flag-of-Scotland 7-codepoint sequences) survive the round
+/// trip without being truncated at the DB layer (Ch08-Category-D085).
 class CategoryDefault {
   final ItemCategory category;
   final ItemRoom? defaultRoom;
   final int warrantyMonths;
+
+  /// Pictogram for the category. Max 64 bytes after migration 070
+  /// (Ch08-Category-D085).
   final String icon;
 
   const CategoryDefault({

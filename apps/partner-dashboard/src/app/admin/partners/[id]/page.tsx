@@ -112,15 +112,27 @@ export default async function PartnerDetailPage({ params }: { params: Promise<{ 
           <div className="card">
             <h3 className="text-lg font-semibold text-white mb-4">Status</h3>
             <div className="flex items-center gap-3">
-              <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold ${
-                partner.is_active
-                  ? 'bg-green-500/20 text-green-400'
-                  : 'bg-yellow-500/20 text-yellow-400'
-              }`}>
-                {partner.is_active ? 'active' : 'pending'}
-              </span>
+              {(() => {
+                const status: 'pending' | 'active' | 'rejected' =
+                  partner.status === 'pending' || partner.status === 'active' || partner.status === 'rejected'
+                    ? partner.status
+                    : partner.is_active
+                      ? 'active'
+                      : 'pending'
+                const cls =
+                  status === 'active'
+                    ? 'bg-green-500/20 text-green-400'
+                    : status === 'rejected'
+                      ? 'bg-red-500/20 text-red-400'
+                      : 'bg-yellow-500/20 text-yellow-400'
+                return (
+                  <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold ${cls}`}>
+                    {status}
+                  </span>
+                )
+              })()}
             </div>
-            {!partner.is_active && (
+            {(partner.status === 'pending' || (!partner.status && !partner.is_active)) && (
               <div className="mt-4">
                 <PartnerActions partnerId={partner.id} />
               </div>

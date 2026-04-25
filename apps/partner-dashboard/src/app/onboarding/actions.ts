@@ -1,19 +1,27 @@
 'use server';
 
 import { redirect } from 'next/navigation';
-import { serverApiClient } from '@/lib/auth';
+import { ApiError, serverApiClient } from '@/lib/auth';
 import type { PartnerType } from '@/lib/types';
 
 export async function createPartnerProfile(formData: FormData) {
-  const companyName = formData.get('companyName') as string;
+  const companyName = (formData.get('companyName') ?? '').toString().trim();
   const partnerType = formData.get('partnerType') as PartnerType;
-  const licenseNumber = formData.get('licenseNumber');
-  const serviceAreasRaw = formData.get('serviceAreas') as string;
+  const licenseNumber = (formData.get('licenseNumber') ?? '').toString().trim();
+  const serviceAreasRaw = (formData.get('serviceAreas') ?? '').toString();
+
+  if (!companyName) {
+    return { error: 'Company name is required.' };
+  }
 
   const serviceAreas = serviceAreasRaw
     .split(',')
     .map((area) => area.trim())
     .filter(Boolean);
+
+  if (serviceAreas.length === 0) {
+    return { error: 'At least one service area is required.' };
+  }
 
   try {
     await serverApiClient('/api/v1/partners/register', {
@@ -26,13 +34,15 @@ export async function createPartnerProfile(formData: FormData) {
       },
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Something went wrong';
-
-    if (message.includes('already')) {
+    if (error instanceof ApiError && error.status === 409) {
       return { error: 'A partner profile already exists for this account.' };
     }
-
-    return { error: message };
+    return {
+      error:
+        error instanceof Error
+          ? error.message
+          : 'We could not save your partner profile. Please try again.',
+    };
   }
 
   redirect('/dashboard');

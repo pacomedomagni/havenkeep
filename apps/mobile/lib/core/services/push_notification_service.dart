@@ -144,10 +144,13 @@ class PushNotificationService {
   }) async {
     try {
       final client = _ref.read(apiClientProvider);
-      await client.post('/api/v1/users/push-token', body: {
-        'fcm_token': token,
-        'platform': defaultTargetPlatform == TargetPlatform.iOS ? 'ios' : 'android',
-      });
+      await client.post(
+        pathSegments: const ['api', 'v1', 'users', 'push-token'],
+        body: {
+          'fcm_token': token,
+          'platform': defaultTargetPlatform == TargetPlatform.iOS ? 'ios' : 'android',
+        },
+      );
     } catch (e) {
       debugPrint('[Push] Failed to save token to backend: $e');
     }

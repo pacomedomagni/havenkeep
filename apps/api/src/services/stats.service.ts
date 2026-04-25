@@ -2,9 +2,25 @@ import { pool } from '../db';
 import { logger } from '../utils/logger';
 import { DashboardStats, UserAnalytics } from '../types/database.types';
 
+// Cached health score is treated as fresh for this many seconds; after that
+// the dashboard request triggers a recompute. Mutations to items, warranties,
+// or maintenance call invalidateHealthScoreCache(userId) to force the next
+// read to recompute even if still inside the TTL window.
+const HEALTH_SCORE_CACHE_TTL_SEC = 600;
+
+/**
+ * F058: schema version stamped on the dashboard payload. Mobile + web
+ * clients can guard against unexpected shape changes by refusing payloads
+ * with a higher major version than they understand. Bump the major when
+ * removing or renaming a field; bump minor when adding.
+ */
+export const DASHBOARD_SCHEMA_VERSION = '1.0.0';
+
 export class StatsService {
   /**
-   * Get dashboard statistics for user
+   * Get dashboard statistics for user. Uses the cached health score when
+   * fresh; only recomputes when the cache is missing/stale (audit Ch04-F048
+   * — recomputing on every dashboard hit was thrashing the DB).
    */
   static async getDashboardStats(userId: string): Promise<DashboardStats> {
     try {
@@ -13,7 +29,12 @@ export class StatsService {
         [userId]
       );
 
-      return result.rows[0].stats;
+      const stats: any = result.rows[0].stats || {};
+      stats.health_score = await this.getCachedHealthScore(userId);
+      // F058: stamp the schema version so a client can guard against shape
+      // changes without falling over on an unknown field.
+      stats.schema_version = DASHBOARD_SCHEMA_VERSION;
+      return stats;
     } catch (error) {
       logger.error({ error, userId }, 'Error fetching dashboard stats');
       throw error;
@@ -21,7 +42,7 @@ export class StatsService {
   }
 
   /**
-   * Calculate and update health score for user
+   * Calculate and update health score for user, bypassing any cached value.
    */
   static async calculateHealthScore(userId: string): Promise<number> {
     try {
@@ -30,11 +51,57 @@ export class StatsService {
         [userId]
       );
 
-      return result.rows[0].score;
+      const score = result.rows[0].score ?? 0;
+      // Persist into the cache so the next dashboard read is free.
+      await pool.query(
+        `INSERT INTO user_analytics (user_id, cached_health_score, cached_health_score_at)
+         VALUES ($1, $2, NOW())
+         ON CONFLICT (user_id)
+         DO UPDATE SET cached_health_score = EXCLUDED.cached_health_score,
+                       cached_health_score_at = NOW(),
+                       updated_at = NOW()`,
+        [userId, score],
+      );
+      return score;
     } catch (error) {
       logger.error({ error, userId }, 'Error calculating health score');
       throw error;
     }
+  }
+
+  /**
+   * Return cached health score if it's within the TTL, else recompute.
+   */
+  static async getCachedHealthScore(userId: string): Promise<number> {
+    const cached = await pool.query(
+      `SELECT cached_health_score, cached_health_score_at
+         FROM user_analytics
+        WHERE user_id = $1`,
+      [userId],
+    );
+    const row = cached.rows[0];
+    if (
+      row?.cached_health_score != null &&
+      row?.cached_health_score_at &&
+      (Date.now() - new Date(row.cached_health_score_at).getTime()) / 1000 < HEALTH_SCORE_CACHE_TTL_SEC
+    ) {
+      return Number(row.cached_health_score);
+    }
+    return this.calculateHealthScore(userId);
+  }
+
+  /**
+   * Force the next read to recompute. Called from item / warranty / claim /
+   * maintenance mutations.
+   */
+  static async invalidateHealthScoreCache(userId: string): Promise<void> {
+    await pool.query(
+      `UPDATE user_analytics
+          SET cached_health_score = NULL,
+              cached_health_score_at = NULL
+        WHERE user_id = $1`,
+      [userId],
+    );
   }
 
   /**
@@ -100,19 +167,20 @@ export class StatsService {
           [userId]
         );
       } else if (event.type === 'session_end' && event.sessionDuration) {
-        // Running average calculation: we use (total_sessions - 1) to get the previous
-        // count of sessions (before the current one was incremented by session_start),
-        // then divide by total_sessions. GREATEST(total_sessions, 1) is a defensive
-        // guard against division by zero in case a session_end event arrives without
-        // a preceding session_start (e.g., due to a race condition or missed event).
-        // Under normal flow, total_sessions is always >= 1 after session_start increments it.
+        // Running average calculation: see GREATEST guard explanation above.
+        // F052: also clamp the incoming session duration to >=0 so a clock
+        // skew on the client (session_end timestamp older than session_start
+        // because of NTP correction) can't yield a negative duration that
+        // poisons the running average. Cap at 24h (86400s) defensively too;
+        // a real session shouldn't exceed that.
+        const clampedDuration = Math.max(0, Math.min(86400, event.sessionDuration));
         await pool.query(
           `UPDATE user_analytics
            SET avg_session_duration_seconds =
-               ((avg_session_duration_seconds * (total_sessions - 1)) + $2) / GREATEST(total_sessions, 1),
+               GREATEST(0, ((avg_session_duration_seconds * (total_sessions - 1)) + $2) / GREATEST(total_sessions, 1)),
                updated_at = NOW()
            WHERE user_id = $1`,
-          [userId, event.sessionDuration]
+          [userId, clampedDuration]
         );
       }
 
@@ -127,6 +195,10 @@ export class StatsService {
    * Get items needing attention
    */
   static async getItemsNeedingAttention(userId: string, limit: number = 20): Promise<any[]> {
+    // F055: bound the limit so a misbehaving caller can't ask for the full
+    // table. 100 covers the dashboard "all attention" view; anything more
+    // is paginated up the stack.
+    const safeLimit = Math.min(Math.max(1, limit), 100);
     try {
       const result = await pool.query(
         `SELECT
@@ -144,7 +216,7 @@ export class StatsService {
            AND i.warranty_end_date <= CURRENT_DATE + INTERVAL '90 days'
          ORDER BY i.warranty_end_date ASC
          LIMIT $2`,
-        [userId, limit]
+        [userId, safeLimit]
       );
 
       return result.rows;
@@ -185,7 +257,11 @@ export class StatsService {
     }>;
   }> {
     try {
-      const score = await this.calculateHealthScore(userId);
+      // F050: GET /stats/health-score must be read-only — it powers a
+      // dashboard refresh on every screen open and shouldn't churn the
+      // cache row on each call. Use the cached score; a force-recalc is
+      // available via POST /stats/health-score/calculate.
+      const score = await this.getCachedHealthScore(userId);
 
       // Get item counts for breakdown -- mirrors the queries used by
       // the DB function calculate_health_score (migration 002).

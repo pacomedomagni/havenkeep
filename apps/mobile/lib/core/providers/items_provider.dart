@@ -106,10 +106,11 @@ class ItemsNotifier extends AsyncNotifier<List<Item>> {
     final previousState = AsyncValue.data(List<Item>.from(currentItems));
 
     try {
-      await repo.updateItem(item);
-
-      // Re-fetch to get updated computed fields
-      final updated = await repo.getItemById(item.id);
+      // The PUT response already carries the canonical row with all
+      // computed fields. Don't follow up with a GET — it doubles latency
+      // and a transient network failure would silently roll back a
+      // mutation the server already accepted (see C113).
+      final updated = await repo.updateItem(item);
 
       state = AsyncValue.data(
         currentItems.map((i) => i.id == updated.id ? updated : i).toList(),

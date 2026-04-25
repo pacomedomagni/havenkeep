@@ -14,9 +14,20 @@ vi.mock('next/link', () => ({
 // Mock @/lib/api
 // ---------------------------------------------------------------------------
 const mockApiClient = vi.fn();
-vi.mock('@/lib/api', () => ({
-  apiClient: (...args: unknown[]) => mockApiClient(...args),
-}));
+vi.mock('@/lib/api', () => {
+  class ApiError extends Error {
+    public status: number;
+    constructor(message: string, status: number) {
+      super(message);
+      this.status = status;
+      this.name = 'ApiError';
+    }
+  }
+  return {
+    apiClient: (...args: unknown[]) => mockApiClient(...args),
+    ApiError,
+  };
+});
 
 // ---------------------------------------------------------------------------
 // Import component under test

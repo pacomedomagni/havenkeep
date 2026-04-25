@@ -110,9 +110,7 @@ class PdfExportService {
             _buildRow('Duration', '${item.warrantyMonths} months'),
             _buildRow(
               'Warranty Expires',
-              item.warrantyEndDate != null
-                  ? dateFormat.format(item.warrantyEndDate!)
-                  : '\u2014',
+              dateFormat.format(item.warrantyEndDate),
             ),
             _buildRow('Status', item.computedWarrantyStatus.displayLabel),
             _buildRow(
@@ -272,9 +270,7 @@ class PdfExportService {
                       ('${i.brand ?? ''} ${i.name}').trim(),
                       i.category.displayLabel,
                       dateFormat.format(i.purchaseDate),
-                      i.warrantyEndDate != null
-                          ? dateFormat.format(i.warrantyEndDate!)
-                          : '—',
+                      dateFormat.format(i.warrantyEndDate),
                       i.price != null ? '\$${i.price!.toStringAsFixed(2)}' : '—',
                     ])
                 .toList(),

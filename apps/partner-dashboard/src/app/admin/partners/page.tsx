@@ -26,8 +26,13 @@ export default async function PartnersPage({
   const { partners, pagination } = await getPartners(page)
 
   const totalPartners = partners.length
-  const pendingPartners = partners.filter((p: any) => !p.is_active).length
-  const activePartners = partners.filter((p: any) => p.is_active).length
+  const statusOf = (p: any): 'pending' | 'active' | 'rejected' => {
+    if (p.status === 'pending' || p.status === 'active' || p.status === 'rejected') return p.status
+    return p.is_active ? 'active' : 'pending'
+  }
+  const pendingPartners = partners.filter((p: any) => statusOf(p) === 'pending').length
+  const activePartners = partners.filter((p: any) => statusOf(p) === 'active').length
+  const rejectedPartners = partners.filter((p: any) => statusOf(p) === 'rejected').length
 
   return (
     <>
@@ -65,6 +70,11 @@ export default async function PartnersPage({
             icon={<CheckCircleIcon className="h-6 w-6 text-haven-primary" />}
           />
         </div>
+        {rejectedPartners > 0 && (
+          <p className="mb-4 text-sm text-haven-text-tertiary">
+            {rejectedPartners} rejected partner{rejectedPartners === 1 ? '' : 's'} on this page.
+          </p>
+        )}
 
         <PartnerTable partners={partners} />
         {pagination && (

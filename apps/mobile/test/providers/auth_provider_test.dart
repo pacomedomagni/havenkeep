@@ -3,12 +3,10 @@ import 'package:mockito/annotations.dart';
 import 'package:mockito/mockito.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:havenkeep_mobile/core/providers/auth_provider.dart';
-import 'package:havenkeep_mobile/core/providers/demo_mode_provider.dart';
 import 'package:havenkeep_mobile/core/providers/premium_provider.dart';
 import 'package:havenkeep_mobile/core/services/auth_repository.dart';
 import 'package:havenkeep_mobile/core/services/push_notification_service.dart';
 import 'package:api_client/api_client.dart';
-import 'package:shared_models/shared_models.dart';
 
 import '../helpers/test_helpers.dart';
 import 'auth_provider_test.mocks.dart';

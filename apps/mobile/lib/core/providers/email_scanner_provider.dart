@@ -55,13 +55,15 @@ class EmailScansNotifier extends AsyncNotifier<List<EmailScan>> {
 
   Future<EmailScan> startScan({
     required String provider,
-    required String accessToken,
+    required String code,
+    required String redirectUri,
     DateTime? dateRangeStart,
     DateTime? dateRangeEnd,
   }) async {
     final scan = await ref.read(emailScannerRepositoryProvider).initiateScan(
           provider: provider,
-          accessToken: accessToken,
+          code: code,
+          redirectUri: redirectUri,
           dateRangeStart: dateRangeStart,
           dateRangeEnd: dateRangeEnd,
         );
@@ -75,13 +77,13 @@ class EmailScansNotifier extends AsyncNotifier<List<EmailScan>> {
     return scan;
   }
 
-  Future<String> getAccessToken(String provider) async {
+  Future<EmailOAuthCode> getAuthorizationCode(String provider) async {
     final oauth = ref.read(emailOAuthServiceProvider);
     switch (provider) {
       case 'gmail':
-        return oauth.getGmailAccessToken();
+        return oauth.getGmailAuthorizationCode();
       case 'outlook':
-        return oauth.getOutlookAccessToken();
+        return oauth.getOutlookAuthorizationCode();
       default:
         throw StateError('Unsupported provider: $provider');
     }

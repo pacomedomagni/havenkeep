@@ -56,10 +56,10 @@ class _ItemAddedScreenState extends ConsumerState<ItemAddedScreen>
             final displayName =
                 '${item.brand ?? ''} ${item.name}'.trim();
 
-            // Use the unified computed end date (proper month arithmetic)
-            final expiryDate = item.warrantyEndDate ?? item.computedEndDate;
+            // warranty_end_date is a generated NOT NULL column on the API
+            // (Ch08-Item-D010); the model exposes it as non-null after Phase 8.
             final expiryText =
-                'Warranty expires ${DateFormat('MMM d, yyyy').format(expiryDate)}';
+                'Warranty expires ${DateFormat('MMM d, yyyy').format(item.warrantyEndDate)}';
 
             return Center(
               child: Padding(

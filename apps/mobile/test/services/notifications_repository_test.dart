@@ -18,6 +18,11 @@ void main() {
   });
 
   /// Helper to create a valid notification JSON.
+  ///
+  /// Mirrors the API contract after Phase 8: `sent_at` is now NOT NULL
+  /// on the wire (Ch08-Notification-D040), `is_read` is derived from
+  /// `opened_at` rather than stored as a column (Ch08-Notification-D041),
+  /// and `scheduled_at` is removed (Ch08-Notification-D043).
   Map<String, dynamic> notificationJson({
     String id = 'notif-1',
     String title = 'Test Notification',
@@ -29,8 +34,8 @@ void main() {
       'type': 'warranty_expiring',
       'title': title,
       'body': 'Your warranty is expiring soon.',
-      'is_read': isRead,
-      'scheduled_at': '2026-01-15T09:00:00.000Z',
+      'sent_at': '2026-01-15T09:00:00.000Z',
+      if (isRead) 'opened_at': '2026-01-15T10:00:00.000Z',
       'created_at': '2026-01-01T00:00:00.000Z',
     };
   }
@@ -39,7 +44,7 @@ void main() {
     group('getNotifications', () {
       test('sends page parameter (not offset) for pagination', () async {
         // This verifies the recent fix: the API uses `page` not `offset`
-        when(mockClient.get('/api/v1/notifications',
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'notifications'],
                 queryParams: anyNamed('queryParams')))
             .thenAnswer((_) async => {
                   'data': [notificationJson()],
@@ -47,8 +52,7 @@ void main() {
 
         await repository.getNotifications(limit: 30, page: 2);
 
-        final captured = verify(mockClient.get(
-          '/api/v1/notifications',
+        final captured = verify(mockClient.get(pathSegments: const ['api', 'v1', 'notifications'],
           queryParams: captureAnyNamed('queryParams'),
         )).captured.single as Map<String, String>;
 
@@ -59,7 +63,7 @@ void main() {
       });
 
       test('parses list of notifications', () async {
-        when(mockClient.get('/api/v1/notifications',
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'notifications'],
                 queryParams: anyNamed('queryParams')))
             .thenAnswer((_) async => {
                   'data': [
@@ -79,14 +83,13 @@ void main() {
       });
 
       test('sends default pagination parameters', () async {
-        when(mockClient.get('/api/v1/notifications',
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'notifications'],
                 queryParams: anyNamed('queryParams')))
             .thenAnswer((_) async => {'data': []});
 
         await repository.getNotifications();
 
-        final captured = verify(mockClient.get(
-          '/api/v1/notifications',
+        final captured = verify(mockClient.get(pathSegments: const ['api', 'v1', 'notifications'],
           queryParams: captureAnyNamed('queryParams'),
         )).captured.single as Map<String, String>;
 
@@ -95,14 +98,13 @@ void main() {
       });
 
       test('includes unread filter when requested', () async {
-        when(mockClient.get('/api/v1/notifications',
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'notifications'],
                 queryParams: anyNamed('queryParams')))
             .thenAnswer((_) async => {'data': []});
 
         await repository.getNotifications(unreadOnly: true);
 
-        final captured = verify(mockClient.get(
-          '/api/v1/notifications',
+        final captured = verify(mockClient.get(pathSegments: const ['api', 'v1', 'notifications'],
           queryParams: captureAnyNamed('queryParams'),
         )).captured.single as Map<String, String>;
 
@@ -110,14 +112,13 @@ void main() {
       });
 
       test('does not include unread filter by default', () async {
-        when(mockClient.get('/api/v1/notifications',
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'notifications'],
                 queryParams: anyNamed('queryParams')))
             .thenAnswer((_) async => {'data': []});
 
         await repository.getNotifications();
 
-        final captured = verify(mockClient.get(
-          '/api/v1/notifications',
+        final captured = verify(mockClient.get(pathSegments: const ['api', 'v1', 'notifications'],
           queryParams: captureAnyNamed('queryParams'),
         )).captured.single as Map<String, String>;
 
@@ -127,7 +128,7 @@ void main() {
 
     group('getUnreadCount', () {
       test('calls correct endpoint and returns count', () async {
-        when(mockClient.get('/api/v1/notifications/unread-count'))
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'notifications', 'unread-count']))
             .thenAnswer((_) async => {
                   'data': {'count': 7},
                 });
@@ -135,11 +136,11 @@ void main() {
         final count = await repository.getUnreadCount();
 
         expect(count, 7);
-        verify(mockClient.get('/api/v1/notifications/unread-count')).called(1);
+        verify(mockClient.get(pathSegments: const ['api', 'v1', 'notifications', 'unread-count'])).called(1);
       });
 
       test('returns 0 when count is null', () async {
-        when(mockClient.get('/api/v1/notifications/unread-count'))
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'notifications', 'unread-count']))
             .thenAnswer((_) async => {
                   'data': {'count': null},
                 });
@@ -152,29 +153,31 @@ void main() {
 
     group('markAsRead', () {
       test('calls correct endpoint with notification ID', () async {
-        when(mockClient.put('/api/v1/notifications/notif-1/read'))
+        when(mockClient.put(pathSegments: const ['api', 'v1', 'notifications', 'notif-1', 'read']))
             .thenAnswer((_) async => {});
 
         await repository.markAsRead('notif-1');
 
-        verify(mockClient.put('/api/v1/notifications/notif-1/read')).called(1);
+        verify(mockClient.put(pathSegments: const ['api', 'v1', 'notifications', 'notif-1', 'read'])).called(1);
       });
     });
 
     group('markAllAsRead', () {
       test('calls correct endpoint', () async {
-        when(mockClient.put('/api/v1/notifications/read-all'))
+        when(mockClient.put(pathSegments: const ['api', 'v1', 'notifications', 'read-all']))
             .thenAnswer((_) async => {});
 
         await repository.markAllAsRead();
 
-        verify(mockClient.put('/api/v1/notifications/read-all')).called(1);
+        verify(mockClient.put(pathSegments: const ['api', 'v1', 'notifications', 'read-all'])).called(1);
       });
     });
 
     group('getPreferences', () {
       test('returns notification preferences', () async {
-        when(mockClient.get('/api/v1/notifications/preferences'))
+        // Phase 8 made `created_at`/`updated_at` NOT NULL on the wire —
+        // include them in the fixture so `fromJson` doesn't blow up.
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'notifications', 'preferences']))
             .thenAnswer((_) async => {
                   'data': {
                     'user_id': 'user-1',
@@ -185,6 +188,8 @@ void main() {
                     'tips_enabled': true,
                     'push_enabled': true,
                     'email_enabled': false,
+                    'created_at': '2026-01-01T00:00:00.000Z',
+                    'updated_at': '2026-01-01T00:00:00.000Z',
                   },
                 });
 
@@ -198,7 +203,7 @@ void main() {
       });
 
       test('returns null when no preferences set', () async {
-        when(mockClient.get('/api/v1/notifications/preferences'))
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'notifications', 'preferences']))
             .thenAnswer((_) async => {'data': null});
 
         final prefs = await repository.getPreferences();
@@ -209,13 +214,15 @@ void main() {
 
     group('upsertPreferences', () {
       test('sends PUT with preferences JSON', () async {
-        final prefs = const NotificationPreferences(
+        final prefs = NotificationPreferences(
           userId: 'user-1',
           remindersEnabled: true,
           pushEnabled: false,
+          createdAt: DateTime(2026),
+          updatedAt: DateTime(2026),
         );
 
-        when(mockClient.put('/api/v1/notifications/preferences',
+        when(mockClient.put(pathSegments: const ['api', 'v1', 'notifications', 'preferences'],
                 body: anyNamed('body')))
             .thenAnswer((_) async => {
                   'data': {
@@ -227,6 +234,8 @@ void main() {
                     'tips_enabled': true,
                     'push_enabled': false,
                     'email_enabled': false,
+                    'created_at': '2026-01-01T00:00:00.000Z',
+                    'updated_at': '2026-01-01T00:00:00.000Z',
                   },
                 });
 
@@ -234,8 +243,7 @@ void main() {
 
         expect(result.pushEnabled, isFalse);
 
-        verify(mockClient.put(
-          '/api/v1/notifications/preferences',
+        verify(mockClient.put(pathSegments: const ['api', 'v1', 'notifications', 'preferences'],
           body: anyNamed('body'),
         )).called(1);
       });

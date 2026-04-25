@@ -1,6 +1,11 @@
 import 'enums.dart';
 
 /// User profile with app-specific fields.
+///
+/// Mirrors the `users` table on the API after the soft-delete migrations
+/// (016) added [deletedAt] / [deletionScheduledFor]. The API never returns
+/// `stripe_customer_id` to the client (Ch08-User-D005); if it shows up here
+/// we treat it as a server bug and ignore it on read.
 class User {
   final String id;
   final String email;
@@ -14,7 +19,20 @@ class User {
   final bool emailVerified;
   final String? appleUserId;
   final bool isAdmin;
+
+  /// True when the API returned `is_partner: true`. Computed server-side
+  /// from `partners.is_active = TRUE` (see `routes/users.ts`). The mobile
+  /// client must NOT fabricate this value (Ch08-User-D002).
   final bool isPartner;
+
+  /// Soft-delete marker. Non-null inside the 30-day cooling-off window
+  /// (Ch08-User-D003).
+  final DateTime? deletedAt;
+
+  /// Hard-delete deadline. When [deletedAt] is set this points 30 days
+  /// later (Ch08-User-D004).
+  final DateTime? deletionScheduledFor;
+
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -23,7 +41,7 @@ class User {
     required this.email,
     required this.fullName,
     this.avatarUrl,
-    this.authProvider = AuthProvider.email,
+    required this.authProvider,
     this.plan = UserPlan.free,
     this.planExpiresAt,
     this.referredBy,
@@ -32,6 +50,8 @@ class User {
     this.appleUserId,
     this.isAdmin = false,
     this.isPartner = false,
+    this.deletedAt,
+    this.deletionScheduledFor,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -42,21 +62,24 @@ class User {
       email: json['email'] as String? ?? '',
       fullName: json['full_name'] as String? ?? '',
       avatarUrl: json['avatar_url'] as String?,
-      authProvider: json['auth_provider'] != null
-          ? AuthProvider.fromJson(json['auth_provider'] as String)
-          : AuthProvider.email,
-      plan: json['plan'] != null ? UserPlan.fromJson(json['plan'] as String) : UserPlan.free,
-      planExpiresAt: json['plan_expires_at'] != null
-          ? DateTime.tryParse(json['plan_expires_at'] as String)
-          : null,
+      // Ch08-User-D001: no silent default. The API always sets
+      // auth_provider on insert; if it's missing we fail loud rather than
+      // pretend the user is an email/password account.
+      authProvider: AuthProvider.fromJson(json['auth_provider'] as String),
+      plan: json['plan'] != null
+          ? UserPlan.fromJson(json['plan'] as String)
+          : UserPlan.free,
+      planExpiresAt: _parseDate(json['plan_expires_at']),
       referredBy: json['referred_by'] as String?,
       referralCode: json['referral_code'] as String?,
       emailVerified: json['email_verified'] as bool? ?? false,
       appleUserId: json['apple_user_id'] as String?,
       isAdmin: json['is_admin'] as bool? ?? false,
       isPartner: json['is_partner'] as bool? ?? false,
-      createdAt: DateTime.tryParse(json['created_at'] as String? ?? '') ?? DateTime.now(),
-      updatedAt: DateTime.tryParse(json['updated_at'] as String? ?? '') ?? DateTime.now(),
+      deletedAt: _parseDate(json['deleted_at']),
+      deletionScheduledFor: _parseDate(json['deletion_scheduled_for']),
+      createdAt: _parseDate(json['created_at'])!,
+      updatedAt: _parseDate(json['updated_at'])!,
     );
   }
 
@@ -75,8 +98,18 @@ class User {
       'apple_user_id': appleUserId,
       'is_admin': isAdmin,
       'is_partner': isPartner,
+      // Only emit timestamps when set so a hydrated round-trip is symmetric
+      // (Ch08-User-D003 / D004: client never fabricates these).
+      if (deletedAt != null) 'deleted_at': deletedAt!.toIso8601String(),
+      if (deletionScheduledFor != null)
+        'deletion_scheduled_for': deletionScheduledFor!.toIso8601String(),
+      'created_at': createdAt.toIso8601String(),
+      'updated_at': updatedAt.toIso8601String(),
     };
   }
+
+  /// True when the account is in the 30-day soft-delete cooling-off window.
+  bool get isPendingDeletion => deletedAt != null;
 
   User copyWith({
     String? id,
@@ -97,6 +130,10 @@ class User {
     bool clearAppleUserId = false,
     bool? isAdmin,
     bool? isPartner,
+    DateTime? deletedAt,
+    bool clearDeletedAt = false,
+    DateTime? deletionScheduledFor,
+    bool clearDeletionScheduledFor = false,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -117,6 +154,10 @@ class User {
       appleUserId: clearAppleUserId ? null : (appleUserId ?? this.appleUserId),
       isAdmin: isAdmin ?? this.isAdmin,
       isPartner: isPartner ?? this.isPartner,
+      deletedAt: clearDeletedAt ? null : (deletedAt ?? this.deletedAt),
+      deletionScheduledFor: clearDeletionScheduledFor
+          ? null
+          : (deletionScheduledFor ?? this.deletionScheduledFor),
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
@@ -131,4 +172,11 @@ class User {
 
   @override
   int get hashCode => id.hashCode;
+}
+
+DateTime? _parseDate(Object? value) {
+  if (value == null) return null;
+  if (value is DateTime) return value;
+  if (value is String) return DateTime.tryParse(value);
+  return null;
 }

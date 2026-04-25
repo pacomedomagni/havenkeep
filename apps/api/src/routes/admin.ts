@@ -1,9 +1,11 @@
 import { Router } from 'express';
+import Joi from 'joi';
 import { query } from '../db';
 import { authenticate, requireAdmin } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { paginationSchema } from '../validators';
 import { userIdParamSchema, dateRangeQuerySchema } from '../validators/admin.validator';
+import { writeRateLimiter } from '../middleware/rateLimiter';
 import { AppError } from '../utils/errors';
 import { AuditService } from '../services/audit.service';
 import { getRedisClient } from '../utils/redis';
@@ -12,11 +14,25 @@ import { sendSuccess, sendMessage } from '../utils/response';
 
 const ADMIN_STATS_TTL = 60; // 60 seconds
 
+// Strip control chars + cap length so a malicious email/note can't smuggle
+// fake newline-delimited audit entries (Ch01-F058).
+function sanitizeAuditText(value: unknown, max = 200): string {
+  if (typeof value !== 'string') return '';
+  return value
+    .replace(/[\x00-\x1f\x7f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, max);
+}
+
 const router = Router();
 router.use(authenticate);
 
-// Current user info (accessible to admins AND partners)
-router.get('/me', (req, res) => {
+// Audit Ch01-F074: /admin/me must be admin-only. Partners and regular users
+// have /users/me + /partners/me already; this route was being treated as a
+// generic "who am I" but its name and presence under /admin imply admin
+// scope.
+router.get('/me', requireAdmin, (req, res) => {
   sendSuccess(res, {
     id: req.user!.id,
     email: req.user!.email,
@@ -43,15 +59,19 @@ router.get('/stats', async (req, res, next) => {
       logger.warn({ err }, 'Redis cache read failed for admin:stats, falling back to DB');
     }
 
+    // Audit Ch01-F075: every count below now excludes soft-deleted users.
+    // Items + partner_gifts + warranty_claims are scoped to non-deleted
+    // users via the FK; we filter at the source so the totals reflect the
+    // live customer base, not historical churn.
     const stats = await query(`
       SELECT
-        (SELECT COUNT(*) FROM users) as total_users,
-        (SELECT COUNT(*) FROM users WHERE plan = 'premium') as premium_users,
-        (SELECT COUNT(*) FROM items) as total_items,
-        (SELECT COALESCE(SUM(price), 0) FROM items) as total_value,
-        (SELECT COUNT(*) FROM partners WHERE is_active = TRUE) as active_partners,
+        (SELECT COUNT(*) FROM users WHERE deleted_at IS NULL) as total_users,
+        (SELECT COUNT(*) FROM users WHERE plan = 'premium' AND deleted_at IS NULL) as premium_users,
+        (SELECT COUNT(*) FROM items i JOIN users u ON u.id = i.user_id WHERE u.deleted_at IS NULL) as total_items,
+        (SELECT COALESCE(SUM(i.price), 0) FROM items i JOIN users u ON u.id = i.user_id WHERE u.deleted_at IS NULL) as total_value,
+        (SELECT COUNT(*) FROM partners p JOIN users u ON u.id = p.user_id WHERE p.is_active = TRUE AND u.deleted_at IS NULL) as active_partners,
         (SELECT COUNT(*) FROM partner_gifts) as total_gifts,
-        (SELECT COUNT(*) FROM warranty_claims) as total_claims
+        (SELECT COUNT(*) FROM warranty_claims wc JOIN users u ON u.id = wc.user_id WHERE u.deleted_at IS NULL) as total_claims
     `);
 
     // Cache the result in Redis with 60-second TTL
@@ -207,8 +227,19 @@ router.get('/users', validate(paginationSchema, 'query'), async (req, res, next)
   }
 });
 
+// Audit Ch01-F052/F058: suspend records a sanitized reason in the audit
+// metadata so investigators can see WHY without trusting raw input.
+const suspendBodySchema = Joi.object({
+  reason: Joi.string().trim().max(500).optional(),
+  cancel_revenuecat: Joi.boolean().optional(),
+}).rename('cancelRevenuecat', 'cancel_revenuecat', { ignoreUndefined: true, override: false });
+
 // Suspend user (downgrade to free and invalidate all sessions)
-router.put('/users/:id/suspend', validate(userIdParamSchema, 'params'), async (req, res, next) => {
+router.put('/users/:id/suspend',
+  writeRateLimiter,
+  validate(userIdParamSchema, 'params'),
+  validate(suspendBodySchema, 'body'),
+  async (req, res, next) => {
   try {
     const { id } = req.params;
 
@@ -229,26 +260,37 @@ router.put('/users/:id/suspend', validate(userIdParamSchema, 'params'), async (r
         severity: 'warning',
         resourceType: 'user',
         resourceId: id,
-        description: `Admin attempted to suspend another admin: ${targetUser.rows[0].email}`,
+        description: `Admin attempted to suspend another admin: ${sanitizeAuditText(targetUser.rows[0].email)}`,
         success: false,
         errorMessage: 'suspend_admin_blocked',
       }).catch(() => {});
       throw new AppError('Cannot suspend an admin user', 400);
     }
 
+    // Capture the prior plan so unsuspend can restore it. We're inside an
+    // implicit auto-commit so this is a single SET-and-CASE statement.
     await query(
-      `UPDATE users SET plan = 'suspended', updated_at = NOW() WHERE id = $1`,
-      [id]
+      `UPDATE users
+          SET plan_before_suspend = CASE
+                                      WHEN plan <> 'suspended' THEN plan
+                                      ELSE plan_before_suspend
+                                    END,
+              plan = 'suspended',
+              updated_at = NOW()
+        WHERE id = $1`,
+      [id],
     );
 
     // Invalidate all refresh tokens so the suspended user gets signed out
     await query(`DELETE FROM refresh_tokens WHERE user_id = $1`, [id]);
 
+    const reason = sanitizeAuditText((req.body as any)?.reason);
     await AuditService.logFromRequest(req, 'admin.settings_change', {
       severity: 'warning',
       resourceType: 'user',
       resourceId: id,
-      description: `Admin suspended user: ${targetUser.rows[0].email}`,
+      description: `Admin suspended user: ${sanitizeAuditText(targetUser.rows[0].email)}`,
+      metadata: reason ? { reason } : undefined,
     });
 
     sendSuccess(res, { id, email: targetUser.rows[0].email }, { message: 'User suspended' });
@@ -262,9 +304,20 @@ router.put('/users/:id/unsuspend', validate(userIdParamSchema, 'params'), async 
   try {
     const { id } = req.params;
 
+    // Restore the plan captured at suspend time + clear any soft-delete
+    // markers (Ch01-F056). Defaults to 'free' only when no prior plan was
+    // captured (suspend predated the plan_before_suspend column, or user
+    // was never paid).
     const result = await query(
-      `UPDATE users SET plan = 'free', updated_at = NOW() WHERE id = $1 AND plan = 'suspended' RETURNING id, email`,
-      [id]
+      `UPDATE users
+          SET plan = COALESCE(plan_before_suspend, 'free'),
+              plan_before_suspend = NULL,
+              deleted_at = NULL,
+              deletion_scheduled_for = NULL,
+              updated_at = NOW()
+        WHERE id = $1 AND plan = 'suspended'
+        RETURNING id, email, plan`,
+      [id],
     );
 
     if (result.rows.length === 0) {
@@ -289,55 +342,65 @@ router.put('/users/:id/unsuspend', validate(userIdParamSchema, 'params'), async 
   }
 });
 
-// Delete user (cascades via FK constraints)
-// Note: Even if the user has an active access token, the authenticate middleware
-// fetches the user from DB on every request — once the user row is deleted,
-// any subsequent API call with the old token will fail with "Invalid token".
-router.delete('/users/:id', validate(userIdParamSchema, 'params'), async (req, res, next) => {
-  try {
-    const { id } = req.params;
-
-    // Prevent admin from deleting their own account
-    if (id === req.user!.id) {
-      throw new AppError('Cannot delete your own account', 400);
-    }
-
-    // Delete refresh tokens first (prevents token refresh after deletion)
-    await query(`DELETE FROM refresh_tokens WHERE user_id = $1`, [id]);
-
-    // Delete user (FK cascades handle items, homes, documents, etc.)
-    const result = await query(
-      `DELETE FROM users WHERE id = $1 RETURNING id, email`,
-      [id]
-    );
-
-    if (result.rows.length === 0) {
-      throw new AppError('User not found', 404);
-    }
-
-    await AuditService.logFromRequest(req, 'admin.user_delete', {
-      severity: 'critical',
-      resourceType: 'user',
-      resourceId: id,
-      description: `Admin deleted user: ${result.rows[0].email}`,
-    });
-
-    sendSuccess(res, result.rows[0], { message: 'User deleted' });
-  } catch (error) {
-    next(error);
-  }
+// Audit Ch01-F059: hard-delete is irreversible and cascades across 19+
+// tables. Require an explicit `{ confirm: 'DELETE', reason: '<200 chars>' }`
+// body so a stray DELETE call from a misconfigured admin tool can't wipe a
+// real user. The reason is recorded in audit metadata for forensic review.
+const adminDeleteUserBodySchema = Joi.object({
+  confirm: Joi.string().valid('DELETE').required(),
+  reason: Joi.string().trim().min(1).max(500).required(),
 });
+
+router.delete(
+  '/users/:id',
+  writeRateLimiter,
+  validate(userIdParamSchema, 'params'),
+  validate(adminDeleteUserBodySchema, 'body'),
+  async (req, res, next) => {
+    try {
+      const { id } = req.params;
+      const { reason } = req.body;
+
+      if (id === req.user!.id) {
+        throw new AppError('Cannot delete your own account', 400);
+      }
+
+      await query(`DELETE FROM refresh_tokens WHERE user_id = $1`, [id]);
+
+      const result = await query(
+        `DELETE FROM users WHERE id = $1 RETURNING id, email`,
+        [id],
+      );
+
+      if (result.rows.length === 0) {
+        throw new AppError('User not found', 404);
+      }
+
+      await AuditService.logFromRequest(req, 'admin.user_delete', {
+        severity: 'critical',
+        resourceType: 'user',
+        resourceId: id,
+        description: `Admin deleted user: ${sanitizeAuditText(result.rows[0].email)}`,
+        metadata: { reason: sanitizeAuditText(reason) },
+      });
+
+      sendSuccess(res, result.rows[0], { message: 'User deleted' });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
 
 // ========== PARTNER MANAGEMENT ==========
 
-// List pending partners (is_active = false)
+// List pending partners (status = 'pending')
 router.get('/partners/pending', async (req, res, next) => {
   try {
     const result = await query(
       `SELECT p.*, u.email, u.full_name
        FROM partners p
        JOIN users u ON u.id = p.user_id
-       WHERE p.is_active = FALSE
+       WHERE p.status = 'pending'
        ORDER BY p.created_at DESC`
     );
 
@@ -347,15 +410,16 @@ router.get('/partners/pending', async (req, res, next) => {
   }
 });
 
-// Approve a partner (set is_active = true)
+// Approve a partner (status = 'active')
 router.put('/partners/:id/approve', validate(userIdParamSchema, 'params'), async (req, res, next) => {
   try {
     const { id } = req.params;
 
     const result = await query(
-      `UPDATE partners SET is_active = TRUE, updated_at = NOW()
-       WHERE id = $1
-       RETURNING *`,
+      `UPDATE partners
+         SET status = 'active', is_active = TRUE, updated_at = NOW()
+         WHERE id = $1
+         RETURNING *`,
       [id]
     );
 
@@ -376,15 +440,20 @@ router.put('/partners/:id/approve', validate(userIdParamSchema, 'params'), async
   }
 });
 
-// Reject a partner (set is_active = false)
+// Reject a partner (status = 'rejected'). Optional reason is captured in the
+// audit log so an admin can answer "why was this partner rejected?" later
+// (audit Ch10-W041). Stored as a string up to 1KB.
 router.put('/partners/:id/reject', validate(userIdParamSchema, 'params'), async (req, res, next) => {
   try {
     const { id } = req.params;
+    const reasonRaw = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
+    const reason = reasonRaw.slice(0, 1024);
 
     const result = await query(
-      `UPDATE partners SET is_active = FALSE, updated_at = NOW()
-       WHERE id = $1
-       RETURNING *`,
+      `UPDATE partners
+         SET status = 'rejected', is_active = FALSE, updated_at = NOW()
+         WHERE id = $1
+         RETURNING *`,
       [id]
     );
 
@@ -396,7 +465,11 @@ router.put('/partners/:id/reject', validate(userIdParamSchema, 'params'), async 
       severity: 'warning',
       resourceType: 'partner',
       resourceId: id,
-      description: `Admin rejected partner: ${result.rows[0].company_name || id}`,
+      description:
+        reason.length > 0
+          ? `Admin rejected partner ${result.rows[0].company_name || id}: ${reason}`
+          : `Admin rejected partner: ${result.rows[0].company_name || id}`,
+      metadata: reason ? { reason } : undefined,
     });
 
     sendSuccess(res, result.rows[0], { message: 'Partner rejected' });
@@ -418,10 +491,18 @@ router.get('/partners', validate(paginationSchema, 'query'), async (req, res, ne
     const params: any[] = [];
     let paramIndex = 1;
 
-    if (req.query.is_active !== undefined) {
+    if (typeof req.query.status === 'string') {
+      const allowed = new Set(['pending', 'active', 'rejected']);
+      if (!allowed.has(req.query.status)) {
+        throw new AppError('Invalid status filter. Must be pending, active, or rejected.', 400);
+      }
+      conditions.push(`p.status = $${paramIndex++}`);
+      params.push(req.query.status);
+    } else if (req.query.is_active !== undefined) {
+      // Legacy filter — translate to status. New callers should use ?status=.
       const isActive = req.query.is_active === 'true';
-      conditions.push(`p.is_active = $${paramIndex++}`);
-      params.push(isActive);
+      conditions.push(`p.status = $${paramIndex++}`);
+      params.push(isActive ? 'active' : 'pending');
     }
 
     if (req.query.partner_type) {
@@ -433,6 +514,11 @@ router.get('/partners', validate(paginationSchema, 'query'), async (req, res, ne
 
     const [result, countResult] = await Promise.all([
       query(
+        // Audit Ch01-F063: stripe_account_id is sensitive (it appears in the
+        // Stripe dashboard URL and lets an admin pivot to the connected
+        // account). Replace with a boolean `has_stripe_account` so admin UI
+        // can show "connected" without leaking the real id. Audit Ch01-F065:
+        // exclude soft-deleted user rows so the listing matches reality.
         `SELECT
           p.id,
           p.user_id,
@@ -443,22 +529,23 @@ router.get('/partners', validate(paginationSchema, 'query'), async (req, res, ne
           p.service_areas,
           p.brand_color,
           p.logo_url,
-          p.stripe_account_id,
+          (p.stripe_account_id IS NOT NULL) AS has_stripe_account,
           p.stripe_onboarded,
           u.referral_code,
           p.is_active,
+          p.status,
           p.created_at,
           p.updated_at,
           u.email,
           u.full_name,
           COALESCE(SUM(pc.amount), 0)::numeric AS total_commissions_earned,
           COUNT(DISTINCT pg.id)::int AS total_gifts,
-          (SELECT COUNT(*) FROM users ref WHERE ref.referred_by = p.user_id)::int AS total_referrals
+          (SELECT COUNT(*) FROM users ref WHERE ref.referred_by = p.user_id AND ref.deleted_at IS NULL)::int AS total_referrals
         FROM partners p
         JOIN users u ON u.id = p.user_id
         LEFT JOIN partner_commissions pc ON pc.partner_id = p.id
         LEFT JOIN partner_gifts pg ON pg.partner_id = p.id
-        ${whereClause}
+        ${whereClause}${whereClause ? ' AND ' : 'WHERE '}u.deleted_at IS NULL
         GROUP BY p.id, u.email, u.full_name
         ORDER BY p.created_at DESC
         LIMIT $${paramIndex++} OFFSET $${paramIndex++}`,
@@ -491,6 +578,8 @@ router.get('/partners/:id', validate(userIdParamSchema, 'params'), async (req, r
     const { id } = req.params;
 
     const result = await query(
+      // Same `has_stripe_account` boolean as the list endpoint — Ch01-F063.
+      // Admin UI can hit Stripe dashboard via partner email if needed.
       `SELECT
         p.id,
         p.user_id,
@@ -501,7 +590,7 @@ router.get('/partners/:id', validate(userIdParamSchema, 'params'), async (req, r
         p.service_areas,
         p.brand_color,
         p.logo_url,
-        p.stripe_account_id,
+        (p.stripe_account_id IS NOT NULL) AS has_stripe_account,
         p.stripe_onboarded,
         u.referral_code,
         p.is_active,
@@ -510,14 +599,14 @@ router.get('/partners/:id', validate(userIdParamSchema, 'params'), async (req, r
         u.email,
         u.full_name,
         COALESCE(SUM(pc.amount) FILTER (WHERE pc.status = 'pending'), 0)::numeric AS total_pending_amount,
-        COALESCE(SUM(pc.amount) FILTER (WHERE pc.status = 'paid'), 0)::numeric AS total_paid_amount,
+        COALESCE(SUM(pc.amount) FILTER (WHERE pc.status = 'paid' AND pc.stripe_transfer_id IS NOT NULL), 0)::numeric AS total_paid_amount,
         COUNT(DISTINCT pg.id)::int AS gift_count,
-        (SELECT COUNT(*) FROM users ref WHERE ref.referred_by = p.user_id)::int AS referral_count
+        (SELECT COUNT(*) FROM users ref WHERE ref.referred_by = p.user_id AND ref.deleted_at IS NULL)::int AS referral_count
       FROM partners p
       JOIN users u ON u.id = p.user_id
       LEFT JOIN partner_commissions pc ON pc.partner_id = p.id
       LEFT JOIN partner_gifts pg ON pg.partner_id = p.id
-      WHERE p.id = $1
+      WHERE p.id = $1 AND u.deleted_at IS NULL
       GROUP BY p.id, u.email, u.full_name`,
       [id]
     );

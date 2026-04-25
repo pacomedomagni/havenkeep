@@ -183,7 +183,9 @@ describe('Homes API', () => {
       expect(getRes.status).toBe(404);
     });
 
-    it('should prevent deleting the last home', async () => {
+    it('should prevent deleting the last home with a generic message', async () => {
+      // Audit Ch02-F016: refused last-home delete returns 409 with a
+      // message that doesn't leak the precise home count.
       const { user, token } = await createTestUser();
       const home = await createTestHome(user.id, { name: 'Only Home' });
 
@@ -191,8 +193,10 @@ describe('Homes API', () => {
         .delete(`/api/v1/homes/${home.id}`)
         .set('Authorization', `Bearer ${token}`);
 
-      expect(res.status).toBe(400);
-      expect(res.body.error).toContain('Cannot delete your only home');
+      expect(res.status).toBe(409);
+      expect(res.body.error).toContain('create another home first');
+      // Must not leak the count.
+      expect(res.body.error).not.toMatch(/only|last|1\b/i);
     });
 
     it('should reassign items to another home on delete', async () => {
@@ -258,9 +262,9 @@ describe('Homes API', () => {
         .delete(`/api/v1/homes/${homeB1.id}`)
         .set('Authorization', `Bearer ${userA.token}`);
 
-      // User A has no homes at all (or only 1), so they get a 400 (can't delete only home)
-      // or 404. Either way, they must not succeed.
-      expect([400, 404]).toContain(res.status);
+      // User A doesn't own this home so they should get a 404. They never
+      // see B's home count, so the 409 last-home path can't trigger here.
+      expect([404, 409]).toContain(res.status);
     });
   });
 });

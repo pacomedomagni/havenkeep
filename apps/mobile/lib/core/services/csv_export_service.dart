@@ -46,9 +46,7 @@ class CsvExportService {
           item.price != null ? item.price!.toStringAsFixed(2) : '',
           item.warrantyType.displayLabel,
           item.warrantyMonths.toString(),
-          item.warrantyEndDate != null
-              ? _dateFormat.format(item.warrantyEndDate!)
-              : '',
+          _dateFormat.format(item.warrantyEndDate),
           item.computedWarrantyStatus.displayLabel,
           item.notes ?? '',
         ]);

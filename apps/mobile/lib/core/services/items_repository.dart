@@ -32,7 +32,10 @@ class ItemsRepository {
         if (homeId != null) params['home_id'] = homeId;
         if (!includeArchived) params['archived'] = 'false';
 
-        final data = await _client.get('/api/v1/items', queryParams: params);
+        final data = await _client.get(
+          pathSegments: const ['api', 'v1', 'items'],
+          queryParams: params,
+        );
         final items = (data['data'] as List)
             .map((json) => Item.fromJson(json as Map<String, dynamic>))
             .toList();
@@ -60,7 +63,9 @@ class ItemsRepository {
   /// Get a single item by ID.
   Future<Item> getItemById(String id) async {
     try {
-      final data = await _client.get('/api/v1/items/$id');
+      final data = await _client.get(
+        pathSegments: ['api', 'v1', 'items', id],
+      );
       return Item.fromJson(data['data'] as Map<String, dynamic>);
     } catch (e) {
       debugPrint('[ItemsRepository] getItemById failed: $e');
@@ -83,7 +88,10 @@ class ItemsRepository {
         };
         if (homeId != null) params['home_id'] = homeId;
 
-        final data = await _client.get('/api/v1/items', queryParams: params);
+        final data = await _client.get(
+          pathSegments: const ['api', 'v1', 'items'],
+          queryParams: params,
+        );
         final items = (data['data'] as List)
             .map((json) => Item.fromJson(json as Map<String, dynamic>))
             .toList();
@@ -101,7 +109,9 @@ class ItemsRepository {
   /// Get warranty stats for the dashboard.
   Future<Map<String, dynamic>?> getDashboardSummary() async {
     try {
-      final data = await _client.get('/api/v1/stats/dashboard');
+      final data = await _client.get(
+        pathSegments: const ['api', 'v1', 'stats', 'dashboard'],
+      );
       return data['data'] as Map<String, dynamic>?;
     } catch (e) {
       debugPrint('[ItemsRepository] getDashboardSummary failed: $e');
@@ -112,8 +122,10 @@ class ItemsRepository {
   /// Get items that need attention (expiring + expired).
   Future<List<Item>> getNeedsAttention({int limit = kNeedsAttentionLimit}) async {
     try {
-      final data = await _client.get('/api/v1/stats/items-needing-attention',
-          queryParams: {'limit': limit.toString()});
+      final data = await _client.get(
+        pathSegments: const ['api', 'v1', 'stats', 'items-needing-attention'],
+        queryParams: {'limit': limit.toString()},
+      );
 
       final items = data['data'] as List? ?? [];
       return items
@@ -146,7 +158,9 @@ class ItemsRepository {
   /// Count non-archived items (for free plan limit check).
   Future<int> countActiveItems() async {
     try {
-      final data = await _client.get('/api/v1/items/count');
+      final data = await _client.get(
+        pathSegments: const ['api', 'v1', 'items', 'count'],
+      );
       return (data['data'] as Map<String, dynamic>)['count'] as int? ?? 0;
     } catch (e) {
       debugPrint('[ItemsRepository] countActiveItems failed: $e');
@@ -161,7 +175,10 @@ class ItemsRepository {
   /// Create a new item.
   Future<Item> createItem(Item item) async {
     try {
-      final data = await _client.post('/api/v1/items', body: item.toInsertJson());
+      final data = await _client.post(
+        pathSegments: const ['api', 'v1', 'items'],
+        body: item.toInsertJson(),
+      );
       return Item.fromJson(data['data'] as Map<String, dynamic>);
     } catch (e) {
       debugPrint('[ItemsRepository] createItem failed: $e');
@@ -184,7 +201,10 @@ class ItemsRepository {
       json.remove('id');
       json.remove('user_id');
 
-      final data = await _client.put('/api/v1/items/${item.id}', body: json);
+      final data = await _client.put(
+        pathSegments: ['api', 'v1', 'items', item.id],
+        body: json,
+      );
       return Item.fromJson(data['data'] as Map<String, dynamic>);
     } catch (e) {
       debugPrint('[ItemsRepository] updateItem failed: $e');
@@ -195,7 +215,10 @@ class ItemsRepository {
   /// Archive an item (soft delete — doesn't count toward free limit).
   Future<void> archiveItem(String id) async {
     try {
-      await _client.put('/api/v1/items/$id', body: {'is_archived': true});
+      await _client.put(
+        pathSegments: ['api', 'v1', 'items', id],
+        body: {'is_archived': true},
+      );
     } catch (e) {
       debugPrint('[ItemsRepository] archiveItem failed: $e');
       rethrow;
@@ -205,7 +228,10 @@ class ItemsRepository {
   /// Unarchive an item.
   Future<void> unarchiveItem(String id) async {
     try {
-      await _client.put('/api/v1/items/$id', body: {'is_archived': false});
+      await _client.put(
+        pathSegments: ['api', 'v1', 'items', id],
+        body: {'is_archived': false},
+      );
     } catch (e) {
       debugPrint('[ItemsRepository] unarchiveItem failed: $e');
       rethrow;
@@ -219,7 +245,9 @@ class ItemsRepository {
   /// Permanently delete an item.
   Future<void> deleteItem(String id) async {
     try {
-      await _client.delete('/api/v1/items/$id');
+      await _client.delete(
+        pathSegments: ['api', 'v1', 'items', id],
+      );
     } catch (e) {
       debugPrint('[ItemsRepository] deleteItem failed: $e');
       rethrow;

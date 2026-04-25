@@ -26,7 +26,10 @@ class NotificationsRepository {
       params['unread'] = 'true';
     }
 
-    final data = await _client.get('/api/v1/notifications', queryParams: params);
+    final data = await _client.get(
+      pathSegments: const ['api', 'v1', 'notifications'],
+      queryParams: params,
+    );
     final notifications = data['data'] as List;
     return notifications
         .map((json) => AppNotification.fromJson(json as Map<String, dynamic>))
@@ -35,7 +38,9 @@ class NotificationsRepository {
 
   /// Get the count of unread notifications.
   Future<int> getUnreadCount() async {
-    final data = await _client.get('/api/v1/notifications/unread-count');
+    final data = await _client.get(
+      pathSegments: const ['api', 'v1', 'notifications', 'unread-count'],
+    );
     return (data['data'] as Map<String, dynamic>)['count'] as int? ?? 0;
   }
 
@@ -45,12 +50,16 @@ class NotificationsRepository {
 
   /// Mark a single notification as read.
   Future<void> markAsRead(String notificationId) async {
-    await _client.put('/api/v1/notifications/$notificationId/read');
+    await _client.put(
+      pathSegments: ['api', 'v1', 'notifications', notificationId, 'read'],
+    );
   }
 
   /// Mark all notifications as read for the current user.
   Future<void> markAllAsRead() async {
-    await _client.put('/api/v1/notifications/read-all');
+    await _client.put(
+      pathSegments: const ['api', 'v1', 'notifications', 'read-all'],
+    );
   }
 
   // ============================================
@@ -59,7 +68,9 @@ class NotificationsRepository {
 
   /// Get the current user's notification preferences.
   Future<NotificationPreferences?> getPreferences() async {
-    final data = await _client.get('/api/v1/notifications/preferences');
+    final data = await _client.get(
+      pathSegments: const ['api', 'v1', 'notifications', 'preferences'],
+    );
     final prefsData = data['data'];
     if (prefsData == null) return null;
     return NotificationPreferences.fromJson(prefsData as Map<String, dynamic>);
@@ -70,7 +81,7 @@ class NotificationsRepository {
     NotificationPreferences prefs,
   ) async {
     final data = await _client.put(
-      '/api/v1/notifications/preferences',
+      pathSegments: const ['api', 'v1', 'notifications', 'preferences'],
       body: prefs.toJson(),
     );
     return NotificationPreferences.fromJson(

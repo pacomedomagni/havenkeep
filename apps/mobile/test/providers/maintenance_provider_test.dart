@@ -22,16 +22,18 @@ class _TestCurrentUserNotifier extends CurrentUserNotifier {
 /// Helper to create test MaintenanceSchedule instances.
 MaintenanceSchedule createTestSchedule({
   String? id,
-  String? category,
+  ItemCategory? category,
   String? taskName,
   int frequencyMonths = 3,
 }) {
+  final now = DateTime.now();
   return MaintenanceSchedule(
-    id: id ?? 'schedule-${DateTime.now().millisecondsSinceEpoch}',
-    category: category ?? 'refrigerator',
+    id: id ?? 'schedule-${now.millisecondsSinceEpoch}',
+    category: category ?? ItemCategory.refrigerator,
     taskName: taskName ?? 'Clean condenser coils',
     frequencyMonths: frequencyMonths,
-    createdAt: DateTime.now(),
+    createdAt: now,
+    updatedAt: now,
   );
 }
 
@@ -100,7 +102,7 @@ void main() {
           MaintenanceDueItem(
             itemId: 'item-1',
             itemName: 'Refrigerator',
-            category: 'refrigerator',
+            category: ItemCategory.refrigerator,
             dueCount: 2,
             overdueCount: 1,
             tasks: [
@@ -182,13 +184,13 @@ void main() {
       final schedules = [
         createTestSchedule(
           id: 'sched-1',
-          category: 'refrigerator',
+          category: ItemCategory.refrigerator,
           taskName: 'Clean condenser coils',
           frequencyMonths: 6,
         ),
         createTestSchedule(
           id: 'sched-2',
-          category: 'refrigerator',
+          category: ItemCategory.refrigerator,
           taskName: 'Replace water filter',
           frequencyMonths: 6,
         ),
@@ -211,17 +213,17 @@ void main() {
     test('returns different schedules per category', () async {
       final fridgeSchedules = [
         createTestSchedule(
-          category: 'refrigerator',
+          category: ItemCategory.refrigerator,
           taskName: 'Clean coils',
         ),
       ];
       final hvacSchedules = [
         createTestSchedule(
-          category: 'hvac',
+          category: ItemCategory.hvac,
           taskName: 'Replace air filter',
         ),
         createTestSchedule(
-          category: 'hvac',
+          category: ItemCategory.hvac,
           taskName: 'Clean ducts',
         ),
       ];

@@ -139,6 +139,10 @@ class _NotificationPreferencesScreenState
         return;
       }
 
+      // The server generates the row's timestamps on upsert. The model
+      // requires them after Phase 8 — supply local sentinels; the server
+      // response (re-fetched via the invalidation below) overwrites them.
+      final now = DateTime.now();
       final prefs = NotificationPreferences(
         userId: user.id,
         remindersEnabled: _remindersEnabled,
@@ -148,6 +152,8 @@ class _NotificationPreferencesScreenState
         tipsEnabled: _tipsEnabled,
         pushEnabled: _pushEnabled,
         emailEnabled: _emailEnabled,
+        createdAt: now,
+        updatedAt: now,
       );
 
       await ref

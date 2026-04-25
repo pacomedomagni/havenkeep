@@ -42,8 +42,16 @@ class EnvironmentConfig {
   /// Google Sign-In server (web) OAuth client ID. The mobile SDK passes this
   /// as `serverClientId` so the resulting idToken's `aud` matches what the
   /// backend `/auth/google` endpoint verifies against. Read from the
-  /// Firebase project's auto-created Web OAuth client.
+  /// Firebase project's auto-created Web OAuth client. The same client ID is
+  /// reused for the email-scanner Gmail OAuth code flow.
   final String googleServerClientId;
+
+  /// Gmail OAuth redirect URI used by the email-scanner code flow.
+  /// Must be registered against [googleServerClientId] in Google Cloud
+  /// Console. The custom-scheme redirect comes back through
+  /// `flutter_web_auth_2`, the resulting `code` is forwarded to the
+  /// HavenKeep API for server-side exchange.
+  final String gmailRedirectUri;
 
   /// Apple Sign-In Services ID (Android / web flow). Configured in the
   /// Apple Developer Portal; the iOS native flow ignores this and uses
@@ -104,6 +112,7 @@ class EnvironmentConfig {
     required this.outlookTenant,
     required this.outlookRedirectUri,
     required this.googleServerClientId,
+    required this.gmailRedirectUri,
     required this.appleServicesId,
     required this.appleRedirectUri,
     required this.firebaseAndroidApiKey,
@@ -179,6 +188,10 @@ class EnvironmentConfig {
       'GOOGLE_SERVER_CLIENT_ID',
       fallback: '',
     );
+    final gmailRedirectUri = dotenv.get(
+      'GMAIL_REDIRECT_URI',
+      fallback: '',
+    );
     final appleServicesId = dotenv.get(
       'APPLE_SERVICES_ID',
       fallback: '',
@@ -249,6 +262,7 @@ class EnvironmentConfig {
       outlookTenant: outlookTenant,
       outlookRedirectUri: outlookRedirectUri,
       googleServerClientId: googleServerClientId,
+      gmailRedirectUri: gmailRedirectUri,
       appleServicesId: appleServicesId,
       appleRedirectUri: appleRedirectUri,
       firebaseAndroidApiKey: firebaseAndroidApiKey,

@@ -28,7 +28,7 @@ import categoriesRoutes from './routes/categories';
 import uploadsRoutes from './routes/uploads';
 import receiptsRoutes from './routes/receipts';
 import auditRoutes from './routes/audit';
-import webhooksRoutes from './routes/webhooks';
+import { stripeWebhookRouter, revenueCatWebhookRouter } from './routes/webhooks';
 import newsletterRoutes from './routes/newsletter';
 import contactRoutes from './routes/contact';
 
@@ -39,8 +39,12 @@ export interface CreateAppOptions {
 export function createApp(options: CreateAppOptions = {}) {
   const app = express();
 
-  // Trust the first proxy (nginx) so X-Forwarded-For is used correctly
-  app.set('trust proxy', 1);
+  // Audit Ch11-I005: trust proxy=1 is OK behind a single Caddy in front of
+  // the app. If a deploy ever introduces a 2-hop proxy chain, set
+  // `TRUST_PROXY_HOPS` to the number of trusted proxies so Express picks
+  // the correct X-Forwarded-For entry.
+  const trustProxyHops = parseInt(process.env.TRUST_PROXY_HOPS || '1', 10);
+  app.set('trust proxy', Number.isFinite(trustProxyHops) ? trustProxyHops : 1);
 
   // Security middleware. CSP is tightened to only the origins this API
   // actually talks to — Stripe (payments) and RevenueCat (entitlements) —
@@ -69,48 +73,79 @@ export function createApp(options: CreateAppOptions = {}) {
       preload: true,
     },
     referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+    // Audit Ch11-I001: COOP / COEP / CORP made explicit instead of relying
+    // on Helmet defaults. COEP=require-corp + CORP=same-origin form a strict
+    // cross-origin posture; COOP=same-origin opens isolation for window
+    // references.
     crossOriginOpenerPolicy: { policy: 'same-origin' },
+    crossOriginEmbedderPolicy: { policy: 'require-corp' },
+    crossOriginResourcePolicy: { policy: 'same-origin' },
   }));
 
-  // CORS
+  // CORS — origin allowlist with explicit ACAO for credentialed requests.
+  // Audit Ch11-I006: passing the array form to `cors()` would silently
+  // accept any origin not on the list (no ACAO header sent → CORS reject in
+  // browser, but no server-side trace). We use a function so non-allowed
+  // origins are explicitly rejected with an error logged.
   app.use(cors({
-    origin: config.cors.origins,
+    origin: (origin, cb) => {
+      if (!origin) return cb(null, true); // server-to-server, curl, mobile
+      if (config.cors.origins.includes(origin)) return cb(null, true);
+      return cb(new Error(`CORS: origin not allowed (${origin})`));
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'x-csrf-token']
+    // Audit Ch11-I007: x-request-id allowed so client-set request ids
+    // round-trip through CORS preflight.
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-csrf-token', 'x-request-id', 'idempotency-key'],
+    exposedHeaders: ['x-request-id'],
   }));
 
-  // Compression
-  app.use(compression());
-
-  // Stripe webhooks — mounted BEFORE body parsing because Stripe
-  // signature verification requires the raw (unparsed) request body.
+  // Stripe webhook is the only route that needs the raw body — the signature
+  // is computed over the exact bytes Stripe sent. Mounting raw() at the
+  // exact path (with a dedicated router that only declares POST /) means
+  // express.json() below never sees this request, regardless of any future
+  // middleware re-order.
   app.use(
     '/api/v1/webhooks/stripe',
-    express.raw({ type: 'application/json' })
+    express.raw({ type: 'application/json' }),
+    stripeWebhookRouter,
   );
 
-  // Body parsing
-  app.use(express.json({ limit: '1mb' }));
+  // Body parsing for everything else.  Audit Ch11-I003: JSON parser limited
+  // to 1MB AND `strict: true` so only `[`/`{` are accepted (defends against
+  // some HPP-style abuse where a number/string body produces a misparsed
+  // payload).
+  app.use(express.json({ limit: '1mb', strict: true }));
   app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
-  // Webhooks — mounted AFTER body parsing so RevenueCat gets parsed JSON.
-  app.use('/api/v1/webhooks', webhooksRoutes);
+  // Audit Ch11-I004: compression mounted AFTER body parsing so a
+  // BREACH-style attack can't leverage compressed-response gadgets that
+  // mix attacker- and victim-controlled bytes in the same response (the
+  // CSRF cookie is set in the response, the attacker's body could come
+  // through compression-on-request).  Order: body → compression → routes.
+  app.use(compression());
+
+  // RevenueCat webhook — JSON-parsed body is fine.
+  app.use('/api/v1/webhooks/revenuecat', revenueCatWebhookRouter);
 
   // Cookie parser for CSRF
   app.use(cookieParser());
 
-  // Request logging
+  // Request logging — installed BEFORE rate limiter so 429s also get a log
+  // line with the standard requestId.
   app.use(requestLogger);
 
-  // CSRF token generation & validation
-  app.use(setCsrfToken);
-  app.use(validateCsrfToken);
-
-  // Rate limiter (optional — skipped in tests)
+  // Audit Ch11-I008: rate limiter mounted before the per-route handlers.
+  // Body parsing already ran above; the limiter still rejects pre-handler.
   if (options.rateLimiter) {
     app.use(options.rateLimiter);
   }
+
+  // CSRF token generation & validation — runs on cookie-bearing requests
+  // only, after body parser so error responses still carry parsed fields.
+  app.use(setCsrfToken);
+  app.use(validateCsrfToken);
 
   // Register routes
   // Health checks (no versioning, no auth required)

@@ -2,9 +2,68 @@ import { pool } from '../db';
 import { logger } from '../utils/logger';
 import { WarrantyClaim, CreateWarrantyClaimDto, SavingsFeedEntry } from '../types/database.types';
 import { AppError } from '../utils/errors';
+import { decimalToCents } from '../utils/money';
 
 const SERIALIZATION_FAILURE = '40001';
 const DEADLOCK_DETECTED = '40P01';
+
+/**
+ * Canonical claim status set + transition table. Mirrors the CHECK
+ * constraint installed in migration 060. Keep this in sync with the
+ * service-level enforcement and the tests that exercise it.
+ *
+ * Allowed transitions:
+ *   filed     → in_review | denied | closed
+ *   in_review → approved  | denied | closed
+ *   approved  → settled   | closed
+ *   denied    → closed
+ *   settled   → closed
+ *   closed    → (terminal)
+ */
+export type ClaimStatus =
+  | 'filed'
+  | 'in_review'
+  | 'approved'
+  | 'denied'
+  | 'settled'
+  | 'closed';
+
+const CLAIM_STATUS_TRANSITIONS: Record<ClaimStatus, ReadonlySet<ClaimStatus>> = {
+  filed:     new Set<ClaimStatus>(['in_review', 'denied', 'closed']),
+  in_review: new Set<ClaimStatus>(['approved', 'denied', 'closed']),
+  approved:  new Set<ClaimStatus>(['settled', 'closed']),
+  denied:    new Set<ClaimStatus>(['closed']),
+  settled:   new Set<ClaimStatus>(['closed']),
+  closed:    new Set<ClaimStatus>(),
+};
+
+function isClaimStatus(s: unknown): s is ClaimStatus {
+  return typeof s === 'string' && (s in CLAIM_STATUS_TRANSITIONS);
+}
+
+function assertClaimTransition(from: ClaimStatus, to: ClaimStatus) {
+  if (from === to) return;
+  const allowed = CLAIM_STATUS_TRANSITIONS[from];
+  if (!allowed.has(to)) {
+    throw new AppError(`Invalid claim status transition: ${from} → ${to}`, 400);
+  }
+}
+
+/**
+ * Whitelist sanitizer for fields that flow into stored social-proof strings.
+ * Strips anything outside [A-Za-z0-9 ,.'-], collapses whitespace, caps to
+ * 60 chars. Kept here (not in a generic util) because the rule is specifically
+ * about what can appear inside the savings_feed.display_text template — a
+ * laxer rule would re-open the stored-XSS hole the audit caught.
+ */
+function sanitizeFeedToken(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  return value
+    .replace(/[^A-Za-z0-9 ,.'-]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 60);
+}
 
 async function runWithSerializableRetry<T>(
   fn: () => Promise<T>,
@@ -67,6 +126,17 @@ export class WarrantyClaimsService {
         throw new AppError('Item not found or is archived', 404);
       }
 
+      // Default initial status is 'filed' (the canonical state machine
+      // entry point). Anything else from the client is rejected unless it's
+      // a valid alias from the validator allow-list.
+      const requestedStatus = data.status as ClaimStatus | undefined;
+      const initialStatus: ClaimStatus = requestedStatus && isClaimStatus(requestedStatus)
+        ? requestedStatus
+        : 'filed';
+
+      // F011: out_of_pocket defaults to 0 to avoid NaN flowing into DECIMAL.
+      const outOfPocket = data.outOfPocket ?? 0;
+
       // Create claim
       const result = await client.query(
         `INSERT INTO warranty_claims (
@@ -82,8 +152,8 @@ export class WarrantyClaimsService {
           data.repairDescription,
           data.repairCost,
           data.amountSaved,
-          data.outOfPocket || 0,
-          data.status || 'completed',
+          outOfPocket,
+          initialStatus,
           data.filedWith,
           data.claimNumber,
           data.notes,
@@ -91,6 +161,13 @@ export class WarrantyClaimsService {
       );
 
       const claim = result.rows[0];
+
+      // F010: record the initial status as the first transition for the audit.
+      await client.query(
+        `INSERT INTO warranty_claim_state_history (claim_id, from_status, to_status, actor_user_id)
+         VALUES ($1, NULL, $2, $3)`,
+        [claim.id, initialStatus, userId],
+      );
 
       // Upsert user analytics. COALESCE guards against NULL from a prior
       // row that was created without these aggregate columns populated.
@@ -117,13 +194,20 @@ export class WarrantyClaimsService {
       if (userLocation.rows.length > 0) {
         const { city, state } = userLocation.rows[0];
 
+        // Sanitize city/state before they flow into a stored social-proof
+        // string. Strip everything outside [A-Za-z0-9 ,.'-], cap length, and
+        // keep the template fixed at the SQL level so a user-supplied city of
+        // `</script><img src=x>` cannot hop into the rendered feed (F003).
+        const safeCity = sanitizeFeedToken(city);
+        const safeState = sanitizeFeedToken(state);
+
         await client.query(
           `INSERT INTO savings_feed (user_city, user_state, amount_saved, item_category, claim_type, display_text)
            SELECT $1, $2, $3::numeric, i.category, 'Warranty claim',
-                  $4 || ' just saved $' || $3::text || ' on a ' || i.category || ' repair'
+                  $4 || ' homeowner just saved $' || ROUND($3::numeric, 2)::text || ' on a ' || i.category || ' repair'
            FROM items i
            WHERE i.id = $5`,
-          [city, state, data.amountSaved, city, data.itemId]
+          [safeCity, safeState, data.amountSaved, safeCity || 'A', data.itemId]
         );
       }
 
@@ -248,9 +332,10 @@ export class WarrantyClaimsService {
     try {
       await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
-      // Verify claim belongs to user
+      // Verify claim belongs to user. Lock so a concurrent update doesn't
+      // race the status transition validation below.
       const claimCheck = await client.query(
-        'SELECT id, amount_saved FROM warranty_claims WHERE id = $1 AND user_id = $2',
+        'SELECT id, amount_saved, status FROM warranty_claims WHERE id = $1 AND user_id = $2 FOR UPDATE',
         [claimId, userId]
       );
 
@@ -258,7 +343,20 @@ export class WarrantyClaimsService {
         throw new AppError('Claim not found', 404);
       }
 
-      const oldAmountSaved = parseFloat(claimCheck.rows[0].amount_saved);
+      // F004: avoid parseFloat on DECIMAL columns; use the cents helper so
+      // the diff math doesn't drift across float→DECIMAL round-trips.
+      const oldAmountCents = decimalToCents(claimCheck.rows[0].amount_saved);
+      const fromStatus = claimCheck.rows[0].status as ClaimStatus;
+
+      // F010 / F001: validate state-machine transition before issuing the UPDATE.
+      let toStatus: ClaimStatus | null = null;
+      if (data.status !== undefined && data.status !== fromStatus) {
+        if (!isClaimStatus(data.status)) {
+          throw new AppError(`Unknown claim status: ${data.status}`, 400);
+        }
+        assertClaimTransition(fromStatus, data.status);
+        toStatus = data.status;
+      }
 
       // Build update query dynamically
       const updates: string[] = [];
@@ -286,12 +384,14 @@ export class WarrantyClaimsService {
         values.push(data.amountSaved);
       }
       if (data.outOfPocket !== undefined) {
+        // F011: explicit null collapses to 0 so the DECIMAL column never
+        // sees NaN. Joi already disallows non-numeric input.
         updates.push(`out_of_pocket = $${paramIndex++}`);
-        values.push(data.outOfPocket);
+        values.push(data.outOfPocket ?? 0);
       }
-      if (data.status !== undefined) {
+      if (toStatus !== null) {
         updates.push(`status = $${paramIndex++}`);
-        values.push(data.status);
+        values.push(toStatus);
       }
       if (data.filedWith !== undefined) {
         updates.push(`filed_with = $${paramIndex++}`);
@@ -320,24 +420,36 @@ export class WarrantyClaimsService {
         values
       );
 
-      // Upsert user analytics if amountSaved changed. COALESCE handles
-      // the case where the row exists but total_warranty_savings was
-      // never populated; GREATEST keeps the aggregate non-negative.
-      if (data.amountSaved !== undefined && data.amountSaved !== oldAmountSaved) {
-        const diff = data.amountSaved - oldAmountSaved;
+      // F010: append a transition history row when status actually changed.
+      if (toStatus !== null) {
         await client.query(
-          `INSERT INTO user_analytics (user_id, total_warranty_savings)
-           VALUES ($2, GREATEST(0, $1::numeric))
-           ON CONFLICT (user_id)
-           DO UPDATE SET total_warranty_savings = GREATEST(0, COALESCE(user_analytics.total_warranty_savings, 0) + $1::numeric),
-                         updated_at = NOW()`,
-          [diff, userId]
+          `INSERT INTO warranty_claim_state_history (claim_id, from_status, to_status, actor_user_id)
+           VALUES ($1, $2, $3, $4)`,
+          [claimId, fromStatus, toStatus, userId],
         );
+      }
+
+      // F004: cents-based diff so float drift can't poison the analytics
+      // aggregate. The DB column stays DECIMAL; we just do the math in
+      // integer cents and convert back at the SQL boundary.
+      if (data.amountSaved !== undefined) {
+        const newAmountCents = decimalToCents(String(data.amountSaved));
+        if (newAmountCents !== oldAmountCents) {
+          const diffCents = newAmountCents - oldAmountCents;
+          await client.query(
+            `INSERT INTO user_analytics (user_id, total_warranty_savings)
+             VALUES ($2, GREATEST(0, ($1::bigint)::numeric / 100))
+             ON CONFLICT (user_id)
+             DO UPDATE SET total_warranty_savings = GREATEST(0, COALESCE(user_analytics.total_warranty_savings, 0) + ($1::bigint)::numeric / 100),
+                           updated_at = NOW()`,
+            [diffCents, userId]
+          );
+        }
       }
 
       await client.query('COMMIT');
 
-      logger.info({ claimId, userId }, 'Warranty claim updated');
+      logger.info({ claimId, userId, fromStatus, toStatus }, 'Warranty claim updated');
 
       return result.rows[0];
     } catch (error) {
@@ -350,17 +462,26 @@ export class WarrantyClaimsService {
   }
 
   /**
-   * Delete warranty claim
+   * Delete warranty claim. F007: serializable to match createClaim — a
+   * concurrent create + delete on the same item could otherwise leak a
+   * phantom analytics decrement.
    */
   static async deleteClaim(claimId: string, userId: string): Promise<void> {
+    return runWithSerializableRetry(
+      () => this._deleteClaimOnce(claimId, userId),
+      'deleteClaim',
+    );
+  }
+
+  private static async _deleteClaimOnce(claimId: string, userId: string): Promise<void> {
     const client = await pool.connect();
 
     try {
-      await client.query('BEGIN');
+      await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
       // Get amount saved before deleting
       const result = await client.query(
-        'SELECT amount_saved FROM warranty_claims WHERE id = $1 AND user_id = $2',
+        'SELECT amount_saved FROM warranty_claims WHERE id = $1 AND user_id = $2 FOR UPDATE',
         [claimId, userId]
       );
 
@@ -368,7 +489,8 @@ export class WarrantyClaimsService {
         throw new AppError('Claim not found', 404);
       }
 
-      const amountSaved = parseFloat(result.rows[0].amount_saved);
+      // F004: cents-based math; same rationale as updateClaim.
+      const amountCents = decimalToCents(result.rows[0].amount_saved);
 
       // Delete claim
       await client.query(
@@ -381,10 +503,10 @@ export class WarrantyClaimsService {
         `INSERT INTO user_analytics (user_id, total_warranty_savings, total_claims_filed)
          VALUES ($2, 0, 0)
          ON CONFLICT (user_id)
-         DO UPDATE SET total_warranty_savings = GREATEST(0, COALESCE(user_analytics.total_warranty_savings, 0) - $1::numeric),
+         DO UPDATE SET total_warranty_savings = GREATEST(0, COALESCE(user_analytics.total_warranty_savings, 0) - ($1::bigint)::numeric / 100),
                        total_claims_filed = GREATEST(0, COALESCE(user_analytics.total_claims_filed, 0) - 1),
                        updated_at = NOW()`,
-        [amountSaved, userId]
+        [amountCents, userId]
       );
 
       await client.query('COMMIT');
@@ -430,10 +552,12 @@ export class WarrantyClaimsService {
       }
 
       const row = result.rows[0];
+      // F004: keep the response shape (numbers in dollars) but route through
+      // decimalToCents so a row with `19.99` doesn't surface as 19.989999...
       return {
-        total_warranty_savings: parseFloat(row.total_warranty_savings) || 0,
-        total_preventive_savings: parseFloat(row.total_preventive_savings) || 0,
-        total_savings: parseFloat(row.total_savings) || 0,
+        total_warranty_savings: decimalToCents(row.total_warranty_savings) / 100,
+        total_preventive_savings: decimalToCents(row.total_preventive_savings) / 100,
+        total_savings: decimalToCents(row.total_savings) / 100,
         total_claims: parseInt(row.total_claims, 10) || 0,
       };
     } catch (error) {

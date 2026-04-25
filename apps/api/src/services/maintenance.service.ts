@@ -2,6 +2,7 @@ import { pool } from '../db';
 import { logger } from '../utils/logger';
 import { AppError } from '../utils/errors';
 import { addMonthsSafe } from '../utils/dates';
+import { decimalToCents } from '../utils/money';
 import {
   MaintenanceSchedule,
   MaintenanceHistory,
@@ -131,6 +132,10 @@ export class MaintenanceService {
   static async getUserMaintenanceSummary(userId: string): Promise<{
     total_due: number;
     total_overdue: number;
+    // F026: surface whether a user has zero items, no schedules, or just
+    // happens to be caught up — three states the dashboard wants to render
+    // differently.
+    summary_state: 'no_items' | 'no_schedules' | 'caught_up' | 'has_due';
     items: Array<{
       item_id: string;
       item_name: string;
@@ -162,7 +167,7 @@ export class MaintenanceService {
       );
 
       if (itemsResult.rows.length === 0) {
-        return { total_due: 0, total_overdue: 0, items: [] };
+        return { total_due: 0, total_overdue: 0, summary_state: 'no_items', items: [] };
       }
 
       // Get all unique categories from user's items
@@ -259,9 +264,16 @@ export class MaintenanceService {
       // Sort items by most overdue tasks first
       items.sort((a: any, b: any) => b.overdue_count - a.overdue_count);
 
+      // F026: pick the right summary_state.
+      const totalSchedules = schedulesResult.rows.length;
+      const summaryState: 'no_items' | 'no_schedules' | 'caught_up' | 'has_due' =
+        totalSchedules === 0 ? 'no_schedules' :
+        totalDue === 0 ? 'caught_up' : 'has_due';
+
       return {
         total_due: totalDue,
         total_overdue: totalOverdue,
+        summary_state: summaryState,
         items,
       };
     } catch (error) {
@@ -325,43 +337,40 @@ export class MaintenanceService {
 
       const entry = result.rows[0];
 
-      // Update last_maintenance_date on the item
+      // F025: UPDATE includes user_id so a row that briefly sat under a
+      // different owner can't be touched by this user even if the item id
+      // somehow leaked.
       await client.query(
         `UPDATE items
          SET last_maintenance_date = $1, updated_at = NOW()
-         WHERE id = $2`,
-        [data.completedDate || new Date(), data.itemId]
+         WHERE id = $2 AND user_id = $3`,
+        [data.completedDate || new Date(), data.itemId, userId]
       );
 
-      // Update user analytics
-      await client.query(
-        `INSERT INTO user_analytics (user_id, total_maintenance_completed)
-         VALUES ($1, 1)
-         ON CONFLICT (user_id)
-         DO UPDATE SET total_maintenance_completed = user_analytics.total_maintenance_completed + 1,
-                       updated_at = NOW()`,
-        [userId]
-      );
-
-      // If there is a schedule with prevents_cost, add to preventive savings
+      // F030: a single UPSERT writes both the counter and the preventive
+      // savings delta, with COALESCE guarding NULL columns. The previous
+      // two-statement form would silently drop the savings update if the
+      // user_analytics row already existed but `prevents_cost` was NULL.
+      let preventsCostCents = 0;
       if (data.scheduleId) {
         const scheduleResult = await client.query(
           'SELECT prevents_cost FROM maintenance_schedules WHERE id = $1',
           [data.scheduleId]
         );
-
-        if (scheduleResult.rows.length > 0 && scheduleResult.rows[0].prevents_cost) {
-          const preventsCost = parseFloat(scheduleResult.rows[0].prevents_cost);
-
-          await client.query(
-            `UPDATE user_analytics
-             SET total_preventive_savings = total_preventive_savings + $1,
-                 updated_at = NOW()
-             WHERE user_id = $2`,
-            [preventsCost, userId]
-          );
+        if (scheduleResult.rows.length > 0) {
+          preventsCostCents = decimalToCents(scheduleResult.rows[0].prevents_cost);
         }
       }
+
+      await client.query(
+        `INSERT INTO user_analytics (user_id, total_maintenance_completed, total_preventive_savings)
+         VALUES ($1, 1, ($2::bigint)::numeric / 100)
+         ON CONFLICT (user_id)
+         DO UPDATE SET total_maintenance_completed = COALESCE(user_analytics.total_maintenance_completed, 0) + 1,
+                       total_preventive_savings    = COALESCE(user_analytics.total_preventive_savings, 0) + ($2::bigint)::numeric / 100,
+                       updated_at                   = NOW()`,
+        [userId, preventsCostCents]
+      );
 
       await client.query('COMMIT');
 
@@ -469,7 +478,8 @@ export class MaintenanceService {
         [userId]
       );
 
-      // If there was a schedule with prevents_cost, subtract from preventive savings
+      // F004: subtract via cents so float drift can't push the aggregate
+      // negative on rows where the original log had a fractional cost.
       if (entry.schedule_id) {
         const scheduleResult = await client.query(
           'SELECT prevents_cost FROM maintenance_schedules WHERE id = $1',
@@ -477,14 +487,14 @@ export class MaintenanceService {
         );
 
         if (scheduleResult.rows.length > 0 && scheduleResult.rows[0].prevents_cost) {
-          const preventsCost = parseFloat(scheduleResult.rows[0].prevents_cost);
+          const preventsCents = decimalToCents(scheduleResult.rows[0].prevents_cost);
 
           await client.query(
             `UPDATE user_analytics
-             SET total_preventive_savings = GREATEST(0, total_preventive_savings - $1),
+             SET total_preventive_savings = GREATEST(0, total_preventive_savings - ($1::bigint)::numeric / 100),
                  updated_at = NOW()
              WHERE user_id = $2`,
-            [preventsCost, userId]
+            [preventsCents, userId]
           );
         }
       }
@@ -530,16 +540,25 @@ export class MaintenanceService {
         ? parseInt(analyticsResult.rows[0].total_maintenance_completed, 10) || 0
         : 0;
 
-      // Get savings breakdown by category
+      // Get savings breakdown by category. F029: collapse duplicate
+      // maintenance_history rows for the same (schedule_id, completed_date)
+      // before summing, so a user that re-logged the same task on the same
+      // day can't inflate `prevents_cost`. Migration 062 adds a UNIQUE
+      // covering the same key — this query layer is belt + suspenders.
       const categoryResult = await pool.query(
-        `SELECT
+        `WITH dedup AS (
+           SELECT DISTINCT ON (mh.user_id, mh.item_id, mh.schedule_id, mh.completed_date)
+                  mh.id, mh.item_id, mh.schedule_id
+             FROM maintenance_history mh
+            WHERE mh.user_id = $1 AND mh.schedule_id IS NOT NULL
+         )
+         SELECT
            i.category,
-           COUNT(mh.id)::integer as tasks_completed,
+           COUNT(d.id)::integer as tasks_completed,
            COALESCE(SUM(ms.prevents_cost), 0) as savings
-         FROM maintenance_history mh
-         JOIN items i ON i.id = mh.item_id
-         LEFT JOIN maintenance_schedules ms ON ms.id = mh.schedule_id
-         WHERE mh.user_id = $1
+         FROM dedup d
+         JOIN items i ON i.id = d.item_id
+         LEFT JOIN maintenance_schedules ms ON ms.id = d.schedule_id
          GROUP BY i.category
          ORDER BY savings DESC`,
         [userId]

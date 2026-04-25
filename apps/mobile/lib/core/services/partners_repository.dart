@@ -9,7 +9,9 @@ class PartnersRepository {
   /// Activate a partner gift using activation code or gift ID
   Future<Map<String, dynamic>> activateGift(String giftId) async {
     try {
-      return await _client.post('/api/v1/partners/gifts/$giftId/activate');
+      return await _client.post(
+        pathSegments: ['api', 'v1', 'partners', 'gifts', giftId, 'activate'],
+      );
     } on ApiException catch (e) {
       throw NetworkException(
         e.message,
@@ -24,7 +26,9 @@ class PartnersRepository {
   /// Get gift details by ID (for preview before activation)
   Future<Map<String, dynamic>> getGiftDetails(String giftId) async {
     try {
-      return await _client.get('/api/v1/partners/gifts/$giftId/public');
+      return await _client.get(
+        pathSegments: ['api', 'v1', 'partners', 'gifts', giftId, 'public'],
+      );
     } on ApiException catch (e) {
       throw NetworkException(
         e.message,
@@ -40,7 +44,7 @@ class PartnersRepository {
   Future<Map<String, dynamic>> verifyActivationCode(String code) async {
     try {
       return await _client.post(
-        '/api/v1/partners/gifts/verify-code',
+        pathSegments: const ['api', 'v1', 'partners', 'gifts', 'verify-code'],
         body: {'activation_code': code},
       );
     } on ApiException catch (e) {

@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -14,17 +13,17 @@ class ReceiptScannerService {
 
   /// Scan a receipt image and return structured data.
   ///
-  /// Encodes the image as base64 and sends it to the API.
-  /// Returns a [ReceiptScanResult] with extracted fields.
+  /// Streams the file as a multipart upload (field name `image`) so we
+  /// don't have to base64-encode the entire payload into a JSON body —
+  /// that pattern OOMs the device on larger photos and inflates the
+  /// payload by ~33%.
   Future<ReceiptScanResult> scanReceipt(File imageFile) async {
     try {
-      final bytes = await imageFile.readAsBytes();
-      final base64Image = base64Encode(bytes);
-
       final client = _ref.read(apiClientProvider);
-      final response = await client.post(
-        '/api/v1/receipts/scan',
-        body: {'image': base64Image},
+      final response = await client.upload(
+        pathSegments: const ['api', 'v1', 'receipts', 'scan'],
+        file: imageFile,
+        fieldName: 'image',
       );
 
       final data = response['data'] as Map<String, dynamic>;

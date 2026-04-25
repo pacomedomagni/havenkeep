@@ -67,8 +67,11 @@ class WarrantyPurchase {
       planName: json['plan_name'] as String? ?? '',
       externalPolicyId: json['external_policy_id'] as String?,
       durationMonths: (json['duration_months'] as num?)?.toInt() ?? 0,
-      startsAt: DateTime.tryParse(json['starts_at'] as String? ?? '') ?? DateTime.now(),
-      expiresAt: DateTime.tryParse(json['expires_at'] as String? ?? '') ?? DateTime.now(),
+      // Ch08-WarrantyPurchase-D028: no DateTime.now() fallbacks. starts_at,
+      // expires_at, purchase_date are NOT NULL on the API; if a row arrives
+      // without one, that's a server bug we want loud.
+      startsAt: _parseDate(json['starts_at'])!,
+      expiresAt: _parseDate(json['expires_at'])!,
       coverageDetails: json['coverage_details'] is Map
           ? json['coverage_details'] as Map<String, dynamic>?
           : null,
@@ -83,21 +86,48 @@ class WarrantyPurchase {
       commissionRate: json['commission_rate'] != null
           ? (json['commission_rate'] as num).toDouble()
           : null,
-      purchaseDate: DateTime.tryParse(json['purchase_date'] as String? ?? '') ?? DateTime.now(),
+      purchaseDate: _parseDate(json['purchase_date'])!,
       stripePaymentIntentId: json['stripe_payment_intent_id'] as String?,
-      status: WarrantyPurchaseStatus.fromJson(json['status'] as String? ?? 'active'),
-      cancelledAt: json['cancelled_at'] != null
-          ? DateTime.tryParse(json['cancelled_at'] as String)
-          : null,
+      status: WarrantyPurchaseStatus.fromJson(
+        json['status'] as String? ?? 'active',
+      ),
+      cancelledAt: _parseDate(json['cancelled_at']),
       cancellationReason: json['cancellation_reason'] as String?,
-      createdAt: DateTime.tryParse(json['created_at'] as String? ?? '') ?? DateTime.now(),
-      updatedAt: DateTime.tryParse(json['updated_at'] as String? ?? '') ?? DateTime.now(),
+      createdAt: _parseDate(json['created_at'])!,
+      updatedAt: _parseDate(json['updated_at'])!,
       itemName: json['item_name'] as String?,
       itemCategory: json['item_category'] as String?,
       itemBrand: json['item_brand'] as String?,
       itemModelNumber: json['item_model_number'] as String?,
     );
   }
+
+  /// Full JSON for reads.
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'item_id': itemId,
+        'user_id': userId,
+        'provider': provider,
+        'plan_name': planName,
+        if (externalPolicyId != null) 'external_policy_id': externalPolicyId,
+        'duration_months': durationMonths,
+        'starts_at': startsAt.toIso8601String(),
+        'expires_at': expiresAt.toIso8601String(),
+        if (coverageDetails != null) 'coverage_details': coverageDetails,
+        'price': price,
+        'deductible': deductible,
+        if (claimLimit != null) 'claim_limit': claimLimit,
+        if (commissionAmount != null) 'commission_amount': commissionAmount,
+        if (commissionRate != null) 'commission_rate': commissionRate,
+        'purchase_date': purchaseDate.toIso8601String(),
+        if (stripePaymentIntentId != null)
+          'stripe_payment_intent_id': stripePaymentIntentId,
+        'status': status.toJson(),
+        if (cancelledAt != null) 'cancelled_at': cancelledAt!.toIso8601String(),
+        if (cancellationReason != null) 'cancellation_reason': cancellationReason,
+        'created_at': createdAt.toIso8601String(),
+        'updated_at': updatedAt.toIso8601String(),
+      };
 
   /// Creates the JSON body for a POST request.
   ///
@@ -118,6 +148,7 @@ class WarrantyPurchase {
         if (commissionRate != null) 'commission_rate': commissionRate,
         if (stripePaymentIntentId != null)
           'stripe_payment_intent_id': stripePaymentIntentId,
+        'status': status.toJson(),
       };
 }
 
@@ -128,11 +159,16 @@ enum WarrantyPurchaseStatus {
   pending,
   claimed;
 
+  static const Map<String, WarrantyPurchaseStatus> _byName = {
+    'active': WarrantyPurchaseStatus.active,
+    'expired': WarrantyPurchaseStatus.expired,
+    'cancelled': WarrantyPurchaseStatus.cancelled,
+    'pending': WarrantyPurchaseStatus.pending,
+    'claimed': WarrantyPurchaseStatus.claimed,
+  };
+
   factory WarrantyPurchaseStatus.fromJson(String value) {
-    return WarrantyPurchaseStatus.values.firstWhere(
-      (e) => e.name == value,
-      orElse: () => WarrantyPurchaseStatus.active,
-    );
+    return _byName[value] ?? WarrantyPurchaseStatus.active;
   }
 
   String toJson() => name;
@@ -144,4 +180,11 @@ enum WarrantyPurchaseStatus {
         WarrantyPurchaseStatus.pending => 'Pending',
         WarrantyPurchaseStatus.claimed => 'Claimed',
       };
+}
+
+DateTime? _parseDate(Object? value) {
+  if (value == null) return null;
+  if (value is DateTime) return value;
+  if (value is String) return DateTime.tryParse(value);
+  return null;
 }

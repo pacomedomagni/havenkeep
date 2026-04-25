@@ -108,7 +108,7 @@ describe('Admin routes - /api/v1/admin', () => {
     });
 
     it('should return 400 when trying to suspend an admin user', async () => {
-      const { token: adminToken, user: admin1 } = await createTestUser({ isAdmin: true, email: 'admin1@test.com' });
+      const { token: adminToken } = await createTestUser({ isAdmin: true, email: 'admin1@test.com' });
       const { user: admin2 } = await createTestUser({ isAdmin: true, email: 'admin2@test.com' });
 
       const res = await request(app)
@@ -117,6 +117,51 @@ describe('Admin routes - /api/v1/admin', () => {
 
       expect(res.status).toBe(400);
       expect(res.body.error).toBe('Cannot suspend an admin user');
+    });
+
+    // Audit Ch12-R002: prior code unsuspended a premium user as 'free',
+    // stranding paid customers. Phase 1 added plan_before_suspend so the
+    // unsuspend route restores the original plan.
+    it('preserves the prior plan across suspend → unsuspend', async () => {
+      const { token: adminToken } = await createTestUser({ isAdmin: true, email: 'admin-r002@test.com' });
+      const { user: premiumUser } = await createTestUser({ email: 'paid@test.com', plan: 'premium' });
+
+      // Suspend
+      const sus = await request(app)
+        .put(`/api/v1/admin/users/${premiumUser.id}/suspend`)
+        .set('Authorization', `Bearer ${adminToken}`);
+      expect(sus.status).toBe(200);
+
+      // Unsuspend — plan should be restored to 'premium', not flattened to 'free'.
+      const un = await request(app)
+        .put(`/api/v1/admin/users/${premiumUser.id}/unsuspend`)
+        .set('Authorization', `Bearer ${adminToken}`);
+      expect(un.status).toBe(200);
+      expect(un.body.data.plan).toBe('premium');
+    });
+
+    // Audit Ch12-T030: a JWT signed with isAdmin=true on behalf of a user
+    // whose DB row has is_admin=false must NOT be allowed to reach admin
+    // routes. The auth middleware re-fetches roles on every request so the
+    // token claim is decorative.
+    it('rejects a forged isAdmin token for a non-admin user', async () => {
+      // Create an honest non-admin user, but mint an admin token claiming the
+      // user IS admin. The token signature is valid (real secret), it's the
+      // claim that's forged.
+      const { user: notAdmin } = await createTestUser({ email: 'notadmin@test.com' });
+      const jwt = require('jsonwebtoken');
+      const { config } = require('../config');
+      const forged = jwt.sign(
+        { userId: notAdmin.id, email: notAdmin.email, isAdmin: true, isPartner: false },
+        config.jwt.secret,
+        { expiresIn: '1h' },
+      );
+
+      const res = await request(app)
+        .get('/api/v1/admin/stats')
+        .set('Authorization', `Bearer ${forged}`);
+
+      expect(res.status).toBe(403);
     });
   });
 });

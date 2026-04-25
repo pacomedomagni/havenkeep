@@ -9,6 +9,12 @@ class NotificationPreferences {
   final bool pushEnabled;
   final bool emailEnabled;
 
+  /// Ch08-NotificationPreferences-D049: backed by mig 043 trigger.
+  final DateTime createdAt;
+
+  /// Ch08-NotificationPreferences-D049: backed by mig 043 trigger.
+  final DateTime updatedAt;
+
   const NotificationPreferences({
     required this.userId,
     this.remindersEnabled = true,
@@ -18,6 +24,8 @@ class NotificationPreferences {
     this.tipsEnabled = true,
     this.pushEnabled = true,
     this.emailEnabled = false,
+    required this.createdAt,
+    required this.updatedAt,
   });
 
   factory NotificationPreferences.fromJson(Map<String, dynamic> json) {
@@ -31,6 +39,8 @@ class NotificationPreferences {
       tipsEnabled: json['tips_enabled'] as bool? ?? true,
       pushEnabled: json['push_enabled'] as bool? ?? true,
       emailEnabled: json['email_enabled'] as bool? ?? false,
+      createdAt: _parseDate(json['created_at'])!,
+      updatedAt: _parseDate(json['updated_at'])!,
     );
   }
 
@@ -44,6 +54,8 @@ class NotificationPreferences {
       'tips_enabled': tipsEnabled,
       'push_enabled': pushEnabled,
       'email_enabled': emailEnabled,
+      'created_at': createdAt.toIso8601String(),
+      'updated_at': updatedAt.toIso8601String(),
     };
   }
 
@@ -71,6 +83,8 @@ class NotificationPreferences {
     bool? tipsEnabled,
     bool? pushEnabled,
     bool? emailEnabled,
+    DateTime? createdAt,
+    DateTime? updatedAt,
   }) {
     return NotificationPreferences(
       userId: userId ?? this.userId,
@@ -82,6 +96,8 @@ class NotificationPreferences {
       tipsEnabled: tipsEnabled ?? this.tipsEnabled,
       pushEnabled: pushEnabled ?? this.pushEnabled,
       emailEnabled: emailEnabled ?? this.emailEnabled,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
     );
   }
 
@@ -95,4 +111,11 @@ class NotificationPreferences {
 
   @override
   int get hashCode => userId.hashCode;
+}
+
+DateTime? _parseDate(Object? value) {
+  if (value == null) return null;
+  if (value is DateTime) return value;
+  if (value is String) return DateTime.tryParse(value);
+  return null;
 }

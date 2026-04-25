@@ -11,7 +11,9 @@ class MaintenanceRepository {
   /// Get due/overdue maintenance tasks across all user items.
   Future<MaintenanceDueSummary> getDueTasks() async {
     try {
-      final data = await _client.get('/api/v1/maintenance/due');
+      final data = await _client.get(
+        pathSegments: const ['api', 'v1', 'maintenance', 'due'],
+      );
       return MaintenanceDueSummary.fromJson(data['data'] as Map<String, dynamic>);
     } catch (e) {
       debugPrint('[MaintenanceRepository] getDueTasks failed: $e');
@@ -22,7 +24,9 @@ class MaintenanceRepository {
   /// Get maintenance schedules for a category.
   Future<List<MaintenanceSchedule>> getSchedules(String category) async {
     try {
-      final data = await _client.get('/api/v1/maintenance/schedules/$category');
+      final data = await _client.get(
+        pathSegments: ['api', 'v1', 'maintenance', 'schedules', category],
+      );
       return (data['data'] as List)
           .map((json) => MaintenanceSchedule.fromJson(json as Map<String, dynamic>))
           .toList();
@@ -36,7 +40,7 @@ class MaintenanceRepository {
   Future<MaintenanceHistory> logTask(MaintenanceHistory entry) async {
     try {
       final data = await _client.post(
-        '/api/v1/maintenance/log',
+        pathSegments: const ['api', 'v1', 'maintenance', 'log'],
         body: entry.toCreateJson(),
       );
       return MaintenanceHistory.fromJson(data['data'] as Map<String, dynamic>);
@@ -55,7 +59,10 @@ class MaintenanceRepository {
       };
       if (itemId != null) params['item_id'] = itemId;
 
-      final data = await _client.get('/api/v1/maintenance/history', queryParams: params);
+      final data = await _client.get(
+        pathSegments: const ['api', 'v1', 'maintenance', 'history'],
+        queryParams: params,
+      );
       return (data['data'] as List)
           .map((json) => MaintenanceHistory.fromJson(json as Map<String, dynamic>))
           .toList();
@@ -78,7 +85,10 @@ class MaintenanceRepository {
       };
       if (itemId != null) params['item_id'] = itemId;
 
-      final data = await _client.get('/api/v1/maintenance/history', queryParams: params);
+      final data = await _client.get(
+        pathSegments: const ['api', 'v1', 'maintenance', 'history'],
+        queryParams: params,
+      );
       return (data['data'] as List)
           .map((json) => MaintenanceHistory.fromJson(json as Map<String, dynamic>))
           .toList();
@@ -91,7 +101,9 @@ class MaintenanceRepository {
   /// Delete a maintenance log entry.
   Future<void> deleteLog(String id) async {
     try {
-      await _client.delete('/api/v1/maintenance/history/$id');
+      await _client.delete(
+        pathSegments: ['api', 'v1', 'maintenance', 'history', id],
+      );
     } catch (e) {
       debugPrint('[MaintenanceRepository] deleteLog failed: $e');
       rethrow;
@@ -101,7 +113,9 @@ class MaintenanceRepository {
   /// Get preventive maintenance savings.
   Future<Map<String, dynamic>> getSavings() async {
     try {
-      final data = await _client.get('/api/v1/maintenance/savings');
+      final data = await _client.get(
+        pathSegments: const ['api', 'v1', 'maintenance', 'savings'],
+      );
       return data['data'] as Map<String, dynamic>;
     } catch (e) {
       debugPrint('[MaintenanceRepository] getSavings failed: $e');

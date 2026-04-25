@@ -50,7 +50,7 @@ void main() {
   group('CategoryRepository', () {
     group('getCategoryDefaults', () {
       test('calls correct endpoint and returns parsed data', () async {
-        when(mockClient.get('/api/v1/categories/defaults'))
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'categories', 'defaults']))
             .thenAnswer((_) async => {
                   'data': [
                     categoryDefaultJson(category: 'refrigerator'),
@@ -63,11 +63,11 @@ void main() {
 
         expect(defaults, hasLength(2));
         expect(defaults[0].category, ItemCategory.refrigerator);
-        verify(mockClient.get('/api/v1/categories/defaults')).called(1);
+        verify(mockClient.get(pathSegments: const ['api', 'v1', 'categories', 'defaults'])).called(1);
       });
 
       test('uses in-memory cache on second call', () async {
-        when(mockClient.get('/api/v1/categories/defaults'))
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'categories', 'defaults']))
             .thenAnswer((_) async => {
                   'data': [
                     categoryDefaultJson(category: 'refrigerator'),
@@ -82,11 +82,11 @@ void main() {
         expect(first, hasLength(1));
         expect(second, hasLength(1));
         // API should only be called once despite two getCategoryDefaults calls
-        verify(mockClient.get('/api/v1/categories/defaults')).called(1);
+        verify(mockClient.get(pathSegments: const ['api', 'v1', 'categories', 'defaults'])).called(1);
       });
 
       test('rethrows errors from API client', () async {
-        when(mockClient.get('/api/v1/categories/defaults'))
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'categories', 'defaults']))
             .thenThrow(ApiException(500, 'Server error'));
 
         expect(
@@ -98,7 +98,7 @@ void main() {
 
     group('getBrandSuggestions', () {
       test('calls correct endpoint with category in path', () async {
-        when(mockClient.get('/api/v1/categories/refrigerator/brands'))
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'categories', 'refrigerator', 'brands']))
             .thenAnswer((_) async => {
                   'data': [
                     brandSuggestionJson(
@@ -116,12 +116,12 @@ void main() {
         expect(brands, hasLength(2));
         expect(brands[0].brand, 'Samsung');
         expect(brands[1].brand, 'LG');
-        verify(mockClient.get('/api/v1/categories/refrigerator/brands'))
+        verify(mockClient.get(pathSegments: const ['api', 'v1', 'categories', 'refrigerator', 'brands']))
             .called(1);
       });
 
       test('caches brand suggestions per category', () async {
-        when(mockClient.get('/api/v1/categories/refrigerator/brands'))
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'categories', 'refrigerator', 'brands']))
             .thenAnswer((_) async => {
                   'data': [
                     brandSuggestionJson(
@@ -141,12 +141,12 @@ void main() {
         expect(first, hasLength(1));
         expect(second, hasLength(1));
         // API should only be called once due to caching
-        verify(mockClient.get('/api/v1/categories/refrigerator/brands'))
+        verify(mockClient.get(pathSegments: const ['api', 'v1', 'categories', 'refrigerator', 'brands']))
             .called(1);
       });
 
       test('fetches separately for different categories', () async {
-        when(mockClient.get('/api/v1/categories/refrigerator/brands'))
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'categories', 'refrigerator', 'brands']))
             .thenAnswer((_) async => {
                   'data': [
                     brandSuggestionJson(
@@ -155,7 +155,7 @@ void main() {
                         brand: 'Samsung'),
                   ],
                 });
-        when(mockClient.get('/api/v1/categories/washer/brands'))
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'categories', 'washer', 'brands']))
             .thenAnswer((_) async => {
                   'data': [
                     brandSuggestionJson(
@@ -177,7 +177,7 @@ void main() {
 
     group('clearCache', () {
       test('forces re-fetch of category defaults after clear', () async {
-        when(mockClient.get('/api/v1/categories/defaults'))
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'categories', 'defaults']))
             .thenAnswer((_) async => {
                   'data': [
                     categoryDefaultJson(category: 'refrigerator'),
@@ -193,11 +193,11 @@ void main() {
         // Second call: should hit API again
         await repository.getCategoryDefaults();
 
-        verify(mockClient.get('/api/v1/categories/defaults')).called(2);
+        verify(mockClient.get(pathSegments: const ['api', 'v1', 'categories', 'defaults'])).called(2);
       });
 
       test('forces re-fetch of brand suggestions after clear', () async {
-        when(mockClient.get('/api/v1/categories/refrigerator/brands'))
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'categories', 'refrigerator', 'brands']))
             .thenAnswer((_) async => {
                   'data': [
                     brandSuggestionJson(
@@ -216,7 +216,7 @@ void main() {
         // Second call: should hit API again
         await repository.getBrandSuggestions(ItemCategory.refrigerator);
 
-        verify(mockClient.get('/api/v1/categories/refrigerator/brands'))
+        verify(mockClient.get(pathSegments: const ['api', 'v1', 'categories', 'refrigerator', 'brands']))
             .called(2);
       });
     });

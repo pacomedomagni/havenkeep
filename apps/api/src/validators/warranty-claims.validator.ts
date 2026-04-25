@@ -8,7 +8,9 @@ export const createWarrantyClaimSchema = Joi.object({
   repairCost: Joi.number().min(0).max(1000000).required(),
   amountSaved: Joi.number().min(0).max(1000000).required(),
   outOfPocket: Joi.number().min(0).max(1000000).optional(),
-  status: Joi.string().valid('pending', 'in_review', 'completed', 'denied', 'submitted', 'approved', 'cancelled').optional(),
+  // Canonical state machine: filed → in_review → approved/denied → settled/closed.
+  // Mirrors migration 060's CHECK constraint.
+  status: Joi.string().valid('filed', 'in_review', 'approved', 'denied', 'settled', 'closed').optional(),
   filedWith: Joi.string().max(100).optional(),
   claimNumber: Joi.string().max(100).optional(),
   notes: Joi.string().max(5000).optional(),
@@ -25,13 +27,18 @@ export const createWarrantyClaimSchema = Joi.object({
   .rename('claim_number', 'claimNumber', { ignoreUndefined: true, override: false });
 
 export const updateWarrantyClaimSchema = Joi.object({
-  claimDate: Joi.date().iso().optional(),
+  // Ch08-WarrantyClaim-D022: mirror the create-side .max('now') guard.
+  // Backdating "the dishwasher broke yesterday" is fine; future-dating a
+  // claim is always wrong.
+  claimDate: Joi.date().iso().max('now').optional(),
   issueDescription: Joi.string().max(2000).optional().allow(null),
   repairDescription: Joi.string().max(2000).optional().allow(null),
   repairCost: Joi.number().min(0).max(1000000).optional(),
   amountSaved: Joi.number().min(0).max(1000000).optional(),
   outOfPocket: Joi.number().min(0).max(1000000).optional().allow(null),
-  status: Joi.string().valid('pending', 'in_review', 'completed', 'denied', 'submitted', 'approved', 'cancelled').optional(),
+  // Canonical state machine: filed → in_review → approved/denied → settled/closed.
+  // Mirrors migration 060's CHECK constraint.
+  status: Joi.string().valid('filed', 'in_review', 'approved', 'denied', 'settled', 'closed').optional(),
   filedWith: Joi.string().max(100).optional().allow(null),
   claimNumber: Joi.string().max(100).optional().allow(null),
   notes: Joi.string().max(5000).optional().allow(null),

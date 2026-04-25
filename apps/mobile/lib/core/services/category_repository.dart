@@ -19,7 +19,9 @@ class CategoryRepository {
   Future<List<CategoryDefault>> getCategoryDefaults() async {
     if (_cachedDefaults != null) return _cachedDefaults!;
 
-    final data = await _client.get('/api/v1/categories/defaults');
+    final data = await _client.get(
+      pathSegments: const ['api', 'v1', 'categories', 'defaults'],
+    );
     final defaults = data['data'] as List;
 
     _cachedDefaults = defaults
@@ -52,7 +54,7 @@ class CategoryRepository {
     }
 
     final data = await _client.get(
-      '/api/v1/categories/${category.toJson()}/brands',
+      pathSegments: ['api', 'v1', 'categories', category.toJson(), 'brands'],
     );
     final brandsData = data['data'] as List;
 

@@ -17,6 +17,25 @@ const _kSensitiveKeys = {
   'cookie',
 };
 
+/// Patterns whose matches are masked to `[REDACTED]` before any string
+/// reaches the log sink. Covers the two highest-risk shapes we've seen
+/// leak through `error.toString()` and stack traces:
+///   - HTTP Authorization headers like `Bearer eyJ...`.
+///   - Raw JWTs (3 base64url segments separated by `.`).
+final _kRedactPatterns = <RegExp>[
+  RegExp(r'Bearer\s+[^\s"]+', caseSensitive: false),
+  RegExp(r'eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+'),
+];
+
+/// Replace any sensitive substrings in [s] with `[REDACTED]`.
+String _redact(String s) {
+  var out = s;
+  for (final pattern in _kRedactPatterns) {
+    out = out.replaceAll(pattern, '[REDACTED]');
+  }
+  return out;
+}
+
 /// Maximum number of Loki log entries to buffer when Loki is unreachable.
 /// Oldest entries are dropped when this limit is exceeded to prevent memory bloat.
 const _kMaxLokiQueueSize = 50;
@@ -99,8 +118,8 @@ class LoggingService {
       message,
       {
         ...?context,
-        'error': error.toString(),
-        if (stackTrace != null) 'stackTrace': stackTrace.toString(),
+        'error': _redact(error.toString()),
+        if (stackTrace != null) 'stackTrace': _redact(stackTrace.toString()),
       },
     );
   }
@@ -117,13 +136,15 @@ class LoggingService {
       message,
       {
         ...?context,
-        'error': error.toString(),
-        if (stackTrace != null) 'stackTrace': stackTrace.toString(),
+        'error': _redact(error.toString()),
+        if (stackTrace != null) 'stackTrace': _redact(stackTrace.toString()),
       },
     );
   }
 
-  /// Remove sensitive keys from a context map before logging.
+  /// Remove sensitive keys from a context map before logging, and run a
+  /// pattern-based scrubber over any remaining string values to catch
+  /// embedded JWTs / Bearer tokens.
   static Map<String, dynamic> _sanitizeContext(Map<String, dynamic> context) {
     final sanitized = <String, dynamic>{};
     for (final entry in context.entries) {
@@ -132,6 +153,8 @@ class LoggingService {
       } else if (entry.value is Map<String, dynamic>) {
         sanitized[entry.key] =
             _sanitizeContext(entry.value as Map<String, dynamic>);
+      } else if (entry.value is String) {
+        sanitized[entry.key] = _redact(entry.value as String);
       } else {
         sanitized[entry.key] = entry.value;
       }
@@ -143,11 +166,12 @@ class LoggingService {
     // Sanitize context before any logging output
     final sanitizedContext =
         context != null && context.isNotEmpty ? _sanitizeContext(context) : context;
+    final sanitizedMessage = _redact(message);
 
     final logEntry = {
       'timestamp': DateTime.now().toIso8601String(),
       'level': level.name.toUpperCase(),
-      'message': message,
+      'message': sanitizedMessage,
       'pid': pid,
       if (sanitizedContext != null && sanitizedContext.isNotEmpty)
         'context': sanitizedContext,
@@ -158,7 +182,7 @@ class LoggingService {
     // Write to console (pretty in debug, JSON in release)
     if (kDebugMode) {
       final color = _getColorForLevel(level);
-      debugPrint('$color[${level.name.toUpperCase()}] $message${_resetColor()}');
+      debugPrint('$color[${level.name.toUpperCase()}] $sanitizedMessage${_resetColor()}');
       if (sanitizedContext != null && sanitizedContext.isNotEmpty) {
         debugPrint('  Context: $sanitizedContext');
       }

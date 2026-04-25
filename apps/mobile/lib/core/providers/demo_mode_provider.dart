@@ -64,6 +64,10 @@ class DemoModeNotifier extends StateNotifier<DemoModeState> {
         brand: 'Samsung',
         modelNumber: 'RF28R7351SR',
         purchaseDate: now.subtract(const Duration(days: 45)),
+        warrantyEndDate: Item.computeWarrantyEndDate(
+          now.subtract(const Duration(days: 45)),
+          12,
+        ),
         price: 2899.99,
         store: 'Best Buy',
         warrantyMonths: 12,
@@ -83,6 +87,10 @@ class DemoModeNotifier extends StateNotifier<DemoModeState> {
         brand: 'Apple',
         modelNumber: 'MK1E3LL/A',
         purchaseDate: now.subtract(const Duration(days: 300)),
+        warrantyEndDate: Item.computeWarrantyEndDate(
+          now.subtract(const Duration(days: 300)),
+          12,
+        ),
         price: 2499.00,
         store: 'Apple Store',
         warrantyMonths: 12,
@@ -103,6 +111,10 @@ class DemoModeNotifier extends StateNotifier<DemoModeState> {
         brand: 'LG',
         modelNumber: 'OLED65C2PUA',
         purchaseDate: now.subtract(const Duration(days: 180)),
+        warrantyEndDate: Item.computeWarrantyEndDate(
+          now.subtract(const Duration(days: 180)),
+          36,
+        ),
         price: 1899.99,
         store: 'Costco',
         warrantyMonths: 36,
@@ -123,6 +135,10 @@ class DemoModeNotifier extends StateNotifier<DemoModeState> {
         brand: 'KitchenAid',
         modelNumber: 'KSM150PSER',
         purchaseDate: now.subtract(const Duration(days: 120)),
+        warrantyEndDate: Item.computeWarrantyEndDate(
+          now.subtract(const Duration(days: 120)),
+          12,
+        ),
         price: 379.99,
         store: 'Williams Sonoma',
         warrantyMonths: 12,
@@ -142,6 +158,10 @@ class DemoModeNotifier extends StateNotifier<DemoModeState> {
         brand: 'Dyson',
         modelNumber: 'SV14',
         purchaseDate: now.subtract(const Duration(days: 400)),
+        warrantyEndDate: Item.computeWarrantyEndDate(
+          now.subtract(const Duration(days: 400)),
+          24,
+        ),
         price: 599.99,
         store: 'Target',
         warrantyMonths: 24,
@@ -160,6 +180,10 @@ class DemoModeNotifier extends StateNotifier<DemoModeState> {
         category: ItemCategory.furniture,
         brand: 'Purple',
         purchaseDate: now.subtract(const Duration(days: 200)),
+        warrantyEndDate: Item.computeWarrantyEndDate(
+          now.subtract(const Duration(days: 200)),
+          120,
+        ),
         price: 1799.00,
         store: 'Purple.com',
         warrantyMonths: 120, // 10 year warranty

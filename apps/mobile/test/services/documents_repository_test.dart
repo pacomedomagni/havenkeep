@@ -3,7 +3,6 @@ import 'package:mockito/annotations.dart';
 import 'package:mockito/mockito.dart';
 import 'package:havenkeep_mobile/core/services/documents_repository.dart';
 import 'package:api_client/api_client.dart';
-import 'package:shared_models/shared_models.dart';
 
 import 'documents_repository_test.mocks.dart';
 
@@ -41,23 +40,20 @@ void main() {
   group('DocumentsRepository', () {
     group('getDocumentsForItem', () {
       test('calls correct endpoint with item_id query param', () async {
-        when(mockClient.get(
-          '/api/v1/documents',
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'documents'],
           queryParams: anyNamed('queryParams'),
         )).thenAnswer((_) async => {'data': []});
 
         await repository.getDocumentsForItem('item-abc');
 
-        final captured = verify(mockClient.get(
-          '/api/v1/documents',
+        final captured = verify(mockClient.get(pathSegments: const ['api', 'v1', 'documents'],
           queryParams: captureAnyNamed('queryParams'),
         )).captured.single as Map<String, String>;
         expect(captured['item_id'], 'item-abc');
       });
 
       test('returns parsed list of documents', () async {
-        when(mockClient.get(
-          '/api/v1/documents',
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'documents'],
           queryParams: anyNamed('queryParams'),
         )).thenAnswer((_) async => {
               'data': [
@@ -75,8 +71,7 @@ void main() {
       });
 
       test('returns empty list when no documents exist', () async {
-        when(mockClient.get(
-          '/api/v1/documents',
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'documents'],
           queryParams: anyNamed('queryParams'),
         )).thenAnswer((_) async => {'data': []});
 
@@ -86,8 +81,7 @@ void main() {
       });
 
       test('rethrows errors from API client', () async {
-        when(mockClient.get(
-          '/api/v1/documents',
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'documents'],
           queryParams: anyNamed('queryParams'),
         )).thenThrow(ApiException(500, 'Server error'));
 
@@ -100,16 +94,16 @@ void main() {
 
     group('getAllDocuments', () {
       test('calls correct endpoint without query params', () async {
-        when(mockClient.get('/api/v1/documents'))
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'documents']))
             .thenAnswer((_) async => {'data': []});
 
         await repository.getAllDocuments();
 
-        verify(mockClient.get('/api/v1/documents')).called(1);
+        verify(mockClient.get(pathSegments: const ['api', 'v1', 'documents'])).called(1);
       });
 
       test('returns all documents for the current user', () async {
-        when(mockClient.get('/api/v1/documents'))
+        when(mockClient.get(pathSegments: const ['api', 'v1', 'documents']))
             .thenAnswer((_) async => {
                   'data': [
                     documentJson(id: 'doc-1', itemId: 'item-1'),
@@ -128,16 +122,16 @@ void main() {
 
     group('deleteDocument', () {
       test('calls DELETE with correct document ID', () async {
-        when(mockClient.delete('/api/v1/documents/doc-42'))
+        when(mockClient.delete(pathSegments: const ['api', 'v1', 'documents', 'doc-42']))
             .thenAnswer((_) async => {});
 
         await repository.deleteDocument('doc-42');
 
-        verify(mockClient.delete('/api/v1/documents/doc-42')).called(1);
+        verify(mockClient.delete(pathSegments: const ['api', 'v1', 'documents', 'doc-42'])).called(1);
       });
 
       test('rethrows errors on delete failure', () async {
-        when(mockClient.delete('/api/v1/documents/doc-1'))
+        when(mockClient.delete(pathSegments: const ['api', 'v1', 'documents', 'doc-1']))
             .thenThrow(ApiException(404, 'Not found'));
 
         expect(

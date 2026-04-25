@@ -9,13 +9,20 @@ import {
   getClaimsQuerySchema,
 } from '../validators/warranty-claims.validator';
 import { asyncHandler } from '../utils/async-handler';
-import { writeRateLimiter } from '../middleware/rateLimiter';
+import { writeRateLimiter, readRateLimiter } from '../middleware/rateLimiter';
 import { sendSuccess, sendMessage } from '../utils/response';
 
 const router = Router();
 
 // All routes require authentication
 router.use(authenticate);
+
+// F009: read-side rate limit. Only applied to GET; mutations already use
+// the stricter writeRateLimiter below.
+router.use((req, res, next) => {
+  if (req.method === 'GET') return readRateLimiter(req, res, next);
+  return next();
+});
 
 /**
  * @route   POST /api/v1/warranty-claims

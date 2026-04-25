@@ -2,7 +2,12 @@
 
 import { useState, useEffect } from 'react'
 import { TrashIcon, NoSymbolIcon, CheckCircleIcon, XCircleIcon } from '@heroicons/react/24/outline'
-import { apiClient } from '@/lib/api'
+import { apiClient, ApiError } from '@/lib/api'
+
+// Audit Ch10-W040: hard delete is gated on a typed confirmation. A native
+// `confirm()` accepts a single button click — that's not a high enough bar
+// for an irreversible row deletion that cascades to homes / items / receipts.
+const DELETE_CONFIRM_TOKEN = 'DELETE'
 
 interface User {
   id: string
@@ -29,6 +34,9 @@ export default function UserTable({ users: initialUsers }: UserTableProps) {
   const [searchQuery, setSearchQuery] = useState('')
   const [filterPlan, setFilterPlan] = useState<string>('all')
   const [toast, setToast] = useState<Toast | null>(null)
+  const [deleteCandidate, setDeleteCandidate] = useState<User | null>(null)
+  const [deleteInput, setDeleteInput] = useState('')
+  const [deleteLoading, setDeleteLoading] = useState(false)
 
   useEffect(() => {
     if (toast) {
@@ -51,29 +59,38 @@ export default function UserTable({ users: initialUsers }: UserTableProps) {
     if (!confirm('Are you sure you want to suspend this user?')) return
 
     try {
-      await apiClient(`/api/v1/admin/users/${userId}/suspend`, {
+      await apiClient(`/api/v1/admin/users/${encodeURIComponent(userId)}/suspend`, {
         method: 'PUT',
       })
 
       setUsers(users.map(u => u.id === userId ? { ...u, plan: 'suspended' } : u))
       setToast({ message: 'User suspended successfully', type: 'success' })
-    } catch {
-      setToast({ message: 'Failed to suspend user. Please try again.', type: 'error' })
+    } catch (err) {
+      const message =
+        err instanceof ApiError ? err.message : 'Failed to suspend user. Please try again.'
+      setToast({ message, type: 'error' })
     }
   }
 
-  const handleDeleteUser = async (userId: string) => {
-    if (!confirm('Are you sure you want to delete this user? This action cannot be undone.')) return
-
+  const submitDelete = async () => {
+    if (!deleteCandidate) return
+    if (deleteInput !== DELETE_CONFIRM_TOKEN) return
+    setDeleteLoading(true)
     try {
-      await apiClient(`/api/v1/admin/users/${userId}`, {
+      await apiClient(`/api/v1/admin/users/${encodeURIComponent(deleteCandidate.id)}`, {
         method: 'DELETE',
       })
 
-      setUsers(users.filter(u => u.id !== userId))
+      setUsers(users.filter(u => u.id !== deleteCandidate.id))
       setToast({ message: 'User deleted successfully', type: 'success' })
-    } catch {
-      setToast({ message: 'Failed to delete user. Please try again.', type: 'error' })
+      setDeleteCandidate(null)
+      setDeleteInput('')
+    } catch (err) {
+      const message =
+        err instanceof ApiError ? err.message : 'Failed to delete user. Please try again.'
+      setToast({ message, type: 'error' })
+    } finally {
+      setDeleteLoading(false)
     }
   }
 
@@ -198,11 +215,15 @@ export default function UserTable({ users: initialUsers }: UserTableProps) {
                         <NoSymbolIcon className="h-5 w-5" />
                       </button>
                       <button
-                        onClick={() => handleDeleteUser(user.id)}
+                        onClick={() => {
+                          setDeleteCandidate(user)
+                          setDeleteInput('')
+                        }}
                         className="text-haven-error hover:text-haven-error/80"
                         title="Delete user"
+                        aria-label={`Delete ${user.email}`}
                       >
-                        <TrashIcon className="h-5 w-5" />
+                        <TrashIcon className="h-5 w-5" aria-hidden="true" />
                       </button>
                     </td>
                   </tr>
@@ -212,6 +233,56 @@ export default function UserTable({ users: initialUsers }: UserTableProps) {
           </table>
         </div>
       </div>
+
+      {deleteCandidate && (
+        <div
+          className="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-user-title"
+        >
+          <div className="bg-haven-surface border border-haven-border rounded-xl p-6 max-w-md w-full mx-4">
+            <h3 id="delete-user-title" className="text-lg font-semibold text-white mb-2">
+              Delete user account
+            </h3>
+            <p className="text-sm text-haven-text-secondary mb-2">
+              This permanently deletes <strong>{deleteCandidate.email}</strong> and every home, item,
+              receipt, and document they own. This action cannot be undone.
+            </p>
+            <p className="text-sm text-haven-text-secondary mb-3">
+              Type <code className="text-white">{DELETE_CONFIRM_TOKEN}</code> to confirm.
+            </p>
+            <input
+              type="text"
+              value={deleteInput}
+              onChange={(e) => setDeleteInput(e.target.value)}
+              className="input-field w-full font-mono"
+              placeholder={DELETE_CONFIRM_TOKEN}
+              aria-label={`Type ${DELETE_CONFIRM_TOKEN} to confirm deletion`}
+              autoFocus
+            />
+            <div className="flex justify-end gap-3 mt-4">
+              <button
+                onClick={() => {
+                  setDeleteCandidate(null)
+                  setDeleteInput('')
+                }}
+                className="btn-secondary"
+                disabled={deleteLoading}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={submitDelete}
+                disabled={deleteLoading || deleteInput !== DELETE_CONFIRM_TOKEN}
+                className="px-4 py-2 text-sm font-medium rounded-lg bg-red-500/30 text-red-300 hover:bg-red-500/40 transition-colors disabled:opacity-50"
+              >
+                {deleteLoading ? 'Deleting…' : 'Delete account'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:purchases_flutter/purchases_flutter.dart';
 import 'package:shared_ui/shared_ui.dart';
 
 import '../../core/providers/premium_provider.dart';
@@ -21,6 +22,17 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
   bool _isAnnual = false;
   bool _isSubscribing = false;
   bool _isRestoring = false;
+
+  /// Future for the live RevenueCat offering. Resolved once on first
+  /// build so we can render real `priceString` values instead of the
+  /// previously hardcoded "$2.99/month" / "$24/year" strings.
+  late final Future<Offering?> _offeringFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _offeringFuture = ref.read(premiumServiceProvider).getActiveOffering();
+  }
 
   Future<void> _subscribe() async {
     setState(() => _isSubscribing = true);
@@ -349,27 +361,80 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
             ),
           ),
           const SizedBox(height: HavenSpacing.md),
-          Text(
-            _isAnnual ? '\$24/year' : '\$2.99/month',
-            style: const TextStyle(
-              fontSize: 32,
-              fontWeight: FontWeight.bold,
-              color: HavenColors.textPrimary,
-            ),
+          FutureBuilder<Offering?>(
+            future: _offeringFuture,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState != ConnectionState.done) {
+                return const SizedBox(
+                  height: 44,
+                  child: HavenLoader(color: HavenColors.textTertiary),
+                );
+              }
+              final offering = snapshot.data;
+              if (offering == null) {
+                return const Text(
+                  'Pricing unavailable',
+                  style: TextStyle(
+                    fontSize: 16,
+                    color: HavenColors.textTertiary,
+                  ),
+                );
+              }
+              final monthly = offering.monthly;
+              final annual = offering.annual;
+              final selected = _isAnnual ? annual : monthly;
+              if (selected == null) {
+                return const Text(
+                  'Plan unavailable',
+                  style: TextStyle(
+                    fontSize: 16,
+                    color: HavenColors.textTertiary,
+                  ),
+                );
+              }
+              return Column(
+                children: [
+                  Text(
+                    selected.storeProduct.priceString,
+                    style: const TextStyle(
+                      fontSize: 32,
+                      fontWeight: FontWeight.bold,
+                      color: HavenColors.textPrimary,
+                    ),
+                  ),
+                  if (_isAnnual && annual != null && monthly != null)
+                    _buildAnnualSavings(annual, monthly),
+                ],
+              );
+            },
           ),
-          if (_isAnnual)
-            const Padding(
-              padding: EdgeInsets.only(top: HavenSpacing.sm),
-              child: Text(
-                'Save 33%',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: HavenColors.active,
-                ),
-              ),
-            ),
         ],
+      ),
+    );
+  }
+
+  /// Compute the % savings of the annual plan over 12x the monthly plan
+  /// using the RevenueCat numeric prices, and render the badge.
+  Widget _buildAnnualSavings(Package annual, Package monthly) {
+    final monthlyPrice = monthly.storeProduct.price;
+    final annualPrice = annual.storeProduct.price;
+    if (monthlyPrice <= 0 || annualPrice <= 0) {
+      return const SizedBox.shrink();
+    }
+    final twelveMonths = monthlyPrice * 12;
+    if (annualPrice >= twelveMonths) {
+      return const SizedBox.shrink();
+    }
+    final pctSaved = (((twelveMonths - annualPrice) / twelveMonths) * 100).round();
+    return Padding(
+      padding: const EdgeInsets.only(top: HavenSpacing.sm),
+      child: Text(
+        'Save $pctSaved%',
+        style: const TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.w600,
+          color: HavenColors.active,
+        ),
       ),
     );
   }

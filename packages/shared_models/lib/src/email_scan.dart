@@ -2,7 +2,10 @@
 class EmailScan {
   final String id;
   final String userId;
+
+  /// 'gmail' or 'outlook' (Ch08-EmailScan-D070 — DB CHECK enforces these).
   final String provider;
+
   final String? providerEmail;
   final DateTime scanDate;
   final DateTime? dateRangeStart;
@@ -38,24 +41,40 @@ class EmailScan {
       userId: json['user_id'] as String? ?? '',
       provider: json['provider'] as String? ?? '',
       providerEmail: json['provider_email'] as String?,
-      scanDate: DateTime.tryParse(json['scan_date'] as String? ?? '') ?? DateTime.now(),
-      dateRangeStart: json['date_range_start'] != null
-          ? DateTime.tryParse(json['date_range_start'] as String)
-          : null,
-      dateRangeEnd: json['date_range_end'] != null
-          ? DateTime.tryParse(json['date_range_end'] as String)
-          : null,
-      emailsScanned: int.tryParse(json['emails_scanned']?.toString() ?? '') ?? 0,
-      receiptsFound: int.tryParse(json['receipts_found']?.toString() ?? '') ?? 0,
-      itemsImported: int.tryParse(json['items_imported']?.toString() ?? '') ?? 0,
+      scanDate: _parseDate(json['scan_date'])!,
+      dateRangeStart: _parseDate(json['date_range_start']),
+      dateRangeEnd: _parseDate(json['date_range_end']),
+      // Ch08-EmailScan-D069: counts arrive as JSON numbers (Postgres INTEGER).
+      // The previous int.tryParse(.toString()) round-trip was masking type
+      // bugs — now we trust the wire type and treat absent as 0.
+      emailsScanned: (json['emails_scanned'] as num?)?.toInt() ?? 0,
+      receiptsFound: (json['receipts_found'] as num?)?.toInt() ?? 0,
+      itemsImported: (json['items_imported'] as num?)?.toInt() ?? 0,
       status: EmailScanStatus.fromJson(json['status'] as String? ?? 'pending'),
       errorMessage: json['error_message'] as String?,
-      completedAt: json['completed_at'] != null
-          ? DateTime.tryParse(json['completed_at'] as String)
-          : null,
-      createdAt: DateTime.tryParse(json['created_at'] as String? ?? '') ?? DateTime.now(),
+      completedAt: _parseDate(json['completed_at']),
+      createdAt: _parseDate(json['created_at'])!,
     );
   }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'user_id': userId,
+        'provider': provider,
+        if (providerEmail != null) 'provider_email': providerEmail,
+        'scan_date': scanDate.toIso8601String(),
+        if (dateRangeStart != null)
+          'date_range_start': dateRangeStart!.toIso8601String().split('T').first,
+        if (dateRangeEnd != null)
+          'date_range_end': dateRangeEnd!.toIso8601String().split('T').first,
+        'emails_scanned': emailsScanned,
+        'receipts_found': receiptsFound,
+        'items_imported': itemsImported,
+        'status': status.toJson(),
+        if (errorMessage != null) 'error_message': errorMessage,
+        if (completedAt != null) 'completed_at': completedAt!.toIso8601String(),
+        'created_at': createdAt.toIso8601String(),
+      };
 }
 
 enum EmailScanStatus {
@@ -64,11 +83,15 @@ enum EmailScanStatus {
   completed,
   failed;
 
+  static const Map<String, EmailScanStatus> _byName = {
+    'pending': EmailScanStatus.pending,
+    'scanning': EmailScanStatus.scanning,
+    'completed': EmailScanStatus.completed,
+    'failed': EmailScanStatus.failed,
+  };
+
   factory EmailScanStatus.fromJson(String value) {
-    return EmailScanStatus.values.firstWhere(
-      (e) => e.name == value,
-      orElse: () => EmailScanStatus.pending,
-    );
+    return _byName[value] ?? EmailScanStatus.pending;
   }
 
   String toJson() => name;
@@ -79,4 +102,11 @@ enum EmailScanStatus {
         EmailScanStatus.completed => 'Completed',
         EmailScanStatus.failed => 'Failed',
       };
+}
+
+DateTime? _parseDate(Object? value) {
+  if (value == null) return null;
+  if (value is DateTime) return value;
+  if (value is String) return DateTime.tryParse(value);
+  return null;
 }

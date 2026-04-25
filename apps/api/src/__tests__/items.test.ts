@@ -361,4 +361,122 @@ describe('Items API', () => {
       expect(res.status).toBe(404);
     });
   });
+
+  // ──────────────────────────────── Phase 6 hardening ────────────────────────────────
+
+  // Audit Ch12-T039: future purchaseDate must be rejected by validator (Joi
+  // .max('now')).
+  describe('Date validation', () => {
+    it('should reject a future purchase date', async () => {
+      const { user, token } = await createTestUser();
+      const home = await createTestHome(user.id);
+      const future = new Date();
+      future.setFullYear(future.getFullYear() + 5);
+
+      const res = await request(app)
+        .post('/api/v1/items')
+        .set('Authorization', `Bearer ${token}`)
+        .send(buildItemPayload(home.id, { purchaseDate: future.toISOString().slice(0, 10) }));
+
+      expect(res.status).toBe(400);
+    });
+
+    // Audit Ch02-F061: lastMaintenanceDate must be on/after installationDate.
+    it('should reject lastMaintenanceDate earlier than installationDate', async () => {
+      const { user, token } = await createTestUser();
+      const home = await createTestHome(user.id);
+
+      const res = await request(app)
+        .post('/api/v1/items')
+        .set('Authorization', `Bearer ${token}`)
+        .send(buildItemPayload(home.id, {
+          installationDate: '2024-06-01',
+          lastMaintenanceDate: '2024-01-01',
+        }));
+
+      expect(res.status).toBe(400);
+    });
+  });
+
+  // Audit Ch12-T056: numeric price must reject negative input.
+  describe('Numeric validation', () => {
+    it('should reject a negative price', async () => {
+      const { user, token } = await createTestUser();
+      const home = await createTestHome(user.id);
+
+      const res = await request(app)
+        .post('/api/v1/items')
+        .set('Authorization', `Bearer ${token}`)
+        .send(buildItemPayload(home.id, { price: -1 }));
+
+      expect(res.status).toBe(400);
+    });
+  });
+
+  // Audit Ch12-T043: sort/order params constrained to a closed allowlist.
+  describe('Pagination validation', () => {
+    it('should reject SQL-injection-shaped sort parameter', async () => {
+      const { token } = await createTestUser();
+      const res = await request(app)
+        .get(`/api/v1/items?sort=name;DROP+TABLE+items--`)
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(400);
+    });
+
+    // Audit Ch12-T044: pagination clamps negative + huge values to safe ranges
+    // OR rejects them. Either is acceptable as long as the route doesn't 500.
+    it('should reject a negative page number', async () => {
+      const { token } = await createTestUser();
+      const res = await request(app)
+        .get(`/api/v1/items?page=-5`)
+        .set('Authorization', `Bearer ${token}`);
+
+      // Joi with min(1) returns 400; route hand-clamping returns 200 with page=1.
+      expect([200, 400]).toContain(res.status);
+    });
+
+    it('should reject a huge limit', async () => {
+      const { token } = await createTestUser();
+      const res = await request(app)
+        .get(`/api/v1/items?limit=99999`)
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(400);
+    });
+  });
+
+  // Audit Ch12-T029: CSV cells starting with =,+,-,@ must be prefixed with a
+  // single quote so spreadsheet apps don't interpret them as formulas.
+  describe('CSV export hardening', () => {
+    it('should prefix formula-injection cells with a single quote', async () => {
+      const { user, token } = await createTestUser();
+      const home = await createTestHome(user.id);
+      await createTestItem(user.id, home.id, { name: '=cmd|"calc"!A1' });
+
+      const res = await request(app)
+        .get('/api/v1/items/export.csv')
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+      // The cell will be wrapped in quotes by RFC 4180 escaping (commas/quotes
+      // present); the embedded value is `'=cmd|"calc"!A1` (note leading ').
+      expect(res.text).toMatch(/'=cmd/);
+    });
+
+    // Audit Ch12-T014: cross-user CSV export must scope to the caller.
+    it('should not include other user items in CSV export', async () => {
+      const userA = await createTestUser({ email: 'csva@test.com' });
+      const userB = await createTestUser({ email: 'csvb@test.com' });
+      const homeB = await createTestHome(userB.user.id);
+      await createTestItem(userB.user.id, homeB.id, { name: 'Secret B Item' });
+
+      const res = await request(app)
+        .get('/api/v1/items/export.csv')
+        .set('Authorization', `Bearer ${userA.token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.text).not.toContain('Secret B Item');
+    });
+  });
 });

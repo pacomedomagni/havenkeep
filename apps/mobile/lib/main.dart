@@ -12,13 +12,17 @@ import 'package:shared_ui/shared_ui.dart';
 import 'core/config/environment.dart';
 import 'core/config/environment_config.dart';
 import 'core/config/firebase_options.dart';
+import 'core/database/database.dart';
 import 'core/router/router.dart';
 import 'core/services/auto_archive_service.dart';
+import 'core/services/biometric_service.dart';
 import 'core/services/logging_service.dart';
 import 'core/services/offline_sync_service.dart';
 import 'core/services/push_notification_service.dart';
+import 'core/services/secure_storage_service.dart';
 import 'core/providers/auth_provider.dart';
 import 'core/providers/premium_provider.dart';
+import 'features/onboarding/biometric_lock_screen.dart';
 
 Future<void> main() async {
   // Run inside a guarded zone to catch any remaining unhandled errors.
@@ -78,6 +82,16 @@ Future<void> main() async {
         await apiClient.restoreSession();
       } catch (e) {
         LoggingService.warn('Session restore failed, starting fresh', {'error': e.toString()});
+      }
+
+      // Seed the local DB opener with the (possibly restored) user id so
+      // every subsequent provider read opens the user's per-account file.
+      // SecureStorage is the durable mirror across cold launches.
+      final activeUserId = apiClient.currentUserId ??
+          await SecureStorageService.getActiveUserId();
+      setActiveDatabaseUser(activeUserId);
+      if (apiClient.currentUserId != null) {
+        await SecureStorageService.setActiveUserId(apiClient.currentUserId);
       }
 
       LoggingService.info('API client initialized');
@@ -143,12 +157,95 @@ final environmentConfigProvider = Provider<EnvironmentConfig>((ref) {
   );
 });
 
+/// Maximum time the app may sit in the background before we force a
+/// biometric re-prompt. Keep tight — the audit calls for >30s.
+const _kBiometricLockGracePeriod = Duration(seconds: 30);
+
 /// Root app widget — uses GoRouter and HavenKeep dark theme.
-class HavenKeepApp extends ConsumerWidget {
+class HavenKeepApp extends ConsumerStatefulWidget {
   const HavenKeepApp({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<HavenKeepApp> createState() => _HavenKeepAppState();
+}
+
+class _HavenKeepAppState extends ConsumerState<HavenKeepApp>
+    with WidgetsBindingObserver {
+  /// Used to push the lock screen from outside the router tree.
+  final GlobalKey<NavigatorState> _lockNavKey =
+      GlobalKey<NavigatorState>(debugLabel: 'haven-lock-overlay');
+
+  /// Tracks whether the lock screen is currently mounted so we don't
+  /// stack multiple instances when the lifecycle bounces.
+  bool _lockShown = false;
+
+  /// Wall-clock time the app most recently went into the background. We
+  /// only force a re-prompt if it's been longer than the grace period.
+  DateTime? _backgroundedAt;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.inactive) {
+      // Record the moment we left the foreground. Don't overwrite if we
+      // already have one — multiple inactive→paused transitions in a row
+      // shouldn't reset the timer.
+      _backgroundedAt ??= DateTime.now();
+      return;
+    }
+
+    if (state == AppLifecycleState.resumed) {
+      _maybeShowLock();
+    }
+  }
+
+  Future<void> _maybeShowLock() async {
+    if (_lockShown) return;
+
+    final enabled = await BiometricService.isBiometricEnabled();
+    if (!enabled) {
+      _backgroundedAt = null;
+      return;
+    }
+
+    final lastUnlock = await SecureStorageService.getLastUnlockTimestamp();
+    final reference = _backgroundedAt ?? lastUnlock;
+    _backgroundedAt = null;
+
+    if (reference != null &&
+        DateTime.now().difference(reference) <= _kBiometricLockGracePeriod) {
+      return;
+    }
+
+    if (!mounted) return;
+    final navigator = _lockNavKey.currentState;
+    if (navigator == null) return;
+
+    _lockShown = true;
+    await navigator.push(
+      MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (_) => const BiometricLockScreen(),
+      ),
+    );
+    _lockShown = false;
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final router = ref.watch(routerProvider);
 
     // Initialize offline sync service (listens to connectivity changes)
@@ -159,6 +256,17 @@ class HavenKeepApp extends ConsumerWidget {
       debugShowCheckedModeBanner: false,
       theme: HavenTheme.dark,
       routerConfig: router,
+      // Stack a transparent Navigator above the GoRouter tree so we can
+      // push the biometric lock screen as a system-modal overlay without
+      // fighting GoRouter's redirect rules.
+      builder: (context, child) {
+        return Navigator(
+          key: _lockNavKey,
+          onGenerateRoute: (_) => MaterialPageRoute<void>(
+            builder: (_) => child ?? const SizedBox.shrink(),
+          ),
+        );
+      },
     );
   }
 }

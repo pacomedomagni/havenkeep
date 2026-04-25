@@ -6,14 +6,29 @@ export const createWarrantyPurchaseSchema = Joi.object({
   planName: Joi.string().max(255).required(),
   externalPolicyId: Joi.string().max(255).optional(),
   durationMonths: Joi.number().integer().min(1).max(240).required(),
-  startsAt: Joi.date().iso().required(),
+  // F017: cap startsAt at 1y in the future so a 73-year-out payload can't
+  // even reach the service. Service does a parallel guard.
+  startsAt: Joi.date()
+    .iso()
+    .required()
+    .max(new Date(Date.now() + 365 * 24 * 60 * 60 * 1000 + 1000)),
   coverageDetails: Joi.object().optional(),
   price: Joi.number().min(0).max(1000000).required(),
   deductible: Joi.number().min(0).max(1000000).optional().default(0),
   claimLimit: Joi.number().min(0).max(1000000).optional(),
-  commissionAmount: Joi.number().min(0).optional(),
-  commissionRate: Joi.number().min(0).max(1).optional(),
+  // Ch08-WarrantyPurchase-D027: bound commission_amount so a runaway
+  // partner-side calculation can't insert a six-figure commission row.
+  commissionAmount: Joi.number().min(0).max(999999.99).optional(),
+  // F019: clients are NOT trusted to set commission_rate. Reject loudly so
+  // a hand-crafted payload doesn't silently float the partner percentage.
+  commissionRate: Joi.any().forbidden(),
   stripePaymentIntentId: Joi.string().max(255).optional(),
+  // Ch08-WarrantyPurchase-D029: explicit status default at the schema layer.
+  // The DB column also defaults to 'active' but having it here means the
+  // body that hits the service is self-describing.
+  status: Joi.string()
+    .valid('active', 'expired', 'cancelled', 'pending', 'claimed')
+    .default('active'),
 })
   // Accept snake_case from mobile clients
   .rename('item_id', 'itemId', { ignoreUndefined: true, override: false })

@@ -252,10 +252,10 @@ void main() {
 
         final item = Item.fromJson(json);
 
-        expect(item.warrantyEndDate, isNotNull);
-        expect(item.warrantyEndDate!.year, 2024);
-        expect(item.warrantyEndDate!.month, 1);
-        expect(item.warrantyEndDate!.day, 15);
+        // warrantyEndDate is now non-nullable (Ch08-Item-D010).
+        expect(item.warrantyEndDate.year, 2024);
+        expect(item.warrantyEndDate.month, 1);
+        expect(item.warrantyEndDate.day, 15);
       });
     });
 

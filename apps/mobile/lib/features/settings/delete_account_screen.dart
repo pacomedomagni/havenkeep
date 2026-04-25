@@ -1,9 +1,15 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_models/shared_models.dart';
 import 'package:shared_ui/shared_ui.dart';
+import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
+import '../../../main.dart' show environmentConfigProvider;
 import '../../core/providers/auth_provider.dart';
+import '../../core/services/auth_repository.dart';
 import '../../core/utils/error_handler.dart';
 import '../../core/widgets/haven_loader.dart';
 import '../../core/utils/haven_haptics.dart';
@@ -76,6 +82,9 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
   }
 
   Future<void> _deleteOAuthAccount() async {
+    final user = ref.read(currentUserProvider).value;
+    if (user == null) return;
+
     final confirmed = await showHavenConfirmDialog(
       context,
       title: 'Delete account permanently?',
@@ -89,6 +98,25 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
 
     setState(() => _isLoading = true);
     try {
+      // Re-authenticate against the original IdP and confirm the
+      // verified subject id matches the locally signed-in user before
+      // we trust a JWT alone for an irreversible delete.
+      final reauthOk = await _reauthenticateOAuth(user);
+      if (!reauthOk) {
+        if (mounted) {
+          HavenHaptics.confirm();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                  'Re-authentication failed. Please sign in again to delete your account.'),
+              backgroundColor: HavenColors.expired,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+        return;
+      }
+
       await ref.read(currentUserProvider.notifier).deleteOAuthAccount();
     } catch (e) {
       if (mounted) {
@@ -104,6 +132,71 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  /// Force a fresh sign-in with the user's OAuth provider and verify the
+  /// returned identity resolves to the same backend user record. Returns
+  /// false on cancel, mismatch, or any IdP error.
+  Future<bool> _reauthenticateOAuth(User user) async {
+    try {
+      final repo = ref.read(authRepositoryProvider);
+      switch (user.authProvider) {
+        case AuthProvider.google:
+          return await _reauthGoogle(repo, user);
+        case AuthProvider.apple:
+          return await _reauthApple(repo, user);
+        case AuthProvider.email:
+          // Unreachable for OAuth flow, but keeping the switch exhaustive.
+          return false;
+      }
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<bool> _reauthGoogle(AuthRepository repo, User user) async {
+    final serverClientId =
+        ref.read(environmentConfigProvider).googleServerClientId;
+    final googleSignIn = GoogleSignIn(
+      scopes: const ['email', 'profile'],
+      serverClientId: serverClientId.isNotEmpty ? serverClientId : null,
+    );
+    // Force a fresh prompt — never reuse a cached credential for delete.
+    await googleSignIn.signOut();
+    final account = await googleSignIn.signIn();
+    if (account == null) return false;
+    final auth = await account.authentication;
+    final idToken = auth.idToken;
+    if (idToken == null) return false;
+
+    final reauthed = await repo.signInWithGoogle(idToken: idToken);
+    return reauthed != null && reauthed.id == user.id;
+  }
+
+  Future<bool> _reauthApple(AuthRepository repo, User user) async {
+    final config = ref.read(environmentConfigProvider);
+    WebAuthenticationOptions? webOptions;
+    if (!Platform.isIOS) {
+      if (config.appleServicesId.isEmpty || config.appleRedirectUri.isEmpty) {
+        return false;
+      }
+      webOptions = WebAuthenticationOptions(
+        clientId: config.appleServicesId,
+        redirectUri: Uri.parse(config.appleRedirectUri),
+      );
+    }
+    final credential = await SignInWithApple.getAppleIDCredential(
+      scopes: [
+        AppleIDAuthorizationScopes.email,
+        AppleIDAuthorizationScopes.fullName,
+      ],
+      webAuthenticationOptions: webOptions,
+    );
+    final idToken = credential.identityToken;
+    if (idToken == null) return false;
+
+    final reauthed = await repo.signInWithApple(idToken: idToken);
+    return reauthed != null && reauthed.id == user.id;
   }
 
   @override
