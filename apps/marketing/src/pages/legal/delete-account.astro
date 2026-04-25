@@ -1,0 +1,81 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import Navigation from '../../components/Navigation.astro';
+import Footer from '../../components/Footer.astro';
+---
+
+<Layout title="Delete your account - HavenKeep">
+  <Navigation />
+  <div class="max-w-4xl mx-auto px-4 py-16 pt-28">
+    <h1 class="text-4xl font-bold text-white mb-4">Delete your account</h1>
+    <p class="text-gray-400 mb-12">
+      You can delete your HavenKeep account and every piece of data attached to it at any time. The fastest path is in the app; the email path below exists for Google Play&apos;s requirement that users be able to request deletion without signing in.
+    </p>
+
+    <div class="prose prose-lg prose-invert max-w-none space-y-12">
+      <section class="bg-gray-900/50 border border-gray-800 rounded-2xl p-8">
+        <h2 class="text-2xl font-bold text-white mb-4">In the app (fastest — immediate)</h2>
+        <ol class="list-decimal pl-6 text-gray-300 space-y-3 mb-6">
+          <li>Open HavenKeep and sign in.</li>
+          <li>Go to <em>Settings → Delete Account</em>.</li>
+          <li>Confirm the prompt. Your account is soft-deleted immediately.</li>
+        </ol>
+        <p class="text-gray-400">
+          You have a 7-day grace period during which you can sign in to cancel the deletion. After 7 days, your account and associated data are cryptographically erased from our active systems and age out of backups within 30 days.
+        </p>
+      </section>
+
+      <section class="bg-gray-900/50 border border-gray-800 rounded-2xl p-8">
+        <h2 class="text-2xl font-bold text-white mb-4">By email (no login)</h2>
+        <p class="text-gray-300 mb-4">
+          If you can&apos;t access the app — for example, you lost the device or forgot the password — email us at <a href="mailto:support@havenkeep.app?subject=Account%20deletion%20request" class="text-blue-400 hover:text-blue-300">support@havenkeep.app</a> from the address you signed up with. We process these requests within 5 business days.
+        </p>
+        <p class="text-gray-300 mb-4">
+          We&apos;ll need to confirm ownership before deleting, so include in your email:
+        </p>
+        <ul class="list-disc pl-6 text-gray-300 space-y-2">
+          <li>The email address on your HavenKeep account.</li>
+          <li>The approximate date you signed up (helps us locate the right account if you have several with us).</li>
+          <li>(Optional) Any additional context that helps us recognize you, such as the platform you signed in with (Google, Apple, or email/password).</li>
+        </ul>
+      </section>
+
+      <section class="bg-gray-900/50 border border-gray-800 rounded-2xl p-8">
+        <h2 class="text-2xl font-bold text-white mb-4">What gets deleted</h2>
+        <p class="text-gray-300 mb-4">
+          When deletion completes, every piece of data tied to your account is removed:
+        </p>
+        <ul class="list-disc pl-6 text-gray-300 space-y-2 mb-6">
+          <li>Your profile (name, email, avatar)</li>
+          <li>Every item, receipt, warranty record, and document you uploaded</li>
+          <li>Maintenance reminders and notification history</li>
+          <li>Email-scanner OAuth tokens (revoked at the provider too — Google / Microsoft)</li>
+          <li>Push-notification registration tokens</li>
+          <li>Any homes, partners, or referral relationships you set up</li>
+        </ul>
+        <p class="text-gray-300 mb-4">
+          What does <em>not</em> delete from our side: anonymized usage events older than 30 days that have already been aggregated into product analytics, and audit-log entries we&apos;re legally required to retain for fraud prevention. Neither contains your personal data after deletion.
+        </p>
+      </section>
+
+      <section class="bg-gray-900/50 border border-gray-800 rounded-2xl p-8">
+        <h2 class="text-2xl font-bold text-white mb-4">Subscriptions</h2>
+        <p class="text-gray-300 mb-4">
+          Deleting your account does <strong class="text-white">not</strong> automatically cancel an active App Store or Google Play subscription. Apple and Google manage those, and we don&apos;t have permission to cancel on your behalf. If you have an active HavenKeep Premium subscription:
+        </p>
+        <ul class="list-disc pl-6 text-gray-300 space-y-2">
+          <li><strong class="text-white">iOS</strong>: Settings (iPhone) → tap your name → Subscriptions → HavenKeep → Cancel.</li>
+          <li><strong class="text-white">Android</strong>: Play Store app → menu → Subscriptions → HavenKeep → Cancel.</li>
+        </ul>
+      </section>
+
+      <section class="bg-gray-900/50 border border-gray-800 rounded-2xl p-8">
+        <h2 class="text-2xl font-bold text-white mb-4">Privacy policy + GDPR rights</h2>
+        <p class="text-gray-300">
+          For more on how we handle your data, including your right to access or correct it under GDPR / CCPA, see our <a href="/legal/privacy" class="text-blue-400 hover:text-blue-300">Privacy Policy</a>. For deletion requests where you&apos;re acting on behalf of someone else (e.g. a deceased family member), email <a href="mailto:support@havenkeep.app" class="text-blue-400 hover:text-blue-300">support@havenkeep.app</a> and we&apos;ll walk you through the verification steps.
+        </p>
+      </section>
+    </div>
+  </div>
+  <Footer />
+</Layout>

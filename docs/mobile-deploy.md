@@ -12,42 +12,25 @@ Everything you need to ship to TestFlight + Play Internal Testing tomorrow. Foll
 | Android debug SHA-1 | `EB:8A:74:33:4B:5A:1B:8F:2A:FA:FA:54:5A:F1:11:95:75:07:E9:C5` |
 | Keystore + password | `apps/mobile/android/app/upload-keystore.jks` + `key.properties` (both gitignored) |
 | Fastlane lane | `cd apps/mobile/android && fastlane internal` |
+| Privacy URL | `https://havenkeep.app/legal/privacy` |
+| Account-deletion URL (Play Console asks for this) | `https://havenkeep.app/legal/delete-account` |
+
+---
+
+## What's already done in code
+
+- Bundle ID + Android scaffolding + permissions + keystore + Fastlane.
+- iOS export-compliance key in Info.plist.
+- Android brand icons (havenkeep shield) replaced the default Flutter icons in every mipmap density.
+- Social sign-in plumbing wired end-to-end: backend `/auth/apple` accepts multi-audience tokens; mobile `welcome_screen` passes `serverClientId` to Google + `WebAuthenticationOptions` to Apple on Android; Apple button no longer iOS-gated.
+- `flutter_web_auth_2` bumped to 5.0.2 + `CallbackActivity` registered in `AndroidManifest.xml` with `manifestPlaceholders["appAuthRedirectScheme"] = "havenkeep"` in build.gradle.kts.
+- `EnvironmentConfig` + all four `.env` files have placeholders for `GOOGLE_SERVER_CLIENT_ID`, `APPLE_SERVICES_ID`, `APPLE_REDIRECT_URI` — fill in tomorrow.
+- Backend `.env.example` + `.env.staging.example` document the new `APPLE_SERVICES_IDS` schema.
+- `/legal/delete-account` page on the marketing site (Play Console will ask for the URL). In-app deletion (Settings → Delete Account → `/settings/delete-account`) was already implemented.
 
 ---
 
 ## 1. Tomorrow's manual steps (in order)
-
-### Step 0 — Fix the Android dep that blocks the build
-
-The Android scaffolding is in place but `flutter_web_auth_2:3.1.2` (used by the Outlook email scanner) doesn't compile against the current AGP version. You must bump it before any Android build will succeed.
-
-```diff
-- flutter_web_auth_2: ^3.1.0
-+ flutter_web_auth_2: ^5.0.0
-```
-
-Then update `apps/mobile/android/app/src/main/AndroidManifest.xml` — add inside `<application>`:
-
-```xml
-<activity android:name="com.linusu.flutter_web_auth_2.CallbackActivity" android:exported="true">
-    <intent-filter android:label="flutter_web_auth_2">
-        <action android:name="android.intent.action.VIEW" />
-        <category android:name="android.intent.category.DEFAULT" />
-        <category android:name="android.intent.category.BROWSABLE" />
-        <data android:scheme="${appAuthRedirectScheme}" />
-    </intent-filter>
-</activity>
-```
-
-And in `android/app/build.gradle.kts` `defaultConfig` block, add:
-
-```kotlin
-manifestPlaceholders["appAuthRedirectScheme"] = "<the-scheme-from-OUTLOOK_REDIRECT_URI>"
-```
-
-`<the-scheme-from-OUTLOOK_REDIRECT_URI>` is the URI scheme prefix from the `OUTLOOK_REDIRECT_URI` env var (e.g. for `havenkeep://outlook/callback` it's `havenkeep`). v5's API for `FlutterWebAuth2.authenticate(url:, callbackUrlScheme:)` is identical to v3, so `email_oauth_service.dart` doesn't need changes.
-
-Then `flutter pub get && flutter build apk --debug` should succeed.
 
 ### Step 1 — Firebase project
 
@@ -62,7 +45,7 @@ After creation:
   - `EB:8A:74:33:4B:5A:1B:8F:2A:FA:FA:54:5A:F1:11:95:75:07:E9:C5` (debug)
   - `80:54:BE:DD:DE:2F:5D:D7:73:F7:33:AE:D1:0A:D1:56:2A:33:DA:89` (upload key)
 - **Re-download `google-services.json`** after both fingerprints are added (otherwise `oauth_client[]` is empty and Google Sign-In fails on Android).
-- Note the **Web OAuth client ID** Firebase auto-creates (visible in the re-downloaded `google-services.json` under the `client_type: 3` entry) — that's the value for `GOOGLE_SERVER_CLIENT_ID` dart-define.
+- Note the **Web OAuth client ID** Firebase auto-creates (visible in the re-downloaded `google-services.json` under the `client_type: 3` entry) — that's the value for `GOOGLE_SERVER_CLIENT_ID` in `apps/mobile/.env.{development,staging,production}` and `GOOGLE_CLIENT_ID` in the backend `.env`.
 - Update `apps/mobile/lib/firebase_options.dart` and `apps/mobile/firebase.json` with the new project values (the simplest path is to install FlutterFire CLI and run `flutterfire configure --project=<new-project-id>`).
 - Update `apps/mobile/ios/Runner/Info.plist` `CFBundleURLSchemes`: replace the placeholder `com.googleusercontent.apps.REPLACE-WITH-CLIENT-ID` with the `REVERSED_CLIENT_ID` from the new `GoogleService-Info.plist`.
 
