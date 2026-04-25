@@ -1,0 +1,12 @@
+# Fastlane Appfile — identifies which Play Store app this config
+# publishes. The Play service-account JSON key is shared across all
+# apps under the same Google Play developer account, so it lives at
+# ~/.secrets/ (not in git) and is referenced via SUPPLY_JSON_KEY or
+# the json_key_file path below.
+#
+# Override path via shell profile if you keep the key elsewhere:
+#
+#   export SUPPLY_JSON_KEY=~/.secrets/google-play-service-account.json
+
+json_key_file(ENV["SUPPLY_JSON_KEY"] || File.expand_path("~/.secrets/google-play-service-account.json"))
+package_name("com.flokou.havenkeep")

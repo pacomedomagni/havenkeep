@@ -24,6 +24,13 @@
 	<string>????</string>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<!-- Export compliance: declares this app uses only encryption exempt
+	     under 15 CFR §740.17(b) (TLS, AES-256-GCM at rest, SHA-256/HMAC).
+	     With this set to false, every TestFlight upload auto-clears the
+	     export compliance question instead of pausing the build for human
+	     review on first submission. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>

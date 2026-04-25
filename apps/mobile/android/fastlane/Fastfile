@@ -1,0 +1,87 @@
+# Fastlane lanes for HavenKeep Android publishing.
+#
+# Invocation shape (from apps/mobile/android/):
+#
+#   fastlane internal       # upload AAB to Internal Testing
+#   fastlane alpha          # promote to Closed / Alpha
+#   fastlane production     # promote to Production
+#   fastlane validate       # sanity-check the Play service-account JSON
+#
+# All lanes assume `app-release.aab` already exists at the canonical
+# Flutter output path. If it doesn't, build it first from apps/mobile/:
+#
+#   flutter build appbundle --release \
+#     --dart-define=API_BASE_URL=... \
+#     (etc.)
+#
+# Why no `gradle assembleRelease` inside Fastlane: Flutter owns the
+# build; running Gradle directly from Fastlane would re-inject all the
+# dart-defines that Flutter already handles cleanly. Build and publish
+# stay separate concerns.
+
+default_platform(:android)
+
+# Fastlane runs with CWD = android/fastlane/; the AAB lives two levels
+# up at apps/mobile/build/app/outputs/bundle/release/app-release.aab.
+AAB_PATH = File.expand_path("../../build/app/outputs/bundle/release/app-release.aab", __dir__)
+
+platform :android do
+  desc "Upload the latest release AAB to the Internal Testing track as draft (Play requires draft status until the app has a published production release)"
+  lane :internal do
+    _require_aab
+    upload_to_play_store(
+      track: "internal",
+      aab: AAB_PATH,
+      skip_upload_metadata: true,
+      skip_upload_changelogs: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true,
+      release_status: "draft",
+    )
+  end
+
+  desc "Promote the latest internal release to Closed / Alpha testing"
+  lane :alpha do
+    _require_aab
+    upload_to_play_store(
+      track: "alpha",
+      aab: AAB_PATH,
+      skip_upload_metadata: true,
+      skip_upload_changelogs: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true,
+      release_status: "completed",
+    )
+  end
+
+  desc "Promote the latest alpha release to Production"
+  lane :production do
+    _require_aab
+    upload_to_play_store(
+      track: "production",
+      aab: AAB_PATH,
+      skip_upload_metadata: true,
+      skip_upload_changelogs: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true,
+      release_status: "completed",
+    )
+  end
+
+  desc "Verify the Play service-account JSON has the right scopes"
+  lane :validate do
+    validate_play_store_json_key
+  end
+
+  # Pre-flight: surface a clear error before fastlane-supply fails
+  # with a cryptic upload_to_play_store message.
+  private_lane :_require_aab do
+    unless File.exist?(AAB_PATH)
+      UI.user_error!(
+        "AAB not found at #{AAB_PATH}. Build it first:\n" \
+        "  cd apps/mobile\n" \
+        "  flutter build appbundle --release --dart-define=..."
+      )
+    end
+  end
+end

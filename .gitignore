@@ -69,3 +69,13 @@ secrets/
 
 # --- Docker image tarballs ---
 .docker-images/
+
+# --- Mobile signing + Firebase configs (machine-local, never committed) ---
+**/key.properties
+**/upload-keystore.jks
+**/google-services.json
+**/GoogleService-Info.plist
+**/lib/firebase_options.dart
+
+# Generated Play Store listing assets (regenerable from brand sources)
+apps/mobile/android/store-assets/
