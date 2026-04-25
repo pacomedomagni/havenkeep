@@ -1,6 +1,32 @@
+import crypto from 'crypto';
 import sgMail from '@sendgrid/mail';
 import { logger } from '../utils/logger';
 import { config } from '../config';
+
+/**
+ * HMAC helper used by partner email tracking pixels (Ch03-F083). Signed by
+ * the refresh-token secret so a token from one environment doesn't validate
+ * in another. Truncated to 16 hex chars (64 bits) — the URL doesn't need
+ * cryptographic-strength uniqueness, just enough that a scraper cannot
+ * forge `?t=` values from a partner_id alone.
+ */
+export function partnerEmailPixelHmac(partnerId: string, kind: 'welcome' | 'gift'): string {
+  return crypto
+    .createHmac('sha256', config.jwt.refreshSecret)
+    .update(`partner-pixel:${kind}:${partnerId}`)
+    .digest('hex')
+    .slice(0, 16);
+}
+
+export function verifyPartnerEmailPixelHmac(
+  partnerId: string,
+  kind: 'welcome' | 'gift',
+  token: string,
+): boolean {
+  const expected = partnerEmailPixelHmac(partnerId, kind);
+  if (token.length !== expected.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(expected, 'utf8'), Buffer.from(token, 'utf8'));
+}
 
 // Initialize SendGrid
 if (config.sendgrid.apiKey) {
@@ -370,14 +396,27 @@ This gift expires in ${premium_months} month${premium_months === 1 ? '' : 's'}. 
   /**
    * Send welcome email to new partner
    */
+  /**
+   * Audit Ch03-F083 / F084: tracking pixel for the partner welcome email so
+   * deliverability can be verified per-partner (not just per-tenant), with
+   * an HMAC-signed identifier that prevents a third party who scrapes a
+   * partner inbox from forging tracker hits. The pixel URL embeds the
+   * partner_id and the same `partnerEmailPixelHmac` value the gift email
+   * uses; the route on the API side verifies the HMAC before recording the
+   * open.
+   */
   static async sendPartnerWelcomeEmail(data: {
     to: string;
     partner_name: string;
     company_name?: string;
+    partner_id?: string;
   }): Promise<void> {
     try {
-      const { to, partner_name, company_name } = data;
-      const firstName = partner_name.split(' ')[0];
+      const { to, partner_name, partner_id } = data;
+      const firstName = escapeHtml(partner_name.split(' ')[0] ?? '');
+      const trackingPixelUrl = partner_id
+        ? `${config.app.apiUrl.replace(/\/$/, '')}/api/v1/partners/${encodeURIComponent(partner_id)}/track/welcome-open?t=${encodeURIComponent(partnerEmailPixelHmac(partner_id, 'welcome'))}`
+        : null;
 
       const htmlContent = `
 <!DOCTYPE html>
@@ -446,6 +485,7 @@ This gift expires in ${premium_months} month${premium_months === 1 ? '' : 's'}. 
       </td>
     </tr>
   </table>
+  ${trackingPixelUrl ? `<img src="${trackingPixelUrl}" alt="" width="1" height="1" style="display:none;" />` : ''}
 </body>
 </html>
       `;

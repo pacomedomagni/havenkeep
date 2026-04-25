@@ -60,8 +60,11 @@ class _GiftActivationScreenState extends ConsumerState<GiftActivationScreen> {
       final response = await _partnersRepo.activateGift(widget.giftId);
 
       if (response['success'] == true) {
-        final gift = response['data'];
-        _premiumMonths = gift['premium_months'] as int?;
+        // Tolerate either int or num for premium_months — RC and the
+        // server have both shapes in practice (F033).
+        final gift = response['data'] as Map<String, dynamic>?;
+        final rawMonths = gift?['premium_months'];
+        _premiumMonths = rawMonths is num ? rawMonths.toInt() : null;
 
         // Show celebration
         if (!mounted) return;
@@ -73,10 +76,10 @@ class _GiftActivationScreenState extends ConsumerState<GiftActivationScreen> {
         // Wait for celebration animation
         await Future.delayed(const Duration(seconds: 3));
 
-        // Navigate to success screen
-        if (mounted) {
-          context.go('/gift/activation-success?months=$_premiumMonths');
-        }
+        // Navigate to success screen — guard against unmount during the
+        // 3 s celebration so we never push from a disposed widget (F032).
+        if (!mounted) return;
+        context.go('/gift/activation-success?months=$_premiumMonths');
       } else {
         throw Exception(response['message'] ?? 'Failed to activate gift');
       }

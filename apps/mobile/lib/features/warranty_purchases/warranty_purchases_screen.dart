@@ -8,6 +8,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/providers/warranty_purchases_provider.dart';
 import '../../core/router/router.dart';
 import '../../core/utils/error_handler.dart';
+import '../../core/utils/money_formatter.dart';
 import '../../core/widgets/haven_loader.dart';
 
 /// List of extended warranty purchases for the current user.
@@ -44,8 +45,18 @@ class WarrantyPurchasesScreen extends ConsumerWidget {
               if (purchases.isEmpty) {
                 return const _EmptyState();
               }
+              // Active coverage sorted by expiry ascending so the soonest-
+              // expiring coverage shows up first; everything else trails.
+              final sorted = [...purchases]
+                ..sort((a, b) {
+                  final aActive = a.status == WarrantyPurchaseStatus.active;
+                  final bActive = b.status == WarrantyPurchaseStatus.active;
+                  if (aActive && !bActive) return -1;
+                  if (!aActive && bActive) return 1;
+                  return a.expiresAt.compareTo(b.expiresAt);
+                });
               return Column(
-                children: purchases
+                children: sorted
                     .map((purchase) => _PurchaseCard(purchase: purchase))
                     .toList(),
               );
@@ -141,7 +152,10 @@ class _PurchaseCard extends ConsumerWidget {
             children: [
               Expanded(
                 child: Text(
-                  NumberFormat.simpleCurrency().format(purchase.price),
+                  // Money.format gracefully renders an em dash for zero/null
+                  // pricing so we never display "$NaN" when the upstream
+                  // record has no price (e.g. legacy / partial imports).
+                  purchase.price > 0 ? Money.format(purchase.price) : '—',
                   style: const TextStyle(
                     color: HavenColors.textPrimary,
                     fontSize: 14,
@@ -151,7 +165,7 @@ class _PurchaseCard extends ConsumerWidget {
               ),
               if (purchase.status == WarrantyPurchaseStatus.active)
                 TextButton(
-                  onPressed: () => _confirmCancel(context, ref, purchase.id),
+                  onPressed: () => _confirmCancel(context, ref, purchase),
                   child: const Text('Cancel'),
                 ),
             ],
@@ -161,15 +175,32 @@ class _PurchaseCard extends ConsumerWidget {
     );
   }
 
+  /// Shows the prorated refund estimate computed client-side from the
+  /// purchase price + remaining coverage. The server does the
+  /// authoritative refund, but rendering the estimate up-front avoids a
+  /// nasty surprise when a user expects "full refund" on a 50%-used plan.
+  String _refundEstimate(WarrantyPurchase purchase) {
+    if (purchase.price <= 0) return '—';
+    final now = DateTime.now();
+    final totalDays = purchase.expiresAt.difference(purchase.startsAt).inDays;
+    final remainingDays = purchase.expiresAt.difference(now).inDays;
+    if (totalDays <= 0 || remainingDays <= 0) return Money.format(0);
+    final fraction = remainingDays / totalDays;
+    final estimate = (purchase.price * fraction).clamp(0, purchase.price);
+    return Money.format(estimate);
+  }
+
   Future<void> _confirmCancel(
     BuildContext context,
     WidgetRef ref,
-    String id,
+    WarrantyPurchase purchase,
   ) async {
+    final estimate = _refundEstimate(purchase);
     final confirmed = await showHavenConfirmDialog(
       context,
       title: 'Cancel coverage?',
-      body: 'This will mark the warranty as cancelled.',
+      body:
+          'Estimated prorated refund: $estimate.\nThe carrier may apply additional fees. This action cannot be undone.',
       confirmLabel: 'Cancel Warranty',
       isDestructive: true,
     );
@@ -181,7 +212,9 @@ class _PurchaseCard extends ConsumerWidget {
       );
     }
     try {
-      await ref.read(warrantyPurchasesProvider.notifier).cancelPurchase(id);
+      await ref
+          .read(warrantyPurchasesProvider.notifier)
+          .cancelPurchase(purchase.id);
       if (context.mounted) {
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(

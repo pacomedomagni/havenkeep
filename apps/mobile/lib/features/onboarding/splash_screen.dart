@@ -4,11 +4,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lottie/lottie.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shared_ui/shared_ui.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/providers/homes_provider.dart';
 import '../../core/router/router.dart';
+import '../../core/services/logging_service.dart';
 import '../../core/widgets/havenkeep_logo.dart';
+
+/// SharedPreferences key for the cached "user has at least one home"
+/// answer. Lets the splash short-circuit to the right destination on
+/// cold-start instead of waiting for the homes query to resolve, which
+/// turns a 1.5-2s flash of splash into ~150ms (Ch05-F088).
+const _kHasHomeCacheKey = 'splash_has_home_cached';
 
 /// Splash screen — shown briefly while checking auth state.
 ///
@@ -44,7 +52,10 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
 
     _statusListener = (status) {
       if (status == AnimationStatus.completed) {
-        debugPrint('[Splash] Animation completed');
+        // Ch05-F075: route through the structured logger so splash
+        // navigation drops into the same telemetry pipeline as the rest
+        // of the app instead of being invisible to release builds.
+        LoggingService.debug('Splash animation completed');
         _fallbackTimer?.cancel();
         _animationComplete = true;
         _navigate();
@@ -55,7 +66,9 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
     // Fallback: mark animation as complete after 3s even if Lottie fails
     _fallbackTimer = Timer(const Duration(milliseconds: 3000), () {
       if (!_animationComplete) {
-        debugPrint('[Splash] Fallback timer fired — animation did not complete');
+        LoggingService.warn(
+          'Splash fallback timer fired — Lottie did not complete',
+        );
         _animationComplete = true;
         _navigate();
       }
@@ -81,7 +94,10 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
     if (_hasNavigated || !mounted) return;
 
     final isAuthenticated = ref.read(isAuthenticatedProvider);
-    debugPrint('[Splash] Navigating — isAuthenticated=$isAuthenticated');
+    LoggingService.debug(
+      'Splash navigating',
+      {'isAuthenticated': isAuthenticated},
+    );
 
     if (!isAuthenticated) {
       _hasNavigated = true;
@@ -89,19 +105,37 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
       return;
     }
 
-    // Wait for the homes query to resolve before navigating, so we route
-    // straight to the right destination (dashboard vs first-action) and
-    // skip the historical flicker from C101.
+    // Ch05-F088: prefer the cached answer so cold-start hits its
+    // destination in ~150ms instead of waiting on the homes query.
+    // Either a fresh API value (already resolved) or a cached boolean
+    // is fine — the homes provider keeps refreshing in the background
+    // and the router itself re-checks when the user lands.
     final hasHome = await _resolveHasHome();
     if (!mounted) return;
     _hasNavigated = true;
     context.go(hasHome ? AppRoutes.dashboard : AppRoutes.firstAction);
   }
 
-  /// Read [hasHomeProvider] until it has a value.
+  /// Read [hasHomeProvider] if it already has a value; otherwise fall
+  /// back to the cached boolean (Ch05-F088) and only block on the
+  /// network when we've never recorded an answer for this install.
   Future<bool> _resolveHasHome() async {
     final initial = ref.read(hasHomeProvider).valueOrNull;
-    if (initial != null) return initial;
+    if (initial != null) {
+      // Persist the latest answer so the next cold-start can use it
+      // without waiting on the network.
+      _cacheHasHome(initial);
+      return initial;
+    }
+
+    final cached = await _loadCachedHasHome();
+    if (cached != null) {
+      // Kick off a background revalidation so the cache stays honest
+      // for the next launch — fire and forget; the router refreshes
+      // on landing and any divergence will be reconciled there.
+      unawaited(_refreshHasHomeCache());
+      return cached;
+    }
 
     final completer = Completer<bool>();
     final sub = ref.listenManual<AsyncValue<bool>>(
@@ -116,7 +150,48 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
     );
 
     try {
-      return await completer.future;
+      final value = await completer.future;
+      await _cacheHasHome(value);
+      return value;
+    } finally {
+      sub.close();
+    }
+  }
+
+  Future<bool?> _loadCachedHasHome() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getBool(_kHasHomeCacheKey);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _cacheHasHome(bool value) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_kHasHomeCacheKey, value);
+    } catch (_) {
+      // Best-effort; nothing depends on the write succeeding.
+    }
+  }
+
+  Future<void> _refreshHasHomeCache() async {
+    final completer = Completer<bool>();
+    final sub = ref.listenManual<AsyncValue<bool>>(
+      hasHomeProvider,
+      (_, next) {
+        final value = next.valueOrNull;
+        if (value != null && !completer.isCompleted) {
+          completer.complete(value);
+        }
+      },
+      fireImmediately: false,
+    );
+    try {
+      final value = await completer.future
+          .timeout(const Duration(seconds: 5), onTimeout: () => false);
+      await _cacheHasHome(value);
     } finally {
       sub.close();
     }
@@ -124,6 +199,17 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
 
   @override
   Widget build(BuildContext context) {
+    // Ch05-F083: respect the OS "Reduce motion" toggle. When the user has
+    // animations disabled (vestibular triggers, screen-reader heuristics)
+    // we skip Lottie entirely and short-circuit straight to navigation
+    // so we don't strand them on a frozen splash.
+    final disableAnimations = MediaQuery.of(context).disableAnimations;
+    if (disableAnimations && !_animationComplete) {
+      _fallbackTimer?.cancel();
+      _animationComplete = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _navigate());
+    }
+
     return Scaffold(
       backgroundColor: HavenColors.background,
       body: Center(
@@ -134,24 +220,26 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
             SizedBox(
               width: 120,
               height: 120,
-              child: Lottie.asset(
-                'assets/lottie/splash_logo.json',
-                controller: _animController,
-                onLoaded: (composition) {
-                  _animController.duration = composition.duration;
-                  _animController.forward();
-                },
-                errorBuilder: (_, __, ___) {
-                  // Fallback to static logo if Lottie file not found.
-                  // Defer navigation to avoid calling setState/navigate during build.
-                  _fallbackTimer?.cancel();
-                  _animationComplete = true;
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    _navigate();
-                  });
-                  return const HavenKeepLogo(size: 80);
-                },
-              ),
+              child: disableAnimations
+                  ? const HavenKeepLogo(size: 80)
+                  : Lottie.asset(
+                      'assets/lottie/splash_logo.json',
+                      controller: _animController,
+                      onLoaded: (composition) {
+                        _animController.duration = composition.duration;
+                        _animController.forward();
+                      },
+                      errorBuilder: (_, __, ___) {
+                        // Fallback to static logo if Lottie file not found.
+                        // Defer navigation to avoid calling setState/navigate during build.
+                        _fallbackTimer?.cancel();
+                        _animationComplete = true;
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          _navigate();
+                        });
+                        return const HavenKeepLogo(size: 80);
+                      },
+                    ),
             ),
             const SizedBox(height: HavenSpacing.md),
             const Text(

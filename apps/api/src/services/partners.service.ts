@@ -248,6 +248,7 @@ export class PartnersService {
               to: user.email,
               partner_name: user.full_name || 'Partner',
               company_name: data.companyName,
+              partner_id: partner.id,
             });
           }
         })

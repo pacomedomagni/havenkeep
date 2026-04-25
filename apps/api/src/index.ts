@@ -200,6 +200,24 @@ function scheduleExpirationNotifications() {
   driftCheckTimer.unref();
 }
 
+// ── Notification digest tick (Ch04-F034) ─────────────────────────────────
+// Outbox rows enqueued by `NotificationsService.createNotification` are due
+// when `flush_at <= NOW()`; we tick every minute so the worst-case latency
+// past a user's `digest_minutes` window is one minute. The interval is
+// `unref()`'d so it doesn't hold the process alive on shutdown, and the
+// flush is guarded by an advisory lock so multi-instance deploys converge
+// on a single coalescer.
+const DIGEST_TICK_INTERVAL_MS = 60_000;
+const DIGEST_FLUSH_LOCK = 93422878;
+function startDigestTick(): void {
+  const timer = setInterval(() => {
+    runWithAdvisoryLock(DIGEST_FLUSH_LOCK, 'notification-digest-flush', async () => {
+      await NotificationsService.flushDigestOutbox();
+    }).catch((err) => logger.error({ err }, 'Digest flush tick failed'));
+  }, DIGEST_TICK_INTERVAL_MS);
+  timer.unref();
+}
+
 async function waitForDatabase(maxAttempts = 30, intervalMs = 1000): Promise<void> {
   // Ch11-I088: don't bind the HTTP port until the DB is reachable.
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -231,6 +249,7 @@ async function start() {
   });
 
   scheduleExpirationNotifications();
+  startDigestTick();
 }
 
 start().catch((err) => {

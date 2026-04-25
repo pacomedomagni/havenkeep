@@ -1,5 +1,12 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_models/shared_models.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+/// SharedPreferences key for the bulk-add walkthrough's resume cursor.
+/// Lets a user re-launch mid-setup and pick up at the same room
+/// (Ch05-F081). Cleared on `reset()` and on the success branch of
+/// `BulkAddCompleteScreen`.
+const kOnboardingStepKey = 'onboarding_step';
 
 /// Data class for a single item being added during bulk setup.
 class BulkAddItem {
@@ -295,7 +302,42 @@ class BulkAddState {
 
 /// Notifier for the bulk-add flow state.
 class BulkAddNotifier extends StateNotifier<BulkAddState> {
-  BulkAddNotifier() : super(const BulkAddState());
+  BulkAddNotifier() : super(const BulkAddState()) {
+    _restoreStep();
+  }
+
+  /// Restore the persisted room cursor so a user re-launching the app
+  /// mid-walkthrough lands back where they left off (Ch05-F081). The
+  /// per-room item selections themselves stay in memory; we don't
+  /// re-hydrate those because they'd race with whatever bulk_add
+  /// already committed and we'd risk doubling up server-side.
+  Future<void> _restoreStep() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getInt(kOnboardingStepKey);
+      if (saved == null) return;
+      if (saved <= 0 || saved >= kBulkAddRooms.length) return;
+      // Don't clobber an already-progressed in-memory state.
+      if (state.currentRoomIndex != 0) return;
+      state = state.copyWith(currentRoomIndex: saved);
+    } catch (_) {
+      // Prefs unavailable (e.g. tests without binding) — fall back to
+      // starting at the first room.
+    }
+  }
+
+  Future<void> _persistStep(int index) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (index <= 0) {
+        await prefs.remove(kOnboardingStepKey);
+      } else {
+        await prefs.setInt(kOnboardingStepKey, index);
+      }
+    } catch (_) {
+      // Best-effort persistence; nothing depends on the write.
+    }
+  }
 
   /// Set the home ID after creating the home.
   void setHomeId(String homeId) {
@@ -339,20 +381,27 @@ class BulkAddNotifier extends StateNotifier<BulkAddState> {
   /// Move to the next room.
   void nextRoom() {
     if (!state.isLastRoom) {
-      state = state.copyWith(currentRoomIndex: state.currentRoomIndex + 1);
+      final next = state.currentRoomIndex + 1;
+      state = state.copyWith(currentRoomIndex: next);
+      _persistStep(next);
     }
   }
 
   /// Move to the previous room.
   void previousRoom() {
     if (state.currentRoomIndex > 0) {
-      state = state.copyWith(currentRoomIndex: state.currentRoomIndex - 1);
+      final next = state.currentRoomIndex - 1;
+      state = state.copyWith(currentRoomIndex: next);
+      _persistStep(next);
     }
   }
 
   /// Reset the entire state.
   void reset() {
     state = const BulkAddState();
+    // Wipe the persisted resume cursor too so the next visit starts
+    // from room 0 instead of the last completed room.
+    _persistStep(0);
   }
 }
 

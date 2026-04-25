@@ -222,7 +222,7 @@ void main() {
 
       test('rethrows errors from API', () async {
         when(mockClient.delete(pathSegments: const ['api', 'v1', 'items', 'item-1']))
-            .thenThrow(ApiException(404, 'Not found'));
+            .thenThrow(ApiException.fromResponse(404, 'Not found'));
 
         expect(
           () => repository.deleteItem('item-1'),

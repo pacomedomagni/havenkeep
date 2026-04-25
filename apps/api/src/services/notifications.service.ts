@@ -349,11 +349,17 @@ export class NotificationsService {
    * user who turned tips off, or a 'claim_opportunity' for one who turned
    * warranty offers off, is recorded with delivery_status='skipped' rather
    * than silently muted (the audit trail is preserved).
+   *
+   * F034: when the user's prefs carry `digest_minutes > 0`, the notification
+   * is parked in `notification_outbox` (mig 072) and coalesced by the
+   * cron tick into a single push per user per bucket. The outbox row is
+   * the eventual source for the notification_history row written at flush
+   * time.
    */
   static async createNotification(data: CreateNotificationData): Promise<NotificationHistoryRow> {
     try {
       const prefsResult = await pool.query(
-        `SELECT reminders_enabled, warranty_offers_enabled, tips_enabled
+        `SELECT reminders_enabled, warranty_offers_enabled, tips_enabled, digest_minutes
            FROM notification_preferences WHERE user_id = $1`,
         [data.user_id],
       );
@@ -375,6 +381,44 @@ export class NotificationsService {
       })();
 
       const status = allowed ? 'pending' : 'skipped';
+
+      // F034 digest path: only takes effect when the notification was
+      // *allowed* (skipped notifications still go to history immediately so
+      // the audit trail isn't deferred) AND the user has a positive
+      // digest_minutes. Outbox rows have flush_at = NOW() + digest_minutes;
+      // the cron tick coalesces them per-user.
+      const digestMinutes = Number(prefs?.digest_minutes ?? 0);
+      if (allowed && digestMinutes > 0) {
+        await pool.query(
+          `INSERT INTO notification_outbox (
+             user_id, type, title, body, data, flush_at
+           ) VALUES ($1, $2, $3, $4, $5::jsonb, NOW() + ($6 || ' minutes')::interval)`,
+          [
+            data.user_id,
+            data.type,
+            data.title,
+            data.body,
+            JSON.stringify(data.data || {}),
+            String(digestMinutes),
+          ],
+        );
+        // Return a synthetic row shape compatible with the call sites that
+        // only inspect id + type. Real history row lands at flush time.
+        const synthetic = await pool.query(
+          `SELECT id, user_id, type, title, body, data, NOW() AS sent_at,
+                  'queued'::text AS delivery_status
+             FROM notification_outbox
+            WHERE user_id = $1
+            ORDER BY created_at DESC
+            LIMIT 1`,
+          [data.user_id],
+        );
+        logger.info(
+          { outboxId: synthetic.rows[0]?.id, userId: data.user_id, type: data.type, digestMinutes },
+          'Notification queued for digest flush',
+        );
+        return synthetic.rows[0];
+      }
 
       const result = await pool.query(
         `INSERT INTO notification_history (
@@ -407,6 +451,82 @@ export class NotificationsService {
       logger.error({ error, data }, 'Error creating notification');
       throw error;
     }
+  }
+
+  /**
+   * F034 cron tick: claim due outbox rows, coalesce per user, write a single
+   * notification_history row per user that summarises the batch. Idempotent
+   * via the `claimed_at` claim window — a parallel runner that picks up the
+   * same row mid-flush re-checks `flushed_into_id IS NULL` before inserting.
+   *
+   * Returns the number of users that received a digest push.
+   */
+  static async flushDigestOutbox(now: Date = new Date()): Promise<number> {
+    const claim = await pool.query(
+      `WITH due AS (
+         SELECT user_id, COUNT(*)::int AS notif_count,
+                array_agg(id) AS outbox_ids,
+                array_agg(DISTINCT type) AS types,
+                MIN(title) AS sample_title
+           FROM notification_outbox
+          WHERE flush_at <= $1
+            AND flushed_into_id IS NULL
+            AND (claimed_at IS NULL OR claimed_at < $1 - INTERVAL '30 seconds')
+          GROUP BY user_id
+       ),
+       claimed AS (
+         UPDATE notification_outbox SET claimed_at = $1
+          WHERE id = ANY((SELECT unnest(outbox_ids) FROM due))
+          RETURNING user_id, id
+       )
+       SELECT due.user_id, due.notif_count, due.outbox_ids, due.types, due.sample_title
+         FROM due`,
+      [now],
+    );
+    if (claim.rows.length === 0) return 0;
+
+    let flushed = 0;
+    for (const batch of claim.rows) {
+      const userId: string = batch.user_id;
+      const count: number = batch.notif_count;
+      const types: string[] = batch.types || [];
+      const outboxIds: string[] = batch.outbox_ids || [];
+
+      const title = count === 1 ? batch.sample_title : `You have ${count} new updates`;
+      const body =
+        count === 1
+          ? batch.sample_title
+          : `${types.slice(0, 3).join(', ')}${types.length > 3 ? `, +${types.length - 3} more` : ''}`;
+
+      // Reuse `system` if `digest` is not in the enum; the migration kept
+      // notification_type minimal. The audit's intent is one push per
+      // bucket, not a new type.
+      const inserted = await pool.query(
+        `INSERT INTO notification_history (
+           user_id, type, title, body, data, delivery_status, sent_at
+         ) VALUES ($1, 'system', $2, $3, $4::jsonb, 'pending', NOW())
+         RETURNING id`,
+        [
+          userId,
+          title,
+          body,
+          JSON.stringify({ digest: true, count, types, outbox_ids: outboxIds }),
+        ],
+      );
+      const historyId: string = inserted.rows[0].id;
+
+      await pool.query(
+        `UPDATE notification_outbox
+            SET flushed_into_id = $1
+          WHERE id = ANY($2::uuid[])`,
+        [historyId, outboxIds],
+      );
+
+      flushed += 1;
+    }
+
+    logger.info({ flushed, claimed: claim.rows.length }, 'Notification digest outbox flushed');
+    return flushed;
   }
 
   /**

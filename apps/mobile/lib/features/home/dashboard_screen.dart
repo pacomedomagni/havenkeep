@@ -44,13 +44,31 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   @override
   void initState() {
     super.initState();
-    SharedPreferences.getInstance().then((prefs) {
-      if (mounted) {
-        setState(() {
-          _tipDismissed = prefs.getBool('tip_dismissed') ?? false;
-        });
-      }
+    _loadTipState();
+  }
+
+  // Mounted-guarded async — if the screen is disposed before prefs resolve
+  // we avoid setState on a defunct State (F038).
+  Future<void> _loadTipState() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    setState(() {
+      _tipDismissed = prefs.getBool('tip_dismissed') ?? false;
     });
+  }
+
+  // Persist + revert pattern: await the prefs write so a failure rolls
+  // the dismiss back rather than leaving UI/state diverged from storage
+  // (F039).
+  Future<void> _dismissTip() async {
+    setState(() => _tipDismissed = true);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('tip_dismissed', true);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _tipDismissed = false);
+    }
   }
 
   String _getGreeting() {
@@ -496,10 +514,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             ),
           ),
           GestureDetector(
-            onTap: () {
-              setState(() => _tipDismissed = true);
-              SharedPreferences.getInstance().then((prefs) => prefs.setBool('tip_dismissed', true));
-            },
+            onTap: _dismissTip,
             child: const Icon(
               Icons.close,
               size: 18,
@@ -685,15 +700,26 @@ class _CommunitySavingsCard extends ConsumerWidget {
         for (int i = 0; i < entries.length; i++) ...[
           _SavingsEntry(
             itemName: entries[i]['item_name'] as String? ?? 'their item',
-            amount: entries[i]['amount'] is num
-                ? (entries[i]['amount'] as num).toDouble()
-                : double.tryParse(entries[i]['amount']?.toString() ?? '0') ?? 0,
+            amount: _parseAmount(entries[i]['amount']),
           ),
           if (i < entries.length - 1)
             const Divider(height: 1, color: HavenColors.border),
         ],
       ],
     );
+  }
+
+  // Single-pass amount parse with explicit fallthrough — the previous
+  // double-parse (`is num` *and* `tryParse`) silently rendered "$0" when
+  // payload shape drifted (F042).
+  static double _parseAmount(Object? raw) {
+    if (raw is num) return raw.toDouble();
+    if (raw is String) {
+      final v = double.tryParse(raw);
+      if (v != null) return v;
+    }
+    debugPrint('[CommunitySavings] unexpected amount payload: $raw');
+    return 0;
   }
 }
 
@@ -902,7 +928,11 @@ class _NotificationBell extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final unreadCount = ref.watch(unreadNotificationCountProvider).valueOrNull ?? 0;
 
+    // Surface the badge count to screen readers (F043).
     return IconButton(
+      tooltip: unreadCount > 0
+          ? '$unreadCount unread notifications'
+          : 'Notifications',
       icon: Stack(
         clipBehavior: Clip.none,
         children: [

@@ -99,12 +99,13 @@ class MilestoneBanner extends ConsumerWidget {
           view: view,
           onDismiss: () async {
             final prefs = await SharedPreferences.getInstance();
-            final seen =
-                prefs.getStringList('milestones_seen') ?? <String>[];
-            if (!seen.contains(view.milestone.id)) {
-              seen.add(view.milestone.id);
-              await prefs.setStringList('milestones_seen', seen);
-            }
+            // Use Set semantics so a double-tap can't write a duplicated
+            // id list (F045).
+            final seen = <String>{
+              ...?prefs.getStringList('milestones_seen'),
+              view.milestone.id,
+            };
+            await prefs.setStringList('milestones_seen', seen.toList());
             ref.invalidate(milestoneBannerProvider);
           },
         );

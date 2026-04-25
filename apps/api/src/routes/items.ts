@@ -452,21 +452,44 @@ router.post('/', writeRateLimiter, validate(createItemSchema), asyncHandler(asyn
     }
     const warrantyEndDate = addMonthsSafe(purchaseDateObj, warrantyMonths);
 
+    // Audit Ch08-D017: seed `estimated_repair_cost` from category_defaults
+    // when the create payload doesn't carry one. Health score and the
+    // savings_feed both depend on it; without a seed value they crater for
+    // brand-new items. Lookup is best-effort — if the row is missing or the
+    // category isn't in the table, the column stays NULL.
+    let seededRepairCost: number | null = null;
+    if (req.body.estimatedRepairCost === undefined) {
+      try {
+        const defaults = await client.query(
+          `SELECT estimated_repair_cost FROM category_defaults WHERE category = $1`,
+          [category],
+        );
+        if (defaults.rows[0]?.estimated_repair_cost != null) {
+          seededRepairCost = Number(defaults.rows[0].estimated_repair_cost);
+        }
+      } catch {
+        // category_defaults absent in some test fixtures; fall through.
+      }
+    }
+    const estimatedRepairCost = req.body.estimatedRepairCost ?? seededRepairCost;
+
     const result = await client.query(
       `INSERT INTO items (
         user_id, home_id, name, brand, model_number, serial_number,
         category, room, purchase_date, store, price,
         warranty_months, warranty_end_date, warranty_type, warranty_provider, notes,
         product_image_url, barcode, added_via,
-        installation_date, last_maintenance_date, next_maintenance_due
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+        installation_date, last_maintenance_date, next_maintenance_due,
+        estimated_repair_cost
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
       RETURNING ${ITEM_LIST_COLUMNS}`,
       [
         req.user!.id, homeId, name, brand, modelNumber, serialNumber,
         category, room, purchaseDate, store, price,
         warrantyMonths, warrantyEndDate, warrantyType,
         warrantyProvider, notes, productImageUrl, barcode, addedVia || 'manual',
-        installationDate || null, lastMaintenanceDate || null, nextMaintenanceDue || null
+        installationDate || null, lastMaintenanceDate || null, nextMaintenanceDue || null,
+        estimatedRepairCost,
       ]
     );
 

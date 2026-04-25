@@ -61,21 +61,27 @@ final currentUserProvider =
 );
 
 class CurrentUserNotifier extends AsyncNotifier<User?> {
-  /// Flag to skip the auto-rebuild when we've already set the user
-  /// from a sign-up/sign-in method (avoids race condition).
-  bool _skipNextRebuild = false;
-
   @override
   Future<User?> build() async {
-    // Re-fetch when auth state changes
-    ref.watch(authStateProvider);
-
-    // If we just set the user manually from sign-up/sign-in,
-    // skip the rebuild to avoid a race where profile isn't yet in DB.
-    if (_skipNextRebuild) {
-      _skipNextRebuild = false;
-      return state.valueOrNull;
-    }
+    // Listen (not watch) the auth stream so we don't re-trigger build()
+    // on every emission. Direct sign-in / sign-up handlers in this
+    // notifier already set `state` themselves; the stream listener
+    // exists only to clear the user on sign-out events that originate
+    // outside the notifier (e.g. server force-revoke). This replaces
+    // the previous `_skipNextRebuild` flag, which was a workaround for
+    // the same race where post-sign-up the profile wasn't yet visible
+    // to /users/me (C116).
+    ref.listen<AsyncValue<ApiAuthState>>(authStateProvider, (previous, next) {
+      final value = next.valueOrNull;
+      if (value == ApiAuthState.signedOut) {
+        if (state.valueOrNull != null) {
+          state = const AsyncValue.data(null);
+        }
+      }
+      // signedIn / tokenRefreshed: leave state alone — sign-in handlers
+      // already populated it, and a token refresh doesn't change the
+      // user identity.
+    });
 
     final repo = ref.read(authRepositoryProvider);
     if (!repo.isAuthenticated) return null;
@@ -115,7 +121,6 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
         referralCode: referralCode,
       );
 
-      _skipNextRebuild = true;
       state = AsyncValue.data(user);
 
       // Register push token after signup
@@ -144,7 +149,6 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
         password: password,
       );
 
-      _skipNextRebuild = true;
       state = AsyncValue.data(user);
 
       // Register push token after login
@@ -174,7 +178,6 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
     try {
       final user = await repo.signInWithGoogle(idToken: idToken);
 
-      _skipNextRebuild = true;
       state = AsyncValue.data(user);
 
       if (user != null) {
@@ -209,7 +212,6 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
         fullName: fullName,
       );
 
-      _skipNextRebuild = true;
       state = AsyncValue.data(user);
 
       if (user != null) {
@@ -261,7 +263,6 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
     // Invalidate all data providers to prevent stale data between accounts
     _safeInvalidateAll();
 
-    _skipNextRebuild = false;
     state = const AsyncValue.data(null);
   }
 
@@ -278,7 +279,6 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
             fullName: fullName,
             avatarUrl: avatarUrl,
           );
-      _skipNextRebuild = true;
       state = AsyncValue.data(user);
     } catch (e, st) {
       // Restore the previously rendered user so the UI keeps showing
@@ -323,7 +323,6 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
     await ref.read(authRepositoryProvider).deleteAccount(password: password);
     await _wipeLocalState(userId: userId);
     _safeInvalidateAll();
-    _skipNextRebuild = false;
     state = const AsyncValue.data(null);
   }
 
@@ -333,7 +332,6 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
     await ref.read(authRepositoryProvider).deleteOAuthAccount();
     await _wipeLocalState(userId: userId);
     _safeInvalidateAll();
-    _skipNextRebuild = false;
     state = const AsyncValue.data(null);
   }
 
@@ -365,7 +363,6 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
     // Invalidate all data providers to prevent stale data between accounts
     _safeInvalidateAll();
 
-    _skipNextRebuild = false;
     state = const AsyncValue.data(null);
   }
 

@@ -43,6 +43,7 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
   bool _isLoading = false;
   bool _obscurePassword = true;
   bool _loginFailed = false;
+  String? _pendingReferralCode;
 
   @override
   void initState() {
@@ -51,14 +52,26 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
     // to `/welcome?pendingReferral=$code` (C102) so the auth gate runs
     // before any account is created. Persist the code now so the email
     // sign-up below picks it up just like the handler screen used to.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       final code = GoRouterState.of(context)
           .uri
           .queryParameters['pendingReferral'];
-      if (code != null && code.isNotEmpty) {
-        SharedPreferences.getInstance().then((prefs) {
-          prefs.setString('referral_code', code);
-        });
+      // Ch05-F079: surface the pending referral in the UI as well — a
+      // silent persistence misses the chance to confirm the user
+      // landed via the right code, and a failed/garbled code stays
+      // invisible until they try to sign up.
+      String? resolved = (code != null && code.isNotEmpty) ? code : null;
+      final prefs = await SharedPreferences.getInstance();
+      if (resolved != null) {
+        await prefs.setString('referral_code', resolved);
+      } else {
+        // Show any code already stored from a prior referral handler
+        // visit so the banner stays consistent across cold starts.
+        resolved = prefs.getString('referral_code');
+      }
+      if (!mounted) return;
+      if (resolved != null && resolved.isNotEmpty) {
+        setState(() => _pendingReferralCode = resolved);
       }
     });
   }
@@ -301,6 +314,14 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
                   ),
                 ),
 
+                // Ch05-F079: confirm the pending referral up front so the
+                // user knows the deep link landed and can keep the
+                // attribution honest if they hand off devices.
+                if (_pendingReferralCode != null) ...[
+                  const SizedBox(height: HavenSpacing.md),
+                  _buildReferralBanner(_pendingReferralCode!),
+                ],
+
                 const SizedBox(height: HavenSpacing.xl),
 
                 // Auth buttons. Apple Sign-In is shown on every platform —
@@ -356,6 +377,48 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildReferralBanner(String code) {
+    return Semantics(
+      container: true,
+      liveRegion: true,
+      label: 'Referral code applied: $code',
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: HavenSpacing.md,
+          vertical: HavenSpacing.sm,
+        ),
+        decoration: BoxDecoration(
+          color: HavenColors.active.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(HavenRadius.button),
+          border: Border.all(
+            color: HavenColors.active.withValues(alpha: 0.4),
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.card_giftcard,
+              color: HavenColors.active,
+              size: 18,
+            ),
+            const SizedBox(width: HavenSpacing.sm),
+            Flexible(
+              child: Text(
+                'Referral $code applied',
+                style: const TextStyle(
+                  color: HavenColors.active,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );

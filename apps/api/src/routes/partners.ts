@@ -18,6 +18,7 @@ import { activationCodeRateLimiter, writeRateLimiter, giftResendRateLimiter } fr
 import { AuditService } from '../services/audit.service';
 import { AppError } from '../utils/errors';
 import { sendSuccess, sendMessage } from '../utils/response';
+import { verifyPartnerEmailPixelHmac } from '../services/email.service';
 import { getRedisClient } from '../utils/redis';
 import { logger } from '../utils/logger';
 
@@ -194,6 +195,39 @@ router.post(
     );
     sendMessage(res, 'App download tracked');
   })
+);
+
+/**
+ * @route   GET /api/v1/partners/:id/track/welcome-open
+ * @desc    1x1 tracking pixel embedded in the partner welcome email.
+ * @access  Public (HMAC-verified via `?t=` query param — Ch03-F083/F084)
+ */
+router.get(
+  '/:id/track/welcome-open',
+  validate(uuidParamSchema, 'params'),
+  asyncHandler(async (req, res) => {
+    const token = (req.query.t as string | undefined) ?? '';
+    const partnerId = req.params.id;
+    const validHmac = token.length > 0 && verifyPartnerEmailPixelHmac(partnerId, 'welcome', token);
+    // Constant-200 + 1x1 pixel regardless of validity so a probe can't
+    // distinguish "good token" from "wrong token" by status code (matches
+    // the gift-pixel pattern in this file).
+    if (validHmac) {
+      await pool.query(
+        `UPDATE partners
+         SET welcome_email_opened_at = COALESCE(welcome_email_opened_at, NOW())
+         WHERE id = $1`,
+        [partnerId],
+      );
+    }
+    const pixel = Buffer.from(
+      'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
+      'base64',
+    );
+    res.setHeader('Content-Type', 'image/gif');
+    res.setHeader('Cache-Control', 'no-store');
+    res.end(pixel);
+  }),
 );
 
 // ========== PROTECTED ROUTES (authentication required) ==========

@@ -32,40 +32,19 @@ class PushNotificationService {
 
   PushNotificationService(this._ref);
 
-  /// Initialize the push notification system.
-  ///
-  /// Call this once after Firebase has been initialized and the user is
-  /// authenticated.
+  /// Initialize the push notification system *streams* (foreground,
+  /// background tap, terminated-launch) and check for any pending
+  /// notification tap, but **do not** trigger the system prompt yet —
+  /// that's deferred until the user has added their first item
+  /// (Ch05-F077). Call this once after Firebase has been initialized
+  /// and the user is authenticated.
   Future<void> initialize() async {
     try {
       final messaging = FirebaseMessaging.instance;
 
-      // Request permission (iOS will show a dialog; Android auto-grants)
-      final settings = await messaging.requestPermission(
-        alert: true,
-        badge: true,
-        sound: true,
-        provisional: false,
-      );
-
-      debugPrint(
-        '[Push] Permission status: ${settings.authorizationStatus}',
-      );
-
-      if (settings.authorizationStatus == AuthorizationStatus.denied) {
-        debugPrint('[Push] User denied notification permission.');
-        return;
-      }
-
-      // Get the FCM token
-      final token = await messaging.getToken();
-      if (token != null) {
-        if (kDebugMode) {
-          debugPrint('[Push] FCM Token: ${token.substring(0, 20)}...');
-        }
-      }
-
-      // Listen for token refresh
+      // Listen for token refresh — this is cheap and doesn't trigger
+      // the permission prompt; the token only materialises once the
+      // user has actually granted permission.
       _subscriptions.add(
         messaging.onTokenRefresh.listen(
           (newToken) {
@@ -113,6 +92,43 @@ class PushNotificationService {
       // Firebase may not be configured yet (placeholder keys).
       // Fail silently so the app still works without push.
       debugPrint('[Push] Initialization failed (expected with stub config): $e');
+    }
+  }
+
+  /// Trigger the OS notification permission prompt and pull the FCM
+  /// token. Idempotent — once the user has answered the system prompt
+  /// we won't ask again, and this method is safe to call repeatedly
+  /// (e.g. after every "Add item" success).
+  ///
+  /// Ch05-F077: surfacing the prompt at this point — right after a
+  /// concrete moment of value (the first saved warranty) — converts
+  /// far better than the historical "ask on splash" flow that
+  /// front-loaded a permission with no context.
+  Future<void> requestPermissionAndRegisterToken() async {
+    try {
+      final messaging = FirebaseMessaging.instance;
+      final settings = await messaging.requestPermission(
+        alert: true,
+        badge: true,
+        sound: true,
+        provisional: false,
+      );
+
+      debugPrint(
+        '[Push] Permission status: ${settings.authorizationStatus}',
+      );
+
+      if (settings.authorizationStatus == AuthorizationStatus.denied) {
+        debugPrint('[Push] User denied notification permission.');
+        return;
+      }
+
+      final token = await messaging.getToken();
+      if (token != null && kDebugMode) {
+        debugPrint('[Push] FCM Token: ${token.substring(0, 20)}...');
+      }
+    } catch (e) {
+      debugPrint('[Push] requestPermissionAndRegisterToken failed: $e');
     }
   }
 

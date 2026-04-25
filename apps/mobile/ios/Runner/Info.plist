@@ -69,10 +69,26 @@
 		<dict>
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.flokou.havenkeep.google</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<!-- TODO: Replace with reversed Google Client ID from GoogleService-Info.plist -->
 				<string>com.googleusercontent.apps.REPLACE-WITH-CLIENT-ID</string>
+			</array>
+		</dict>
+		<!-- Custom scheme so havenkeep://gift/<code> opens the app. The
+		     in-app handler lives in DeepLinkService. Universal Links for
+		     https://havenkeep.com/gift/<code> are configured separately
+		     via the Associated Domains entitlement (Runner.entitlements). -->
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.flokou.havenkeep.deeplink</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>havenkeep</string>
 			</array>
 		</dict>
 	</array>

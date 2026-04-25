@@ -54,10 +54,9 @@ class _BulkAddCompleteScreenState
       _failedItems.clear();
     });
 
-    // Create items one by one, tracking individual success/failure
-    for (final bulkItem in allItems) {
-      try {
-        final item = Item(
+    final items = [
+      for (final bulkItem in allItems)
+        Item(
           id: '',
           homeId: homeId,
           userId: user.id,
@@ -74,20 +73,40 @@ class _BulkAddCompleteScreenState
           addedVia: ItemAddedVia.bulk_setup,
           createdAt: DateTime.now(),
           updatedAt: DateTime.now(),
-        );
-        await ref.read(itemsProvider.notifier).addItem(item);
-        if (mounted) {
-          setState(() => _savedCount++);
-        }
-      } catch (e) {
-        if (mounted) {
-          setState(() => _failedItems.add(bulkItem.name));
-        }
-      }
-    }
+        ),
+    ];
 
-    if (mounted) {
-      setState(() => _isSaving = false);
+    try {
+      // ItemsNotifier.addItems re-checks the free-plan quota per item
+      // (C114), so a free-plan user adding more than the cap during
+      // bulk setup gets accurate per-item failure attribution instead
+      // of a misleading "all saved" count.
+      final created = await ref.read(itemsProvider.notifier).addItems(items);
+      if (mounted) {
+        setState(() {
+          _savedCount = created.length;
+          _isSaving = false;
+        });
+      }
+    } on BulkAddPartialFailure catch (failure) {
+      if (mounted) {
+        setState(() {
+          _savedCount = failure.succeeded.length;
+          _failedItems
+            ..clear()
+            ..addAll(failure.failed.map((i) => i.name));
+          _isSaving = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _failedItems
+            ..clear()
+            ..addAll(allItems.map((i) => i.name));
+          _isSaving = false;
+        });
+      }
     }
   }
 
@@ -98,20 +117,20 @@ class _BulkAddCompleteScreenState
     if (user == null || homeId == null) return;
 
     final failedNames = List<String>.from(_failedItems);
-    final allItems = bulkState.allItems
+    final retryBulk = bulkState.allItems
         .where((i) => failedNames.contains(i.name))
         .toList();
 
     setState(() {
       _isSaving = true;
-      _totalCount = allItems.length;
+      _totalCount = retryBulk.length;
       _savedCount = 0;
       _failedItems.clear();
     });
 
-    for (final bulkItem in allItems) {
-      try {
-        final item = Item(
+    final items = [
+      for (final bulkItem in retryBulk)
+        Item(
           id: '',
           homeId: homeId,
           userId: user.id,
@@ -128,20 +147,36 @@ class _BulkAddCompleteScreenState
           addedVia: ItemAddedVia.bulk_setup,
           createdAt: DateTime.now(),
           updatedAt: DateTime.now(),
-        );
-        await ref.read(itemsProvider.notifier).addItem(item);
-        if (mounted) {
-          setState(() => _savedCount++);
-        }
-      } catch (e) {
-        if (mounted) {
-          setState(() => _failedItems.add(bulkItem.name));
-        }
-      }
-    }
+        ),
+    ];
 
-    if (mounted) {
-      setState(() => _isSaving = false);
+    try {
+      final created = await ref.read(itemsProvider.notifier).addItems(items);
+      if (mounted) {
+        setState(() {
+          _savedCount = created.length;
+          _isSaving = false;
+        });
+      }
+    } on BulkAddPartialFailure catch (failure) {
+      if (mounted) {
+        setState(() {
+          _savedCount = failure.succeeded.length;
+          _failedItems
+            ..clear()
+            ..addAll(failure.failed.map((i) => i.name));
+          _isSaving = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _failedItems
+            ..clear()
+            ..addAll(retryBulk.map((i) => i.name));
+          _isSaving = false;
+        });
+      }
     }
   }
 

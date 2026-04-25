@@ -82,6 +82,11 @@ void main() {
     when(mockDb.getQueueSize()).thenAnswer((_) async => 0);
     // Stub stale-entry cleanup used by syncPendingChanges
     when(mockDb.removeEntriesOlderThan(any)).thenAnswer((_) async {});
+    // Default stub for the auth-gated sync triggered when start() runs
+    // with `fireImmediately: true` against the authenticated override.
+    // Per-test overrides re-stub this when they need a different list.
+    when(mockDb.getPendingActions()).thenAnswer((_) async => []);
+    when(mockDb.clearSyncedActions()).thenAnswer((_) async {});
 
     final ref = container.read(_testRefProvider);
     service = OfflineSyncService(mockDb, ref);

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -41,46 +43,71 @@ class ItemsScreen extends ConsumerStatefulWidget {
 class _ItemsScreenState extends ConsumerState<ItemsScreen> {
   final _searchController = TextEditingController();
   String _searchQuery = '';
+  Timer? _searchDebounce;
   final Set<ItemRoom?> _collapsedRooms = {};
   bool _didApplyRouteFilter = false;
   final Set<String> _archivingIds = {};
 
+  // Debounce keystrokes by 300ms so the filter cascade doesn't run on every
+  // character at 60fps (F061).
+  static const _searchDebounceDuration = Duration(milliseconds: 300);
+
   @override
   void initState() {
     super.initState();
-    _searchController.addListener(() {
-      setState(() {
-        _searchQuery = _searchController.text.trim().toLowerCase();
-      });
+    _searchController.addListener(_onSearchChanged);
+  }
+
+  void _onSearchChanged() {
+    _searchDebounce?.cancel();
+    final raw = _searchController.text.trim().toLowerCase();
+    if (raw == _searchQuery) return;
+    _searchDebounce = Timer(_searchDebounceDuration, () {
+      if (!mounted) return;
+      setState(() => _searchQuery = raw);
     });
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // Check for initial filter passed via route extra (only once)
+    // Apply route-extra filter only once, and only if the user hasn't
+    // already curated a filter set — otherwise dashboard-driven nav would
+    // silently overwrite a manual selection (F057).
     if (!_didApplyRouteFilter) {
+      _didApplyRouteFilter = true;
       final extra = GoRouterState.of(context).extra;
       if (extra is Map<String, dynamic> && extra.containsKey('filter')) {
-        final filterStr = extra['filter'] as String;
-        final status = WarrantyStatus.values.where((s) => s.name == filterStr);
-        if (status.isNotEmpty) {
-          ref.read(itemsFilterProvider.notifier).state = {status.first};
+        final existing = ref.read(itemsFilterProvider);
+        if (existing.isEmpty) {
+          final filterStr = extra['filter'] as String;
+          final status = WarrantyStatus.values.where((s) => s.name == filterStr);
+          if (status.isNotEmpty) {
+            // Defer the provider write until after the current frame so we
+            // don't mutate state during dependency resolution.
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!mounted) return;
+              ref.read(itemsFilterProvider.notifier).state = {status.first};
+            });
+          }
         }
       }
-      _didApplyRouteFilter = true;
     }
   }
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
+    _searchController.removeListener(_onSearchChanged);
     _searchController.dispose();
     super.dispose();
   }
 
-  List<Item> _applyFilters(List<Item> items) {
+  List<Item> _applyFilters(
+    List<Item> items,
+    Set<WarrantyStatus> activeFilters,
+  ) {
     var filtered = items.where((item) => !item.isArchived).toList();
-    final activeFilters = ref.read(itemsFilterProvider);
 
     // Apply search
     if (_searchQuery.isNotEmpty) {
@@ -104,9 +131,8 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
     return filtered;
   }
 
-  List<Item> _applySorting(List<Item> items) {
+  List<Item> _applySorting(List<Item> items, ItemSortMode sortMode) {
     final sorted = List<Item>.from(items);
-    final sortMode = ref.read(itemsSortProvider);
     switch (sortMode) {
       case ItemSortMode.warrantyExpiry:
         sorted.sort((a, b) =>
@@ -222,7 +248,7 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
     final itemsAsync = ref.watch(itemsProvider);
     final itemCountAsync = ref.watch(activeItemCountProvider);
     final activeFilters = ref.watch(itemsFilterProvider);
-    ref.watch(itemsSortProvider);
+    final sortMode = ref.watch(itemsSortProvider);
 
     return Scaffold(
       backgroundColor: HavenColors.background,
@@ -245,8 +271,8 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
             return _buildEmptyState();
           }
 
-          final filtered = _applyFilters(allItems);
-          final sorted = _applySorting(filtered);
+          final filtered = _applyFilters(allItems, activeFilters);
+          final sorted = _applySorting(filtered, sortMode);
           final itemCount = itemCountAsync.value ?? 0;
           // Soft warn when approaching limit (1 item before cap)
           final showLimitBanner = itemCount >= kFreePlanItemLimit - 1;
@@ -377,6 +403,9 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
                     ref.invalidate(itemsProvider);
                     await ref.read(itemsProvider.future);
                   },
+                  // Re-key only on filter/sort changes — debounced search
+                  // already prevents per-keystroke rebuilds, and the
+                  // sub-tree handles its own scroll preservation (F060).
                   child: AnimatedSwitcher(
                     duration: const Duration(milliseconds: 220),
                     switchInCurve: Curves.easeOutCubic,
@@ -387,7 +416,7 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
                     ),
                     child: KeyedSubtree(
                       key: ValueKey(
-                        '${_searchQuery}_${activeFilters.join(",")}_${ref.watch(itemsSortProvider).name}',
+                        '${activeFilters.join(",")}_${sortMode.name}',
                       ),
                       child: sorted.isEmpty
                           ? _buildNoResults()
@@ -507,21 +536,35 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
         return a.displayLabel.compareTo(b.displayLabel);
       });
 
+    // Flatten headers + items into a single flat list so ListView.builder
+    // can virtualize across rooms — collapsing a room contributes only its
+    // header to the index space (F062).
+    final flat = <_FlatRow>[];
+    for (final room in sortedRooms) {
+      final roomItems = grouped[room]!;
+      flat.add(_FlatRow.header(room: room, count: roomItems.length));
+      if (!_collapsedRooms.contains(room)) {
+        for (final item in roomItems) {
+          flat.add(_FlatRow.item(item));
+        }
+        // Trailing spacer per room.
+        flat.add(_FlatRow.spacer());
+      }
+    }
+
     return ListView.builder(
       padding: const EdgeInsets.symmetric(horizontal: HavenSpacing.md),
-      itemCount: sortedRooms.length,
+      itemCount: flat.length,
       itemBuilder: (context, index) {
-        final room = sortedRooms[index];
-        final roomItems = grouped[room]!;
-        final isCollapsed = _collapsedRooms.contains(room);
-        final roomLabel = room?.displayLabel ?? 'Unassigned';
-
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SectionHeader(
+        final row = flat[index];
+        switch (row.kind) {
+          case _FlatRowKind.header:
+            final room = row.room;
+            final isCollapsed = _collapsedRooms.contains(room);
+            final roomLabel = room?.displayLabel ?? 'Unassigned';
+            return SectionHeader(
               title: roomLabel,
-              count: roomItems.length,
+              count: row.count,
               trailing: AnimatedRotation(
                 turns: isCollapsed ? -0.25 : 0,
                 duration: const Duration(milliseconds: 220),
@@ -542,27 +585,12 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
                   }
                 });
               },
-            ),
-            AnimatedSize(
-              duration: const Duration(milliseconds: 240),
-              curve: Curves.easeOutCubic,
-              alignment: Alignment.topCenter,
-              child: AnimatedOpacity(
-                duration: const Duration(milliseconds: 180),
-                opacity: isCollapsed ? 0 : 1,
-                child: isCollapsed
-                    ? const SizedBox.shrink()
-                    : Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          ...roomItems.map((item) => _buildItemCard(item)),
-                          const SizedBox(height: HavenSpacing.md),
-                        ],
-                      ),
-              ),
-            ),
-          ],
-        );
+            );
+          case _FlatRowKind.item:
+            return _buildItemCard(row.item!);
+          case _FlatRowKind.spacer:
+            return const SizedBox(height: HavenSpacing.md);
+        }
       },
     );
   }
@@ -578,17 +606,34 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
           if (_archivingIds.contains(item.id)) return false;
           _archivingIds.add(item.id);
 
+          // Surface failures to the user so the swipe doesn't appear to
+          // succeed silently when the API rejected the archive (F059).
+          Object? archiveError;
           try {
             await ref.read(itemsProvider.notifier).archiveItem(item.id)
                 .timeout(const Duration(seconds: 15));
+          } catch (e) {
+            archiveError = e;
           } finally {
             _archivingIds.remove(item.id);
           }
           if (!mounted) return false;
 
+          final messenger = ScaffoldMessenger.of(context);
+          messenger.clearSnackBars();
+
+          if (archiveError != null) {
+            messenger.showSnackBar(
+              SnackBar(
+                content: Text(ErrorHandler.getUserMessage(archiveError)),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+            return false;
+          }
+
           final displayName = '${item.brand ?? ''} ${item.name}'.trim();
-          ScaffoldMessenger.of(context).clearSnackBars();
-          ScaffoldMessenger.of(context).showSnackBar(
+          messenger.showSnackBar(
             SnackBar(
               content: Text('$displayName archived'),
               behavior: SnackBarBehavior.floating,
@@ -698,6 +743,25 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
       ),
     );
   }
+}
+
+/// Lightweight discriminator for the flat-virtualized grouped list.
+enum _FlatRowKind { header, item, spacer }
+
+class _FlatRow {
+  final _FlatRowKind kind;
+  final ItemRoom? room;
+  final int count;
+  final Item? item;
+
+  const _FlatRow._(this.kind, this.room, this.count, this.item);
+
+  factory _FlatRow.header({required ItemRoom? room, required int count}) =>
+      _FlatRow._(_FlatRowKind.header, room, count, null);
+  factory _FlatRow.item(Item item) =>
+      _FlatRow._(_FlatRowKind.item, null, 0, item);
+  factory _FlatRow.spacer() =>
+      const _FlatRow._(_FlatRowKind.spacer, null, 0, null);
 }
 
 /// A filter chip for the status filter row.

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -9,6 +10,7 @@ import '../../core/providers/auth_provider.dart';
 import '../../core/providers/homes_provider.dart';
 import '../../core/providers/items_provider.dart';
 import '../../core/utils/error_handler.dart';
+import '../../core/utils/price_parser.dart';
 import '../../core/widgets/celebration_overlay.dart';
 import '../../core/widgets/haven_loader.dart';
 import '../../core/utils/haven_haptics.dart';
@@ -54,7 +56,10 @@ class _QuickAddScreenState extends ConsumerState<QuickAddScreen> {
     super.dispose();
   }
 
-  bool get _isFormValid => _brand.isNotEmpty && _purchaseDate != null;
+  bool get _isFormValid =>
+      // Trim before checking so trailing whitespace doesn't satisfy the
+      // brand requirement (Ch05-F019).
+      _brand.trim().isNotEmpty && _purchaseDate != null;
 
   Future<void> _pickDate() async {
     HavenHaptics.tap();
@@ -80,7 +85,8 @@ class _QuickAddScreenState extends ConsumerState<QuickAddScreen> {
     );
     if (picked != null) {
       setState(() {
-        _purchaseDate = picked;
+        // Local midnight (Ch05-F005).
+        _purchaseDate = DateTime(picked.year, picked.month, picked.day);
       });
     }
   }
@@ -108,16 +114,22 @@ class _QuickAddScreenState extends ConsumerState<QuickAddScreen> {
         return;
       }
 
+      // Use the locale-aware price parser so "1,99" doesn't silently drop
+      // (Ch05-F009).
       final price = _priceController.text.isNotEmpty
-          ? double.tryParse(_priceController.text)
+          ? parsePriceInput(_priceController.text)
           : null;
+
+      // Ch05-F019: trim before persisting so trailing whitespace from
+      // the autocomplete field doesn't fork the brand index.
+      final brand = _brand.trim();
 
       final item = Item(
         id: '',
         homeId: home.id,
         userId: user.id,
         name: _category.displayLabel,
-        brand: _brand.isNotEmpty ? _brand : null,
+        brand: brand.isNotEmpty ? brand : null,
         modelNumber: _modelController.text.trim().isNotEmpty
             ? _modelController.text.trim()
             : null,
@@ -151,7 +163,7 @@ class _QuickAddScreenState extends ConsumerState<QuickAddScreen> {
             title: '🎉 Great start!',
             subtitle: 'Your first item is protected. Keep adding to build your warranty vault.',
             onDismiss: () {
-              context.go('/add-item/success/${newItem.id}');
+              context.go('/add-item/success/${newItem.id}', extra: newItem);
             },
           );
         } else {
@@ -164,7 +176,7 @@ class _QuickAddScreenState extends ConsumerState<QuickAddScreen> {
               backgroundColor: HavenColors.active,
             ),
           );
-          context.go('/add-item/success/${newItem.id}');
+          context.go('/add-item/success/${newItem.id}', extra: newItem);
         }
       }
     } catch (e) {
@@ -183,36 +195,40 @@ class _QuickAddScreenState extends ConsumerState<QuickAddScreen> {
   @override
   Widget build(BuildContext context) {
     final brandsAsync = ref.watch(brandSuggestionsProvider(_category));
-    final categoryDefaultsAsync = ref.watch(categoryDefaultsProvider);
 
-    // Set defaults from category defaults — only on the very first load
-    if (!_defaultsApplied) {
-      categoryDefaultsAsync.whenData((defaults) {
-        final catDefault = defaults
-            .where((d) => d.category == _category)
-            .toList();
-        if (catDefault.isNotEmpty) {
-          _defaultsApplied = true;
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) {
-              setState(() {
-                _selectedRoom = catDefault.first.defaultRoom;
-                _warrantyMonths = catDefault.first.warrantyMonths;
-              });
-            }
-          });
-        }
+    // Apply category defaults via ref.listen so we never mutate state inside
+    // build() (Ch05-F017). The listener fires once when the provider's data
+    // arrives — guarded by `_defaultsApplied` so subsequent rebuilds don't
+    // overwrite user choices.
+    ref.listen<AsyncValue<List<CategoryDefault>>>(categoryDefaultsProvider,
+        (previous, next) {
+      if (_defaultsApplied) return;
+      next.whenData((defaults) {
+        final match = defaults.where((d) => d.category == _category).toList();
+        if (match.isEmpty) return;
+        _defaultsApplied = true;
+        if (!mounted) return;
+        setState(() {
+          _selectedRoom = match.first.defaultRoom;
+          _warrantyMonths = match.first.warrantyMonths;
+        });
       });
-    }
+    });
 
-    final defaultWarrantyMonths = categoryDefaultsAsync.whenOrNull(
-          data: (defaults) {
-            final match =
-                defaults.where((d) => d.category == _category).toList();
-            return match.isNotEmpty ? match.first.warrantyMonths : null;
-          },
-        ) ??
-        12;
+    // Initial sync read in case the provider already has data on the first
+    // build (covers hot-restart and cached values).
+    if (!_defaultsApplied) {
+      final defaults = ref
+          .read(categoryDefaultsProvider)
+          .whenOrNull(data: (d) => d) ??
+          const <CategoryDefault>[];
+      final match = defaults.where((d) => d.category == _category).toList();
+      if (match.isNotEmpty) {
+        _defaultsApplied = true;
+        _selectedRoom = match.first.defaultRoom;
+        _warrantyMonths = match.first.warrantyMonths;
+      }
+    }
 
     return Scaffold(
       backgroundColor: HavenColors.background,
@@ -313,8 +329,12 @@ class _QuickAddScreenState extends ConsumerState<QuickAddScreen> {
                   ),
                 ),
                 const SizedBox(height: HavenSpacing.sm),
+                // Re-key on _defaultsApplied so the picker rebuilds with the
+                // post-default value once category defaults arrive
+                // (Ch05-F018).
                 WarrantyDurationPicker(
-                  initialMonths: defaultWarrantyMonths,
+                  key: ValueKey('warranty-$_defaultsApplied-$_warrantyMonths'),
+                  initialMonths: _warrantyMonths,
                   onChanged: (months) {
                     setState(() {
                       _warrantyMonths = months;
@@ -462,6 +482,25 @@ class _QuickAddScreenState extends ConsumerState<QuickAddScreen> {
                         ),
                         keyboardType: const TextInputType.numberWithOptions(
                             decimal: true),
+                        // Block negative signs and non-numeric paste; cap
+                        // length so a paste-bomb can't crash decode
+                        // (Ch05 NaN guard).
+                        inputFormatters: [
+                          FilteringTextInputFormatter.allow(
+                            RegExp(r'[0-9.,]'),
+                          ),
+                          LengthLimitingTextInputFormatter(12),
+                        ],
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty) {
+                            return null;
+                          }
+                          final parsed = parsePriceInput(value);
+                          if (parsed == null) return 'Enter a valid price';
+                          if (parsed < 0) return 'Price cannot be negative';
+                          if (parsed > 1000000) return 'Price seems too high';
+                          return null;
+                        },
                       ),
                       const SizedBox(height: HavenSpacing.md),
                       TextFormField(

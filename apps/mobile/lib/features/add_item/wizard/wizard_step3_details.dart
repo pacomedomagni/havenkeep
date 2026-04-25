@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_models/shared_models.dart';
 import 'package:shared_ui/shared_ui.dart';
 
 import 'add_item_wizard_screen.dart';
+import '../../../core/utils/price_parser.dart';
 import '../../../core/widgets/haven_loader.dart';
 
 /// Step 3: Details (optional: price, store, room) - ~15 seconds.
@@ -23,9 +25,11 @@ class WizardStep3Details extends StatefulWidget {
 }
 
 class _WizardStep3DetailsState extends State<WizardStep3Details> {
+  final _formKey = GlobalKey<FormState>();
   final _priceController = TextEditingController();
   final _storeController = TextEditingController();
   final _notesController = TextEditingController();
+  String? _priceError;
 
   @override
   void initState() {
@@ -46,10 +50,21 @@ class _WizardStep3DetailsState extends State<WizardStep3Details> {
   }
 
   void _handleSave() {
-    // Save optional fields
-    widget.data.price = _priceController.text.isNotEmpty
-        ? double.tryParse(_priceController.text)
-        : null;
+    // Validate optional fields inline so users see the error next to the
+    // field instead of a snackbar (Ch05 form-error inline requirement).
+    if (_formKey.currentState?.validate() != true) {
+      return;
+    }
+
+    final priceText = _priceController.text.trim();
+    if (priceText.isEmpty) {
+      widget.data.price = null;
+    } else {
+      // parsePriceInput tolerates locale-specific decimal separators and
+      // strips currency cruft. The validator above already rejects bad input.
+      widget.data.price = parsePriceInput(priceText);
+    }
+
     widget.data.store = _storeController.text.trim().isNotEmpty
         ? _storeController.text.trim()
         : null;
@@ -64,7 +79,9 @@ class _WizardStep3DetailsState extends State<WizardStep3Details> {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.all(24),
-      child: Column(
+      child: Form(
+        key: _formKey,
+        child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Step title
@@ -94,16 +111,42 @@ class _WizardStep3DetailsState extends State<WizardStep3Details> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Price
+                  // Price (Ch05-F009: route through parsePriceInput; reject
+                  // negatives + NaN + unreasonable values via inline error).
                   TextFormField(
                     controller: _priceController,
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: 'Purchase Price (Optional)',
                       hintText: 'e.g., 899.99',
-                      prefixIcon: Icon(Icons.attach_money),
+                      prefixIcon: const Icon(Icons.attach_money),
+                      errorText: _priceError,
                     ),
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
                     textInputAction: TextInputAction.next,
+                    inputFormatters: [
+                      // Permit only digits + a single decimal separator (`.`
+                      // or `,`); blocks negative signs and NaN-like input.
+                      FilteringTextInputFormatter.allow(
+                        RegExp(r'[0-9.,]'),
+                      ),
+                      LengthLimitingTextInputFormatter(12),
+                    ],
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) return null;
+                      final parsed = parsePriceInput(value);
+                      if (parsed == null) return 'Enter a valid price';
+                      if (parsed < 0) return 'Price cannot be negative';
+                      if (parsed > 1000000) {
+                        return 'Price seems too high';
+                      }
+                      return null;
+                    },
+                    onChanged: (_) {
+                      if (_priceError != null) {
+                        setState(() => _priceError = null);
+                      }
+                    },
                   ),
 
                   const SizedBox(height: 20),
@@ -117,6 +160,9 @@ class _WizardStep3DetailsState extends State<WizardStep3Details> {
                       prefixIcon: Icon(Icons.store_outlined),
                     ),
                     textInputAction: TextInputAction.next,
+                    maxLength: 100,
+                    maxLengthEnforcement: MaxLengthEnforcement.enforced,
+                    buildCounter: _hideCounter,
                   ),
 
                   const SizedBox(height: 24),
@@ -137,7 +183,8 @@ class _WizardStep3DetailsState extends State<WizardStep3Details> {
 
                   const SizedBox(height: 24),
 
-                  // Notes
+                  // Notes (Ch05-F016: enforce a sane maxLength so a 10MB
+                  // paste can't bloat sync payloads).
                   TextFormField(
                     controller: _notesController,
                     decoration: const InputDecoration(
@@ -147,6 +194,9 @@ class _WizardStep3DetailsState extends State<WizardStep3Details> {
                     ),
                     maxLines: 3,
                     textInputAction: TextInputAction.done,
+                    maxLength: 2000,
+                    maxLengthEnforcement: MaxLengthEnforcement.enforced,
+                    buildCounter: _hideCounter,
                   ),
 
                   const SizedBox(height: 16),
@@ -225,9 +275,20 @@ class _WizardStep3DetailsState extends State<WizardStep3Details> {
             ),
           ),
         ],
+        ),
       ),
     );
   }
+
+  /// Hide the default character counter that `maxLength` would otherwise
+  /// display below the field; we still enforce the cap, just silently.
+  Widget? _hideCounter(
+    BuildContext context, {
+    required int currentLength,
+    required int? maxLength,
+    required bool isFocused,
+  }) =>
+      null;
 
   Widget _buildRoomGrid() {
     final commonRooms = [

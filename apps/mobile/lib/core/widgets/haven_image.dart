@@ -22,6 +22,10 @@ class HavenImage extends StatelessWidget {
   final double? borderRadius;
   final Widget? errorFallback;
   final Widget? emptyFallback;
+  /// Maximum decode width in physical pixels. Use this to bound memory for
+  /// thumbnails / partner logos so a 5MP source doesn't decode at full size
+  /// (Ch05-F036).
+  final int? cacheWidth;
 
   const HavenImage({
     super.key,
@@ -32,6 +36,7 @@ class HavenImage extends StatelessWidget {
     this.borderRadius,
     this.errorFallback,
     this.emptyFallback,
+    this.cacheWidth,
   });
 
   @override
@@ -45,6 +50,7 @@ class HavenImage extends StatelessWidget {
         width: width,
         height: height,
         fit: fit,
+        memCacheWidth: cacheWidth,
         fadeInDuration: HavenMotion.medium,
         fadeOutDuration: HavenMotion.fast,
         placeholder: (_, __) => _ShimmerTile(width: width, height: height),

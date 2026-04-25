@@ -111,7 +111,7 @@ void main() {
       test('rethrows errors from API client', () async {
         when(mockClient.get(pathSegments: const ['api', 'v1', 'warranty-purchases'],
           queryParams: anyNamed('queryParams'),
-        )).thenThrow(ApiException(500, 'Server error'));
+        )).thenThrow(ApiException.fromResponse(500, 'Server error'));
 
         expect(
           () => repository.getPurchases(),

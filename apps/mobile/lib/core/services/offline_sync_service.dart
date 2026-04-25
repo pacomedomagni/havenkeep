@@ -5,9 +5,12 @@ import 'dart:math' as math;
 
 import 'package:api_client/api_client.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:crypto/crypto.dart';
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_models/shared_models.dart';
 
 import '../database/database.dart';
@@ -47,11 +50,19 @@ class NonRetriableError implements Exception {
 
 /// Manages offline sync — listens for connectivity changes and processes
 /// pending queue entries when the device comes online.
+///
+/// The connectivity listener is gated on auth (C103): we deliberately do
+/// not subscribe until [isAuthenticatedProvider] reports `true`, and we
+/// tear the subscription down on sign-out. Without this, the service
+/// would drain queued mutations against an empty/unauthenticated session
+/// — the queue belongs to a specific user and we can't know which user
+/// it belongs to until auth resolves.
 class OfflineSyncService {
   final HavenDatabase _db;
   final Ref _ref;
 
   StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
+  ProviderSubscription<bool>? _authSub;
   bool _isSyncing = false;
 
   OfflineSyncService(this._db, this._ref);
@@ -59,8 +70,31 @@ class OfflineSyncService {
   /// Whether a sync is currently in progress.
   bool get isSyncing => _isSyncing;
 
-  /// Start listening for connectivity changes.
+  /// Start the auth-gated connectivity loop.
+  ///
+  /// Subscribes to [isAuthenticatedProvider] first; the connectivity
+  /// stream is only attached once auth flips to `true` and is detached
+  /// again on `false`. This ensures we never read or mutate the
+  /// per-user queue rows while the user is signed out.
   void start() {
+    _authSub = _ref.listen<bool>(
+      isAuthenticatedProvider,
+      (previous, isAuthenticated) {
+        if (isAuthenticated) {
+          _attachConnectivityListener();
+          // The user just signed in (or was restored) — drain anything
+          // queued from the previous online session.
+          syncPendingChanges();
+        } else {
+          _detachConnectivityListener();
+        }
+      },
+      fireImmediately: true,
+    );
+  }
+
+  void _attachConnectivityListener() {
+    if (_connectivitySub != null) return;
     _connectivitySub = Connectivity().onConnectivityChanged.listen(
       (results) {
         final isOnline = results.any((r) => r != ConnectivityResult.none);
@@ -78,9 +112,73 @@ class OfflineSyncService {
     );
   }
 
+  void _detachConnectivityListener() {
+    _connectivitySub?.cancel();
+    _connectivitySub = null;
+  }
+
   /// Stop listening.
   void dispose() {
-    _connectivitySub?.cancel();
+    _detachConnectivityListener();
+    _authSub?.close();
+    _authSub = null;
+  }
+
+  /// Subdirectory inside the app-support directory where queued document
+  /// uploads are persisted. Files in here outlive the OS-managed temp
+  /// directory so an app kill mid-upload doesn't lose user data (C106).
+  static const _kQueuedUploadsDir = 'queued_uploads';
+
+  /// Copy [sourcePath] into the app-support directory under a stable
+  /// name and return the new absolute path. The persisted file is what
+  /// gets stored in the offline queue payload — `getTemporaryDirectory`
+  /// can be wiped by the OS at any point, so we'd lose the upload if we
+  /// kept the original path. The filename derives from the source path
+  /// hash so re-queueing the same file reuses the same persisted copy
+  /// (idempotent on the file system side).
+  Future<String> persistUploadFile(String sourcePath) async {
+    final appSupport = await getApplicationSupportDirectory();
+    final dir = Directory(p.join(appSupport.path, _kQueuedUploadsDir));
+    if (!dir.existsSync()) {
+      dir.createSync(recursive: true);
+    }
+    final source = File(sourcePath);
+    if (!source.existsSync()) {
+      throw NonRetriableError(
+        'Source file no longer exists at $sourcePath',
+      );
+    }
+    final hash =
+        sha256.convert(utf8.encode(sourcePath)).toString().substring(0, 16);
+    final ext = p.extension(sourcePath);
+    final destPath = p.join(dir.path, '$hash$ext');
+    final dest = File(destPath);
+    if (!dest.existsSync()) {
+      await source.copy(destPath);
+    }
+    return destPath;
+  }
+
+  /// Delete a previously persisted upload file. Idempotent — failures are
+  /// swallowed because a missing file just means the cleanup already
+  /// happened.
+  Future<void> _deletePersistedUpload(String? path) async {
+    if (path == null) return;
+    try {
+      final appSupport = await getApplicationSupportDirectory();
+      final queuedDir = p.join(appSupport.path, _kQueuedUploadsDir);
+      // Belt-and-braces: only delete files inside our managed directory.
+      // We don't want a malformed payload to delete something else on disk.
+      if (!p.isWithin(queuedDir, path) && p.dirname(path) != queuedDir) {
+        return;
+      }
+      final file = File(path);
+      if (file.existsSync()) {
+        await file.delete();
+      }
+    } catch (e) {
+      debugPrint('[OfflineSync] Failed to delete persisted upload $path: $e');
+    }
   }
 
   /// Enqueue an offline action for later sync.
@@ -109,15 +207,6 @@ class OfflineSyncService {
       createdAt: Value(DateTime.now()),
       attempts: const Value(0),
     ));
-  }
-
-  /// Whether a status code is a client error that should not be retried.
-  /// Note: 401 is excluded here — it is handled separately to allow one
-  /// retry (the ApiClient auto-refresh may resolve it).
-  bool _isNonRetriableClientError(int statusCode) {
-    return statusCode == 400 ||
-        statusCode == 403 ||
-        statusCode == 404;
   }
 
   /// Compute exponential backoff delay for the given attempt number.
@@ -175,38 +264,47 @@ class OfflineSyncService {
         } on ApiException catch (e) {
           debugPrint('[OfflineSync] Failed to sync entry ${entry.id}: $e');
 
-          // 401 Unauthorized: attempt one retry — the ApiClient auto-refresh
-          // may resolve the token issue. Bump the attempt counter and keep
-          // the row in `pending` with a single UPDATE so we never write a
-          // transient `failed` we'd immediately flip back.
-          if (e.statusCode == 401) {
-            if (entry.attempts == 0) {
-              debugPrint('[OfflineSync] 401 on entry ${entry.id} — scheduling one retry');
-              await _db.reschedulePending(entry.id, entry.attempts + 1);
-              await Future.delayed(_backoffDelay(entry.attempts + 1));
-            } else {
-              debugPrint('[OfflineSync] 401 retry failed for entry ${entry.id} — marking permanently failed');
+          // Switch over the sealed hierarchy so the compiler tells us when
+          // a new failure mode is added that we'd otherwise mis-bucket.
+          switch (e) {
+            case ApiAuthRequiredException():
+              // 401 Unauthorized: one extra retry — the ApiClient auto-refresh
+              // may resolve the token issue. Bump the attempt counter and keep
+              // the row pending with a single UPDATE so we never write a
+              // transient `failed` we'd immediately flip back.
+              if (entry.attempts == 0) {
+                debugPrint('[OfflineSync] 401 on entry ${entry.id} — scheduling one retry');
+                await _db.reschedulePending(entry.id, entry.attempts + 1);
+                await Future.delayed(_backoffDelay(entry.attempts + 1));
+              } else {
+                debugPrint('[OfflineSync] 401 retry failed for entry ${entry.id} — marking permanently failed');
+                await _db.markActionFailed(entry.id, _kMaxRetries);
+              }
+              continue;
+
+            case ApiForbiddenException():
+            case ApiNotFoundException():
+            case ApiValidationException():
+              // Client errors with no path to recovery. Drop them.
+              debugPrint('[OfflineSync] Non-retriable client error ${e.statusCode} for entry ${entry.id} — marking permanently failed');
               await _db.markActionFailed(entry.id, _kMaxRetries);
-            }
-            continue;
-          }
+              continue;
 
-          // Don't retry on other 4xx client errors - mark as permanently failed
-          if (_isNonRetriableClientError(e.statusCode)) {
-            debugPrint('[OfflineSync] Non-retriable client error ${e.statusCode} for entry ${entry.id} — marking permanently failed');
-            await _db.markActionFailed(entry.id, _kMaxRetries);
-            continue;
-          }
-
-          // Retriable error (5xx / network): reschedule with bumped attempt
-          // count using a single update, then back off before processing
-          // the next entry. Backoff is scoped to THIS entry's retry only.
-          final nextAttempts = entry.attempts + 1;
-          if (nextAttempts < _kMaxRetries) {
-            await _db.reschedulePending(entry.id, nextAttempts);
-            await Future.delayed(_backoffDelay(nextAttempts));
-          } else {
-            await _db.markActionFailed(entry.id, nextAttempts);
+            case ApiConflictException():
+            case ApiRateLimitedException():
+            case ApiServerException():
+            case ApiNetworkException():
+            case ApiTimeoutException():
+            case ApiUnknownException():
+              // Retriable errors (5xx / network / 429 / 409): reschedule with
+              // bumped attempt count, then back off before the next entry.
+              final nextAttempts = entry.attempts + 1;
+              if (nextAttempts < _kMaxRetries) {
+                await _db.reschedulePending(entry.id, nextAttempts);
+                await Future.delayed(_backoffDelay(nextAttempts));
+              } else {
+                await _db.markActionFailed(entry.id, nextAttempts);
+              }
           }
         } catch (e) {
           debugPrint('[OfflineSync] Failed to sync entry ${entry.id}: $e');
@@ -290,15 +388,11 @@ class OfflineSyncService {
         final item = Item.fromJson(payload);
         try {
           await _ref.read(itemsRepositoryProvider).updateItem(item);
-        } on ApiException catch (e) {
-          if (e.isConflict) {
-            // 409 Conflict: server version differs — park the divergence
-            // for the user to resolve. We deliberately do NOT silently
-            // last-write-wins.
-            await _parkUpdateConflict(item);
-          } else {
-            rethrow;
-          }
+        } on ApiConflictException {
+          // 409 Conflict: server version differs — park the divergence
+          // for the user to resolve. We deliberately do NOT silently
+          // last-write-wins.
+          await _parkUpdateConflict(item);
         }
         break;
 
@@ -371,7 +465,7 @@ class OfflineSyncService {
       debugPrint(
         '[OfflineSync] Document upload entry ${entry.id} missing required fields.',
       );
-      throw ApiException(400, 'Missing filePath or itemId in payload');
+      throw NonRetriableError('Missing filePath or itemId in payload');
     }
 
     // Check if the file still exists on disk
@@ -394,6 +488,11 @@ class OfflineSyncService {
           type: docType,
         );
 
+    // Upload landed — drop the persisted copy. We only delete inside the
+    // managed `queued_uploads` directory so an entry pointing at the
+    // original gallery path never deletes a user's file.
+    await _deletePersistedUpload(filePath);
+
     debugPrint(
       '[OfflineSync] Document uploaded successfully for item $itemId.',
     );
@@ -405,6 +504,17 @@ final offlineSyncServiceProvider = Provider<OfflineSyncService>((ref) {
   final db = ref.read(localDatabaseProvider);
   final service = OfflineSyncService(db, ref);
   service.start();
+  // Hydrate the conflict count from disk so the settings banner is
+  // accurate the moment the user opens the app, not just after the
+  // first 409 lands this session.
+  () async {
+    try {
+      final count = await db.getConflictCount();
+      ref.read(syncConflictCountProvider.notifier).state = count;
+    } catch (_) {
+      // Best-effort; the UI will pick up the count when conflicts arrive.
+    }
+  }();
   ref.onDispose(() => service.dispose());
   return service;
 });
@@ -421,6 +531,16 @@ final isSyncingProvider = Provider<bool>((ref) {
 /// hydrate it on startup by calling
 /// `ref.read(localDatabaseProvider).getConflictCount()`.
 final syncConflictCountProvider = StateProvider<int>((ref) => 0);
+
+/// Open conflicts that the user needs to resolve. Re-reads on every
+/// invalidation — call `ref.invalidate(openSyncConflictsProvider)` after
+/// resolving one to refresh the list.
+final openSyncConflictsProvider =
+    FutureProvider<List<SyncConflict>>((ref) async {
+  // Re-fetch when the count changes (a new 409 lands).
+  ref.watch(syncConflictCountProvider);
+  return ref.read(localDatabaseProvider).getOpenConflicts();
+});
 
 /// Per-domain invalidation buckets used by [OfflineSyncService] so the
 /// service can map queued actions to the providers that hold their

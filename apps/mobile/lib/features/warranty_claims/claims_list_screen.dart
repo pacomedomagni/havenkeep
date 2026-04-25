@@ -42,26 +42,41 @@ class ClaimsListScreen extends ConsumerWidget {
         ),
         data: (claims) {
           if (claims.isEmpty) {
-            return const Center(
+            return Center(
               child: Padding(
-                padding: EdgeInsets.all(HavenSpacing.xl),
+                padding: const EdgeInsets.all(HavenSpacing.xl),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    HavenIllustration(
+                    const HavenIllustration(
                       kind: HavenIllustrationKind.noClaims,
                       size: 180,
                     ),
-                    SizedBox(height: HavenSpacing.md),
-                    Text(
+                    const SizedBox(height: HavenSpacing.md),
+                    const Text(
                       'No warranty claims yet',
                       style: HavenText.displayMedium,
                     ),
-                    SizedBox(height: HavenSpacing.sm),
-                    Text(
-                      'When you file a warranty claim,\nit will appear here.',
+                    const SizedBox(height: HavenSpacing.sm),
+                    const Text(
+                      'File a claim when something breaks under warranty\n'
+                      'and track repairs, refunds, and savings here.',
                       textAlign: TextAlign.center,
                       style: HavenText.bodySecondary,
+                    ),
+                    const SizedBox(height: HavenSpacing.lg),
+                    OutlinedButton.icon(
+                      onPressed: () => context.push('/items'),
+                      icon: const Icon(Icons.inventory_2_outlined, size: 18),
+                      label: const Text('Pick an item to file a claim'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: HavenColors.primary,
+                        side: const BorderSide(color: HavenColors.primary),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: HavenSpacing.lg,
+                          vertical: HavenSpacing.md,
+                        ),
+                      ),
                     ),
                   ],
                 ),

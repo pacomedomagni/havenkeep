@@ -129,10 +129,25 @@ class MaintenanceScreen extends ConsumerWidget {
                   item: item,
                   dateFormat: dateFormat,
                   onMarkDone: (task) async {
+                    // Bail out clearly if the user is missing rather than
+                    // submitting userId='' to the server (F069).
+                    final userId =
+                        ref.read(currentUserProvider).value?.id;
+                    if (userId == null) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                                'You need to be signed in to log maintenance.'),
+                          ),
+                        );
+                      }
+                      return;
+                    }
+
                     final entry = MaintenanceHistory(
                       id: '',
-                      userId:
-                          ref.read(currentUserProvider).value?.id ?? '',
+                      userId: userId,
                       itemId: item.itemId,
                       scheduleId: task.scheduleId,
                       taskName: task.taskName,
@@ -438,9 +453,15 @@ class _ResourceLink extends StatelessWidget {
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: () async {
+        final messenger = ScaffoldMessenger.of(context);
         final uri = Uri.tryParse(url);
         if (uri != null && await canLaunchUrl(uri)) {
           await launchUrl(uri, mode: LaunchMode.externalApplication);
+        } else {
+          // Surface a failure rather than silently no-op'ing (F070).
+          messenger.showSnackBar(
+            const SnackBar(content: Text('Could not open link.')),
+          );
         }
       },
       child: Row(

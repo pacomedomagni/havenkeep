@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_ui/shared_ui.dart';
@@ -23,6 +25,13 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
 
   bool _isLoading = false;
   bool _emailSent = false;
+  // Ch05-F086: rate-limit the resend button so a panicked user can't
+  // hammer it 20 times in 5 seconds and trigger the backend's IP block.
+  // 60s matches the API-side cooldown so the UI never lets them ask
+  // for a token they couldn't have received yet.
+  static const _resendCooldown = Duration(seconds: 60);
+  int _resendSecondsRemaining = 0;
+  Timer? _cooldownTimer;
 
   @override
   void initState() {
@@ -32,8 +41,29 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
 
   @override
   void dispose() {
+    _cooldownTimer?.cancel();
     _emailController.dispose();
     super.dispose();
+  }
+
+  void _startResendCooldown() {
+    _cooldownTimer?.cancel();
+    setState(() {
+      _resendSecondsRemaining = _resendCooldown.inSeconds;
+    });
+    _cooldownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      setState(() {
+        _resendSecondsRemaining--;
+        if (_resendSecondsRemaining <= 0) {
+          timer.cancel();
+          _resendSecondsRemaining = 0;
+        }
+      });
+    });
   }
 
   Future<void> _requestReset() async {
@@ -49,11 +79,13 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
           );
       if (mounted) {
         setState(() => _emailSent = true);
+        _startResendCooldown();
       }
     } catch (e) {
       // Always show success to prevent email enumeration (matching backend behavior)
       if (mounted) {
         setState(() => _emailSent = true);
+        _startResendCooldown();
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -200,20 +232,41 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
 
         const SizedBox(height: HavenSpacing.md),
 
+        // Ch05-F086: cooldown-gated resend. While the timer is running
+        // we render an inert label that announces the remaining seconds
+        // so screen-reader users know exactly when the button reactivates.
         Center(
-          child: GestureDetector(
-            onTap: () {
-              setState(() => _emailSent = false);
-            },
-            child: const Text(
-              "Didn't receive it? Try again",
-              style: TextStyle(
-                color: HavenColors.secondary,
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ),
+          child: _resendSecondsRemaining > 0
+              ? Semantics(
+                  liveRegion: true,
+                  child: Text(
+                    'You can resend in ${_resendSecondsRemaining}s',
+                    style: const TextStyle(
+                      color: HavenColors.textTertiary,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                )
+              : Semantics(
+                  button: true,
+                  label: 'Resend password reset email',
+                  child: ConstrainedBox(
+                    constraints:
+                        const BoxConstraints(minWidth: 48, minHeight: 48),
+                    child: TextButton(
+                      onPressed: () => setState(() => _emailSent = false),
+                      child: const Text(
+                        "Didn't receive it? Try again",
+                        style: TextStyle(
+                          color: HavenColors.secondary,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
         ),
       ],
     );

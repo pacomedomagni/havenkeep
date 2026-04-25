@@ -50,3 +50,10 @@ export 'src/partner_commission.dart'
         PartnerCommissionStatus,
         PartnerCommissionReferenceType,
         PartnerCommissionPayoutMethod;
+// Audit Ch08-D018: shared funnel for unknown-enum drift. Exposed so the
+// mobile bootstrap can plug in a custom transport (Firebase Crashlytics
+// breadcrumb, custom HTTP collector, etc.) on top of the always-on
+// `dart:developer.log` sink. Individual enums import _unknown_enum_log.dart
+// directly (it lives next to them in src/) and call logUnknownEnumValue
+// on a miss.
+export 'src/_unknown_enum_log.dart' show registerUnknownEnumReporter;

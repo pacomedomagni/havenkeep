@@ -14,13 +14,18 @@ import 'core/config/environment_config.dart';
 import 'core/config/firebase_options.dart';
 import 'core/database/database.dart';
 import 'core/router/router.dart';
+import 'core/services/app_lifecycle_service.dart';
+import 'core/services/app_prefs_service.dart';
 import 'core/services/auto_archive_service.dart';
 import 'core/services/biometric_service.dart';
+import 'core/services/deep_link_service.dart';
 import 'core/services/logging_service.dart';
+import 'core/services/notification_display_service.dart';
 import 'core/services/offline_sync_service.dart';
 import 'core/services/push_notification_service.dart';
 import 'core/services/secure_storage_service.dart';
 import 'core/providers/auth_provider.dart';
+import 'core/providers/demo_mode_provider.dart';
 import 'core/providers/premium_provider.dart';
 import 'features/onboarding/biometric_lock_screen.dart';
 
@@ -82,6 +87,20 @@ Future<void> main() async {
         await apiClient.restoreSession();
       } catch (e) {
         LoggingService.warn('Session restore failed, starting fresh', {'error': e.toString()});
+      }
+
+      // "Keep me signed in" — when the user has explicitly opted out, we
+      // discard the restored session before any UI sees it. This is the
+      // security-conscious default so kiosk/shared-device usage is sane.
+      final keepSignedIn = await AppPrefsService.getKeepSignedIn();
+      if (!keepSignedIn && apiClient.isAuthenticated) {
+        try {
+          await apiClient.clearTokens();
+        } catch (e) {
+          LoggingService.warn('Forced sign-out (keep-signed-in=false) failed', {
+            'error': e.toString(),
+          });
+        }
       }
 
       // Seed the local DB opener with the (possibly restored) user id so
@@ -247,14 +266,22 @@ class _HavenKeepAppState extends ConsumerState<HavenKeepApp>
   @override
   Widget build(BuildContext context) {
     final router = ref.watch(routerProvider);
+    final locale = ref.watch(localeProvider);
+    final themeMode = ref.watch(themeModeProvider);
 
     // Initialize offline sync service (listens to connectivity changes)
     ref.watch(offlineSyncServiceProvider);
+    // Drive global lifecycle refresh (active warranties on resume).
+    ref.watch(appLifecycleServiceProvider);
 
     return MaterialApp.router(
       title: 'HavenKeep',
       debugShowCheckedModeBanner: false,
       theme: HavenTheme.dark,
+      darkTheme: HavenTheme.dark,
+      themeMode: themeMode,
+      locale: locale,
+      supportedLocales: AppPrefsService.supportedLocales,
       routerConfig: router,
       // Stack a transparent Navigator above the GoRouter tree so we can
       // push the biometric lock screen as a system-modal overlay without
@@ -288,11 +315,50 @@ class _AppBootstrapState extends ConsumerState<AppBootstrap> {
     _initializeServices();
   }
 
+  /// Build-time toggle for demo mode (`--dart-define=DEMO_MODE=true`).
+  /// When set, the app skips real auth and bootstraps with the fixture
+  /// dataset so screenshots, App Store reviewers, and a local "play
+  /// without an account" mode all work without a backend (C201/C202).
+  static const _kDemoModeFlag =
+      bool.fromEnvironment('DEMO_MODE', defaultValue: false);
+
   Future<void> _initializeServices() async {
+    if (_kDemoModeFlag && !ref.read(demoModeProvider).isEnabled) {
+      ref.read(demoModeProvider.notifier).enterDemoMode();
+      LoggingService.info('Demo mode auto-enabled via --dart-define', {});
+    }
+
     try {
       await ref.read(premiumServiceProvider).initialize();
     } catch (e) {
       LoggingService.warn('Premium service initialization failed', {'error': e.toString()});
+    }
+
+    // Lifecycle observer: refresh active warranties on resumed.
+    try {
+      ref.read(appLifecycleServiceProvider).start();
+    } catch (e) {
+      LoggingService.warn(
+          'Lifecycle observer init failed', {'error': e.toString()});
+    }
+
+    // Deep link handler — havenkeep://gift/<code> + Universal Links.
+    try {
+      await ref.read(deepLinkServiceProvider).initialize();
+    } catch (e) {
+      LoggingService.warn('Deep link init failed', {'error': e.toString()});
+    }
+
+    // Always initialize the local notification plugin so the Android
+    // notification channel ID `havenkeep_default` exists before any FCM
+    // payload references it. The FCM service uses this channel post-Phase 7,
+    // and Android silently drops notifications for unknown channels.
+    try {
+      await ref.read(notificationDisplayServiceProvider).initialize();
+    } catch (e) {
+      LoggingService.warn('Local notification init failed', {
+        'error': e.toString(),
+      });
     }
 
     // Only initialize push notifications if Firebase was configured

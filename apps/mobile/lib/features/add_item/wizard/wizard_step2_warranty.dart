@@ -42,7 +42,7 @@ class _WizardStep2WarrantyState extends State<WizardStep2Warranty> {
     final picked = await showDatePicker(
       context: context,
       initialDate: widget.data.purchaseDate ?? now,
-      firstDate: DateTime(2000),
+      firstDate: DateTime(1970),
       lastDate: now,
       builder: (context, child) {
         return Theme(
@@ -60,7 +60,9 @@ class _WizardStep2WarrantyState extends State<WizardStep2Warranty> {
     );
     if (picked != null) {
       setState(() {
-        widget.data.purchaseDate = picked;
+        // Normalize to local midnight so DateFormat doesn't shift the day
+        // when the device crosses a TZ (Ch05-F005).
+        widget.data.purchaseDate = DateTime(picked.year, picked.month, picked.day);
       });
     }
   }

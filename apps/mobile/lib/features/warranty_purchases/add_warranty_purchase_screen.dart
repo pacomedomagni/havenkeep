@@ -8,6 +8,7 @@ import '../../core/providers/items_provider.dart';
 import '../../core/providers/warranty_purchases_provider.dart';
 import '../../core/utils/dates.dart';
 import '../../core/utils/error_handler.dart';
+import '../../core/utils/money_formatter.dart';
 import '../../core/widgets/haven_loader.dart';
 
 /// Form to add a new warranty purchase.
@@ -153,7 +154,10 @@ class _AddWarrantyPurchaseScreenState
           context: context,
           initialDate: _startDate,
           firstDate: DateTime(2000),
-          lastDate: DateTime.now().add(const Duration(days: 3650)),
+          // Coverage start dates further than 1 year out are non-sensical
+          // for an extended warranty — the audit (Ch05-F133) flagged the
+          // previous 10-year window as silently lossy on date math.
+          lastDate: DateTime.now().add(const Duration(days: 365)),
         );
         if (picked != null) {
           setState(() => _startDate = picked);
@@ -214,6 +218,10 @@ class _AddWarrantyPurchaseScreenState
   }
 
   Future<void> _submit() async {
+    // Idempotency guard — once the POST is in flight, every subsequent tap
+    // is a no-op until the request resolves. The button is also disabled
+    // via `_submitting`, but a fast double-tap can still race the rebuild.
+    if (_submitting) return;
     if (_formKey.currentState?.validate() != true) return;
     if (_selectedItemId == null) return;
 
@@ -221,10 +229,14 @@ class _AddWarrantyPurchaseScreenState
 
     try {
       final duration = int.tryParse(_durationController.text.trim()) ?? 12;
-      final price = double.tryParse(_priceController.text.trim()) ?? 0;
-      final deductible = double.tryParse(_deductibleController.text.trim()) ?? 0;
+      // Money.parseToDouble normalizes "$1,234.50" → 1234.50, which the
+      // raw `double.tryParse` would reject.
+      final price =
+          Money.parseToDouble(_priceController.text.trim()) ?? 0;
+      final deductible =
+          Money.parseToDouble(_deductibleController.text.trim()) ?? 0;
       final claimLimit = _claimLimitController.text.trim().isNotEmpty
-          ? double.tryParse(_claimLimitController.text.trim())
+          ? Money.parseToDouble(_claimLimitController.text.trim())
           : null;
 
       final purchase = WarrantyPurchase(

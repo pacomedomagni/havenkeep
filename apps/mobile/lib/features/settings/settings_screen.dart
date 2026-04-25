@@ -12,6 +12,7 @@ import '../../core/providers/auth_provider.dart';
 import '../../core/providers/homes_provider.dart';
 import '../../core/providers/items_provider.dart';
 import '../../core/router/router.dart';
+import '../../core/services/app_prefs_service.dart';
 import '../../core/services/auto_archive_service.dart';
 import '../../core/services/biometric_service.dart';
 import '../../core/services/csv_export_service.dart';
@@ -259,6 +260,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           const SizedBox(height: HavenSpacing.lg),
 
           // PENDING CHANGES section — offline sync queue status
+          const _ConflictsBanner(),
           _PendingChangesSection(),
 
           // PLAN section
@@ -301,6 +303,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             loading: () => const SizedBox.shrink(),
             error: (_, __) => const SizedBox.shrink(),
           ),
+
+          const SizedBox(height: HavenSpacing.lg),
+
+          // APPEARANCE section
+          const SectionHeader(title: 'APPEARANCE'),
+          const SizedBox(height: HavenSpacing.sm),
+          const _ThemePickerTile(),
+          const SizedBox(height: HavenSpacing.xs),
+          const _LocalePickerTile(),
 
           const SizedBox(height: HavenSpacing.lg),
 
@@ -376,6 +387,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ),
             ),
 
+          const _KeepSignedInTile(),
+
+          const SizedBox(height: HavenSpacing.xs),
+
           _SettingsTile(
             icon: Icons.delete_outline,
             title: 'Delete Account',
@@ -429,37 +444,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             onTap: () {
               showDialog(
                 context: context,
-                builder: (_) => AlertDialog(
-                  backgroundColor: HavenColors.elevated,
-                  title: const Text(
-                    'HavenKeep',
-                    style: TextStyle(color: HavenColors.textPrimary),
-                  ),
-                  content: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Version $appVersion',
-                        style: const TextStyle(color: HavenColors.textSecondary),
-                      ),
-                      const SizedBox(height: HavenSpacing.sm),
-                      const Text(
-                        'Your home warranty tracker.\nNever miss a warranty claim again.',
-                        style: TextStyle(
-                          color: HavenColors.textTertiary,
-                          height: 1.4,
-                        ),
-                      ),
-                    ],
-                  ),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      child: const Text('Close'),
-                    ),
-                  ],
-                ),
+                builder: (_) => _AboutDialog(version: appVersion),
               );
             },
           ),
@@ -500,7 +485,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 final confirmed = await showHavenConfirmDialog(
                   context,
                   title: 'Sign out?',
-                  body: 'Are you sure you want to sign out?',
+                  body:
+                      'Sign out? Local data will be cleared and you will need to sign in again to see your warranties.',
                   confirmLabel: 'Sign Out',
                   isDestructive: true,
                 );
@@ -751,6 +737,158 @@ class _PendingChangesSection extends ConsumerWidget {
   }
 }
 
+/// Switch tile for "Keep me signed in". Off → next cold launch signs out.
+class _KeepSignedInTile extends ConsumerWidget {
+  const _KeepSignedInTile();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final value = ref.watch(keepSignedInProvider);
+    return _SettingsTile(
+      icon: Icons.lock_clock_outlined,
+      title: 'Keep Me Signed In',
+      subtitle: value
+          ? 'Stay signed in across launches'
+          : 'Sign out automatically on next launch',
+      trailing: Switch.adaptive(
+        value: value,
+        onChanged: (v) => ref.read(keepSignedInProvider.notifier).set(v),
+        activeThumbColor: HavenColors.primary,
+      ),
+    );
+  }
+}
+
+/// Tile that opens a bottom-sheet picker for the theme mode (light /
+/// dark / system). Persisted via [themeModeProvider].
+class _ThemePickerTile extends ConsumerWidget {
+  const _ThemePickerTile();
+
+  String _label(ThemeMode mode) => switch (mode) {
+        ThemeMode.light => 'Light',
+        ThemeMode.dark => 'Dark',
+        ThemeMode.system => 'System',
+      };
+
+  IconData _icon(ThemeMode mode) => switch (mode) {
+        ThemeMode.light => Icons.light_mode_outlined,
+        ThemeMode.dark => Icons.dark_mode_outlined,
+        ThemeMode.system => Icons.brightness_auto_outlined,
+      };
+
+  Future<void> _open(BuildContext context, WidgetRef ref) async {
+    final current = ref.read(themeModeProvider);
+    final picked = await showModalBottomSheet<ThemeMode>(
+      context: context,
+      backgroundColor: HavenColors.elevated,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: ThemeMode.values.map((mode) {
+            return ListTile(
+              leading: Icon(_icon(mode), color: HavenColors.textPrimary),
+              title: Text(
+                _label(mode),
+                style: const TextStyle(color: HavenColors.textPrimary),
+              ),
+              trailing: mode == current
+                  ? const Icon(Icons.check, color: HavenColors.primary)
+                  : null,
+              onTap: () => Navigator.of(ctx).pop(mode),
+            );
+          }).toList(),
+        ),
+      ),
+    );
+    if (picked != null) {
+      await ref.read(themeModeProvider.notifier).set(picked);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final mode = ref.watch(themeModeProvider);
+    return _SettingsTile(
+      icon: _icon(mode),
+      title: 'Theme',
+      subtitle: _label(mode),
+      onTap: () => _open(context, ref),
+    );
+  }
+}
+
+/// Tile that opens a bottom-sheet picker for the app locale.
+class _LocalePickerTile extends ConsumerWidget {
+  const _LocalePickerTile();
+
+  String _label(Locale? locale) {
+    if (locale == null) return 'System default';
+    return switch (locale.languageCode) {
+      'en' => 'English',
+      'fr' => 'Français',
+      _ => locale.languageCode,
+    };
+  }
+
+  Future<void> _open(BuildContext context, WidgetRef ref) async {
+    final current = ref.read(localeProvider);
+    final options = <Locale?>[null, ...AppPrefsService.supportedLocales];
+    final picked = await showModalBottomSheet<_LocaleChoice>(
+      context: context,
+      backgroundColor: HavenColors.elevated,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: options.map((locale) {
+            final selected =
+                (current?.languageCode) == (locale?.languageCode);
+            return ListTile(
+              leading: const Icon(Icons.language,
+                  color: HavenColors.textPrimary),
+              title: Text(
+                _label(locale),
+                style: const TextStyle(color: HavenColors.textPrimary),
+              ),
+              trailing: selected
+                  ? const Icon(Icons.check, color: HavenColors.primary)
+                  : null,
+              onTap: () =>
+                  Navigator.of(ctx).pop(_LocaleChoice(value: locale)),
+            );
+          }).toList(),
+        ),
+      ),
+    );
+    if (picked != null) {
+      await ref.read(localeProvider.notifier).set(picked.value);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final locale = ref.watch(localeProvider);
+    return _SettingsTile(
+      icon: Icons.language,
+      title: 'Language',
+      subtitle: _label(locale),
+      onTap: () => _open(context, ref),
+    );
+  }
+}
+
+/// Wrapper because `null` isn't a valid `showModalBottomSheet` return
+/// value when nullable types share a sentinel for "system default".
+class _LocaleChoice {
+  final Locale? value;
+  const _LocaleChoice({required this.value});
+}
+
 /// Switch tile for the auto-archive behavior (warranties expired > 90 days).
 class _AutoArchiveToggleTile extends StatefulWidget {
   const _AutoArchiveToggleTile();
@@ -789,6 +927,147 @@ class _AutoArchiveToggleTileState extends State<_AutoArchiveToggleTile> {
         onChanged: _enabled == null ? null : _set,
         activeThumbColor: HavenColors.primary,
       ),
+    );
+  }
+}
+
+/// Banner above the pending-changes section that surfaces parked sync
+/// conflicts (C108). Hidden when the count is zero so the settings page
+/// stays uncluttered for the happy path.
+class _ConflictsBanner extends ConsumerWidget {
+  const _ConflictsBanner();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final count = ref.watch(syncConflictCountProvider);
+    if (count == 0) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: HavenSpacing.sm),
+      child: GestureDetector(
+        onTap: () => context.push(AppRoutes.conflicts),
+        child: Container(
+          padding: const EdgeInsets.all(HavenSpacing.md),
+          decoration: BoxDecoration(
+            color: HavenColors.expiring.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(HavenRadius.card),
+            border: Border.all(
+              color: HavenColors.expiring.withValues(alpha: 0.4),
+            ),
+          ),
+          child: Row(
+            children: [
+              const Icon(
+                Icons.warning_amber_rounded,
+                color: HavenColors.expiring,
+                size: 22,
+              ),
+              const SizedBox(width: HavenSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '$count sync ${count == 1 ? 'conflict' : 'conflicts'} need attention',
+                      style: HavenText.titleMedium.copyWith(
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    const Text(
+                      'Tap to review local vs server changes',
+                      style: HavenText.caption,
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(
+                Icons.chevron_right,
+                color: HavenColors.textTertiary,
+                size: 20,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// About dialog with a hidden 5-tap escape hatch on the version label
+/// that opens [DeveloperOptionsScreen] (C201/C202). Lifted into its own
+/// widget so the tap counter can live in real state instead of being
+/// reset on every parent rebuild.
+class _AboutDialog extends StatefulWidget {
+  const _AboutDialog({required this.version});
+
+  final String version;
+
+  @override
+  State<_AboutDialog> createState() => _AboutDialogState();
+}
+
+class _AboutDialogState extends State<_AboutDialog> {
+  static const _kTapsToReveal = 5;
+  int _versionTaps = 0;
+
+  void _onVersionTap() {
+    final next = _versionTaps + 1;
+    if (next >= _kTapsToReveal) {
+      _versionTaps = 0;
+      Navigator.of(context).pop();
+      context.push(AppRoutes.developerOptions);
+      return;
+    }
+    setState(() => _versionTaps = next);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final tapsLeft = _kTapsToReveal - _versionTaps;
+    return AlertDialog(
+      backgroundColor: HavenColors.elevated,
+      title: const Text(
+        'HavenKeep',
+        style: TextStyle(color: HavenColors.textPrimary),
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: _onVersionTap,
+            child: Text(
+              'Version ${widget.version}',
+              style: const TextStyle(color: HavenColors.textSecondary),
+            ),
+          ),
+          if (_versionTaps > 0 && _versionTaps < _kTapsToReveal) ...[
+            const SizedBox(height: HavenSpacing.xs),
+            Text(
+              '$tapsLeft more ${tapsLeft == 1 ? 'tap' : 'taps'} to unlock developer options',
+              style: const TextStyle(
+                color: HavenColors.textTertiary,
+                fontSize: 11,
+              ),
+            ),
+          ],
+          const SizedBox(height: HavenSpacing.sm),
+          const Text(
+            'Your home warranty tracker.\nNever miss a warranty claim again.',
+            style: TextStyle(
+              color: HavenColors.textTertiary,
+              height: 1.4,
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Close'),
+        ),
+      ],
     );
   }
 }

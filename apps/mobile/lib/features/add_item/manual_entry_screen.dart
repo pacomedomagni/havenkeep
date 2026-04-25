@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -85,7 +86,9 @@ class _ManualEntryScreenState extends ConsumerState<ManualEntryScreen> {
     );
     if (picked != null) {
       setState(() {
-        _purchaseDate = picked;
+        // Local midnight so the date doesn't shift across timezones
+        // (Ch05-F005).
+        _purchaseDate = DateTime(picked.year, picked.month, picked.day);
       });
     }
   }
@@ -116,12 +119,18 @@ class _ManualEntryScreenState extends ConsumerState<ManualEntryScreen> {
           ? parsePriceInput(_priceController.text)
           : null;
 
+      // Ch05-F019: trim before persisting so the brand index doesn't end
+      // up with two near-duplicates ("Samsung" vs "Samsung "), and
+      // BrandAutocompleteField's whitespace-tolerant suggestions still
+      // resolve to a single canonical key.
+      final brand = _brand.trim();
+
       final item = Item(
         id: '',
         homeId: home.id,
         userId: user.id,
         name: _nameController.text.trim(),
-        brand: _brand.isNotEmpty ? _brand : null,
+        brand: brand.isNotEmpty ? brand : null,
         modelNumber: _modelController.text.isNotEmpty
             ? _modelController.text.trim()
             : null,
@@ -171,7 +180,7 @@ class _ManualEntryScreenState extends ConsumerState<ManualEntryScreen> {
             title: '🎉 Great start!',
             subtitle: 'Your first item is protected. Keep adding to build your warranty vault.',
             onDismiss: () {
-              context.go('/add-item/success/${newItem.id}');
+              context.go('/add-item/success/${newItem.id}', extra: newItem);
             },
           );
         } else {
@@ -184,7 +193,7 @@ class _ManualEntryScreenState extends ConsumerState<ManualEntryScreen> {
               backgroundColor: HavenColors.active,
             ),
           );
-          context.go('/add-item/success/${newItem.id}');
+          context.go('/add-item/success/${newItem.id}', extra: newItem);
         }
       }
     } catch (e) {
@@ -197,6 +206,16 @@ class _ManualEntryScreenState extends ConsumerState<ManualEntryScreen> {
       }
     }
   }
+
+  /// Hide the maxLength counter that would otherwise sit beneath each field
+  /// — we still enforce the cap via MaxLengthEnforcement.
+  Widget? _hideCounter(
+    BuildContext context, {
+    required int currentLength,
+    required int? maxLength,
+    required bool isFocused,
+  }) =>
+      null;
 
   Widget _buildSectionDivider(String label) {
     return Padding(
@@ -251,12 +270,15 @@ class _ManualEntryScreenState extends ConsumerState<ManualEntryScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Product Name (required)
+                // Product Name (required) — Ch05-F016: enforce a sane cap.
                 TextFormField(
                   controller: _nameController,
                   decoration: const InputDecoration(
                     labelText: 'Product Name *',
                   ),
+                  maxLength: 100,
+                  maxLengthEnforcement: MaxLengthEnforcement.enforced,
+                  buildCounter: _hideCounter,
                   validator: (value) {
                     if (value == null || value.trim().isEmpty) {
                       return 'Product name is required';
@@ -279,21 +301,27 @@ class _ManualEntryScreenState extends ConsumerState<ManualEntryScreen> {
                 ),
                 const SizedBox(height: HavenSpacing.md),
 
-                // Model Number
+                // Model Number (Ch05-F016)
                 TextFormField(
                   controller: _modelController,
                   decoration: const InputDecoration(
                     labelText: 'Model Number',
                   ),
+                  maxLength: 100,
+                  maxLengthEnforcement: MaxLengthEnforcement.enforced,
+                  buildCounter: _hideCounter,
                 ),
                 const SizedBox(height: HavenSpacing.md),
 
-                // Serial Number
+                // Serial Number (Ch05-F016)
                 TextFormField(
                   controller: _serialController,
                   decoration: const InputDecoration(
                     labelText: 'Serial Number (optional)',
                   ),
+                  maxLength: 100,
+                  maxLengthEnforcement: MaxLengthEnforcement.enforced,
+                  buildCounter: _hideCounter,
                 ),
                 const SizedBox(height: HavenSpacing.md),
 
@@ -375,16 +403,19 @@ class _ManualEntryScreenState extends ConsumerState<ManualEntryScreen> {
                 ),
                 const SizedBox(height: HavenSpacing.md),
 
-                // Store / Retailer
+                // Store / Retailer (Ch05-F016)
                 TextFormField(
                   controller: _storeController,
                   decoration: const InputDecoration(
                     labelText: 'Store / Retailer',
                   ),
+                  maxLength: 100,
+                  maxLengthEnforcement: MaxLengthEnforcement.enforced,
+                  buildCounter: _hideCounter,
                 ),
                 const SizedBox(height: HavenSpacing.md),
 
-                // Price Paid
+                // Price Paid (Ch05 NaN guard).
                 TextFormField(
                   controller: _priceController,
                   decoration: const InputDecoration(
@@ -393,6 +424,12 @@ class _ManualEntryScreenState extends ConsumerState<ManualEntryScreen> {
                   ),
                   keyboardType: const TextInputType.numberWithOptions(
                       decimal: true),
+                  inputFormatters: [
+                    FilteringTextInputFormatter.allow(
+                      RegExp(r'[0-9.,]'),
+                    ),
+                    LengthLimitingTextInputFormatter(12),
+                  ],
                   validator: (value) {
                     if (value == null || value.isEmpty) return null;
                     final parsed = parsePriceInput(value);
@@ -401,6 +438,9 @@ class _ManualEntryScreenState extends ConsumerState<ManualEntryScreen> {
                     }
                     if (parsed < 0) {
                       return 'Price cannot be negative';
+                    }
+                    if (parsed > 1000000) {
+                      return 'Price seems too high';
                     }
                     return null;
                   },
@@ -490,7 +530,7 @@ class _ManualEntryScreenState extends ConsumerState<ManualEntryScreen> {
                 // Notes section
                 _buildSectionDivider('NOTES'),
 
-                // Notes
+                // Notes (Ch05-F016: cap blob size).
                 TextFormField(
                   controller: _notesController,
                   decoration: const InputDecoration(
@@ -498,6 +538,9 @@ class _ManualEntryScreenState extends ConsumerState<ManualEntryScreen> {
                     alignLabelWithHint: true,
                   ),
                   maxLines: 4,
+                  maxLength: 2000,
+                  maxLengthEnforcement: MaxLengthEnforcement.enforced,
+                  buildCounter: _hideCounter,
                 ),
                 const SizedBox(height: HavenSpacing.md),
 
@@ -522,7 +565,8 @@ class _ManualEntryScreenState extends ConsumerState<ManualEntryScreen> {
                 ),
                 const SizedBox(height: HavenSpacing.md),
 
-                // Product Image URL
+                // Product Image URL — Ch05-F014: only http/https, no
+                // javascript:/file: schemes that could pop in a webview.
                 TextFormField(
                   controller: _productImageUrlController,
                   decoration: const InputDecoration(
@@ -530,10 +574,19 @@ class _ManualEntryScreenState extends ConsumerState<ManualEntryScreen> {
                     prefixIcon: Icon(Icons.image_outlined, size: 20),
                   ),
                   keyboardType: TextInputType.url,
+                  maxLength: 500,
+                  maxLengthEnforcement: MaxLengthEnforcement.enforced,
+                  buildCounter: _hideCounter,
                   validator: (value) {
                     if (value == null || value.isEmpty) return null;
-                    final uri = Uri.tryParse(value);
+                    final uri = Uri.tryParse(value.trim());
                     if (uri == null || !uri.hasScheme) {
+                      return 'Enter a valid URL';
+                    }
+                    if (uri.scheme != 'http' && uri.scheme != 'https') {
+                      return 'Only http(s) URLs are allowed';
+                    }
+                    if (uri.host.isEmpty) {
                       return 'Enter a valid URL';
                     }
                     return null;

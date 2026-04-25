@@ -26,29 +26,32 @@ class ErrorHandler {
     if (error is AppException) return error.userMessage;
 
     if (error is ApiException) {
-      switch (error.statusCode) {
-        case 400:
+      // Switch over the sealed hierarchy so the compiler enforces handling
+      // of every transport-level failure mode (P002+).
+      switch (error) {
+        case ApiAuthRequiredException():
+          return 'Your session has expired. Please sign in again.';
+        case ApiForbiddenException():
+          return 'You don\'t have permission for this action.';
+        case ApiNotFoundException():
+          return 'The requested item was not found.';
+        case ApiValidationException():
           return error.message.isNotEmpty && error.message != 'Request failed'
               ? error.message
               : 'Invalid request. Please check your input.';
-        case 401:
-          return 'Your session has expired. Please sign in again.';
-        case 403:
-          return 'You don\'t have permission for this action.';
-        case 404:
-          return 'The requested item was not found.';
-        case 408:
-          return 'Request timed out. Please try again.';
-        case 409:
+        case ApiConflictException():
           return error.message.isNotEmpty && error.message != 'Request failed'
               ? error.message
               : 'This change conflicts with recent updates. Please refresh and try again.';
-        case 429:
+        case ApiRateLimitedException():
           return 'Too many requests. Please wait a moment and try again.';
-        default:
-          if (error.statusCode >= 500) {
-            return 'Server error. Please try again later.';
-          }
+        case ApiServerException():
+          return 'Server error. Please try again later.';
+        case ApiNetworkException():
+          return 'Network error. Please check your connection and try again.';
+        case ApiTimeoutException():
+          return 'Request timed out. Please try again.';
+        case ApiUnknownException():
           return 'Something went wrong. Please try again.';
       }
     }

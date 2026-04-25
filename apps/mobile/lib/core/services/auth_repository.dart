@@ -174,9 +174,8 @@ class AuthRepository {
       final userJson = data['data'];
       if (userJson is! Map<String, dynamic>) return null;
       return models.User.fromJson(userJson);
-    } on ApiException catch (e) {
-      if (e.isUnauthorized) return null;
-      rethrow;
+    } on ApiAuthRequiredException {
+      return null;
     }
   }
 
@@ -195,7 +194,7 @@ class AuthRepository {
     );
     final userJson = data['data'];
     if (userJson is! Map<String, dynamic>) {
-      throw ApiException(500, 'Invalid response format');
+      throw const ApiServerException(500, 'Invalid response format');
     }
     return models.User.fromJson(userJson);
   }
@@ -295,7 +294,10 @@ class AuthRepository {
   Future<models.User?> _extractUserAndTokens(Map<String, dynamic> body) async {
     final inner = body['data'];
     if (inner is! Map<String, dynamic>) {
-      throw ApiException(500, 'Auth response missing `data` envelope');
+      throw const ApiServerException(
+        500,
+        'Auth response missing `data` envelope',
+      );
     }
     final accessToken = inner['accessToken'];
     final refreshToken = inner['refreshToken'];
@@ -304,12 +306,15 @@ class AuthRepository {
     if (accessToken is! String ||
         refreshToken is! String ||
         userRaw is! Map<String, dynamic>) {
-      throw ApiException(500, 'Auth response missing accessToken/refreshToken/user');
+      throw const ApiServerException(
+        500,
+        'Auth response missing accessToken/refreshToken/user',
+      );
     }
 
     final userId = userRaw['id'];
     if (userId is! String) {
-      throw ApiException(500, 'Auth response missing user.id');
+      throw const ApiServerException(500, 'Auth response missing user.id');
     }
 
     await _client.saveTokens(

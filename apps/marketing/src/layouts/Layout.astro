@@ -25,7 +25,10 @@ const {
   title,
   description = "Americans lose $16 billion yearly on forgotten warranties. HavenKeep tracks expiration dates, stores receipts, and reminds you before it's too late. Free to start.",
   canonicalPath,
-  ogImage = '/og-image.svg',
+  // Audit Ch10-W075: SVG OG images break unfurls in Slack/Discord/iMessage
+  // (they only honor PNG/JPEG). The PNG is regenerated from og-image.svg
+  // by running `node scripts/build-og-image.cjs` (added in package.json).
+  ogImage = '/og-image.png',
 } = Astro.props;
 
 // Audit Ch10-W077: title format is "<page> • HavenKeep" — the bullet

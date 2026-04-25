@@ -58,7 +58,7 @@ export function errorHandler(
 
   // ── Operational errors (AppError + ValidationError) ───────────────────
   if (err instanceof AppError) {
-    // 4xx errors are user-facing, not "errors" worth Sentry traffic. Log at
+    // 4xx errors are user-facing, not "errors" worth Loki ERROR-level traffic. Log at
     // warn unless 5xx. (Ch11-I016)
     const level = err.statusCode >= 500 ? 'error' : 'warn';
     logger[level](

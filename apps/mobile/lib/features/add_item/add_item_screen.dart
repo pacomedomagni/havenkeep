@@ -29,9 +29,87 @@ class AddItemScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final isAtLimit = ref.watch(isAtItemLimitProvider).value ?? false;
+    // Ch05-F001: never silently treat the limit as "false" on error/loading
+    // — that lets a free user past the cap when the API hiccups. We use the
+    // `.when` pattern so loading and error each get their own UI.
+    final atLimitAsync = ref.watch(isAtItemLimitProvider);
     final itemCount = ref.watch(activeItemCountProvider).value ?? 0;
 
+    return atLimitAsync.when(
+      loading: () => const Scaffold(
+        backgroundColor: HavenColors.background,
+        body: Center(child: CircularProgressIndicator()),
+      ),
+      error: (_, __) => Scaffold(
+        backgroundColor: HavenColors.background,
+        appBar: AppBar(
+          title: const Text(
+            'Add New Item',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+          leading: IconButton(
+            icon: const Icon(Icons.close),
+            onPressed: () => Navigator.of(context).pop(),
+          ),
+        ),
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(HavenSpacing.lg),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(
+                  Icons.cloud_off,
+                  size: 64,
+                  color: HavenColors.expired,
+                ),
+                const SizedBox(height: HavenSpacing.md),
+                const Text(
+                  "We couldn't check your plan",
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: HavenColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: HavenSpacing.sm),
+                const Text(
+                  "Try again in a moment so we don't accidentally let you past your free-plan cap.",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: HavenColors.textSecondary,
+                    height: 1.4,
+                  ),
+                ),
+                const SizedBox(height: HavenSpacing.xl),
+                SizedBox(
+                  width: double.infinity,
+                  height: 52,
+                  child: ElevatedButton(
+                    onPressed: () =>
+                        ref.invalidate(isAtItemLimitProvider),
+                    child: const Text('Try Again'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+      data: (isAtLimit) => _buildContent(
+        context,
+        isAtLimit: isAtLimit,
+        itemCount: itemCount,
+      ),
+    );
+  }
+
+  Widget _buildContent(
+    BuildContext context, {
+    required bool isAtLimit,
+    required int itemCount,
+  }) {
     if (isAtLimit) {
       return Scaffold(
         backgroundColor: HavenColors.background,
@@ -148,7 +226,10 @@ class AddItemScreen extends ConsumerWidget {
                       category: entry.$1,
                       label: entry.$2,
                       onTap: () {
-                        HavenHaptics.confirm();
+                        // Ch05-F002: navigation triggers should use the
+                        // light "tap" haptic; "confirm" is reserved for
+                        // completed actions like a successful save.
+                        HavenHaptics.tap();
                         context.push('/add-item/quick/${entry.$1.name}');
                       },
                     ),
@@ -159,7 +240,7 @@ class AddItemScreen extends ConsumerWidget {
                     label: 'Other',
                     customEmoji: '\u{00B7}\u{00B7}\u{00B7}',
                     onTap: () {
-                      HavenHaptics.confirm();
+                      HavenHaptics.tap();
                       context.push('/add-item/quick/${ItemCategory.other.name}');
                     },
                   ),
@@ -242,35 +323,43 @@ class _CategoryTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        decoration: BoxDecoration(
-          color: HavenColors.elevated,
+    // Ch05 a11y: every quick-add tile is a button; expose the label so
+    // VoiceOver/TalkBack reads "Fridge button" instead of "image".
+    return Semantics(
+      button: true,
+      label: 'Add $label',
+      child: Material(
+        color: HavenColors.elevated,
+        borderRadius: BorderRadius.circular(HavenRadius.button),
+        child: InkWell(
+          onTap: onTap,
           borderRadius: BorderRadius.circular(HavenRadius.button),
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            customEmoji != null
-                ? Text(
-                    customEmoji!,
-                    style: const TextStyle(fontSize: 28),
-                  )
-                : CategoryIcon.widget(category, size: 28),
-            const SizedBox(height: HavenSpacing.sm),
-            Text(
-              label,
-              style: const TextStyle(
-                fontSize: 11,
-                color: HavenColors.textSecondary,
-                fontWeight: FontWeight.w500,
-              ),
-              textAlign: TextAlign.center,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+          child: Container(
+            constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                customEmoji != null
+                    ? Text(
+                        customEmoji!,
+                        style: const TextStyle(fontSize: 28),
+                      )
+                    : CategoryIcon.widget(category, size: 28),
+                const SizedBox(height: HavenSpacing.sm),
+                Text(
+                  label,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: HavenColors.textSecondary,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );

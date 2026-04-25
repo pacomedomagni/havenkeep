@@ -313,7 +313,7 @@ None.
 **Success criteria.**
 - Pino redact list covers all sensitive keys (tokens, cookies, base64 image, OAuth access_tokens).
 - CSRF middleware is the source of truth — no Bearer-bypass loopholes.
-- Helmet COEP/CORP set explicitly; CSP ships (report-uri to Sentry).
+- Helmet COEP/CORP set explicitly; CSP ships (report-uri to the API audit endpoint).
 - File validation default-denies unknown MIMEs; SVG explicitly rejected.
 - Date utils use UTC accessors; property-based tests for month math.
 - `tsc --noEmit` + `npm test` clean.
@@ -429,7 +429,7 @@ None.
 - **Ch11-I094** — 30s forced-exit timer not unref'd.
 - **Ch11-I095** — `uncaughtException` can recurse into shutdown.
 - **Ch11-I096** — `unhandledRejection` logs but doesn't exit.
-- **Ch11-I097** — No Sentry/error tracker.
+- **Ch11-I097** — No external error tracker.
 - **Ch11-I100** — Early SIGTERM dereferences undefined server.
 
 ### Likely-stale
@@ -1197,7 +1197,7 @@ None.
 **Success criteria.**
 - Every entity has a hydrate-render test asserting `fromJson(toJson(x)) == x` against a representative sample.
 - No `DateTime.tryParse(...) ?? DateTime.now()` fallbacks in `shared_models`.
-- Every Dart enum has a `_byName` map; unknowns log to Sentry rather than coerce to a default.
+- Every Dart enum has a `_byName` map; unknowns log to Loki rather than coerce to a default.
 - DB CHECK constraints match Joi enum lists.
 - `flutter analyze` clean; `tsc --noEmit` clean; CI lint passes.
 

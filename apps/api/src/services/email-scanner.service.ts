@@ -914,7 +914,7 @@ export class EmailScannerService {
             });
 
             const emailData = this.parseGmailMessage(messageData.data);
-            const extracted = await this.extractReceiptData(emailData, signal);
+            const extracted = await this.extractReceiptData(emailData, signal, userId);
 
             if (extracted) {
               receipts.push(extracted);
@@ -1075,12 +1075,61 @@ export class EmailScannerService {
    * policy and terms of service. The access token is used only for email access
    * and is not stored.
    */
+  /**
+   * F063 closure: every OpenAI call from the email scanner now writes a row
+   * to `openai_usage` so the per-user daily budget view reflects scanner
+   * traffic too — not just the receipt route. `userId` is required so the
+   * row is attributed to the right tenant; `feature='email_scan'` matches
+   * the budget short-circuit upstream.
+   *
+   * Cost rates kept in sync with apps/api/src/routes/receipts.ts. If the
+   * model price changes, update both sites.
+   */
+  private static readonly COST_PER_PROMPT_TOKEN_MICROS = 150n;
+  private static readonly COST_PER_COMPLETION_TOKEN_MICROS = 600n;
+
+  private static computeCostMicros(promptTokens: number, completionTokens: number): bigint {
+    return (
+      BigInt(Math.max(0, promptTokens)) * EmailScannerService.COST_PER_PROMPT_TOKEN_MICROS +
+      BigInt(Math.max(0, completionTokens)) * EmailScannerService.COST_PER_COMPLETION_TOKEN_MICROS
+    );
+  }
+
+  private static async recordScannerUsage(
+    userId: string,
+    promptTokens: number,
+    completionTokens: number,
+    totalTokens: number,
+  ): Promise<void> {
+    if (!userId || promptTokens + completionTokens === 0) return;
+    try {
+      await pool.query(
+        `INSERT INTO openai_usage (
+          user_id, feature, model, prompt_tokens, completion_tokens, total_tokens, cost_micros
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [
+          userId,
+          'email_scan',
+          'gpt-4o-mini',
+          promptTokens,
+          completionTokens,
+          totalTokens,
+          EmailScannerService.computeCostMicros(promptTokens, completionTokens).toString(),
+        ],
+      );
+    } catch (err) {
+      // Never block the scan on a ledger write — the daily budget will
+      // catch up on the next cron pass if Postgres flapped.
+      logger.warn({ err, userId }, 'Failed to record email-scanner OpenAI usage');
+    }
+  }
+
   private static async extractReceiptData(emailData: {
     subject: string;
     from: string;
     date: string;
     body: string;
-  }, signal?: AbortSignal): Promise<ExtractedReceipt | null> {
+  }, signal?: AbortSignal, userId?: string): Promise<ExtractedReceipt | null> {
     const requestBody = {
       model: 'gpt-4o-mini', // Cheaper, faster model
       messages: [
@@ -1158,6 +1207,18 @@ ${maskPII(stripHtmlTags(emailData.body).substring(0, 4000))}`,
       };
       logger.warn({ error: safeError, subject: emailData.subject }, 'Failed to extract receipt data with AI');
       return null;
+    }
+
+    // F063: write the per-call usage to openai_usage. Do this regardless of
+    // whether the JSON parse below succeeds — we still spent the tokens.
+    if (userId) {
+      const usage = response.data?.usage ?? {};
+      await EmailScannerService.recordScannerUsage(
+        userId,
+        Number(usage.prompt_tokens ?? 0),
+        Number(usage.completion_tokens ?? 0),
+        Number(usage.total_tokens ?? 0),
+      );
     }
 
     let extracted: any;

@@ -1,3 +1,5 @@
+import '_unknown_enum_log.dart';
+
 /// A warranty claim filed against an item.
 class WarrantyClaim {
   final String id;
@@ -128,9 +130,15 @@ enum ClaimStatus {
   factory ClaimStatus.fromJson(String value) {
     final mapped = _byName[value];
     if (mapped != null) return mapped;
-    // Unknown value: assume pending so the UI doesn't blow up, but the
-    // server-side enum should never produce a non-_byName string. Phase 9
-    // hooks Sentry on enum drift.
+    // Unknown value: log via the shared funnel (Ch08-D018) so an enum drift
+    // between server and client surfaces in platform logs (and any custom
+    // reporter the bootstrap registers), then coerce to `pending` so the UI
+    // keeps rendering.
+    logUnknownEnumValue(
+      enumName: 'ClaimStatus',
+      unknownValue: value,
+      fallback: 'pending',
+    );
     return ClaimStatus.pending;
   }
 

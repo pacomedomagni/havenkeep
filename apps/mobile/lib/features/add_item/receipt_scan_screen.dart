@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -14,6 +15,7 @@ import '../../core/providers/items_provider.dart';
 import '../../core/services/receipt_scanner_service.dart';
 import '../../core/utils/error_handler.dart';
 import '../../core/utils/money_formatter.dart';
+import '../../core/utils/price_parser.dart';
 import '../../core/widgets/haven_loader.dart';
 
 /// Receipt scan screen — capture a receipt photo, extract data via OCR,
@@ -28,6 +30,11 @@ class ReceiptScanScreen extends ConsumerStatefulWidget {
 class _ReceiptScanScreenState extends ConsumerState<ReceiptScanScreen> {
   final _picker = ImagePicker();
   File? _imageFile;
+  // Ch05-F008: hash of the most recent image we've already OCR'd. We
+  // refuse to re-OCR an identical capture (rapid double-tap on Try Again
+  // or a re-pick that returned the same temp file) so we don't burn
+  // quota for an answer we know won't change.
+  String? _lastScannedHash;
   ReceiptScanResult? _scanResult;
   bool _isScanning = false;
   bool _isSaving = false;
@@ -55,10 +62,14 @@ class _ReceiptScanScreenState extends ConsumerState<ReceiptScanScreen> {
 
   Future<void> _captureReceipt() async {
     try {
+      // Ch05-F007: 90 is the OCR sweet spot — receipts have small fonts
+      // and at 80 the JPEG ringing eats characters along the totals line.
+      // 1600px max keeps memory low; we trust the OCR to compensate for
+      // perspective and skew on its own.
       final image = await _picker.pickImage(
         source: ImageSource.camera,
-        maxWidth: 2048,
-        maxHeight: 2048,
+        maxWidth: 1600,
+        maxHeight: 1600,
         imageQuality: 90,
       );
 
@@ -86,6 +97,26 @@ class _ReceiptScanScreenState extends ConsumerState<ReceiptScanScreen> {
 
   Future<void> _processReceipt() async {
     if (_imageFile == null) return;
+
+    // Ch05-F008: skip OCR if the bytes haven't changed since the last
+    // scan. We compare SHA-256 of the file contents — `picker.pickImage`
+    // sometimes hands back the same temp file on a quick re-pick, and
+    // we don't want to charge the user (or our API budget) twice for
+    // the same image.
+    try {
+      final bytes = await _imageFile!.readAsBytes();
+      final hash = sha256.convert(bytes).toString();
+      if (hash == _lastScannedHash && _scanResult != null) {
+        if (mounted) {
+          setState(() => _isScanning = false);
+        }
+        return;
+      }
+      _lastScannedHash = hash;
+    } catch (_) {
+      // If hashing fails (rare; permissions/file gone), let the OCR call
+      // surface the real failure instead of swallowing it here.
+    }
 
     try {
       final result = await ref
@@ -138,23 +169,38 @@ class _ReceiptScanScreenState extends ConsumerState<ReceiptScanScreen> {
       final home = ref.read(currentHomeProvider);
       if (user == null || home == null) return;
 
-      final price = double.tryParse(_priceController.text);
+      // Ch05-F009: use the locale-aware parser everywhere.
+      final price = parsePriceInput(_priceController.text);
+
+      // Ch05-F011: prefer "<Brand> <Category>" so the items list doesn't end
+      // up with three duplicates literally named "Refrigerator".
+      final brand = _brandController.text.trim();
+      final itemName = brand.isNotEmpty
+          ? '$brand ${_category.displayLabel}'
+          : _category.displayLabel;
+
+      // Ch05-F005: anchor purchase date at local midnight.
+      final purchaseDateOnly = DateTime(
+        _purchaseDate.year,
+        _purchaseDate.month,
+        _purchaseDate.day,
+      );
 
       const warrantyMonths = 12;
       final item = Item(
         id: '', // DB generates
         homeId: home.id,
         userId: user.id,
-        name: _category.displayLabel,
-        brand: _brandController.text.isNotEmpty ? _brandController.text : null,
+        name: itemName,
+        brand: brand.isNotEmpty ? brand : null,
         category: _category,
-        purchaseDate: _purchaseDate,
+        purchaseDate: purchaseDateOnly,
         price: price,
         warrantyMonths: warrantyMonths,
         // Server overwrites on insert (Ch08-Item-D010); keep the optimistic
         // value in sync with the API formula.
         warrantyEndDate:
-            Item.computeWarrantyEndDate(_purchaseDate, warrantyMonths),
+            Item.computeWarrantyEndDate(purchaseDateOnly, warrantyMonths),
         addedVia: ItemAddedVia.receipt_scan,
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),
@@ -164,7 +210,7 @@ class _ReceiptScanScreenState extends ConsumerState<ReceiptScanScreen> {
           await ref.read(itemsProvider.notifier).addItem(item);
 
       if (mounted) {
-        context.go('/add-item/success/${newItem.id}');
+        context.go('/add-item/success/${newItem.id}', extra: newItem);
       }
     } catch (e) {
       if (mounted) {
@@ -197,7 +243,12 @@ class _ReceiptScanScreenState extends ConsumerState<ReceiptScanScreen> {
       },
     );
     if (picked != null) {
-      setState(() => _purchaseDate = picked);
+      setState(() {
+        // Ch05-F005: normalise to local midnight so timezone flips
+        // don't bump the displayed date.
+        _purchaseDate =
+            DateTime(picked.year, picked.month, picked.day);
+      });
     }
   }
 
@@ -331,6 +382,7 @@ class _ReceiptScanScreenState extends ConsumerState<ReceiptScanScreen> {
                             _imageFile = null;
                             _scanResult = null;
                             _error = null;
+                            _lastScannedHash = null;
                           });
                           _captureReceipt();
                         },
@@ -341,6 +393,25 @@ class _ReceiptScanScreenState extends ConsumerState<ReceiptScanScreen> {
                         ),
                       ),
                       const SizedBox(width: HavenSpacing.sm),
+                      // Ch05-F008: re-OCR the same image without making the
+                      // user re-take the photo.
+                      if (_imageFile != null) ...[
+                        TextButton.icon(
+                          onPressed: () {
+                            setState(() {
+                              _error = null;
+                              _isScanning = true;
+                            });
+                            _processReceipt();
+                          },
+                          icon: const Icon(Icons.refresh, size: 16),
+                          label: const Text('Try Again'),
+                          style: TextButton.styleFrom(
+                            foregroundColor: HavenColors.primary,
+                          ),
+                        ),
+                        const SizedBox(width: HavenSpacing.sm),
+                      ],
                       TextButton.icon(
                         onPressed: () {
                           setState(() => _error = null);
@@ -499,6 +570,7 @@ class _ReceiptScanScreenState extends ConsumerState<ReceiptScanScreen> {
                   _imageFile = null;
                   _scanResult = null;
                   _error = null;
+                  _lastScannedHash = null;
                 });
                 _captureReceipt();
               },

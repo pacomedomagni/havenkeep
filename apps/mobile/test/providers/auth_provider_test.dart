@@ -144,7 +144,7 @@ void main() {
         when(mockAuthRepo.signInWithEmail(
           email: anyNamed('email'),
           password: anyNamed('password'),
-        )).thenThrow(ApiException(401, 'Invalid credentials'));
+        )).thenThrow(ApiException.fromResponse(401, 'Invalid credentials'));
 
         container = createContainer();
         await container.read(currentUserProvider.future);
@@ -202,7 +202,7 @@ void main() {
           password: anyNamed('password'),
           fullName: anyNamed('fullName'),
           referralCode: anyNamed('referralCode'),
-        )).thenThrow(ApiException(409, 'Email already in use'));
+        )).thenThrow(ApiException.fromResponse(409, 'Email already in use'));
 
         container = createContainer();
         await container.read(currentUserProvider.future);

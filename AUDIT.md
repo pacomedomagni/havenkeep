@@ -4657,7 +4657,7 @@ Given the scope and the many files I've now read, here are my 70+ new findings, 
 **Invariant:** If the server rotates refresh tokens (JWT best practice), every successful refresh must return a new refresh token.
 **Why:** Line 244 reads `newRefreshToken` as nullable and proceeds even if absent. If the server is upgraded to enforce rotation and the client is on an old build, no error is surfaced — the stored refresh token silently stays the old one and becomes invalid on the next call.
 **Impact:** Users get signed out after every access token lifetime (~15min) once rotation ships.
-**Fix:** On missing `refreshToken` log a Sentry breadcrumb; gate behind a server-advertised capability flag.
+**Fix:** On missing `refreshToken` log a Loki entry; gate behind a server-advertised capability flag.
 
 ### P011 — `ApiException` throws away `request-id`, `date`, and server-side `code` for 5xx
 **File:** `/Users/pacomedomagni/Projects/havenkeep/packages/api_client/lib/src/client.dart:349-355`
@@ -4673,9 +4673,9 @@ Given the scope and the many files I've now read, here are my 70+ new findings, 
 **Impact:** After a rate-limit block, client hammers the server until success, extending the ban.
 **Fix:** If int parse fails, try `HttpDate.parse(value)` and compute delta.
 
-### P013 — `ApiException.toString()` hides status code from Sentry grouping
+### P013 — `ApiException.toString()` hides status code from log grouping
 **File:** `/Users/pacomedomagni/Projects/havenkeep/packages/api_client/lib/src/client.dart:26-27`
-**Invariant:** Error telemetry groups by stable prefix — if every 404/500 stringifies to the same `ApiException($statusCode): $message` prefix but the message is user-supplied localized strings, Sentry fuse rules over-aggregate.
+**Invariant:** Error telemetry groups by stable prefix — if every 404/500 stringifies to the same `ApiException($statusCode): $message` prefix but the message is user-supplied localized strings, log dedup rules over-aggregate.
 **Why:** Messages like "User-facing error: You already used this gift" and "Internal: transaction failed" both hash together because the prefix is identical.
 **Impact:** Real incidents drown in benign error groups.
 **Fix:** Override `hashCode`/`==` on `ApiException` keyed by `(statusCode, code)`; surface `code` in `toString`.
@@ -4733,7 +4733,7 @@ Given the scope and the many files I've now read, here are my 70+ new findings, 
 **File:** `/Users/pacomedomagni/Projects/havenkeep/packages/api_client/lib/src/client.dart:75-80, 107, 112, 136`
 **Invariant:** Access/refresh tokens must never appear in logs.
 **Why:** `_log` takes a `String` and `refreshAccessToken` logs `"Token refresh failed: $e"` where `e` can be an `ApiException` containing the body (and in some edge cases the refresh token if the server echoes it). No redaction pass.
-**Impact:** Third-party telemetry (Sentry, Datadog) absorbs tokens; replay attacks possible on leaked logs.
+**Impact:** Third-party telemetry (Loki) absorbs tokens; replay attacks possible on leaked logs.
 **Fix:** Add a `_redact(String)` helper that strips anything matching `eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+`.
 
 ### P022 — `_parseResponse` treats 2xx with empty body as `{}` and discards status code
@@ -4797,21 +4797,21 @@ Given the scope and the many files I've now read, here are my 70+ new findings, 
 **Invariant:** Unknown warranty status must not be shown as "Active" (green badge).
 **Why:** `orElse: () => WarrantyStatus.active` pretends every garbage value means active. A server bug emitting `pending` or `suspended` shows the user a misleading OK state.
 **Impact:** Expiring warranties may display as active, missing renewal nudges.
-**Fix:** Return `WarrantyStatus.expired` defensively (conservative), or throw and Sentry-log.
+**Fix:** Return `WarrantyStatus.expired` defensively (conservative), or throw and Loki-log.
 
 ### P031 — `UserPlan.fromJson('suspended')` falls to `free` on client-only orElse
 **File:** `/Users/pacomedomagni/Projects/havenkeep/packages/shared_models/lib/src/enums.dart:246-251`
 **Invariant:** Suspended is a real enum — the orElse path is unreachable in theory.
 **Why:** The `orElse` still exists and returns `free` for *any* unknown value. If a future server adds `cancelled_pending`, the client treats it as `free` and shows the free dashboard to users whose subscription is being cancelled.
 **Impact:** Users lose premium UI during pending-cancel state.
-**Fix:** Explicit allow-list; throw or Sentry-log.
+**Fix:** Explicit allow-list; throw or Loki-log.
 
 ### P032 — `ItemCategory.fromJson` silently collapses `'oven'`, `'stove'` etc. into `other`
 **File:** `/Users/pacomedomagni/Projects/havenkeep/packages/shared_models/lib/src/enums.dart:56-61`
 **Invariant:** Barcode scanner and AI receipt scan may return category names the enum doesn't model.
 **Why:** Silent `other` fallback means users can't tell why their scanned fridge was filed as "Other". No telemetry on the rejection rate.
 **Impact:** Blind spot: product can't measure which categories to add.
-**Fix:** Log to Sentry with raw value; display a "Select correct category" nudge on the item card.
+**Fix:** Log to Loki with raw value; display a "Select correct category" nudge on the item card.
 
 ### P033 — enum `values.firstWhere((e) => e.name == value)` is O(n) per deserialization
 **File:** `/Users/pacomedomagni/Projects/havenkeep/packages/shared_models/lib/src/enums.dart:56-60, 133-137, 170-174, 196-200, 221-226, 246-250, 273-277, 302-306, 340-344, 376-380, 403-407, 430-434, 455-459, 480-484, 509-513, 540-544, 567-571`
@@ -4894,7 +4894,7 @@ Given the scope and the many files I've now read, here are my 70+ new findings, 
 **Invariant:** Server uses exactly `in_review` per `warranty-claims.validator.ts:11`; client's switch handles `in_review`. But a prior bug set rows to `in-review` (hyphen) in dev and no migration normalizes.
 **Why:** The fallback masks bad data as `pending`, hiding it in ops views.
 **Impact:** Bad rows invisible in "pending claims" debugging.
-**Fix:** Log unknowns to Sentry with the raw value.
+**Fix:** Log unknowns to Loki with the raw value.
 
 ### P045 — `WarrantyPurchase` missing `copyWith`, `operator ==`, `hashCode`
 **File:** `/Users/pacomedomagni/Projects/havenkeep/packages/shared_models/lib/src/warranty_purchase.dart:2-122`
@@ -4921,7 +4921,7 @@ Given the scope and the many files I've now read, here are my 70+ new findings, 
 **File:** `/Users/pacomedomagni/Projects/havenkeep/packages/shared_models/lib/src/warranty_purchase.dart:124-147`
 **Invariant:** Maintain parity with server enum. Migration `023_add_pending_warranty_purchase_status.sql` added `pending`; client lists `pending` but NOT `pending_payment` like gifts have. Confirm via validator line 38 — server lists `active, expired, cancelled, pending, claimed` only. So this is client/server-aligned.
 **Impact:** None currently. Flagged for maintenance: if future `pending_payment` is added (by analogy with gifts), client silently falls to `active` — wrong.
-**Fix:** Pre-register Sentry breadcrumb on unknown values.
+**Fix:** Pre-register Loki entry on unknown values.
 
 ### P049 — `User.toJson` emits `is_partner` which the server computes, not stores
 **File:** `/Users/pacomedomagni/Projects/havenkeep/packages/shared_models/lib/src/user.dart:77`
@@ -5486,7 +5486,7 @@ Findings already in AUDIT.md (C12 `DateTime.now()` fallback; M27 `as num` on dec
 **Dart:** `enums.dart:500-527` — 7 values identical.
 **Drift:** Because DB has no CHECK, any string fits in a row. If a migration script or direct SQL inserts `added_via='admin_import'`, Dart's enum fallback returns `ItemAddedVia.manual` — silently masquerading the origin. The Joi validator's `valid()` list also drifts from reality (no server-side CHECK to enforce the whitelist). Also: the enum order in Dart (line 501: `quick_add` first) differs from server's first-listed, purely cosmetic.
 **Impact:** Attribution analytics ("how many items came via barcode vs. manual?") are wrong when code paths write unknown tags. Subtle silent data corruption.
-**Fix:** Add `CHECK (added_via IN (...))` at DB level (migration 028) matching the Joi list. Sentry-log Dart fallbacks.
+**Fix:** Add `CHECK (added_via IN (...))` at DB level (migration 028) matching the Joi list. Loki-log Dart fallbacks.
 
 ### D012 — Item.archived_at writable from nowhere, auto-computed inconsistently
 **DB:** `010:3` — `archived_at TIMESTAMPTZ` nullable; backfilled to `updated_at` at migration time (010:7).
@@ -6501,7 +6501,7 @@ File: apps/mobile/lib/features/add_item/receipt_scan_screen.dart:112-118
 Invariant: unknown server enum values should be reported so the catalogue evolves; see M11 for barcode counterpart.
 Attack / misbehavior: Any free-text from OpenAI other than the exact enum names silently becomes `ItemCategory.other`. Model-suggested `"fridge"` → `other`. User never sees the hint.
 Impact: Category intelligence lost on almost every scan; UI shows `other.displayLabel` as the item name (see T-A8).
-Fix: Map a small set of aliases ({"fridge":"refrigerator", "washing machine":"washer"}); report unknown values to Sentry.
+Fix: Map a small set of aliases ({"fridge":"refrigerator", "washing machine":"washer"}); log unknown values to Loki.
 ```
 
 ```
@@ -7395,7 +7395,7 @@ Findings are grouped Partner Dashboard first, then Marketing, skipping items alr
 **File:** /Users/pacomedomagni/Projects/havenkeep/apps/partner-dashboard/src/app/forgot-password/actions.ts:21-34
 **Invariant:** The enumeration-defense pattern is "always say success"; but a genuine 500 from the API should still be distinguishable for ops.
 **Impact:** If the API returns 500 (DB down) or 502 (upstream error) during password reset, the user sees "check your inbox" but no email is sent. Support tickets pile up.
-**Fix:** Log the failure (server-side), still show "check your inbox" to the user, but increment a metric / emit a Sentry breadcrumb.
+**Fix:** Log the failure (server-side), still show "check your inbox" to the user, but increment a metric / emit a Loki entry.
 ```
 
 ```
@@ -7410,7 +7410,7 @@ Findings are grouped Partner Dashboard first, then Marketing, skipping items alr
 ### W019 — Reset-password passes token through URL querystring without origin check
 **File:** /Users/pacomedomagni/Projects/havenkeep/apps/partner-dashboard/src/app/reset-password/page.tsx:19
 **Invariant:** Reset tokens in querystrings end up in Referer headers, server logs, browser history, and any analytics pixel.
-**Impact:** If the reset-password page embeds any third-party script (Plausible, GA, Sentry), the token leaks via document.referrer on any outbound fetch.
+**Impact:** If the reset-password page embeds any third-party script (Plausible, GA, custom collector), the token leaks via document.referrer on any outbound fetch.
 **Fix:** On page load, move the token from query to a hidden form field or POST-body and use `window.history.replaceState` to strip it from the URL.
 ```
 
@@ -7731,7 +7731,7 @@ Findings are grouped Partner Dashboard first, then Marketing, skipping items alr
 **File:** /Users/pacomedomagni/Projects/havenkeep/apps/partner-dashboard/src/app/error.tsx:20 and /Users/pacomedomagni/Projects/havenkeep/apps/partner-dashboard/src/app/dashboard/error.tsx:26
 **Invariant:** Production error UIs should never leak server error details.
 **Impact:** In prod Next hides stack traces but `error.message` (user-visible) can include specific error strings like "DB connection refused at pg_connect" (from thrown ApiError.message inside serverApiClient). Inconsistent with the AUDIT pattern W046.
-**Fix:** Render a fixed "Something went wrong" string; log details via Sentry.
+**Fix:** Render a fixed "Something went wrong" string; log details to Loki.
 ```
 
 ```
@@ -8145,11 +8145,11 @@ Findings are grouped Partner Dashboard first, then Marketing, skipping items alr
 ```
 
 ```
-### W111 — Marketing / partner dashboard do not emit a `report-uri` / Sentry integration for CSP violations
+### W111 — Marketing / partner dashboard do not emit a `report-uri` / log integration for CSP violations
 **File:** Layout.astro / next.config.js (both lack CSP reporting)
 **Invariant:** Deploying CSP without `report-uri` (or `report-to`) means you discover violations from user complaints.
 **Impact:** When CSP is eventually shipped (currently absent), you'll blind-ship it.
-**Fix:** Route CSP reports to Sentry or a dedicated endpoint.
+**Fix:** Route CSP reports to a dedicated endpoint or a dedicated endpoint.
 ```
 
 ```
@@ -8861,12 +8861,12 @@ Let me structure fresh findings focused on these infrastructure files.
 **Impact:** Silent drift; hard-to-diagnose bugs.
 **Fix:** After logging, `process.exit(1)` OR wire to the tracker that calls the error reporter first.
 
-### I097 — No initialization of external error reporter (Sentry) visible — all these crash paths go only to Pino
+### I097 — No initialization of external error reporter (Loki receives uncaught throws via pino transport) visible — all these crash paths go only to Pino
 **File:** apps/api/src/index.ts and utils/logger.ts
 **Invariant:** Prod should dual-write to an error tracker with stack + user + request context.
-**Why:** No Sentry/Bugsnag/Honeycomb init. uncaughtException + unhandledRejection go to Loki only — no alert, no stack-inspector UI.
+**Why:** No Loki init. uncaughtException + unhandledRejection go to Loki only — no alert, no stack-inspector UI.
 **Impact:** Crash triage takes 10x longer.
-**Fix:** `@sentry/node` init with `config.sentryDsn`.
+**Fix:** `pino + Loki transport` init with `config.lokiUrl`.
 
 ### I098 — Raw body middleware at app.ts:88-91 applies to ALL methods, including GET / DELETE which never have a body — no impact beyond wasting a bufferload on malformed clients
 **File:** apps/api/src/app.ts:88-91

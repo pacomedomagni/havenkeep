@@ -34,12 +34,22 @@ class _PreviewScreenState extends State<PreviewScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            // Skip button
+            // Skip button (Ch05-F082: name the action so VoiceOver
+            // reads "Skip onboarding, button" instead of just "Skip").
             Align(
               alignment: Alignment.topRight,
-              child: TextButton(
-                onPressed: widget.onGetStarted,
-                child: const Text('Skip'),
+              child: Semantics(
+                button: true,
+                label: 'Skip onboarding and continue',
+                child: ConstrainedBox(
+                  // Ch05-F084: 48dp minimum tap target.
+                  constraints:
+                      const BoxConstraints(minWidth: 48, minHeight: 48),
+                  child: TextButton(
+                    onPressed: widget.onGetStarted,
+                    child: const Text('Skip'),
+                  ),
+                ),
               ),
             ),
 
@@ -175,32 +185,41 @@ class _PreviewPage extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          // Simple icon (no Lottie needed - fast & clean)
-          Container(
-            width: 160,
-            height: 160,
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.1),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              icon,
-              size: 80,
-              color: color,
+          // Simple icon (no Lottie needed - fast & clean). Marked
+          // decorative-only (Ch05-F082) so screen readers read the
+          // headline below it rather than guessing at the icon glyph.
+          ExcludeSemantics(
+            child: Container(
+              width: 160,
+              height: 160,
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.1),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                icon,
+                size: 80,
+                color: color,
+              ),
             ),
           ),
 
           const SizedBox(height: 48),
 
-          // Title
-          Text(
-            title,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontSize: 32,
-              fontWeight: FontWeight.bold,
-              color: HavenColors.textPrimary,
-              height: 1.2,
+          // Title (Ch05-F085: textPrimary on dark background hits
+          // WCAG AA 4.5:1; we keep the strict colour and don't tint
+          // it to match the icon.)
+          Semantics(
+            header: true,
+            child: Text(
+              title,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 32,
+                fontWeight: FontWeight.bold,
+                color: HavenColors.textPrimary,
+                height: 1.2,
+              ),
             ),
           ),
 

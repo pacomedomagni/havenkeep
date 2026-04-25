@@ -12,6 +12,7 @@ import '../../core/providers/items_provider.dart';
 import '../../core/router/router.dart';
 import '../../core/services/barcode_lookup_service.dart';
 import '../../core/utils/error_handler.dart';
+import '../../core/utils/haven_haptics.dart';
 import '../../core/widgets/haven_image.dart';
 import '../../core/widgets/haven_loader.dart';
 
@@ -24,7 +25,8 @@ class BarcodeScanScreen extends ConsumerStatefulWidget {
   ConsumerState<BarcodeScanScreen> createState() => _BarcodeScanScreenState();
 }
 
-class _BarcodeScanScreenState extends ConsumerState<BarcodeScanScreen> {
+class _BarcodeScanScreenState extends ConsumerState<BarcodeScanScreen>
+    with WidgetsBindingObserver {
   final MobileScannerController _scannerController = MobileScannerController(
     detectionSpeed: DetectionSpeed.normal,
     facing: CameraFacing.back,
@@ -36,11 +38,39 @@ class _BarcodeScanScreenState extends ConsumerState<BarcodeScanScreen> {
   BarcodeLookupResult? _lookupResult;
   String? _error;
   bool _hasDetected = false;
+  bool _torchOn = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _scannerController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Ch05 barcode lifecycle: pause the camera while backgrounded so we
+    // don't keep the sensor warm (battery + privacy LED) and can resume
+    // cleanly on return.
+    switch (state) {
+      case AppLifecycleState.paused:
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.hidden:
+        _scannerController.stop();
+      case AppLifecycleState.resumed:
+        if (_lookupResult == null) {
+          _scannerController.start();
+        }
+      case AppLifecycleState.detached:
+        // No-op; dispose() will clean up.
+        break;
+    }
   }
 
   void _onBarcodeDetected(BarcodeCapture capture) {
@@ -84,11 +114,29 @@ class _BarcodeScanScreenState extends ConsumerState<BarcodeScanScreen> {
       }
     } catch (e) {
       if (mounted) {
-        // 403 means the user needs a premium plan to use barcode scanning
-        if (e is ApiException && e.statusCode == 403) {
-          context.push(AppRoutes.premium);
+        // 403 means the user needs a premium plan to use barcode scanning.
+        // Ch05-F003: when the user returns from the paywall (still
+        // un-premium), reset the scanner so they can try again immediately
+        // instead of having to pop and re-enter.
+        if (e is ApiForbiddenException) {
+          await context.push(AppRoutes.premium);
+          if (mounted) {
+            setState(() {
+              _hasDetected = false;
+              _isProcessing = false;
+              _isLookingUp = false;
+              _lookupResult = null;
+              _error = null;
+            });
+          }
           return;
         }
+        // Ch05-F002: barcode lookup failure is the user's "miss" moment;
+        // the strongest haptic we have draws their eye to the inline
+        // error/manual-entry prompt before they keep waving the camera
+        // around. `warn` maps to `vibrate` on Android and a sharp pulse
+        // on iOS — heavier than the celebratory `confirm` tap.
+        HavenHaptics.warn();
         setState(() {
           _isLookingUp = false;
           _error = ErrorHandler.getUserMessage(e);
@@ -105,7 +153,19 @@ class _BarcodeScanScreenState extends ConsumerState<BarcodeScanScreen> {
     try {
       final user = ref.read(currentUserProvider).value;
       final home = ref.read(currentHomeProvider);
-      if (user == null || home == null) return;
+      // Ch05-F004: surface why the save bailed instead of returning to a
+      // disabled-button limbo with no feedback.
+      if (user == null || home == null) {
+        if (mounted) {
+          showHavenSnackBar(
+            context,
+            message:
+                'Sign in and pick a home before adding items.',
+            isError: true,
+          );
+        }
+        return;
+      }
 
       ItemCategory category = ItemCategory.other;
       if (_lookupResult!.category != null) {
@@ -114,7 +174,9 @@ class _BarcodeScanScreenState extends ConsumerState<BarcodeScanScreen> {
         } catch (_) {}
       }
 
-      final purchaseDate = DateTime.now();
+      // Local-midnight anchor (Ch05-F005).
+      final now = DateTime.now();
+      final purchaseDate = DateTime(now.year, now.month, now.day);
       const warrantyMonths = 12;
       final item = Item(
         id: '',
@@ -139,7 +201,7 @@ class _BarcodeScanScreenState extends ConsumerState<BarcodeScanScreen> {
       final (newItem, _) = await ref.read(itemsProvider.notifier).addItem(item);
 
       if (mounted) {
-        context.go('/add-item/success/${newItem.id}');
+        context.go('/add-item/success/${newItem.id}', extra: newItem);
       }
     } catch (e) {
       if (mounted) {
@@ -171,6 +233,23 @@ class _BarcodeScanScreenState extends ConsumerState<BarcodeScanScreen> {
           'Scan Barcode',
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
+        actions: [
+          // Ch05-F003: torch toggle for low-light cabinets/stockrooms.
+          if (_lookupResult == null)
+            IconButton(
+              tooltip: _torchOn ? 'Turn off flash' : 'Turn on flash',
+              icon: Icon(
+                _torchOn ? Icons.flash_on : Icons.flash_off,
+                semanticLabel: _torchOn ? 'Flash on' : 'Flash off',
+              ),
+              onPressed: () async {
+                await _scannerController.toggleTorch();
+                if (mounted) {
+                  setState(() => _torchOn = !_torchOn);
+                }
+              },
+            ),
+        ],
       ),
       body: _lookupResult != null ? _buildResultView() : _buildScannerView(),
     );

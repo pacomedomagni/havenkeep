@@ -4,12 +4,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
 import 'package:shared_ui/shared_ui.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/providers/premium_provider.dart';
 import '../../core/router/router.dart';
+import '../../core/services/app_prefs_service.dart';
 import '../../core/utils/error_handler.dart';
 import '../../core/widgets/haven_loader.dart';
 import '../../core/widgets/responsive_box.dart';
+import '../../main.dart' show environmentConfigProvider;
 
 class PremiumScreen extends ConsumerStatefulWidget {
   const PremiumScreen({super.key});
@@ -138,6 +141,28 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: HavenSpacing.xl),
+            // Deep-link to the OS-owned subscription page so users can
+            // cancel / change plans through the App Store / Play Store.
+            // Apple + Google both require this entry point in apps that
+            // sell subscriptions.
+            if (manageSubscriptionSupported)
+              OutlinedButton.icon(
+                onPressed: () => AppPrefsService.openManageSubscription(),
+                icon: const Icon(Icons.open_in_new, size: 18),
+                label: const Text('Manage Subscription'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: HavenColors.primary,
+                  side: const BorderSide(color: HavenColors.primary),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: HavenSpacing.xl,
+                    vertical: HavenSpacing.md,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(HavenRadius.chip),
+                  ),
+                ),
+              ),
+            const SizedBox(height: HavenSpacing.md),
             ElevatedButton(
               onPressed: () => context.pop(),
               style: ElevatedButton.styleFrom(
@@ -159,9 +184,44 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
                 ),
               ),
             ),
+            const SizedBox(height: HavenSpacing.lg),
+            _buildLegalLinks(),
           ],
         ),
       ),
+    );
+  }
+
+  /// Render the Privacy / Terms link row required by App Store + Play
+  /// Store review for any screen that pitches a subscription.
+  Widget _buildLegalLinks() {
+    final config = ref.watch(environmentConfigProvider);
+    Future<void> open(String path) async {
+      final uri = Uri.parse('${config.appUrl}$path');
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      }
+    }
+    return Wrap(
+      alignment: WrapAlignment.center,
+      spacing: HavenSpacing.md,
+      runSpacing: HavenSpacing.xs,
+      children: [
+        TextButton(
+          onPressed: () => open('/privacy'),
+          child: const Text(
+            'Privacy Policy',
+            style: TextStyle(color: HavenColors.textSecondary),
+          ),
+        ),
+        TextButton(
+          onPressed: () => open('/terms'),
+          child: const Text(
+            'Terms of Service',
+            style: TextStyle(color: HavenColors.textSecondary),
+          ),
+        ),
+      ],
     );
   }
 
@@ -190,6 +250,8 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
             ),
             textAlign: TextAlign.center,
           ),
+          const SizedBox(height: HavenSpacing.md),
+          _buildLegalLinks(),
           const SizedBox(height: HavenSpacing.lg),
         ],
       ),

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -24,6 +26,14 @@ class _GlobalSearchScreenState extends ConsumerState<GlobalSearchScreen> {
   final _controller = TextEditingController();
   final _focusNode = FocusNode();
   String _query = '';
+  Timer? _debounce;
+
+  // 300ms debounce so we don't filter every keystroke at 60fps (F104).
+  static const _debounceDuration = Duration(milliseconds: 300);
+
+  // Cache haystack strings keyed on item id so we don't rejoin & lowercase
+  // 7 fields per item on every search rebuild (F105).
+  final Map<String, String> _haystackCache = {};
 
   @override
   void initState() {
@@ -33,16 +43,23 @@ class _GlobalSearchScreenState extends ConsumerState<GlobalSearchScreen> {
 
   @override
   void dispose() {
+    _debounce?.cancel();
     _controller.dispose();
     _focusNode.dispose();
     super.dispose();
   }
 
-  List<Item> _filter(List<Item> items) {
-    final q = _query.trim().toLowerCase();
-    if (q.isEmpty) return const [];
-    return items.where((item) {
-      final haystack = [
+  void _onChanged(String v) {
+    _debounce?.cancel();
+    _debounce = Timer(_debounceDuration, () {
+      if (!mounted) return;
+      setState(() => _query = v);
+    });
+  }
+
+  String _haystackFor(Item item) {
+    return _haystackCache.putIfAbsent(item.id, () {
+      return [
         item.name,
         item.brand ?? '',
         item.modelNumber ?? '',
@@ -51,8 +68,13 @@ class _GlobalSearchScreenState extends ConsumerState<GlobalSearchScreen> {
         item.category.displayLabel,
         item.room?.displayLabel ?? '',
       ].join(' ').toLowerCase();
-      return haystack.contains(q);
-    }).toList();
+    });
+  }
+
+  List<Item> _filter(List<Item> items) {
+    final q = _query.trim().toLowerCase();
+    if (q.isEmpty) return const [];
+    return items.where((item) => _haystackFor(item).contains(q)).toList();
   }
 
   @override
@@ -67,7 +89,7 @@ class _GlobalSearchScreenState extends ConsumerState<GlobalSearchScreen> {
           focusNode: _focusNode,
           autofocus: true,
           textInputAction: TextInputAction.search,
-          onChanged: (v) => setState(() => _query = v),
+          onChanged: _onChanged,
           decoration: const InputDecoration(
             hintText: 'Search warranties, brands, stores…',
             border: InputBorder.none,
@@ -84,6 +106,7 @@ class _GlobalSearchScreenState extends ConsumerState<GlobalSearchScreen> {
               icon: const Icon(Icons.clear),
               tooltip: 'Clear',
               onPressed: () {
+                _debounce?.cancel();
                 setState(() {
                   _controller.clear();
                   _query = '';

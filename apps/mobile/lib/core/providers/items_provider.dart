@@ -6,6 +6,7 @@ import 'package:shared_models/shared_models.dart';
 import 'package:api_client/api_client.dart';
 import '../services/items_repository.dart';
 import '../services/category_repository.dart';
+import '../services/push_notification_service.dart';
 import 'auth_provider.dart';
 import 'homes_provider.dart';
 
@@ -88,12 +89,31 @@ class ItemsNotifier extends AsyncNotifier<List<Item>> {
 
       state = AsyncValue.data([newItem, ...currentItems]);
 
+      // Ch05-F077: ask for push permission only after the user has felt
+      // the value of the app. The first save is the strongest moment;
+      // subsequent calls are idempotent because iOS won't re-prompt
+      // and Android already auto-grants below API 33.
+      if (previousCount == 0) {
+        unawaited(_promptForPushPermission());
+      }
+
       return (newItem, previousCount);
     } catch (e) {
       // Rollback to previous state on failure
       debugPrint('[ItemsNotifier] addItem failed, rolling back: $e');
       state = previousState;
       rethrow;
+    }
+  }
+
+  Future<void> _promptForPushPermission() async {
+    try {
+      await ref
+          .read(pushNotificationServiceProvider)
+          .requestPermissionAndRegisterToken();
+    } catch (_) {
+      // Permission UX is non-blocking; the user can grant it later
+      // from Settings if the prompt was suppressed.
     }
   }
 
@@ -137,20 +157,47 @@ class ItemsNotifier extends AsyncNotifier<List<Item>> {
   }
 
   /// Batch-add multiple items at once (used by bulk-add flow).
+  ///
+  /// Re-checks the free-plan quota BEFORE each item (C114): a single
+  /// up-front check would let a partial-failure batch silently push the
+  /// account past the limit if the server's count had drifted. Anything
+  /// beyond the cap is recorded as a quota failure so the caller can
+  /// surface a single "you hit the limit, upgrade to add the remaining
+  /// N items" prompt instead of N separate snackbars.
+  ///
   /// On partial failure throws [BulkAddPartialFailure] carrying the list
   /// of inputs that didn't make it, so the caller can offer a targeted
   /// "retry failed" instead of re-submitting the whole batch.
   Future<List<Item>> addItems(List<Item> items) async {
     final repo = ref.read(itemsRepositoryProvider);
+    final user = ref.read(currentUserProvider).valueOrNull;
+    final isPremium = user?.plan == UserPlan.premium;
+
     final currentItems = state.value ?? [];
     final createdItems = <Item>[];
     final failedItems = <Item>[];
     final failureReasons = <String>[];
 
+    // Snapshot of how many active items the user already has. Each
+    // successful create on the free plan bumps this by one — when it
+    // hits the limit the rest of the batch is rejected locally so we
+    // don't spam the API with calls we know will 403.
+    var activeCount = currentItems.where((i) => !i.isArchived).length;
+
     for (int i = 0; i < items.length; i++) {
+      if (!isPremium && activeCount >= kFreePlanItemLimit) {
+        debugPrint(
+          '[ItemsNotifier] Item ${i + 1}/${items.length} blocked: free-plan limit ($kFreePlanItemLimit) reached.',
+        );
+        failedItems.add(items[i]);
+        failureReasons.add('Free plan limit ($kFreePlanItemLimit) reached');
+        continue;
+      }
+
       try {
         final newItem = await repo.createItem(items[i]);
         createdItems.add(newItem);
+        activeCount++;
       } catch (e) {
         debugPrint('[ItemsNotifier] Item ${i + 1}/${items.length} creation failed: $e');
         failedItems.add(items[i]);

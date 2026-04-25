@@ -93,7 +93,7 @@ void main() {
 
       test('rethrows errors from API client', () async {
         when(mockClient.get(pathSegments: const ['api', 'v1', 'maintenance', 'due']))
-            .thenThrow(ApiException(500, 'Server error'));
+            .thenThrow(ApiException.fromResponse(500, 'Server error'));
 
         expect(
           () => repository.getDueTasks(),
@@ -226,7 +226,7 @@ void main() {
 
       test('rethrows errors on delete failure', () async {
         when(mockClient.delete(pathSegments: const ['api', 'v1', 'maintenance', 'history', 'hist-1']))
-            .thenThrow(ApiException(404, 'Not found'));
+            .thenThrow(ApiException.fromResponse(404, 'Not found'));
 
         expect(
           () => repository.deleteLog('hist-1'),

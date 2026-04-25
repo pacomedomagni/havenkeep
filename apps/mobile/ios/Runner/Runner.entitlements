@@ -6,5 +6,13 @@
 	<array>
 		<string>Default</string>
 	</array>
+	<!-- Universal Links: opens https://havenkeep.com/gift/<code> in-app
+	     when the apple-app-site-association file at
+	     https://havenkeep.com/.well-known/apple-app-site-association
+	     lists this team-id + bundle-id combo with /gift/* + /referral/*. -->
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>applinks:havenkeep.com</string>
+	</array>
 </dict>
 </plist>

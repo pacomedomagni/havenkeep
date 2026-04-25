@@ -8,6 +8,7 @@ import 'package:shared_ui/shared_ui.dart';
 
 import '../../core/providers/items_provider.dart';
 import '../../core/utils/error_handler.dart';
+import '../../core/utils/price_parser.dart';
 import '../../core/widgets/error_state_widget.dart';
 import '../../core/utils/haven_haptics.dart';
 
@@ -173,8 +174,10 @@ class _EditItemScreenState extends ConsumerState<EditItemScreen> {
             : null,
         clearStore:
             _storeController.text.trim().isEmpty && orig.store != null,
+        // Use parsePriceInput so locale-style "1,299.99" / "1.299,99" work
+        // consistently with manual_entry/receipt_scan (F053).
         price: _priceController.text.trim().isNotEmpty
-            ? double.tryParse(_priceController.text.trim())
+            ? parsePriceInput(_priceController.text.trim())
             : null,
         clearPrice:
             _priceController.text.trim().isEmpty && orig.price != null,
@@ -209,6 +212,12 @@ class _EditItemScreenState extends ConsumerState<EditItemScreen> {
       ref.invalidate(itemDetailProvider(widget.itemId));
 
       if (mounted) {
+        // Reset dirty tracking BEFORE popping so PopScope doesn't show the
+        // discard prompt on a back-tap that arrives before the route
+        // teardown (F052).
+        setState(() {
+          _originalItem = updated;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Item updated')),
         );
@@ -522,8 +531,11 @@ class _EditItemScreenState extends ConsumerState<EditItemScreen> {
                     validator: (value) {
                       if (value == null || value.isEmpty) return null;
                       final uri = Uri.tryParse(value);
-                      if (uri == null || !uri.hasScheme) {
-                        return 'Enter a valid URL';
+                      // Only http/https are safe to embed in an Image.network
+                      // call (F055). javascript:/file: URIs would otherwise pass.
+                      if (uri == null ||
+                          (uri.scheme != 'http' && uri.scheme != 'https')) {
+                        return 'Enter a valid http(s) URL';
                       }
                       return null;
                     },

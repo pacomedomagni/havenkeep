@@ -34,6 +34,8 @@ import '../../features/settings/profile_screen.dart';
 import '../../features/settings/notification_preferences_screen.dart';
 import '../../features/settings/home_detail_screen.dart';
 import '../../features/settings/archived_items_screen.dart';
+import '../../features/settings/conflicts_screen.dart';
+import '../../features/settings/developer_options_screen.dart';
 import '../../features/settings/change_password_screen.dart';
 import '../../features/settings/delete_account_screen.dart';
 import '../../features/email_scanner/email_scanner_screen.dart';
@@ -72,6 +74,8 @@ abstract class AppRoutes {
   static const emailScanner = '/settings/email-scanner';
   static const homeDetail = '/settings/home/:id';
   static const archivedItems = '/settings/archived';
+  static const conflicts = '/conflicts';
+  static const developerOptions = '/settings/developer';
   static const changePassword = '/settings/change-password';
   static const deleteAccount = '/settings/delete-account';
   static const scanReceipt = '/add-item/scan-receipt';
@@ -339,14 +343,18 @@ final routerProvider = Provider<GoRouter>((ref) {
         ),
       ),
 
-      // Item added success
+      // Item added success — Ch05-F020: prefer the just-created Item from
+      // `extra` so the success screen never has to wait on the detail
+      // provider (which can race ahead of offline-sync replay).
       GoRoute(
         path: AppRoutes.addItemSuccess,
         parentNavigatorKey: _rootNavigatorKey,
         builder: (context, state) {
           final id = state.pathParameters['id'] ?? '';
           if (id.isEmpty) return const Scaffold(body: Center(child: Text('Item not found')));
-          return ItemAddedScreen(itemId: id);
+          final extra = state.extra;
+          final preseededItem = extra is Item && extra.id == id ? extra : null;
+          return ItemAddedScreen(itemId: id, initialItem: preseededItem);
         },
       ),
 
@@ -401,6 +409,20 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: AppRoutes.archivedItems,
         parentNavigatorKey: _rootNavigatorKey,
         builder: (context, state) => const ArchivedItemsScreen(),
+      ),
+
+      // Sync Conflicts
+      GoRoute(
+        path: AppRoutes.conflicts,
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) => const ConflictsScreen(),
+      ),
+
+      // Developer Options (5-tap on About version label)
+      GoRoute(
+        path: AppRoutes.developerOptions,
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) => const DeveloperOptionsScreen(),
       ),
 
       // Change Password

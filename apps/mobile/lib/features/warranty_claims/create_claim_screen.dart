@@ -1,4 +1,8 @@
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -9,6 +13,7 @@ import '../../core/providers/auth_provider.dart';
 import '../../core/providers/items_provider.dart';
 import '../../core/providers/warranty_claims_provider.dart';
 import '../../core/utils/error_handler.dart';
+import '../../core/utils/money_formatter.dart';
 import '../../core/widgets/haven_loader.dart';
 import '../../core/utils/haven_haptics.dart';
 
@@ -36,6 +41,24 @@ class _CreateClaimScreenState extends ConsumerState<CreateClaimScreen> {
   DateTime _claimDate = DateTime.now();
   ClaimStatus _status = ClaimStatus.pending;
   bool _saving = false;
+  final List<File> _attachments = [];
+
+  /// Hard cap on long-text fields so a paste accident can't ship a 1MB
+  /// description. The server has its own validators — this is the UX
+  /// guard so users get an inline error instead of a 400.
+  static const int _maxFreeTextLength = 1500;
+
+  /// MIME types the backend will accept for claim attachments. Mirrors
+  /// the documents pipeline whitelist (image/* + application/pdf).
+  static const _allowedFileExtensions = <String>[
+    'jpg',
+    'jpeg',
+    'png',
+    'webp',
+    'heic',
+    'heif',
+    'pdf',
+  ];
 
   @override
   void dispose() {
@@ -48,6 +71,53 @@ class _CreateClaimScreenState extends ConsumerState<CreateClaimScreen> {
     _claimNumberController.dispose();
     _notesController.dispose();
     super.dispose();
+  }
+
+  /// Open the platform file picker, restricted to image/PDF. Anything
+  /// else is rejected with a clear inline error rather than a generic
+  /// "upload failed" later in the pipeline (Ch05-F122).
+  Future<void> _pickAttachment() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: _allowedFileExtensions,
+        withData: false,
+      );
+      if (result == null || result.files.isEmpty) return;
+      final picked = result.files.first;
+      final path = picked.path;
+      if (path == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Could not read the selected file')),
+          );
+        }
+        return;
+      }
+      // Defensive double-check: file_picker on some Android OEMs lets
+      // through MIME types outside `allowedExtensions` when the user
+      // chooses "Show all files".
+      final ext = picked.extension?.toLowerCase();
+      if (ext == null || !_allowedFileExtensions.contains(ext)) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Only images (JPG/PNG/HEIC) and PDFs are allowed',
+              ),
+            ),
+          );
+        }
+        return;
+      }
+      setState(() => _attachments.add(File(path)));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(ErrorHandler.getUserMessage(e))),
+        );
+      }
+    }
   }
 
   Future<void> _pickDate() async {
@@ -98,10 +168,12 @@ class _CreateClaimScreenState extends ConsumerState<CreateClaimScreen> {
         repairDescription: _repairController.text.trim().isEmpty
             ? null
             : _repairController.text.trim(),
-        repairCost: double.tryParse(_repairCostController.text) ?? 0,
-        amountSaved: double.tryParse(_amountSavedController.text) ?? 0,
+        // Money.parseToDouble accepts "$1,234.50" / "1234.50" alike and
+        // rejects "12.3.4" rather than silently coercing to 0 (F124).
+        repairCost: Money.parseToDouble(_repairCostController.text) ?? 0,
+        amountSaved: Money.parseToDouble(_amountSavedController.text) ?? 0,
         outOfPocket:
-            double.tryParse(_outOfPocketController.text.trim()) ?? 0,
+            Money.parseToDouble(_outOfPocketController.text.trim()) ?? 0,
         status: _status,
         filedWith: _filedWithController.text.trim().isEmpty
             ? null
@@ -254,6 +326,7 @@ class _CreateClaimScreenState extends ConsumerState<CreateClaimScreen> {
                 controller: _issueController,
                 hint: 'What went wrong?',
                 maxLines: 3,
+                maxLength: _maxFreeTextLength,
               ),
               const SizedBox(height: HavenSpacing.lg),
 
@@ -264,6 +337,7 @@ class _CreateClaimScreenState extends ConsumerState<CreateClaimScreen> {
                 controller: _repairController,
                 hint: 'What was done to fix it?',
                 maxLines: 3,
+                maxLength: _maxFreeTextLength,
               ),
               const SizedBox(height: HavenSpacing.lg),
 
@@ -317,6 +391,57 @@ class _CreateClaimScreenState extends ConsumerState<CreateClaimScreen> {
                 controller: _notesController,
                 hint: 'Any additional notes...',
                 maxLines: 3,
+                maxLength: _maxFreeTextLength,
+              ),
+              const SizedBox(height: HavenSpacing.lg),
+
+              // Attachments
+              const _SectionLabel('Attachments'),
+              const SizedBox(height: HavenSpacing.sm),
+              ..._attachments.map(
+                (file) => Padding(
+                  padding: const EdgeInsets.only(bottom: HavenSpacing.xs),
+                  child: Container(
+                    padding: const EdgeInsets.all(HavenSpacing.sm),
+                    decoration: BoxDecoration(
+                      color: HavenColors.surface,
+                      borderRadius: BorderRadius.circular(HavenRadius.card),
+                      border: Border.all(color: HavenColors.border),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.attach_file,
+                            size: 18, color: HavenColors.textSecondary),
+                        const SizedBox(width: HavenSpacing.sm),
+                        Expanded(
+                          child: Text(
+                            file.path.split(Platform.pathSeparator).last,
+                            style: HavenText.meta,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close, size: 18),
+                          color: HavenColors.textTertiary,
+                          onPressed: () =>
+                              setState(() => _attachments.remove(file)),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: _saving ? null : _pickAttachment,
+                  icon: const Icon(Icons.attach_file, size: 18),
+                  label: const Text('Add receipt or photo'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: HavenColors.primary,
+                    side: const BorderSide(color: HavenColors.primary),
+                  ),
+                ),
               ),
               const SizedBox(height: HavenSpacing.xl),
 
@@ -347,10 +472,18 @@ class _CreateClaimScreenState extends ConsumerState<CreateClaimScreen> {
     required TextEditingController controller,
     required String hint,
     int maxLines = 1,
+    int? maxLength,
   }) {
     return TextFormField(
       controller: controller,
       maxLines: maxLines,
+      maxLength: maxLength,
+      // Hard-cap at the field maxLength via [LengthLimitingTextInputFormatter]
+      // so a clipboard paste of a 1MB document doesn't blow past it before
+      // the inline character counter kicks in (F125).
+      inputFormatters: maxLength != null
+          ? [LengthLimitingTextInputFormatter(maxLength)]
+          : null,
       style: const TextStyle(color: HavenColors.textPrimary),
       textInputAction:
           maxLines > 1 ? TextInputAction.newline : TextInputAction.next,

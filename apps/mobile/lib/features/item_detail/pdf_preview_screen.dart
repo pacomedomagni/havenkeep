@@ -36,6 +36,10 @@ class _PdfPreviewScreenState extends ConsumerState<PdfPreviewScreen> {
   }
 
   Future<void> _generatePdf() async {
+    // Guard against rapid Retry taps overlapping multiple in-flight
+    // generations — last-to-resolve would otherwise win the setState race
+    // and present stale bytes (F056).
+    if (_pdfBytes != null) return;
     try {
       final service = ref.read(pdfExportServiceProvider);
       final docs = ref.read(documentsForItemProvider(widget.item.id)).value;

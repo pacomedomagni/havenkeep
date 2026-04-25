@@ -19,7 +19,8 @@ class GiftActivationSuccessScreen extends StatefulWidget {
 }
 
 class _GiftActivationSuccessScreenState
-    extends State<GiftActivationSuccessScreen> {
+    extends State<GiftActivationSuccessScreen>
+    with WidgetsBindingObserver {
   late ConfettiController _confettiController;
 
   @override
@@ -27,10 +28,22 @@ class _GiftActivationSuccessScreenState
     super.initState();
     _confettiController = ConfettiController(duration: const Duration(seconds: 3));
     _confettiController.play();
+    // Pause confetti when the app is backgrounded so it doesn't keep
+    // animating off-screen (F037).
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state != AppLifecycleState.resumed) {
+      _confettiController.stop();
+    }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _confettiController.dispose();
     super.dispose();
   }

@@ -176,15 +176,41 @@ class EmailScannerScreen extends ConsumerWidget {
     if (proceed != true) return;
     if (!context.mounted) return;
 
-    // 2. Show staged progress dialog that advances through the scan steps.
+    // 2. Show staged progress dialog. Track the dialog's local navigator
+    // via a Completer-driven pop so we never call pop() against a route
+    // that's already been backgrounded (F027/F030).
     final progress = _ScanProgressController();
+    bool dialogClosed = false;
+    final dialogContextCompleter = Completer<BuildContext>();
+
     unawaited(
       showDialog<void>(
         context: context,
         barrierDismissible: false,
-        builder: (_) => _ScanProgressDialog(controller: progress),
+        builder: (dialogCtx) {
+          if (!dialogContextCompleter.isCompleted) {
+            dialogContextCompleter.complete(dialogCtx);
+          }
+          return _ScanProgressDialog(controller: progress);
+        },
       ),
     );
+
+    void closeDialogIfOpen() {
+      if (dialogClosed) return;
+      dialogClosed = true;
+      if (dialogContextCompleter.isCompleted) {
+        // Use the captured dialog context to pop only that route, never the
+        // page underneath it.
+        dialogContextCompleter.future.then((dialogCtx) {
+          if (!dialogCtx.mounted) return;
+          final navigator = Navigator.of(dialogCtx);
+          if (navigator.canPop()) {
+            navigator.pop();
+          }
+        });
+      }
+    }
 
     try {
       progress.advance('Connecting to $provider…');
@@ -202,15 +228,15 @@ class EmailScannerScreen extends ConsumerWidget {
       // Brief pause so the user can read the final stage.
       await Future<void>.delayed(const Duration(milliseconds: 400));
 
+      closeDialogIfOpen();
       if (context.mounted) {
-        Navigator.of(context, rootNavigator: true).pop();
         messenger.showSnackBar(
           SnackBar(content: Text('Email scan started for $provider')),
         );
       }
     } catch (e) {
+      closeDialogIfOpen();
       if (context.mounted) {
-        Navigator.of(context, rootNavigator: true).pop();
         messenger.showSnackBar(
           SnackBar(content: Text(ErrorHandler.getUserMessage(e))),
         );
@@ -352,7 +378,11 @@ class _PrivacyLine extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, color: HavenColors.textTertiary, size: 16),
+        // Decorative icon — exclude from semantics so TalkBack doesn't
+        // announce it alongside the adjacent text (F031).
+        ExcludeSemantics(
+          child: Icon(icon, color: HavenColors.textTertiary, size: 16),
+        ),
         const SizedBox(width: HavenSpacing.sm),
         Expanded(
           child: Text(
@@ -460,11 +490,13 @@ class _ScanCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final status = scan.status;
-    final statusColor = switch (status.name) {
-      'completed' => HavenColors.active,
-      'failed' => HavenColors.expired,
-      'scanning' => HavenColors.expiring,
-      _ => HavenColors.textTertiary,
+    // Exhaustive over the EmailScanStatus enum so we don't quietly fall
+    // through to "unknown" colors when the model adds a new state (F028).
+    final statusColor = switch (status) {
+      EmailScanStatus.completed => HavenColors.active,
+      EmailScanStatus.failed => HavenColors.expired,
+      EmailScanStatus.scanning => HavenColors.expiring,
+      EmailScanStatus.pending => HavenColors.textTertiary,
     };
 
     return Container(

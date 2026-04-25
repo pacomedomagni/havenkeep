@@ -9,6 +9,7 @@ import '../../core/providers/auth_provider.dart';
 import '../../core/providers/items_provider.dart';
 import '../../core/providers/maintenance_provider.dart';
 import '../../core/utils/error_handler.dart';
+import '../../core/utils/price_parser.dart';
 import '../../core/widgets/haven_loader.dart';
 import '../../core/utils/haven_haptics.dart';
 
@@ -83,6 +84,8 @@ class _LogMaintenanceScreenState extends ConsumerState<LogMaintenanceScreen> {
         return;
       }
 
+      // parsePriceInput tolerates "$1,299" / "1299.50" / locale formats —
+      // double.tryParse silently coerced these to null (F064).
       final entry = MaintenanceHistory(
         id: '',
         userId: user.id,
@@ -95,10 +98,10 @@ class _LogMaintenanceScreenState extends ConsumerState<LogMaintenanceScreen> {
             : _notesController.text.trim(),
         durationMinutes: _durationController.text.trim().isEmpty
             ? null
-            : int.tryParse(_durationController.text),
+            : int.tryParse(_durationController.text.trim()),
         cost: _costController.text.trim().isEmpty
             ? null
-            : double.tryParse(_costController.text),
+            : parsePriceInput(_costController.text.trim()),
         createdAt: DateTime.now(),
       );
 
@@ -266,6 +269,14 @@ class _LogMaintenanceScreenState extends ConsumerState<LogMaintenanceScreen> {
                             const BorderSide(color: HavenColors.border),
                       ),
                     ),
+                    validator: (value) {
+                      final raw = value?.trim() ?? '';
+                      if (raw.isEmpty) return null;
+                      final v = int.tryParse(raw);
+                      if (v == null || v < 0) return 'Enter a positive number';
+                      if (v > 24 * 60) return 'Too long — under a day, please';
+                      return null;
+                    },
                   ),
                 ),
                 const SizedBox(width: HavenSpacing.sm),
@@ -295,6 +306,13 @@ class _LogMaintenanceScreenState extends ConsumerState<LogMaintenanceScreen> {
                             const BorderSide(color: HavenColors.border),
                       ),
                     ),
+                    validator: (value) {
+                      final raw = value?.trim() ?? '';
+                      if (raw.isEmpty) return null;
+                      final v = parsePriceInput(raw);
+                      if (v == null || v < 0) return 'Enter a valid amount';
+                      return null;
+                    },
                   ),
                 ),
               ],
@@ -422,11 +440,24 @@ class _LogMaintenanceScreenState extends ConsumerState<LogMaintenanceScreen> {
                   ],
                   onChanged: (v) {
                     setState(() {
+                      final previousScheduleId = _selectedScheduleId;
                       _selectedScheduleId = v;
-                      // Auto-fill the task name when a schedule is selected
+                      // Auto-fill task name when a schedule is selected:
+                      // either the field is empty, or it currently matches
+                      // the previous schedule's name (so the user hasn't
+                      // overridden it). Prevents the picker becoming a
+                      // no-op after the user clears the field (F065).
                       if (v != null) {
-                        final schedule = schedules.firstWhere((s) => s.id == v);
-                        if (_taskNameController.text.trim().isEmpty) {
+                        final schedule =
+                            schedules.firstWhere((s) => s.id == v);
+                        final current = _taskNameController.text.trim();
+                        final previousName = previousScheduleId == null
+                            ? null
+                            : schedules
+                                .where((s) => s.id == previousScheduleId)
+                                .firstOrNull
+                                ?.taskName;
+                        if (current.isEmpty || current == previousName) {
                           _taskNameController.text = schedule.taskName;
                         }
                       }

@@ -152,7 +152,11 @@ class _RoomSetupScreenState extends ConsumerState<RoomSetupScreen> {
     final picked = await showDatePicker(
       context: context,
       initialDate: _purchaseDates[index] ?? now,
-      firstDate: DateTime(2000),
+      // Ch05-F022: align with the rest of the add-item surfaces; people
+      // do still own appliances bought before 2000 (built-in HVAC,
+      // boilers, etc.) and the picker shouldn't punt them to "manual
+      // entry" for that.
+      firstDate: DateTime(1970),
       lastDate: now.add(const Duration(days: 30)),
       builder: (context, child) {
         return Theme(
@@ -167,7 +171,12 @@ class _RoomSetupScreenState extends ConsumerState<RoomSetupScreen> {
       },
     );
     if (picked != null) {
-      _updateItemDate(index, picked);
+      // Ch05-F005: anchor at local midnight so DST flips don't push the
+      // displayed day around between sessions.
+      _updateItemDate(
+        index,
+        DateTime(picked.year, picked.month, picked.day),
+      );
     }
   }
 

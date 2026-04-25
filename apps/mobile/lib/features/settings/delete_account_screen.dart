@@ -25,13 +25,31 @@ class DeleteAccountScreen extends ConsumerStatefulWidget {
 
 class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
   final _passwordController = TextEditingController();
+  final _typeToConfirmController = TextEditingController();
   bool _isLoading = false;
   bool _obscurePassword = true;
   bool _confirmed = false;
+  bool _typedDelete = false;
+
+  /// The literal phrase we require the user to type to acknowledge an
+  /// irreversible delete. Mirrors the admin-side pattern from Phase 4.
+  static const _confirmPhrase = 'DELETE';
+
+  @override
+  void initState() {
+    super.initState();
+    _typeToConfirmController.addListener(() {
+      final next = _typeToConfirmController.text.trim() == _confirmPhrase;
+      if (next != _typedDelete) {
+        setState(() => _typedDelete = next);
+      }
+    });
+  }
 
   @override
   void dispose() {
     _passwordController.dispose();
+    _typeToConfirmController.dispose();
     super.dispose();
   }
 
@@ -199,10 +217,25 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
     return reauthed != null && reauthed.id == user.id;
   }
 
+  /// If the user is on Premium and has unused subscription days, surface
+  /// the count so they understand the trade-off of deleting now.
+  String? _premiumWarningMessage(User? user) {
+    if (user == null) return null;
+    if (user.plan != UserPlan.premium) return null;
+    final expiresAt = user.planExpiresAt;
+    if (expiresAt == null) return null;
+    final daysLeft = expiresAt.difference(DateTime.now()).inDays;
+    if (daysLeft <= 0) return null;
+    final dayWord = daysLeft == 1 ? 'day' : 'days';
+    return 'You still have $daysLeft $dayWord of Premium left. '
+        'Deleting now forfeits the remaining time — there is no refund.';
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = ref.watch(currentUserProvider).value;
     final isOAuthUser = user?.authProvider != AuthProvider.email;
+    final premiumWarning = _premiumWarningMessage(user);
 
     return Scaffold(
       backgroundColor: HavenColors.background,
@@ -253,12 +286,67 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
               _buildDeletedItem('Notification preferences'),
               _buildDeletedItem('Your account and profile data'),
 
+              if (premiumWarning != null) ...[
+                const SizedBox(height: HavenSpacing.md),
+                Container(
+                  padding: const EdgeInsets.all(HavenSpacing.md),
+                  decoration: BoxDecoration(
+                    color: HavenColors.expiring.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(HavenRadius.card),
+                    border: Border.all(
+                      color: HavenColors.expiring.withValues(alpha: 0.4),
+                    ),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(
+                        Icons.workspace_premium_outlined,
+                        color: HavenColors.expiring,
+                        size: 20,
+                      ),
+                      const SizedBox(width: HavenSpacing.sm),
+                      Expanded(
+                        child: Text(
+                          premiumWarning,
+                          style: HavenText.meta.copyWith(
+                            color: HavenColors.expiring,
+                            height: 1.4,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+
               const SizedBox(height: HavenSpacing.xl),
 
+              // Type-DELETE confirmation — required for both email and OAuth
+              // flows. Matches the destructive-confirm pattern from Phase 4.
+              Text(
+                'Type "$_confirmPhrase" to confirm:',
+                style: HavenText.titleMedium.copyWith(
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: HavenSpacing.sm),
+              TextFormField(
+                controller: _typeToConfirmController,
+                autocorrect: false,
+                enableSuggestions: false,
+                textCapitalization: TextCapitalization.characters,
+                decoration: const InputDecoration(
+                  hintText: _confirmPhrase,
+                  prefixIcon: Icon(Icons.warning_amber_rounded),
+                ),
+              ),
+              const SizedBox(height: HavenSpacing.lg),
+
               if (isOAuthUser) ...[
-                // OAuth users: delete without password, just confirm
+                // OAuth users: re-authenticate with their IdP — no password.
                 Text(
-                  'Since you signed in with a social account, no password is needed. Just confirm below.',
+                  'You will be asked to sign in with ${user?.authProvider.displayLabel ?? 'your social account'} to verify it is you.',
                   style: HavenText.titleMedium.copyWith(
                     color: HavenColors.textSecondary,
                     fontWeight: FontWeight.w400,
@@ -301,8 +389,9 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
                   width: double.infinity,
                   height: 52,
                   child: ElevatedButton(
-                    onPressed:
-                        _isLoading || !_confirmed ? null : _deleteOAuthAccount,
+                    onPressed: _isLoading || !_confirmed || !_typedDelete
+                        ? null
+                        : _deleteOAuthAccount,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: HavenColors.expired,
                       disabledBackgroundColor:
@@ -382,8 +471,9 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
                   width: double.infinity,
                   height: 52,
                   child: ElevatedButton(
-                    onPressed:
-                        _isLoading || !_confirmed ? null : _deleteAccount,
+                    onPressed: _isLoading || !_confirmed || !_typedDelete
+                        ? null
+                        : _deleteAccount,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: HavenColors.expired,
                       disabledBackgroundColor:

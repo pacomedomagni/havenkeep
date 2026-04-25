@@ -7,24 +7,146 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 
-/// Exception thrown when an API request fails.
-class ApiException implements Exception {
+/// Base type for every error the API client surfaces.
+///
+/// Sealed so callers can [`switch`] over the closed set of subclasses and
+/// know they have handled every transport-level failure mode the client
+/// can produce. The constructor order is `(statusCode, message)` with
+/// optional named fields so we avoid breaking the existing throw sites
+/// scattered across the mobile app.
+sealed class ApiException implements Exception {
+  const ApiException(
+    this.statusCode,
+    this.message, {
+    this.code,
+    this.retryAfterSeconds,
+  });
+
+  /// HTTP status code (or 0 for transport-level failures).
   final int statusCode;
+
+  /// Human-readable error message safe to surface in logs (already
+  /// scrubbed of bearer tokens / JWTs by [redactSensitive]).
   final String message;
+
+  /// Machine-readable error code from the API's typed error envelope
+  /// (`{ "code": "validation_error", ... }`). Null when not provided.
   final String? code;
+
+  /// `Retry-After` header value (seconds) on 429 responses; null otherwise.
   final int? retryAfterSeconds;
 
-  ApiException(this.statusCode, this.message, {this.code, this.retryAfterSeconds});
+  // -- legacy convenience flags. New code should `switch` on the subtype.
+  bool get isUnauthorized => this is ApiAuthRequiredException;
+  bool get isForbidden => this is ApiForbiddenException;
+  bool get isNotFound => this is ApiNotFoundException;
+  bool get isConflict => this is ApiConflictException;
+  bool get isRateLimited => this is ApiRateLimitedException;
+  bool get isServerError => this is ApiServerException;
 
-  bool get isUnauthorized => statusCode == 401;
-  bool get isForbidden => statusCode == 403;
-  bool get isNotFound => statusCode == 404;
-  bool get isConflict => statusCode == 409;
-  bool get isRateLimited => statusCode == 429;
-  bool get isServerError => statusCode >= 500;
+  /// Mint the right subclass for a given HTTP status. Used by the client
+  /// after parsing the response envelope; tests can call it too.
+  factory ApiException.fromResponse(
+    int statusCode,
+    String message, {
+    String? code,
+    int? retryAfterSeconds,
+  }) {
+    if (statusCode == 401) {
+      return ApiAuthRequiredException(statusCode, message, code: code);
+    }
+    if (statusCode == 403) {
+      return ApiForbiddenException(statusCode, message, code: code);
+    }
+    if (statusCode == 404) {
+      return ApiNotFoundException(statusCode, message, code: code);
+    }
+    if (statusCode == 409) {
+      return ApiConflictException(statusCode, message, code: code);
+    }
+    if (statusCode == 422 || statusCode == 400) {
+      return ApiValidationException(statusCode, message, code: code);
+    }
+    if (statusCode == 429) {
+      return ApiRateLimitedException(
+        statusCode,
+        message,
+        code: code,
+        retryAfterSeconds: retryAfterSeconds,
+      );
+    }
+    if (statusCode >= 500) {
+      return ApiServerException(statusCode, message, code: code);
+    }
+    return ApiUnknownException(statusCode, message, code: code);
+  }
 
   @override
-  String toString() => 'ApiException($statusCode): $message';
+  String toString() => '$runtimeType($statusCode): $message';
+}
+
+/// 401 — credentials missing or expired. The mobile app uses this to
+/// trigger token refresh / sign-out flows.
+final class ApiAuthRequiredException extends ApiException {
+  const ApiAuthRequiredException(super.statusCode, super.message, {super.code});
+}
+
+/// 403 — authenticated but not allowed. Common for premium-only
+/// features hit by free-plan users.
+final class ApiForbiddenException extends ApiException {
+  const ApiForbiddenException(super.statusCode, super.message, {super.code});
+}
+
+/// 404 — resource not found.
+final class ApiNotFoundException extends ApiException {
+  const ApiNotFoundException(super.statusCode, super.message, {super.code});
+}
+
+/// 400 / 422 — request body failed server-side validation.
+final class ApiValidationException extends ApiException {
+  const ApiValidationException(super.statusCode, super.message, {super.code});
+}
+
+/// 429 — rate limited. [retryAfterSeconds] is populated when the server
+/// included a `Retry-After` header.
+final class ApiRateLimitedException extends ApiException {
+  const ApiRateLimitedException(
+    super.statusCode,
+    super.message, {
+    super.code,
+    super.retryAfterSeconds,
+  });
+}
+
+/// 409 — server-side state conflicts with the request (used by the
+/// offline sync queue's last-write-wins guard rails).
+final class ApiConflictException extends ApiException {
+  const ApiConflictException(super.statusCode, super.message, {super.code});
+}
+
+/// 5xx — server crashed / dependency failed. Always retriable.
+final class ApiServerException extends ApiException {
+  const ApiServerException(super.statusCode, super.message, {super.code});
+}
+
+/// Connectivity / DNS / TCP failures. `statusCode` is always 0 — there
+/// was no HTTP response to extract one from.
+final class ApiNetworkException extends ApiException {
+  const ApiNetworkException(String message, {String? code})
+      : super(0, message, code: code);
+}
+
+/// Request timed out before any bytes came back.
+final class ApiTimeoutException extends ApiException {
+  const ApiTimeoutException(String message, {String? code})
+      : super(0, message, code: code);
+}
+
+/// Catch-all for any HTTP status the typed map doesn't recognise. Lets
+/// callers still pattern-match the sealed hierarchy without losing
+/// fidelity for, e.g., 451 / 418 responses.
+final class ApiUnknownException extends ApiException {
+  const ApiUnknownException(super.statusCode, super.message, {super.code});
 }
 
 /// Auth state for the local auth stream.
@@ -37,8 +159,8 @@ enum ApiAuthState {
 /// Mask `Bearer <token>` and JWT-shaped tokens in any string before it is
 /// handed to the log callback or surfaced through an [ApiException]. The
 /// callback is provided by the host app and may forward the message to a
-/// remote sink (Sentry, Datadog), so leaking access tokens in those breadcrumbs
-/// would let an attacker who reads the log replay full sessions.
+/// remote sink (Loki, custom collector), so leaking access tokens in those
+/// breadcrumbs would let an attacker who reads the log replay full sessions.
 ///
 /// Top-level so callers (and tests) can reuse the exact regex set the client
 /// uses internally.
@@ -87,6 +209,14 @@ String redactSensitive(String input) {
 /// the request can't be tricked into hitting a different endpoint via path
 /// traversal or unencoded slashes. The `path:` API remains for the few
 /// hard-coded routes that contain no interpolated values.
+///
+/// ## Idempotency
+///
+/// All mutating methods (`post`/`put`/`patch`/`delete`/`upload`) accept an
+/// optional `idempotencyKey`. When supplied it is forwarded as the
+/// `Idempotency-Key` header — the API uses it to dedupe at-least-once
+/// retries from the offline sync queue (Phase 6) so a flaky connection
+/// can't accidentally book the same gift twice.
 class ApiClient {
   final String baseUrl;
   final http.Client _http;
@@ -267,7 +397,7 @@ class ApiClient {
     try {
       final refreshToken = await _storage.read(key: _keyRefreshToken);
       if (refreshToken == null) {
-        throw ApiException(401, 'No refresh token available');
+        throw const ApiAuthRequiredException(401, 'No refresh token available');
       }
 
       final response = await _http.post(
@@ -285,7 +415,7 @@ class ApiClient {
             : body;
         final accessToken = data['accessToken'] as String?;
         if (accessToken == null) {
-          throw ApiException(
+          throw const ApiAuthRequiredException(
             401,
             'Token refresh response missing accessToken',
           );
@@ -301,7 +431,10 @@ class ApiClient {
       } else {
         // Refresh failed — force sign out
         await clearTokens();
-        final error = ApiException(401, 'Session expired. Please sign in again.');
+        const error = ApiAuthRequiredException(
+          401,
+          'Session expired. Please sign in again.',
+        );
         _refreshCompleter!.completeError(error);
         throw error;
       }
@@ -320,13 +453,19 @@ class ApiClient {
   // ============================================
 
   /// Build headers with auth token.
-  Map<String, String> _headers({bool isJson = true}) {
+  Map<String, String> _headers({
+    bool isJson = true,
+    String? idempotencyKey,
+  }) {
     final headers = <String, String>{};
     if (isJson) {
       headers['Content-Type'] = 'application/json';
     }
     if (_accessToken != null) {
       headers['Authorization'] = 'Bearer $_accessToken';
+    }
+    if (idempotencyKey != null && idempotencyKey.isNotEmpty) {
+      headers['Idempotency-Key'] = idempotencyKey;
     }
     return headers;
   }
@@ -339,9 +478,11 @@ class ApiClient {
     try {
       response = await request();
     } on TimeoutException {
-      throw ApiException(0, 'Request timed out. Please check your connection.');
+      throw const ApiTimeoutException(
+        'Request timed out. Please check your connection.',
+      );
     } on SocketException catch (e) {
-      throw ApiException(0, 'Network error: ${e.message}');
+      throw ApiNetworkException('Network error: ${e.message}');
     }
 
     if (response.statusCode == 401 && _accessToken != null) {
@@ -359,7 +500,10 @@ class ApiClient {
     return response;
   }
 
-  /// Parse a response, throwing [ApiException] on error.
+  /// Parse a response, throwing the matching [ApiException] subclass on
+  /// any non-2xx status. The error envelope's `code` field (Phase 3) is
+  /// preserved on the exception so the UI can branch on machine-readable
+  /// error reasons.
   Map<String, dynamic> _parseResponse(http.Response response) {
     Map<String, dynamic> body;
     try {
@@ -370,7 +514,7 @@ class ApiClient {
         if (decoded is Map<String, dynamic>) {
           body = decoded;
         } else {
-          throw ApiException(
+          throw ApiException.fromResponse(
             response.statusCode,
             redactSensitive(
               'Unexpected response format: expected a JSON object but got ${decoded.runtimeType}',
@@ -379,7 +523,7 @@ class ApiClient {
         }
       }
     } on FormatException {
-      throw ApiException(
+      throw ApiException.fromResponse(
         response.statusCode,
         'Invalid JSON in response body',
       );
@@ -389,27 +533,26 @@ class ApiClient {
       return body;
     }
 
+    final code = body['code'] as String?;
+    final message = redactSensitive(
+      body['error'] as String? ??
+          body['message'] as String? ??
+          (response.statusCode == 429
+              ? 'Too many requests. Please try again later.'
+              : 'Request failed'),
+    );
+
+    int? retryAfterSeconds;
     if (response.statusCode == 429) {
       final retryAfter = response.headers['retry-after'];
-      final retryAfterSeconds = retryAfter != null ? int.tryParse(retryAfter) : null;
-      throw ApiException(
-        429,
-        redactSensitive(
-          body['message'] as String? ?? 'Too many requests. Please try again later.',
-        ),
-        code: 'rate_limited',
-        retryAfterSeconds: retryAfterSeconds,
-      );
+      retryAfterSeconds = retryAfter != null ? int.tryParse(retryAfter) : null;
     }
 
-    throw ApiException(
+    throw ApiException.fromResponse(
       response.statusCode,
-      redactSensitive(
-        body['error'] as String? ??
-            body['message'] as String? ??
-            'Request failed',
-      ),
-      code: body['code'] as String?,
+      message,
+      code: code ?? (response.statusCode == 429 ? 'rate_limited' : null),
+      retryAfterSeconds: retryAfterSeconds,
     );
   }
 
@@ -476,6 +619,9 @@ class ApiClient {
   }
 
   /// POST request with JSON body.
+  ///
+  /// Pass [idempotencyKey] for at-least-once retry safety on mutations
+  /// dispatched from the offline queue.
   Future<Map<String, dynamic>> post({
     @Deprecated(
       'Use pathSegments to avoid URL injection. Only acceptable for hard-coded routes with no interpolated values.',
@@ -484,6 +630,7 @@ class ApiClient {
     List<String>? pathSegments,
     Map<String, String>? queryParams,
     Map<String, dynamic>? body,
+    String? idempotencyKey,
   }) async {
     final uri = _buildUri(
       path: path,
@@ -493,7 +640,7 @@ class ApiClient {
     final response = await _withAutoRefresh(
       () => _http.post(
         uri,
-        headers: _headers(),
+        headers: _headers(idempotencyKey: idempotencyKey),
         body: body != null ? jsonEncode(body) : null,
       ).timeout(_defaultTimeout),
     );
@@ -501,6 +648,9 @@ class ApiClient {
   }
 
   /// PUT request with JSON body.
+  ///
+  /// Pass [idempotencyKey] for at-least-once retry safety on mutations
+  /// dispatched from the offline queue.
   Future<Map<String, dynamic>> put({
     @Deprecated(
       'Use pathSegments to avoid URL injection. Only acceptable for hard-coded routes with no interpolated values.',
@@ -509,6 +659,7 @@ class ApiClient {
     List<String>? pathSegments,
     Map<String, String>? queryParams,
     Map<String, dynamic>? body,
+    String? idempotencyKey,
   }) async {
     final uri = _buildUri(
       path: path,
@@ -518,7 +669,7 @@ class ApiClient {
     final response = await _withAutoRefresh(
       () => _http.put(
         uri,
-        headers: _headers(),
+        headers: _headers(idempotencyKey: idempotencyKey),
         body: body != null ? jsonEncode(body) : null,
       ).timeout(_defaultTimeout),
     );
@@ -526,6 +677,9 @@ class ApiClient {
   }
 
   /// PATCH request with JSON body.
+  ///
+  /// Pass [idempotencyKey] for at-least-once retry safety on mutations
+  /// dispatched from the offline queue.
   Future<Map<String, dynamic>> patch({
     @Deprecated(
       'Use pathSegments to avoid URL injection. Only acceptable for hard-coded routes with no interpolated values.',
@@ -534,6 +688,7 @@ class ApiClient {
     List<String>? pathSegments,
     Map<String, String>? queryParams,
     Map<String, dynamic>? body,
+    String? idempotencyKey,
   }) async {
     final uri = _buildUri(
       path: path,
@@ -543,7 +698,7 @@ class ApiClient {
     final response = await _withAutoRefresh(
       () => _http.patch(
         uri,
-        headers: _headers(),
+        headers: _headers(idempotencyKey: idempotencyKey),
         body: body != null ? jsonEncode(body) : null,
       ).timeout(_defaultTimeout),
     );
@@ -551,6 +706,9 @@ class ApiClient {
   }
 
   /// DELETE request with optional JSON body.
+  ///
+  /// Pass [idempotencyKey] for at-least-once retry safety on mutations
+  /// dispatched from the offline queue.
   Future<Map<String, dynamic>> delete({
     @Deprecated(
       'Use pathSegments to avoid URL injection. Only acceptable for hard-coded routes with no interpolated values.',
@@ -559,6 +717,7 @@ class ApiClient {
     List<String>? pathSegments,
     Map<String, String>? queryParams,
     Map<String, dynamic>? body,
+    String? idempotencyKey,
   }) async {
     final uri = _buildUri(
       path: path,
@@ -568,7 +727,7 @@ class ApiClient {
     final response = await _withAutoRefresh(
       () => _http.delete(
         uri,
-        headers: _headers(),
+        headers: _headers(idempotencyKey: idempotencyKey),
         body: body != null ? jsonEncode(body) : null,
       ).timeout(_defaultTimeout),
     );
@@ -576,6 +735,9 @@ class ApiClient {
   }
 
   /// Upload a file via multipart POST.
+  ///
+  /// Pass [idempotencyKey] for at-least-once retry safety on mutations
+  /// dispatched from the offline queue.
   Future<Map<String, dynamic>> upload({
     @Deprecated(
       'Use pathSegments to avoid URL injection. Only acceptable for hard-coded routes with no interpolated values.',
@@ -585,6 +747,7 @@ class ApiClient {
     required File file,
     required String fieldName,
     Map<String, String>? fields,
+    String? idempotencyKey,
   }) async {
     final uri = _buildUri(path: path, pathSegments: pathSegments);
 
@@ -595,6 +758,9 @@ class ApiClient {
       // so that after a token refresh, the new token is used.
       if (_accessToken != null) {
         request.headers['Authorization'] = 'Bearer $_accessToken';
+      }
+      if (idempotencyKey != null && idempotencyKey.isNotEmpty) {
+        request.headers['Idempotency-Key'] = idempotencyKey;
       }
 
       if (fields != null) {

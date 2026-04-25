@@ -126,7 +126,16 @@ class _GiftWelcomeScreenState extends ConsumerState<GiftWelcomeScreen> {
     }
 
     final gift = _giftData!;
-    final hexStr = (gift['brand_color']?.replaceFirst('#', '') ?? '3B82F6');
+    // Clamp the partner-supplied hex to a known-good length BEFORE parsing
+    // so a malicious payload can't roll into an unexpected radix-16 value
+    // (F035). Accept 6- or 8-char hex; anything else falls back to brand
+    // primary.
+    final rawHex = (gift['brand_color'] as String? ?? '#3B82F6')
+        .replaceFirst('#', '');
+    final hexStr = (rawHex.length == 6 || rawHex.length == 8) &&
+            RegExp(r'^[0-9A-Fa-f]+$').hasMatch(rawHex)
+        ? rawHex
+        : '3B82F6';
     final colorValue = int.tryParse(hexStr, radix: 16) ?? 0x3B82F6;
     final brandColor = Color(hexStr.length == 8 ? colorValue : (colorValue | 0xFF000000));
     final partnerName = gift['partner_name'] ?? 'Your Realtor';
@@ -159,10 +168,13 @@ class _GiftWelcomeScreenState extends ConsumerState<GiftWelcomeScreen> {
                 // Partner Logo or HavenKeep Logo
                 if (logoUrl != null && logoUrl.isNotEmpty)
                   Center(
+                    // cacheWidth bounds decode size — partner logos can be
+                    // multi-megapixel and would jank low-end devices (F036).
                     child: HavenImage(
                       url: logoUrl,
                       height: 80,
                       fit: BoxFit.contain,
+                      cacheWidth: 320,
                       errorFallback: const HavenKeepLogo(size: 80),
                     ),
                   )

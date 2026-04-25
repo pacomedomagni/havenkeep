@@ -53,6 +53,31 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+
+            <!-- Custom URL scheme: havenkeep://gift/<code> + ://referral/<code> -->
+            <intent-filter android:label="HavenKeep deep link">
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="havenkeep"/>
+            </intent-filter>
+
+            <!-- App Links: https://havenkeep.com/gift/* and /referral/*.
+                 `autoVerify` requires a matching assetlinks.json file at
+                 https://havenkeep.com/.well-known/assetlinks.json listing
+                 this app's package name + signing fingerprint. -->
+            <intent-filter android:autoVerify="true"
+                           android:label="HavenKeep web link">
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="https"
+                      android:host="havenkeep.com"
+                      android:pathPrefix="/gift/"/>
+                <data android:scheme="https"
+                      android:host="havenkeep.com"
+                      android:pathPrefix="/referral/"/>
+            </intent-filter>
         </activity>
 
         <!-- flutter_web_auth_2 callback activity for OAuth redirects.

@@ -87,7 +87,7 @@ void main() {
 
       test('rethrows errors from API client', () async {
         when(mockClient.get(pathSegments: const ['api', 'v1', 'categories', 'defaults']))
-            .thenThrow(ApiException(500, 'Server error'));
+            .thenThrow(ApiException.fromResponse(500, 'Server error'));
 
         expect(
           () => repository.getCategoryDefaults(),

@@ -75,7 +75,7 @@ void main() {
 
       test('throws ApiException on invalid credentials', () async {
         when(mockClient.post(pathSegments: const ['api', 'v1', 'auth', 'login'], body: anyNamed('body')))
-            .thenThrow(ApiException(401, 'Invalid credentials'));
+            .thenThrow(ApiException.fromResponse(401, 'Invalid credentials'));
 
         expect(
           () => repository.signInWithEmail(
@@ -238,7 +238,7 @@ void main() {
       test('returns null on 401 ApiException', () async {
         when(mockClient.isAuthenticated).thenReturn(true);
         when(mockClient.get(pathSegments: const ['api', 'v1', 'users', 'me']))
-            .thenThrow(ApiException(401, 'Unauthorized'));
+            .thenThrow(ApiException.fromResponse(401, 'Unauthorized'));
 
         final user = await repository.getCurrentUser();
 
@@ -248,7 +248,7 @@ void main() {
       test('rethrows non-401 ApiException', () async {
         when(mockClient.isAuthenticated).thenReturn(true);
         when(mockClient.get(pathSegments: const ['api', 'v1', 'users', 'me']))
-            .thenThrow(ApiException(500, 'Server error'));
+            .thenThrow(ApiException.fromResponse(500, 'Server error'));
 
         expect(
           () => repository.getCurrentUser(),

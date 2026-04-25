@@ -69,6 +69,9 @@ class _MaintenanceHistoryScreenState
         page: _currentPage,
       );
 
+      // Guard every async-followup setState — user can pop the route
+      // before the page resolves (F067).
+      if (!mounted) return;
       setState(() {
         _items.addAll(newItems);
         _currentPage++;
@@ -77,6 +80,7 @@ class _MaintenanceHistoryScreenState
         _isLoading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _error = ErrorHandler.getUserMessage(e);
         _isInitialLoad = false;
@@ -202,6 +206,10 @@ class _MaintenanceHistoryScreenState
         ),
         child: const Icon(Icons.delete, color: Colors.white),
       ),
+      // confirmDismiss returns whether the dismiss should proceed; we don't
+      // mutate _items here. onDismissed handles the actual list removal so
+      // the slide animation plays end-to-end before the row disappears
+      // (F068).
       confirmDismiss: (_) async {
         final confirmed = await showHavenConfirmDialog(
           context,
@@ -213,9 +221,6 @@ class _MaintenanceHistoryScreenState
         if (confirmed != true) return false;
         try {
           await ref.read(maintenanceRepositoryProvider).deleteLog(entry.id);
-          setState(() {
-            _items.removeWhere((e) => e.id == entry.id);
-          });
           ref.invalidate(maintenanceDueProvider);
           return true;
         } catch (e) {
@@ -226,7 +231,12 @@ class _MaintenanceHistoryScreenState
           return false;
         }
       },
-      onDismissed: (_) {},
+      onDismissed: (_) {
+        if (!mounted) return;
+        setState(() {
+          _items.removeWhere((e) => e.id == entry.id);
+        });
+      },
       child: Container(
         margin: const EdgeInsets.only(bottom: HavenSpacing.sm),
         padding: const EdgeInsets.all(HavenSpacing.md),

@@ -81,6 +81,9 @@ class _OverflowMenu extends ConsumerWidget {
         borderRadius: BorderRadius.circular(HavenRadius.card),
       ),
       onSelected: (value) async {
+        // Capture parent messenger before any pop — the item detail's own
+        // messenger is gone once we navigate back. (F046)
+        final messenger = ScaffoldMessenger.of(context);
         switch (value) {
           case 'archive':
             final confirmed = await showHavenConfirmDialog(
@@ -93,18 +96,19 @@ class _OverflowMenu extends ConsumerWidget {
             if (confirmed && context.mounted) {
               try {
                 await ref.read(itemsProvider.notifier).archiveItem(itemId);
-                if (context.mounted) {
-                  showHavenSnackBar(context, message: 'Warranty archived');
-                  if (context.canPop()) {
-                    context.pop();
-                  } else {
-                    context.go(AppRoutes.items);
-                  }
+                messenger.showSnackBar(
+                  const SnackBar(content: Text('Warranty archived')),
+                );
+                if (!context.mounted) break;
+                if (context.canPop()) {
+                  context.pop();
+                } else {
+                  context.go(AppRoutes.items);
                 }
               } catch (e) {
-                if (context.mounted) {
-                  showHavenSnackBar(context, message: ErrorHandler.getUserMessage(e));
-                }
+                messenger.showSnackBar(
+                  SnackBar(content: Text(ErrorHandler.getUserMessage(e))),
+                );
               }
             }
             break;
@@ -120,18 +124,19 @@ class _OverflowMenu extends ConsumerWidget {
             if (confirmed && context.mounted) {
               try {
                 await ref.read(itemsProvider.notifier).deleteItem(itemId);
-                if (context.mounted) {
-                  showHavenSnackBar(context, message: 'Warranty deleted');
-                  if (context.canPop()) {
-                    context.pop();
-                  } else {
-                    context.go(AppRoutes.items);
-                  }
+                messenger.showSnackBar(
+                  const SnackBar(content: Text('Warranty deleted')),
+                );
+                if (!context.mounted) break;
+                if (context.canPop()) {
+                  context.pop();
+                } else {
+                  context.go(AppRoutes.items);
                 }
               } catch (e) {
-                if (context.mounted) {
-                  showHavenSnackBar(context, message: ErrorHandler.getUserMessage(e));
-                }
+                messenger.showSnackBar(
+                  SnackBar(content: Text(ErrorHandler.getUserMessage(e))),
+                );
               }
             }
             break;
@@ -170,8 +175,6 @@ class _OverflowMenu extends ConsumerWidget {
 class _ItemDetailBody extends ConsumerWidget {
   final Item item;
   final String itemId;
-
-  static final _claimHelpKey = GlobalKey();
 
   const _ItemDetailBody({required this.item, required this.itemId});
 
@@ -509,7 +512,6 @@ class _ItemDetailBody extends ConsumerWidget {
           // ----------------------------------------------------------------
 
           HavenAccordion(
-            key: _claimHelpKey,
             title: 'Claim Help',
             initiallyExpanded: false,
             child: Padding(
@@ -540,11 +542,19 @@ class _ItemDetailBody extends ConsumerWidget {
                   ),
                   const SizedBox(height: HavenSpacing.md),
                   OutlinedButton.icon(
-                    onPressed: () {
+                    onPressed: () async {
+                      // Wrap in canLaunchUrl + snackbar fallback (F049).
+                      final messenger = ScaffoldMessenger.of(context);
                       final brand = item.brand ?? item.name;
                       final query = Uri.encodeComponent('$brand warranty support contact');
-                      final searchUrl = 'https://www.google.com/search?q=$query';
-                      launchUrl(Uri.parse(searchUrl), mode: LaunchMode.externalApplication);
+                      final searchUri = Uri.parse('https://www.google.com/search?q=$query');
+                      if (await canLaunchUrl(searchUri)) {
+                        await launchUrl(searchUri, mode: LaunchMode.externalApplication);
+                      } else {
+                        messenger.showSnackBar(
+                          const SnackBar(content: Text('Could not open browser.')),
+                        );
+                      }
                     },
                     icon: const Icon(Icons.search, size: 18),
                     label: Text(
@@ -692,15 +702,19 @@ class _DocumentRowState extends ConsumerState<_DocumentRow> {
                   style: const TextStyle(fontSize: 14),
                 ),
               ),
-              body: Center(
-                child: InteractiveViewer(
-                  child: HavenImage(
-                    url: doc.fileUrl,
-                    fit: BoxFit.contain,
-                    errorFallback: const Icon(
-                      Icons.broken_image,
-                      size: 120,
-                      color: HavenColors.textTertiary,
+              // Wrap in SafeArea so the status bar / home indicator
+              // doesn't overlap the image at the edges (F048).
+              body: SafeArea(
+                child: Center(
+                  child: InteractiveViewer(
+                    child: HavenImage(
+                      url: doc.fileUrl,
+                      fit: BoxFit.contain,
+                      errorFallback: const Icon(
+                        Icons.broken_image,
+                        size: 120,
+                        color: HavenColors.textTertiary,
+                      ),
                     ),
                   ),
                 ),
@@ -718,6 +732,9 @@ class _DocumentRowState extends ConsumerState<_DocumentRow> {
             isDestructive: true,
           );
           if (confirmed && context.mounted) {
+            // Capture messenger so we can surface success/failure even if
+            // the row has been removed from the tree (F047).
+            final messenger = ScaffoldMessenger.of(context);
             setState(() => _isDeletingDocument = true);
             try {
               await deleteDocument(
@@ -725,11 +742,13 @@ class _DocumentRowState extends ConsumerState<_DocumentRow> {
                 documentId: doc.id,
                 itemId: itemId,
               );
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Document deleted')),
-                );
-              }
+              messenger.showSnackBar(
+                const SnackBar(content: Text('Document deleted')),
+              );
+            } catch (e) {
+              messenger.showSnackBar(
+                SnackBar(content: Text(ErrorHandler.getUserMessage(e))),
+              );
             } finally {
               if (mounted) {
                 setState(() => _isDeletingDocument = false);
@@ -797,31 +816,39 @@ class _DetailRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: HavenSpacing.sm),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 100,
-            child: Text(
-              label,
-              style: const TextStyle(
-                fontSize: 14,
-                color: HavenColors.textTertiary,
+    final hasValue = value != null && value!.isNotEmpty;
+    // Semantics overrides the em-dash so screen readers say "Not set" rather
+    // than reading the raw em-dash character (F051).
+    return Semantics(
+      label: '$label: ${hasValue ? value : 'Not set'}',
+      child: ExcludeSemantics(
+        child: Padding(
+          padding: const EdgeInsets.only(bottom: HavenSpacing.sm),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                width: 100,
+                child: Text(
+                  label,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    color: HavenColors.textTertiary,
+                  ),
+                ),
               ),
-            ),
-          ),
-          Expanded(
-            child: Text(
-              value ?? '\u2014', // em-dash for null
-              style: const TextStyle(
-                fontSize: 14,
-                color: HavenColors.textPrimary,
+              Expanded(
+                child: Text(
+                  hasValue ? value! : '\u2014',
+                  style: const TextStyle(
+                    fontSize: 14,
+                    color: HavenColors.textPrimary,
+                  ),
+                ),
               ),
-            ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
