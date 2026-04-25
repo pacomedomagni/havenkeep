@@ -12,8 +12,8 @@ Everything you need to ship to TestFlight + Play Internal Testing tomorrow. Foll
 | Android debug SHA-1 | `EB:8A:74:33:4B:5A:1B:8F:2A:FA:FA:54:5A:F1:11:95:75:07:E9:C5` |
 | Keystore + password | `apps/mobile/android/app/upload-keystore.jks` + `key.properties` (both gitignored) |
 | Fastlane lane | `cd apps/mobile/android && fastlane internal` |
-| Privacy URL | `https://havenkeep.app/legal/privacy` |
-| Account-deletion URL (Play Console asks for this) | `https://havenkeep.app/legal/delete-account` |
+| Privacy URL | `https://havenkeep.com/legal/privacy` |
+| Account-deletion URL (Play Console asks for this) | `https://havenkeep.com/legal/delete-account` |
 
 ---
 
@@ -60,14 +60,14 @@ For Apple Sign-In on Android (web flow), also create:
 - **Identifiers → +** → Services IDs → identifier `com.flokou.havenkeep.signin.staging` (and another `.signin` for prod when prod DNS is up). Configure each with:
   - Primary App ID: `com.flokou.havenkeep`
   - Domains: your havenkeep domain
-  - Return URL: `https://api.<env>.havenkeep.app/api/v1/auth/apple/callback`
+  - Return URL: `https://api.<env>.havenkeep.com/api/v1/auth/apple/callback`
 - **Keys → +** → Sign in with Apple → Configure → tie to the Services ID → download the `.p8` (one-shot — store carefully). Note the Key ID + Team ID.
 
 ### Step 3 — App Store Connect
 
 [appstoreconnect.apple.com](https://appstoreconnect.apple.com) → **My Apps** → confirm Restorae's HavenKeep app exists for `com.flokou.havenkeep` (you mentioned 8 TestFlight builds already exist, so this should be there). If not, **+** → New App → bundle ID `com.flokou.havenkeep`.
 
-Fill in the bare minimum for TestFlight: **App Information** (name, primary category: Productivity, secondary: Utilities), **Privacy Policy URL** (`https://havenkeep.app/legal/privacy` once your marketing site is published).
+Fill in the bare minimum for TestFlight: **App Information** (name, primary category: Productivity, secondary: Utilities), **Privacy Policy URL** (`https://havenkeep.com/legal/privacy` once your marketing site is published).
 
 ### Step 4 — Play Console (NEW for havenkeep)
 
@@ -76,7 +76,7 @@ Fill in the bare minimum for TestFlight: **App Information** (name, primary cate
 The full one-time setup mirrors Restorae (we did this today):
 1. **Policy and programs → App content** — go through every section (App access, Ads, Content rating, Target audience, News apps, COVID-19, Data safety, Government apps, Health apps).
 2. For the Health apps form: **My app does not have any health features** (warranty tracker, not health).
-3. Privacy policy URL: `https://havenkeep.app/legal/privacy` (you have it at `apps/marketing/src/pages/legal/privacy.astro`, just confirm it's published).
+3. Privacy policy URL: `https://havenkeep.com/legal/privacy` (you have it at `apps/marketing/src/pages/legal/privacy.astro`, just confirm it's published).
 4. Target audience: **18 and over** OR **13 and older** depending on whether teens would reasonably use a warranty tracker (probably 13+ matches market reality).
 5. Data safety form: declare collected data (email, user ID, photos for receipts, app activity, crash logs) — none shared, all encrypted in transit, deletion supported.
 6. **Grow → Store presence → Store settings**: category Productivity (or Tools), tags **Notebook**, **Productivity** (Play tags don't have warranty/receipt-specific options).
@@ -93,7 +93,7 @@ flutter build appbundle --release \
   --dart-define=WEB_FRONTEND_URL=<staging marketing URL> \
   --dart-define=GOOGLE_SERVER_CLIENT_ID=<new Web client ID> \
   --dart-define=APPLE_SERVICES_ID=com.flokou.havenkeep.signin.staging \
-  --dart-define=APPLE_REDIRECT_URI=https://api.staging.havenkeep.app/api/v1/auth/apple/callback
+  --dart-define=APPLE_REDIRECT_URI=https://api.staging.havenkeep.com/api/v1/auth/apple/callback
 
 cd android && fastlane internal
 ```
@@ -158,8 +158,8 @@ PREMIUM (optional)
 
 Unlimited items, unlimited email scans, advanced search. Free tier covers most households comfortably.
 
-Questions: support@havenkeep.app
-Privacy: https://havenkeep.app/legal/privacy
+Questions: support@havenkeep.com
+Privacy: https://havenkeep.com/legal/privacy
 ```
 
 **Keywords** (100 max, comma-sep, no spaces):
@@ -180,8 +180,8 @@ Track every receipt and warranty. Photo-scan, email-scan, expiry reminders.
 
 **Full description** (4000 max): same as Apple description above, with a footer:
 ```
-Privacy: https://havenkeep.app/legal/privacy
-Terms: https://havenkeep.app/legal/terms
+Privacy: https://havenkeep.com/legal/privacy
+Terms: https://havenkeep.com/legal/terms
 ```
 
 **Category**: Productivity
