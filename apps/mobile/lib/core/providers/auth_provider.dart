@@ -439,6 +439,7 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
     try { ref.invalidate(maintenanceSchedulesProvider); } catch (_) {}
     try { ref.invalidate(maintenanceDueProvider); } catch (_) {}
     try { ref.invalidate(maintenanceHistoryProvider); } catch (_) {}
+    try { ref.invalidate(maintenanceHistoryByItemProvider); } catch (_) {}
     try { ref.invalidate(allDocumentsProvider); } catch (_) {}
     try { ref.invalidate(emailScansProvider); } catch (_) {}
   }

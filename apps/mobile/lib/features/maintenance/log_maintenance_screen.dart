@@ -111,6 +111,7 @@ class _LogMaintenanceScreenState extends ConsumerState<LogMaintenanceScreen> {
         HavenHaptics.confirm();
         ref.invalidate(maintenanceDueProvider);
         ref.invalidate(maintenanceHistoryProvider);
+        ref.invalidate(maintenanceHistoryByItemProvider(_selectedItemId!));
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Maintenance task logged')),
         );

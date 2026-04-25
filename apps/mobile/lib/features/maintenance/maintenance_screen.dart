@@ -8,7 +8,9 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/providers/auth_provider.dart';
 import '../../core/providers/maintenance_provider.dart';
+import '../../core/providers/maintenance_snooze_provider.dart';
 import '../../core/router/router.dart';
+import '../../core/services/maintenance_snooze_service.dart';
 import '../../core/utils/error_handler.dart';
 import '../../core/widgets/haven_illustration.dart';
 import '../../core/widgets/haven_loader.dart';
@@ -21,6 +23,10 @@ class MaintenanceScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final dueAsync = ref.watch(maintenanceDueProvider);
+    final snoozesAsync = ref.watch(activeMaintenanceSnoozesProvider);
+    // Snoozes are local-only and load instantly; treat the loading window as
+    // "no snoozes" so the list isn't gated on it.
+    final snoozes = snoozesAsync.valueOrNull ?? const <String, DateTime>{};
     final dateFormat = DateFormat.yMMMd();
 
     return Scaffold(
@@ -58,7 +64,30 @@ class MaintenanceScreen extends ConsumerWidget {
           ),
         ),
         data: (summary) {
-          if (summary.items.isEmpty) {
+          // Hide snoozed tasks from the due list. We rebuild the per-item
+          // task list so an item whose only due tasks are snoozed disappears
+          // entirely.
+          final visibleItems = summary.items
+              .map((it) {
+                final visibleTasks = it.tasks.where((t) {
+                  final key = MaintenanceSnoozeService.storageKey(
+                      it.itemId, t.scheduleId);
+                  return !snoozes.containsKey(key);
+                }).toList();
+                if (visibleTasks.length == it.tasks.length) return it;
+                return MaintenanceDueItem(
+                  itemId: it.itemId,
+                  itemName: it.itemName,
+                  category: it.category,
+                  dueCount: visibleTasks.length,
+                  overdueCount: visibleTasks.where((t) => t.isOverdue).length,
+                  tasks: visibleTasks,
+                );
+              })
+              .where((it) => it.tasks.isNotEmpty)
+              .toList();
+
+          if (visibleItems.isEmpty) {
             return const Center(
               child: Padding(
                 padding: EdgeInsets.all(HavenSpacing.xl),
@@ -83,6 +112,13 @@ class MaintenanceScreen extends ConsumerWidget {
             );
           }
 
+          // Recompute totals against the post-snooze list so the summary
+          // card matches what the user actually sees below.
+          final totalVisible =
+              visibleItems.fold<int>(0, (s, it) => s + it.tasks.length);
+          final totalOverdueVisible = visibleItems.fold<int>(
+              0, (s, it) => s + it.tasks.where((t) => t.isOverdue).length);
+
           // Virtualized list so users with 200+ items don't build every card.
           return RefreshIndicator(
             onRefresh: () async {
@@ -92,7 +128,7 @@ class MaintenanceScreen extends ConsumerWidget {
             color: HavenColors.primary,
             child: ListView.builder(
               padding: const EdgeInsets.all(HavenSpacing.md),
-              itemCount: summary.items.length + 1, // +1 for summary card
+              itemCount: visibleItems.length + 1, // +1 for summary card
               itemBuilder: (context, index) {
                 if (index == 0) {
                   return Padding(
@@ -107,14 +143,13 @@ class MaintenanceScreen extends ConsumerWidget {
                       child: Row(
                         children: [
                           _SummaryChip(
-                            count: summary.totalOverdue,
+                            count: totalOverdueVisible,
                             label: 'Overdue',
                             color: HavenColors.expired,
                           ),
                           const SizedBox(width: HavenSpacing.md),
                           _SummaryChip(
-                            count:
-                                summary.totalDue - summary.totalOverdue,
+                            count: totalVisible - totalOverdueVisible,
                             label: 'Coming Up',
                             color: HavenColors.expiring,
                           ),
@@ -124,10 +159,31 @@ class MaintenanceScreen extends ConsumerWidget {
                   );
                 }
 
-                final item = summary.items[index - 1];
+                final item = visibleItems[index - 1];
                 return _MaintenanceItemCard(
                   item: item,
                   dateFormat: dateFormat,
+                  onSnooze: (task, option) async {
+                    final nextDue = DateTime.now()
+                        .add(Duration(days: task.daysUntilDue));
+                    await ref
+                        .read(activeMaintenanceSnoozesProvider.notifier)
+                        .snooze(
+                          itemId: item.itemId,
+                          scheduleId: task.scheduleId,
+                          option: option,
+                          nextDue: nextDue,
+                        );
+                    HavenHaptics.confirm();
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                              '${task.taskName} snoozed for ${option.displayLabel.toLowerCase()}'),
+                        ),
+                      );
+                    }
+                  },
                   onMarkDone: (task) async {
                     // Bail out clearly if the user is missing rather than
                     // submitting userId='' to the server (F069).
@@ -161,6 +217,9 @@ class MaintenanceScreen extends ConsumerWidget {
                       HavenHaptics.confirm();
                       ref.invalidate(maintenanceDueProvider);
                       ref.invalidate(maintenanceHistoryProvider);
+                      ref.invalidate(
+                        maintenanceHistoryByItemProvider(item.itemId),
+                      );
                       if (context.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
@@ -237,11 +296,14 @@ class _MaintenanceItemCard extends StatelessWidget {
   final MaintenanceDueItem item;
   final DateFormat dateFormat;
   final void Function(MaintenanceDueTask task) onMarkDone;
+  final Future<void> Function(
+      MaintenanceDueTask task, MaintenanceSnoozeOption option) onSnooze;
 
   const _MaintenanceItemCard({
     required this.item,
     required this.dateFormat,
     required this.onMarkDone,
+    required this.onSnooze,
   });
 
   @override
@@ -426,6 +488,20 @@ class _MaintenanceItemCard extends StatelessWidget {
                       minimumSize: const Size(0, 32),
                     ),
                     child: const Text('Done', style: TextStyle(fontSize: 13)),
+                  ),
+                  PopupMenuButton<MaintenanceSnoozeOption>(
+                    tooltip: 'Snooze',
+                    icon: const Icon(Icons.snooze,
+                        size: 18, color: HavenColors.textSecondary),
+                    padding: EdgeInsets.zero,
+                    onSelected: (option) => onSnooze(task, option),
+                    itemBuilder: (_) => [
+                      for (final opt in MaintenanceSnoozeService.options)
+                        PopupMenuItem<MaintenanceSnoozeOption>(
+                          value: opt,
+                          child: Text('Snooze ${opt.displayLabel.toLowerCase()}'),
+                        ),
+                    ],
                   ),
                 ],
               ),

@@ -1,11 +1,16 @@
 import 'dart:io';
 
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/items_provider.dart';
 import '../providers/warranty_purchases_provider.dart';
 import 'logging_service.dart';
+
+/// Native bridge exposed by `ios/Runner/AppDelegate.swift` for iOS-only
+/// platform state (currently: UIApplication.backgroundRefreshStatus).
+const _lifecycleChannel = MethodChannel('havenkeep/lifecycle');
 
 /// Observes [AppLifecycleState] and refreshes warranty data when the user
 /// brings HavenKeep back to the foreground.
@@ -63,12 +68,31 @@ class AppLifecycleService with WidgetsBindingObserver {
   /// notifications so we don't spam users who've explicitly disabled
   /// background activity. On non-iOS platforms always returns true — the
   /// concept doesn't exist on Android.
+  ///
+  /// Implemented via the `havenkeep/lifecycle` MethodChannel exposed by
+  /// `AppDelegate.swift`. Mapping of `UIBackgroundRefreshStatus`:
+  ///   - 0 (`restricted`): MDM/parental-controls block — treat as denied.
+  ///   - 1 (`denied`): user toggled off — treat as denied.
+  ///   - 2 (`available`): allowed.
+  /// Falls back to `true` if the channel is missing (e.g. tests, very old
+  /// build of the host app) so we err on the side of letting the scheduler
+  /// run rather than silently muting it.
   static Future<bool> backgroundRefreshAllowed() async {
     if (!Platform.isIOS) return true;
-    // The platform doesn't expose a direct API from Dart, so we conservatively
-    // allow scheduling and rely on the OS to enforce. The wrapper exists so
-    // callers can be updated centrally if a Pigeon channel is added later.
-    return true;
+    try {
+      final raw = await _lifecycleChannel.invokeMethod<int>('backgroundRefreshStatus');
+      // 2 == UIBackgroundRefreshStatus.available
+      return raw == 2;
+    } on MissingPluginException {
+      // Older host build without the channel — fall back to allow.
+      return true;
+    } on PlatformException catch (e, stack) {
+      LoggingService.warn(
+        'backgroundRefreshStatus channel error',
+        {'error': e.toString(), 'stack': stack.toString()},
+      );
+      return true;
+    }
   }
 }
 

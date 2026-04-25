@@ -31,11 +31,15 @@ String _detectMimeType(String fileName) {
 /// Bottom sheet for uploading a document (photo) to an item.
 class DocumentUploadSheet extends ConsumerStatefulWidget {
   final String itemId;
+  /// Pre-select the document type when the sheet opens. Used by the
+  /// item-detail document tabs so "Upload your first {tab}" lands on the
+  /// matching type without forcing the user to pick from the dropdown.
+  final DocumentType? initialType;
 
-  const DocumentUploadSheet({super.key, required this.itemId});
+  const DocumentUploadSheet({super.key, required this.itemId, this.initialType});
 
   /// Show the upload sheet.
-  static void show(BuildContext context, String itemId) {
+  static void show(BuildContext context, String itemId, {DocumentType? initialType}) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -45,7 +49,7 @@ class DocumentUploadSheet extends ConsumerStatefulWidget {
           top: Radius.circular(HavenRadius.card),
         ),
       ),
-      builder: (_) => DocumentUploadSheet(itemId: itemId),
+      builder: (_) => DocumentUploadSheet(itemId: itemId, initialType: initialType),
     );
   }
 
@@ -57,7 +61,7 @@ class DocumentUploadSheet extends ConsumerStatefulWidget {
 class _DocumentUploadSheetState extends ConsumerState<DocumentUploadSheet> {
   final _picker = ImagePicker();
   XFile? _selectedImage;
-  DocumentType _selectedType = DocumentType.receipt;
+  late DocumentType _selectedType = widget.initialType ?? DocumentType.receipt;
   bool _isUploading = false;
   String? _errorMessage;
 

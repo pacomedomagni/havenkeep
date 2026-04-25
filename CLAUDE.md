@@ -89,34 +89,12 @@ Every gate is currently green: api tsc, dashboard tsc + build, marketing build, 
 - **Production CSP report-uri / CSP enforcement headers** (W078 / W111). Marketing site is static Astro — the headers must be set by Caddy in front of it. `astro.config.mjs` documents which headers Caddy needs.
 - **Firebase Crashlytics DSN** (optional). The Dart enum-drift funnel (`registerUnknownEnumReporter`) is wired and ready for a custom transport.
 
-### B. Backend endpoints needed before the matching mobile UI can ship
+### B. Mobile feature gaps
 
-- **Linked accounts list / unlink UI** (settings). Needs `GET /api/v1/users/me/providers` + `DELETE /api/v1/users/me/providers/:id`.
-- **Email-change "pending" UI badge.** Needs `users.email_change_pending` field exposed on `/users/me`. Verify-email-change route exists; the get-me payload doesn't surface the pending state.
-- **iOS Background App Refresh OS-level check** (Ch05-F139). Apple doesn't expose `UIApplication.backgroundRefreshStatus` to Dart. `AppLifecycleService.backgroundRefreshAllowed()` is a stub returning `true`; needs a Pigeon channel in `Runner/AppDelegate.swift`.
-- **Multi-step claim wizard preserve-on-backgrounding.** Current `CreateClaimScreen` is a single Form, not a wizard. Implementing draft persistence requires building the wizard component first.
-
-### C. Mobile UI polish (deferred by Phase 9 agents — no gate impact)
-
-From the items / maintenance / home / search / email_scanner / gifts / item_detail agent's "not done" list:
-- Tabbed Receipts / Manuals / Warranty Cards / Other UI inside item_detail (would touch document_upload_sheet too).
-- Inline maintenance log on item detail.
-- Share intent button for items.
-- Per-item maintenance schedule customization screen + provider.
-- Reminder snooze options (1 day / 1 week / next month).
-- Calendar-month view of completed maintenance.
-- Due-window filter chips (7 / 30 / 90 days) + bulk mark-done.
-- Email scanner: cancel button mid-progress, granted-scopes display widget, low-confidence review queue UI, in-app disconnect button (server-side `revokeIntegration` exists; UI doesn't call it).
-- Gifts: deep link handler for `?code=` fragment, recent-gifts list view, share-gift-code intent.
-- Home: explicit recent-activity feed widget.
-
-From the add_item / onboarding agent:
-- **Ch05-F098 splash retry tap-to-retry UI.** Current fallback timer + post-frame navigate is the retry pattern; agent didn't add tap UI to avoid a navigation race.
-
-### D. Per-page OG images (Ch10-W076)
-
-W075 (the PNG fallback) is done — `og-image.png` is the default for every marketing page, regenerated from `og-image.svg` via `node apps/marketing/scripts/build-og-image.cjs`. W076 was the "per-page OG" — `Layout.astro` accepts an `ogImage` prop. Static per-page assets haven't been generated; needs design.
-
-### E. Cosmetic backend item not closed
-
-- **Ch11-I036 cron-chain consolidation.** Current `Promise.allSettled` covers the audit's worst-case concern (one hung job blocking others). The audit's "single setTimeout chain" framing was cosmetic; not closed because the current shape is functionally fine. Close only if you want strict compliance with the audit text.
+Still open after the audit-remediation passes:
+- **Inline maintenance log on item detail.** Item detail currently links out to `AppRoutes.logMaintenance` (`features/item_detail/item_detail_screen.dart:970`); the audit asked for an inline editor on the same screen so the user doesn't lose context. Make the existing log_maintenance form mountable as a sheet/expander.
+- **Calendar-month view of completed maintenance.** History screen lists rows but has no month grid. Add a `CalendarDatePicker`/grid surface in `features/maintenance/maintenance_history_screen.dart`.
+- **Due-window filter chips + bulk mark-done.** Maintenance list needs `FilterChip`s for 7 / 30 / 90 days plus a multi-select bulk "mark done" action.
+- **Home: explicit recent-activity feed widget.** `features/home/dashboard_screen.dart` has the milestone banner only — the audit asked for a recent-activity feed (item added, claim filed, document uploaded). Hydrate from the audit log API the dashboard already calls.
+- **Email scanner UX gaps.** `email_scanner_screen.dart` has a `disconnect any time from Settings` line but no in-app disconnect button, no granted-scopes display widget, no low-confidence review queue UI, and the visible `Cancel` button at line 271 is the dialog dismiss — not a "cancel scan in progress" button.
+- **Ch05-F098 splash retry tap-to-retry UI.** No `features/splash/` directory exists. Either delete the splash retry audit item if the app has no splash screen, or add a splash with a tap-to-retry on bootstrap failure.

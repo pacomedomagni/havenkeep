@@ -6,7 +6,7 @@ import { authenticate } from '../middleware/auth';
 import { AppError } from '../utils/errors';
 import { validate } from '../middleware/validate';
 import { updateUserSchema, pushTokenSchema } from '../validators';
-import { changePasswordSchema, deleteAccountSchema } from '../validators/users.validator';
+import { changePasswordSchema, deleteAccountSchema, providerParamSchema } from '../validators/users.validator';
 import { changeEmailSchema } from '../validators/auth.validator';
 import { blacklistTokenAuto } from '../utils/token-blacklist';
 import { config } from '../config';
@@ -30,12 +30,27 @@ router.use(authenticate);
 // Ch08-User-D005: stripe_customer_id is intentionally NOT in the SELECT — it's
 // internal billing plumbing the client has no business reading.
 router.get('/me', asyncHandler(async (req, res) => {
+  // email_change_pending / email_change_target are derived from the most
+  // recent active change-email token (the change-email route stores the new
+  // address in metadata->>'new_email' with metadata->>'type' = 'change_email').
+  // The mobile UI uses these to render a "verification pending" badge next
+  // to the email field.
   const result = await query(
-    `SELECT id, email, full_name, avatar_url, auth_provider, plan, plan_expires_at,
-            referred_by, referral_code, email_verified, apple_user_id, is_admin,
-            deleted_at, deletion_scheduled_for, created_at, updated_at,
-            (EXISTS(SELECT 1 FROM partners p WHERE p.user_id = users.id AND p.is_active = TRUE)) as is_partner
-     FROM users WHERE id = $1`,
+    `SELECT u.id, u.email, u.full_name, u.avatar_url, u.auth_provider, u.plan, u.plan_expires_at,
+            u.referred_by, u.referral_code, u.email_verified, u.apple_user_id, u.is_admin,
+            u.deleted_at, u.deletion_scheduled_for, u.created_at, u.updated_at,
+            (EXISTS(SELECT 1 FROM partners p WHERE p.user_id = u.id AND p.is_active = TRUE)) AS is_partner,
+            (
+              SELECT t.metadata->>'new_email'
+                FROM email_verification_tokens t
+               WHERE t.user_id = u.id
+                 AND t.metadata->>'type' = 'change_email'
+                 AND t.expires_at > NOW()
+               ORDER BY t.created_at DESC
+               LIMIT 1
+            ) AS email_change_target
+       FROM users u
+      WHERE u.id = $1`,
     [req.user!.id]
   );
 
@@ -43,7 +58,11 @@ router.get('/me', asyncHandler(async (req, res) => {
     throw new AppError('User not found', 404);
   }
 
-  sendSuccess(res, result.rows[0]);
+  const row = result.rows[0];
+  sendSuccess(res, {
+    ...row,
+    email_change_pending: row.email_change_target !== null,
+  });
 }));
 
 // Update user profile
@@ -69,6 +88,8 @@ router.put('/me', writeRateLimiter, validate(updateUserSchema), asyncHandler(asy
 
   values.push(req.user!.id);
 
+  // Mirror the GET /me response shape so the mobile cache update path gets
+  // identical fields back (including the email-change-pending derivation).
   const result = await query(
     `UPDATE users SET
       ${updates.join(', ')},
@@ -77,7 +98,16 @@ router.put('/me', writeRateLimiter, validate(updateUserSchema), asyncHandler(asy
      RETURNING id, email, full_name, avatar_url, auth_provider, plan, plan_expires_at,
                referred_by, referral_code, email_verified, apple_user_id, is_admin,
                deleted_at, deletion_scheduled_for, created_at, updated_at,
-               (EXISTS(SELECT 1 FROM partners p WHERE p.user_id = users.id AND p.is_active = TRUE)) as is_partner`,
+               (EXISTS(SELECT 1 FROM partners p WHERE p.user_id = users.id AND p.is_active = TRUE)) AS is_partner,
+               (
+                 SELECT t.metadata->>'new_email'
+                   FROM email_verification_tokens t
+                  WHERE t.user_id = users.id
+                    AND t.metadata->>'type' = 'change_email'
+                    AND t.expires_at > NOW()
+                  ORDER BY t.created_at DESC
+                  LIMIT 1
+               ) AS email_change_target`,
     values
   );
 
@@ -85,7 +115,11 @@ router.put('/me', writeRateLimiter, validate(updateUserSchema), asyncHandler(asy
     throw new AppError('User not found', 404);
   }
 
-  sendSuccess(res, result.rows[0]);
+  const row = result.rows[0];
+  sendSuccess(res, {
+    ...row,
+    email_change_pending: row.email_change_target !== null,
+  });
 }));
 
 // Register push notification token
@@ -519,6 +553,245 @@ router.post('/me/recover', asyncHandler(async (req, res) => {
   });
 
   sendMessage(res, `Account recovered successfully. Your plan has been restored to ${recovered.rows[0]?.plan || 'free'}.`);
+}));
+
+// ─────────────────────────── Linked sign-in providers ───────────────────────────
+//
+// Backs the mobile "Settings → Linked accounts" screen. The data model that
+// determines whether a provider is currently linked:
+//
+//   • email  — `users.password_hash IS NOT NULL`
+//   • google — `users.auth_provider = 'google'` OR an active row exists in
+//              `user_oauth_integrations` with provider='gmail'. Migration 038
+//              uses the same OAuth token table for the email-scanner; the
+//              scopes overlap by provider, so a Gmail integration also signals
+//              "Google is linked" for sign-in purposes.
+//   • apple  — `users.auth_provider = 'apple'` OR `users.apple_user_id` is set.
+//
+// `isPrimary` is the original signup path (`users.auth_provider`).
+// `linkedAt` prefers the provider-specific timestamp (oauth-integration row
+// for google) and falls back to `users.created_at` when no later linkage row
+// exists. The unlink endpoint refuses any request that would leave the
+// account with zero usable sign-in paths.
+
+interface LinkedProvider {
+  provider: 'email' | 'google' | 'apple';
+  linkedAt: string;
+  providerEmail: string;
+  isPrimary: boolean;
+}
+
+router.get('/me/providers', asyncHandler(async (req, res) => {
+  const result = await query(
+    `SELECT u.email, u.auth_provider, u.password_hash IS NOT NULL AS has_password,
+            u.apple_user_id, u.created_at,
+            (
+              SELECT json_build_object(
+                'provider_email', oi.provider_email,
+                'created_at',     oi.created_at
+              )
+                FROM user_oauth_integrations oi
+               WHERE oi.user_id = u.id
+                 AND oi.provider = 'gmail'
+                 AND oi.revoked_at IS NULL
+               ORDER BY oi.created_at ASC
+               LIMIT 1
+            ) AS gmail_integration
+       FROM users u
+      WHERE u.id = $1`,
+    [req.user!.id],
+  );
+
+  if (result.rows.length === 0) {
+    throw new AppError('User not found', 404);
+  }
+
+  const row = result.rows[0];
+  const providers: LinkedProvider[] = [];
+
+  if (row.has_password) {
+    providers.push({
+      provider: 'email',
+      linkedAt: row.created_at,
+      providerEmail: row.email,
+      isPrimary: row.auth_provider === 'email',
+    });
+  }
+
+  if (row.auth_provider === 'google' || row.gmail_integration) {
+    providers.push({
+      provider: 'google',
+      linkedAt: row.gmail_integration?.created_at ?? row.created_at,
+      providerEmail: row.gmail_integration?.provider_email ?? row.email,
+      isPrimary: row.auth_provider === 'google',
+    });
+  }
+
+  if (row.auth_provider === 'apple' || row.apple_user_id) {
+    providers.push({
+      provider: 'apple',
+      linkedAt: row.created_at,
+      providerEmail: row.email,
+      isPrimary: row.auth_provider === 'apple',
+    });
+  }
+
+  sendSuccess(res, providers);
+}));
+
+router.delete(
+  '/me/providers/:provider',
+  writeRateLimiter,
+  validate({ params: providerParamSchema }),
+  asyncHandler(async (req, res) => {
+    const provider = req.params.provider as 'email' | 'google' | 'apple';
+
+    const userResult = await query(
+      `SELECT u.password_hash IS NOT NULL AS has_password,
+              u.auth_provider,
+              u.apple_user_id IS NOT NULL AS has_apple,
+              EXISTS(
+                SELECT 1 FROM user_oauth_integrations oi
+                 WHERE oi.user_id = u.id
+                   AND oi.provider = 'gmail'
+                   AND oi.revoked_at IS NULL
+              ) AS has_gmail_oauth
+         FROM users u
+        WHERE u.id = $1`,
+      [req.user!.id],
+    );
+
+    if (userResult.rows.length === 0) {
+      throw new AppError('User not found', 404);
+    }
+
+    const u = userResult.rows[0];
+
+    // Compute which sign-in paths exist BEFORE the unlink, then verify at
+    // least one will remain AFTER. Refuse otherwise — orphaning the account
+    // is a data-loss footgun (no remaining way to log in or reset password).
+    const hasEmail = u.has_password;
+    const hasGoogle = u.auth_provider === 'google' || u.has_gmail_oauth;
+    const hasApple = u.auth_provider === 'apple' || u.has_apple;
+
+    const remaining =
+      (provider === 'email' ? false : hasEmail) ||
+      (provider === 'google' ? false : hasGoogle) ||
+      (provider === 'apple' ? false : hasApple);
+
+    if (!remaining) {
+      throw new AppError(
+        'Cannot unlink the only remaining sign-in method. Add a password or another OAuth provider first.',
+        409,
+      );
+    }
+
+    // Determine the new primary `auth_provider` if we're unlinking the
+    // current primary. Pick the first remaining path in deterministic order
+    // (email → google → apple). Otherwise leave auth_provider untouched.
+    let newAuthProvider: string | null = null;
+    if (u.auth_provider === provider) {
+      if (provider !== 'email' && hasEmail) newAuthProvider = 'email';
+      else if (provider !== 'google' && hasGoogle) newAuthProvider = 'google';
+      else if (provider !== 'apple' && hasApple) newAuthProvider = 'apple';
+    }
+
+    const client = await getClient();
+    try {
+      await client.query('BEGIN');
+
+      if (provider === 'email') {
+        await client.query(
+          `UPDATE users SET password_hash = NULL, updated_at = NOW() WHERE id = $1`,
+          [req.user!.id],
+        );
+      } else if (provider === 'google') {
+        // Soft-revoke any Gmail OAuth integration rows and (if google was
+        // primary) flip auth_provider over to the new primary.
+        await client.query(
+          `UPDATE user_oauth_integrations
+              SET revoked_at = NOW(),
+                  access_token_ciphertext = NULL,
+                  access_token_iv = NULL,
+                  access_token_tag = NULL,
+                  access_token_expires_at = NULL,
+                  updated_at = NOW()
+            WHERE user_id = $1
+              AND provider = 'gmail'
+              AND revoked_at IS NULL`,
+          [req.user!.id],
+        );
+      } else {
+        // provider === 'apple'
+        await client.query(
+          `UPDATE users SET apple_user_id = NULL, updated_at = NOW() WHERE id = $1`,
+          [req.user!.id],
+        );
+      }
+
+      if (newAuthProvider) {
+        await client.query(
+          `UPDATE users SET auth_provider = $1, updated_at = NOW() WHERE id = $2`,
+          [newAuthProvider, req.user!.id],
+        );
+      }
+
+      await client.query('COMMIT');
+    } catch (txError) {
+      await client.query('ROLLBACK');
+      throw txError;
+    } finally {
+      client.release();
+    }
+
+    await AuditService.logFromRequest(req, 'user.update', {
+      resourceType: 'user',
+      resourceId: req.user!.id,
+      description: `Unlinked ${provider} sign-in provider`,
+      metadata: {
+        provider,
+        action: 'unlink',
+        new_primary: newAuthProvider,
+      },
+    });
+
+    logger.info(
+      { userId: req.user!.id, provider, newPrimary: newAuthProvider },
+      'Sign-in provider unlinked',
+    );
+
+    sendMessage(res, `${provider} sign-in provider unlinked.`);
+  }),
+);
+
+// ─────────────────────────── Recipient gifts ───────────────────────────
+//
+// Powers the mobile "Recent gifts" screen — every partner gift the
+// authenticated user has activated. Joins partners for display fields
+// (company name, brand color, logo) and computes the post-activation
+// expiry as `activated_at + premium_months` so the client can render a
+// "premium days remaining" badge without re-deriving the schedule.
+router.get('/me/gifts', asyncHandler(async (req, res) => {
+  const result = await query(
+    `SELECT g.id,
+            g.status,
+            g.is_activated,
+            g.premium_months,
+            g.custom_message,
+            g.activated_at,
+            g.expires_at,
+            (g.activated_at + (g.premium_months || ' months')::interval) AS premium_expires_at,
+            p.company_name AS partner_name,
+            p.brand_color  AS partner_brand_color,
+            p.logo_url     AS partner_logo_url
+       FROM partner_gifts g
+       JOIN partners p ON p.id = g.partner_id
+      WHERE g.activated_user_id = $1
+      ORDER BY g.activated_at DESC NULLS LAST, g.created_at DESC`,
+    [req.user!.id],
+  );
+
+  sendSuccess(res, result.rows);
 }));
 
 export default router;

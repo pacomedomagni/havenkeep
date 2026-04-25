@@ -40,11 +40,15 @@ import '../../features/settings/change_password_screen.dart';
 import '../../features/settings/delete_account_screen.dart';
 import '../../features/email_scanner/email_scanner_screen.dart';
 import '../../features/notifications/notifications_screen.dart';
+import '../../features/gifts/gift_activation_screen.dart';
+import '../../features/gifts/gift_activation_success_screen.dart';
+import '../../features/gifts/recent_gifts_screen.dart';
 import '../../features/warranty_claims/claims_list_screen.dart';
-import '../../features/warranty_claims/create_claim_screen.dart';
+import '../../features/warranty_claims/claim_wizard_screen.dart';
 import '../../features/maintenance/maintenance_screen.dart';
 import '../../features/maintenance/log_maintenance_screen.dart';
 import '../../features/maintenance/maintenance_history_screen.dart';
+import '../../features/maintenance/customize_schedule_screen.dart';
 import '../../features/warranty_purchases/warranty_purchases_screen.dart';
 import '../../features/warranty_purchases/add_warranty_purchase_screen.dart';
 import '../../features/search/global_search_screen.dart';
@@ -84,11 +88,15 @@ abstract class AppRoutes {
   static const premium = '/premium';
   static const premiumSuccess = '/premium/success';
   static const referral = '/referral/:code';
+  static const giftActivation = '/gift/:code';
+  static const giftActivationSuccess = '/gift/activation-success';
+  static const recentGifts = '/settings/gifts';
   static const warrantyClaims = '/warranty-claims';
   static const createClaim = '/warranty-claims/create/:itemId';
   static const maintenance = '/maintenance';
   static const logMaintenance = '/maintenance/log';
   static const maintenanceHistory = '/maintenance/history';
+  static const customizeSchedule = '/maintenance/customize/:itemId';
   static const warrantyPurchases = '/warranty-coverage';
   static const addWarrantyPurchase = '/warranty-coverage/add';
   static const search = '/search';
@@ -142,6 +150,21 @@ final routerProvider = Provider<GoRouter>((ref) {
         return code.isEmpty
             ? AppRoutes.welcome
             : '${AppRoutes.welcome}?pendingReferral=$code';
+      }
+
+      // Gift deep links (`/gift/<code>` from `havenkeep://gift/<code>` and
+      // `https://havenkeep.com/gift/<code>`): activation requires the user
+      // to be signed in (the API matches the homebuyer email against the
+      // authenticated account). Unauth visitors are bounced to /welcome
+      // with the code stashed; the gift activation screen also stashes it
+      // in SharedPreferences as `pending_gift_code` for later resume.
+      if (location.startsWith('/gift/') &&
+          location != AppRoutes.giftActivationSuccess) {
+        if (isAuthenticated && !isDemoMode.isEnabled) return null;
+        final code = location.substring('/gift/'.length);
+        return code.isEmpty
+            ? AppRoutes.welcome
+            : '${AppRoutes.welcome}?pendingGift=$code';
       }
 
       // In demo mode, only allow demo route
@@ -528,7 +551,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) {
           final itemId = state.pathParameters['itemId'] ?? '';
           if (itemId.isEmpty) return const Scaffold(body: Center(child: Text('Item not found')));
-          return CreateClaimScreen(itemId: itemId);
+          return ClaimWizardScreen(itemId: itemId);
         },
       ),
 
@@ -543,7 +566,19 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.maintenanceHistory,
         parentNavigatorKey: _rootNavigatorKey,
-        builder: (context, state) => const MaintenanceHistoryScreen(),
+        builder: (context, state) => MaintenanceHistoryScreen(
+          itemId: state.uri.queryParameters['item_id'],
+        ),
+      ),
+
+      // Per-item maintenance schedule customization (override frequency,
+      // opt-out of catalog defaults, add custom recurring tasks).
+      GoRoute(
+        path: AppRoutes.customizeSchedule,
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) => CustomizeScheduleScreen(
+          itemId: state.pathParameters['itemId']!,
+        ),
       ),
 
       // Global search (launched from dashboard app bar)
@@ -551,6 +586,36 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: AppRoutes.search,
         parentNavigatorKey: _rootNavigatorKey,
         builder: (context, state) => const GlobalSearchScreen(),
+      ),
+
+      // Recent gifts list — settings → "Your gifts".
+      GoRoute(
+        path: AppRoutes.recentGifts,
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) => const RecentGiftsScreen(),
+      ),
+
+      // Gift activation entrypoint — opened from the deep-link / Universal
+      // Link handler with the activation code in the path.
+      GoRoute(
+        path: AppRoutes.giftActivation,
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) {
+          final code = state.pathParameters['code'] ?? '';
+          return GiftActivationScreen(code: code);
+        },
+      ),
+
+      // Post-activation success screen — popped to from the activation flow.
+      GoRoute(
+        path: AppRoutes.giftActivationSuccess,
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) {
+          final extra = state.extra as Map<String, dynamic>?;
+          return GiftActivationSuccessScreen(
+            premiumMonths: (extra?['premiumMonths'] as int?) ?? 6,
+          );
+        },
       ),
     ],
   );

@@ -33,3 +33,13 @@ export const deleteAccountSchema = Joi.object({
   confirmDelete: Joi.boolean().valid(true).required(),
 })
   .rename('confirm_delete', 'confirmDelete', { ignoreUndefined: true, override: false });
+
+/**
+ * Path-param validator for the linked-providers unlink endpoint
+ * (DELETE /users/me/providers/:provider). The route handler enforces the
+ * orphan-check; this just narrows the URL slug to the three sign-in paths
+ * we actually expose so a typo bounces with a 400 instead of a 404.
+ */
+export const providerParamSchema = Joi.object({
+  provider: Joi.string().valid('email', 'google', 'apple').required(),
+});

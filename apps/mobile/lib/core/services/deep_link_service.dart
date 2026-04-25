@@ -90,11 +90,13 @@ class DeepLinkService {
       return segments.isNotEmpty && segments.first == value;
     }
 
-    // havenkeep://gift/<code>
+    // havenkeep://gift/<code> — partner activation code, distinct from
+    // referral codes. Routes to the gift activation flow with the code
+    // pre-filled.
     if (uri.scheme == 'havenkeep' && hasHost('gift') && segments.isNotEmpty) {
       final code = segments.first.trim();
       if (code.isEmpty) return null;
-      return '/referral/$code';
+      return '/gift/$code';
     }
 
     // havenkeep://referral/<code>
@@ -112,7 +114,7 @@ class DeepLinkService {
         segments.length >= 2) {
       final code = segments[1].trim();
       if (code.isEmpty) return null;
-      return '/referral/$code';
+      return '/gift/$code';
     }
 
     // Universal Links: https://havenkeep.com/referral/<code>

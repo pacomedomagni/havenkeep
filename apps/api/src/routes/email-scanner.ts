@@ -42,6 +42,10 @@ const reviewActionSchema = Joi.object({
   reason: Joi.string().max(500).optional(),
 });
 
+const providerQuerySchema = Joi.object({
+  provider: Joi.string().valid('gmail', 'outlook').optional(),
+});
+
 /**
  * @route   POST /api/v1/email-scanner/scan
  * @desc    Exchange an OAuth code for tokens and start a scan
@@ -140,6 +144,54 @@ router.post(
     const userId = req.user!.id;
     await EmailScannerService.rejectReview(userId, req.params.id, req.body?.reason);
     sendMessage(res, 'Review rejected');
+  })
+);
+
+/**
+ * @route   POST /api/v1/email-scanner/scans/:id/cancel
+ * @desc    Cancel an in-flight scan; flips status to failed with a clear
+ *          "cancelled" message so the mobile progress dialog can detach.
+ * @access  Private
+ */
+router.post(
+  '/scans/:id/cancel',
+  validate(uuidParamSchema, 'params'),
+  asyncHandler(async (req, res) => {
+    const userId = req.user!.id;
+    const scan = await EmailScannerService.cancelScan(req.params.id, userId);
+    sendSuccess(res, scan, { message: 'Scan cancelled' });
+  })
+);
+
+/**
+ * @route   GET /api/v1/email-scanner/integrations
+ * @desc    List the user's active OAuth integrations (provider, email,
+ *          granted scopes). Powers the settings disconnect + scopes UI.
+ * @access  Private
+ */
+router.get(
+  '/integrations',
+  asyncHandler(async (req, res) => {
+    const userId = req.user!.id;
+    const integrations = await EmailScannerService.listIntegrations(userId);
+    sendSuccess(res, integrations);
+  })
+);
+
+/**
+ * @route   DELETE /api/v1/email-scanner/integrations
+ * @desc    Revoke OAuth integrations. Optional `?provider=gmail|outlook`
+ *          query param targets a single provider; otherwise revokes all.
+ * @access  Private
+ */
+router.delete(
+  '/integrations',
+  validate(providerQuerySchema, 'query'),
+  asyncHandler(async (req, res) => {
+    const userId = req.user!.id;
+    const provider = (req.query.provider as 'gmail' | 'outlook' | undefined) || undefined;
+    await EmailScannerService.revokeIntegration(userId, provider);
+    sendMessage(res, 'Integration revoked');
   })
 );
 

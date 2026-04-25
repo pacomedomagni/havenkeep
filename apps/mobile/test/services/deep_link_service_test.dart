@@ -3,11 +3,11 @@ import 'package:havenkeep_mobile/core/services/deep_link_service.dart';
 
 void main() {
   group('DeepLinkService.routeFor', () {
-    test('maps havenkeep://gift/<code> to /referral/<code>', () {
+    test('maps havenkeep://gift/<code> to /gift/<code>', () {
       final route = DeepLinkService.routeFor(
         Uri.parse('havenkeep://gift/ABC123'),
       );
-      expect(route, '/referral/ABC123');
+      expect(route, '/gift/ABC123');
     });
 
     test('maps havenkeep://referral/<code> to /referral/<code>', () {
@@ -17,11 +17,11 @@ void main() {
       expect(route, '/referral/XYZ789');
     });
 
-    test('maps Universal Link gift URL to /referral/<code>', () {
+    test('maps Universal Link gift URL to /gift/<code>', () {
       final route = DeepLinkService.routeFor(
         Uri.parse('https://havenkeep.com/gift/PROMO2026'),
       );
-      expect(route, '/referral/PROMO2026');
+      expect(route, '/gift/PROMO2026');
     });
 
     test('maps Universal Link referral URL to /referral/<code>', () {

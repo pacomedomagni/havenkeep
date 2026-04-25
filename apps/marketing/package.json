@@ -8,7 +8,8 @@
   },
   "scripts": {
     "dev": "astro dev",
-    "build": "astro build",
+    "build:og": "node scripts/build-og-image.cjs",
+    "build": "npm run build:og && astro build",
     "preview": "astro preview",
     "astro": "astro"
   },

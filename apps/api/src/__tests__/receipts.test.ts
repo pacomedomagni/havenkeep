@@ -19,6 +19,7 @@ jest.mock('../middleware/rateLimiter', () => {
     receiptScanRateLimiter: pass,
     newsletterRateLimiter: pass,
     contactRateLimiter: pass,
+    readRateLimiter: pass,
     itemsListRateLimiter: pass,
     csvExportRateLimiter: pass,
     initializeRateLimiter: jest.fn().mockResolvedValue(undefined),

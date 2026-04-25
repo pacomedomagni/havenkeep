@@ -131,6 +131,16 @@ class EmailScansNotifier extends AsyncNotifier<List<EmailScan>> {
     _pollingTimers.remove(scanId)?.cancel();
   }
 
+  /// Cancel a running scan server-side. Stops the local poll, flips the
+  /// scan to a terminal "failed" state with a "Cancelled by user" message,
+  /// and triggers a list refresh so the UI reflects the change.
+  Future<void> cancelScan(String scanId) async {
+    cancelLocalPolling(scanId);
+    final updated =
+        await ref.read(emailScannerRepositoryProvider).cancelScan(scanId);
+    _updateScanInState(updated);
+  }
+
   void _updateScanInState(EmailScan updated) {
     final current = state.value;
     if (current == null) return;
@@ -140,3 +150,21 @@ class EmailScansNotifier extends AsyncNotifier<List<EmailScan>> {
     ]);
   }
 }
+
+/// Active OAuth integrations for the current user. Drives the granted-scope
+/// chip + disconnect button in settings.
+final emailIntegrationsProvider =
+    FutureProvider<List<EmailIntegration>>((ref) async {
+  final userAsync = ref.watch(currentUserProvider);
+  if (userAsync.valueOrNull == null) return const [];
+  return ref.read(emailScannerRepositoryProvider).listIntegrations();
+});
+
+/// Pending review-queue entries for the current user. Powers the
+/// low-confidence review screen.
+final emailReviewQueueProvider =
+    FutureProvider<List<EmailReviewQueueEntry>>((ref) async {
+  final userAsync = ref.watch(currentUserProvider);
+  if (userAsync.valueOrNull == null) return const [];
+  return ref.read(emailScannerRepositoryProvider).listPendingReviews();
+});

@@ -11,8 +11,14 @@ import '../../core/widgets/haven_illustration.dart';
 import '../../core/widgets/haven_loader.dart';
 
 /// Paginated maintenance history list with infinite scroll and delete.
+///
+/// Pass [itemId] to scope the list to a single warranty (used by the
+/// item_detail "View all" link).
 class MaintenanceHistoryScreen extends ConsumerStatefulWidget {
-  const MaintenanceHistoryScreen({super.key});
+  const MaintenanceHistoryScreen({super.key, this.itemId});
+
+  /// When set, the list only shows maintenance entries for this item.
+  final String? itemId;
 
   @override
   ConsumerState<MaintenanceHistoryScreen> createState() =>
@@ -67,6 +73,7 @@ class _MaintenanceHistoryScreenState
       final newItems = await repo.getHistoryPaginated(
         limit: _pageSize,
         page: _currentPage,
+        itemId: widget.itemId,
       );
 
       // Guard every async-followup setState — user can pop the route
@@ -106,7 +113,13 @@ class _MaintenanceHistoryScreenState
 
     return Scaffold(
       backgroundColor: HavenColors.background,
-      appBar: AppBar(title: const Text('Maintenance History')),
+      appBar: AppBar(
+        title: Text(
+          widget.itemId == null
+              ? 'Maintenance History'
+              : 'Item Maintenance History',
+        ),
+      ),
       body: _buildBody(dateFormat),
     );
   }
@@ -222,6 +235,8 @@ class _MaintenanceHistoryScreenState
         try {
           await ref.read(maintenanceRepositoryProvider).deleteLog(entry.id);
           ref.invalidate(maintenanceDueProvider);
+          ref.invalidate(maintenanceHistoryProvider);
+          ref.invalidate(maintenanceHistoryByItemProvider(entry.itemId));
           return true;
         } catch (e) {
           if (!mounted) return false;

@@ -27,6 +27,19 @@ final maintenanceHistoryProvider = FutureProvider<List<MaintenanceHistory>>((ref
   return ref.read(maintenanceRepositoryProvider).getHistory();
 });
 
+/// Maintenance history filtered to a specific item.
+///
+/// Powers the inline "Recent maintenance" card on item_detail and is
+/// invalidated alongside [maintenanceHistoryProvider] whenever a new
+/// task is logged so the per-item view stays in sync.
+final maintenanceHistoryByItemProvider =
+    FutureProvider.family<List<MaintenanceHistory>, String>((ref, itemId) async {
+  final userAsync = ref.watch(currentUserProvider);
+  if (userAsync.valueOrNull == null) return [];
+
+  return ref.read(maintenanceRepositoryProvider).getHistory(itemId: itemId);
+});
+
 /// Maintenance schedules for a specific category.
 final maintenanceSchedulesProvider =
     FutureProvider.family<List<MaintenanceSchedule>, String>((ref, category) async {

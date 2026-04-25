@@ -1460,6 +1460,71 @@ ${maskPII(stripHtmlTags(emailData.body).substring(0, 4000))}`,
   }
 
   /**
+   * Cancel an in-flight scan. Marks the row as `failed` with an explicit
+   * "cancelled" message so the mobile UI's progress dialog can detach
+   * cleanly. The background `performScan` task itself can keep running
+   * (the AbortController lives in-process) — but UI-visible state flips
+   * immediately and the final completed update guard
+   * (`status != 'completed'`) keeps the cancellation sticky.
+   */
+  static async cancelScan(scanId: string, userId: string): Promise<EmailScan> {
+    const result = await pool.query<EmailScan>(
+      `UPDATE email_scans
+          SET status = 'failed',
+              error_message = 'Cancelled by user',
+              completed_at = NOW()
+        WHERE id = $1
+          AND user_id = $2
+          AND status IN ('pending', 'scanning')
+        RETURNING *`,
+      [scanId, userId],
+    );
+
+    if (result.rows.length === 0) {
+      // Either no such scan or already terminal — surface the existing row
+      // so the caller can decide whether to treat it as success.
+      const existing = await pool.query<EmailScan>(
+        'SELECT * FROM email_scans WHERE id = $1 AND user_id = $2',
+        [scanId, userId],
+      );
+      if (existing.rows.length === 0) {
+        throw new AppError('Scan not found', 404);
+      }
+      return existing.rows[0];
+    }
+
+    return result.rows[0];
+  }
+
+  /**
+   * List a user's active OAuth integrations. Used by the mobile settings
+   * screen to render granted-scope chips and the in-app disconnect button.
+   * Refresh token ciphertext is intentionally omitted from the projection
+   * — callers only need provider, email, scope, and timestamps.
+   */
+  static async listIntegrations(userId: string): Promise<
+    Array<{
+      id: string;
+      provider: EmailScannerProvider;
+      provider_email: string;
+      granted_scope: string;
+      created_at: Date;
+      updated_at: Date;
+      access_token_expires_at: Date | null;
+    }>
+  > {
+    const result = await pool.query(
+      `SELECT id, provider, provider_email, granted_scope,
+              created_at, updated_at, access_token_expires_at
+         FROM user_oauth_integrations
+        WHERE user_id = $1 AND revoked_at IS NULL
+        ORDER BY updated_at DESC`,
+      [userId],
+    );
+    return result.rows;
+  }
+
+  /**
    * Get scan status
    */
   static async getScanStatus(scanId: string, userId: string): Promise<EmailScan> {

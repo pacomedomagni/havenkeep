@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:shared_models/shared_models.dart';
 import 'package:shared_ui/shared_ui.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/providers/documents_provider.dart';
 import '../../core/providers/items_provider.dart';
+import '../../core/providers/maintenance_provider.dart';
 import '../../core/utils/error_handler.dart';
 import '../../core/utils/money_formatter.dart';
 import '../../core/router/router.dart';
@@ -22,7 +24,8 @@ import '../../core/widgets/haven_loader.dart';
 /// Shows:
 /// - Hero section (category icon + name + warranty status card)
 /// - Collapsible Details section
-/// - Collapsible Documents section
+/// - Tabbed Documents section (one tab per [DocumentType])
+/// - Inline recent maintenance card
 /// - Collapsible Claim Help section
 /// - Collapsible Notes section
 class ItemDetailScreen extends ConsumerWidget {
@@ -46,6 +49,15 @@ class ItemDetailScreen extends ConsumerWidget {
             icon: const Icon(Icons.edit_outlined),
             onPressed: () => context.push('/items/$itemId/edit'),
           ),
+          // Share intent — only meaningful once we have an item loaded.
+          itemAsync.maybeWhen(
+            data: (item) => IconButton(
+              icon: const Icon(Icons.ios_share),
+              tooltip: 'Share warranty',
+              onPressed: () => _shareItem(context, item),
+            ),
+            orElse: () => const SizedBox.shrink(),
+          ),
           _OverflowMenu(itemId: itemId),
         ],
       ),
@@ -60,6 +72,50 @@ class ItemDetailScreen extends ConsumerWidget {
         ),
       ),
     );
+  }
+
+  /// Share the item via the OS share sheet.
+  ///
+  /// Builds the same tagline regardless of platform: brand + name +
+  /// purchase date + warranty status. Falls back to the marketing root
+  /// for the deep link until `/items/:id` exists on havenkeep.com (the
+  /// link is informational — the recipient can't open the warranty
+  /// without an account).
+  static Future<void> _shareItem(BuildContext context, Item item) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final formattedDate = DateFormat.yMMMd().format(item.purchaseDate);
+    final status = item.computedWarrantyStatus;
+    final days = item.computedDaysRemaining;
+    final warrantyLine = switch (status) {
+      WarrantyStatus.active =>
+        'warranty active for ${_humanDays(days)} more',
+      WarrantyStatus.expiring => 'warranty expiring in ${_humanDays(days)}',
+      WarrantyStatus.expired => 'warranty expired ${_humanDays(days.abs())} ago',
+    };
+
+    final brand = (item.brand ?? '').trim();
+    final namePart = brand.isEmpty ? item.name : '$brand ${item.name}';
+    final shareUrl = 'https://havenkeep.com/items/${item.id}';
+    final text =
+        '$namePart — purchased $formattedDate, $warrantyLine. Tracked in HavenKeep. $shareUrl';
+
+    try {
+      await SharePlus.instance.share(
+        ShareParams(text: text, subject: namePart),
+      );
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(content: Text(ErrorHandler.getUserMessage(e))),
+      );
+    }
+  }
+
+  static String _humanDays(int days) {
+    if (days >= 30) {
+      final months = days ~/ 30;
+      return '$months ${months == 1 ? 'month' : 'months'}';
+    }
+    return '$days ${days == 1 ? 'day' : 'days'}';
   }
 }
 
@@ -180,7 +236,6 @@ class _ItemDetailBody extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final docsAsync = ref.watch(documentsForItemProvider(itemId));
     final theme = Theme.of(context);
     final status = item.computedWarrantyStatus;
     final days = item.computedDaysRemaining;
@@ -437,73 +492,18 @@ class _ItemDetailBody extends ConsumerWidget {
           const SizedBox(height: HavenSpacing.sm),
 
           // ----------------------------------------------------------------
-          // DOCUMENTS accordion
+          // DOCUMENTS — tabbed by type
           // ----------------------------------------------------------------
 
-          HavenAccordion(
-            title: 'Documents',
-            trailing: Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: HavenSpacing.sm,
-                vertical: 2,
-              ),
-              decoration: BoxDecoration(
-                color: HavenColors.surface,
-                borderRadius: BorderRadius.circular(HavenRadius.chip),
-              ),
-              child: Text(
-                '${docsAsync.value?.length ?? 0}',
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  color: HavenColors.textTertiary,
-                ),
-              ),
-            ),
-            initiallyExpanded:
-                (docsAsync.value?.isNotEmpty ?? false),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: HavenSpacing.md),
-              child: docsAsync.when(
-                data: (docs) => Column(
-                  children: [
-                    if (docs.isEmpty)
-                      const Text(
-                        'No documents yet',
-                        style: TextStyle(color: HavenColors.textTertiary),
-                      )
-                    else
-                      ...docs.map((doc) => _DocumentRow(
-                            doc: doc,
-                            itemId: itemId,
-                          )),
-                    const SizedBox(height: HavenSpacing.sm),
-                    OutlinedButton.icon(
-                      onPressed: () =>
-                          DocumentUploadSheet.show(context, itemId),
-                      icon: const Icon(Icons.add, size: 18),
-                      label: const Text('Add Document'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: HavenColors.secondary,
-                        side: const BorderSide(color: HavenColors.border),
-                      ),
-                    ),
-                  ],
-                ),
-                loading: () => const Center(
-                  child: Padding(
-                    padding: EdgeInsets.all(HavenSpacing.md),
-                    child:
-                        SizedBox(width: 24, height: 24, child: HavenLoader()),
-                  ),
-                ),
-                error: (_, __) => const Text(
-                  'Could not load documents',
-                  style: TextStyle(color: HavenColors.expired),
-                ),
-              ),
-            ),
-          ),
+          DocumentTabsCard(itemId: itemId),
+
+          const SizedBox(height: HavenSpacing.sm),
+
+          // ----------------------------------------------------------------
+          // RECENT MAINTENANCE — last 3 entries for this item
+          // ----------------------------------------------------------------
+
+          RecentMaintenanceCard(itemId: itemId),
 
           const SizedBox(height: HavenSpacing.sm),
 
@@ -661,6 +661,404 @@ class _ItemDetailBody extends ConsumerWidget {
 }
 
 // ---------------------------------------------------------------------------
+// DocumentTabsCard — tabbed view of documents grouped by [DocumentType].
+// ---------------------------------------------------------------------------
+
+/// Renders a `TabBar` over the five [DocumentType] values. Each tab shows
+/// thumbnails of documents matching that type with an empty-state CTA when
+/// the bucket is empty. Scroll position is preserved per tab via a
+/// [PageStorageBucket] so flicking back and forth doesn't reset the list.
+class DocumentTabsCard extends ConsumerStatefulWidget {
+  final String itemId;
+
+  const DocumentTabsCard({super.key, required this.itemId});
+
+  @override
+  ConsumerState<DocumentTabsCard> createState() => _DocumentTabsCardState();
+}
+
+class _DocumentTabsCardState extends ConsumerState<DocumentTabsCard>
+    with SingleTickerProviderStateMixin {
+  /// Tab order — the all-up entry sits first so users land on the full
+  /// list, with type-scoped tabs behind it.
+  static const _tabs = <DocumentType?>[
+    null, // "All"
+    DocumentType.receipt,
+    DocumentType.warranty_card,
+    DocumentType.manual,
+    DocumentType.invoice,
+    DocumentType.other,
+  ];
+
+  late final TabController _controller;
+  final PageStorageBucket _bucket = PageStorageBucket();
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TabController(length: _tabs.length, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final docsAsync = ref.watch(documentsForItemProvider(widget.itemId));
+
+    return Container(
+      decoration: BoxDecoration(
+        color: HavenColors.elevated,
+        borderRadius: BorderRadius.circular(HavenRadius.card),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              HavenSpacing.md,
+              HavenSpacing.md,
+              HavenSpacing.md,
+              0,
+            ),
+            child: Row(
+              children: [
+                const SectionHeader(title: 'DOCUMENTS'),
+                const Spacer(),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: HavenSpacing.sm,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: HavenColors.surface,
+                    borderRadius: BorderRadius.circular(HavenRadius.chip),
+                  ),
+                  child: Text(
+                    '${docsAsync.value?.length ?? 0}',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: HavenColors.textTertiary,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          TabBar(
+            controller: _controller,
+            isScrollable: true,
+            tabAlignment: TabAlignment.start,
+            labelColor: HavenColors.primary,
+            unselectedLabelColor: HavenColors.textSecondary,
+            indicatorColor: HavenColors.primary,
+            tabs: _tabs.map((type) {
+              return Tab(
+                text: type == null ? 'All' : type.displayLabel,
+              );
+            }).toList(),
+          ),
+          docsAsync.when(
+            loading: () => const SizedBox(
+              height: 140,
+              child: Center(
+                child: SizedBox(width: 24, height: 24, child: HavenLoader()),
+              ),
+            ),
+            error: (_, __) => const Padding(
+              padding: EdgeInsets.all(HavenSpacing.md),
+              child: Text(
+                'Could not load documents',
+                style: TextStyle(color: HavenColors.expired),
+              ),
+            ),
+            data: (allDocs) {
+              return SizedBox(
+                height: 280,
+                child: PageStorage(
+                  bucket: _bucket,
+                  child: TabBarView(
+                    controller: _controller,
+                    children: _tabs.map((type) {
+                      final docs = type == null
+                          ? allDocs
+                          : allDocs.where((d) => d.type == type).toList();
+                      return _DocumentBucket(
+                        key: PageStorageKey('docs-${type?.name ?? 'all'}'),
+                        docs: docs,
+                        type: type,
+                        itemId: widget.itemId,
+                      );
+                    }).toList(),
+                  ),
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DocumentBucket extends StatelessWidget {
+  final List<Document> docs;
+  final DocumentType? type;
+  final String itemId;
+
+  const _DocumentBucket({
+    super.key,
+    required this.docs,
+    required this.type,
+    required this.itemId,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (docs.isEmpty) {
+      final label = type?.displayLabel.toLowerCase() ?? 'document';
+      return Padding(
+        padding: const EdgeInsets.all(HavenSpacing.lg),
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                type == null
+                    ? Icons.folder_open_outlined
+                    : DocumentTypeIcon.get(type!),
+                size: 36,
+                color: HavenColors.textTertiary,
+              ),
+              const SizedBox(height: HavenSpacing.sm),
+              Text(
+                'No ${label}s yet',
+                style: const TextStyle(color: HavenColors.textTertiary),
+              ),
+              const SizedBox(height: HavenSpacing.md),
+              OutlinedButton.icon(
+                onPressed: () => DocumentUploadSheet.show(
+                  context,
+                  itemId,
+                  initialType: type,
+                ),
+                icon: const Icon(Icons.add, size: 18),
+                label: Text(
+                  type == null
+                      ? 'Add Document'
+                      : 'Upload your first $label',
+                ),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: HavenColors.secondary,
+                  side: const BorderSide(color: HavenColors.border),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return ListView(
+      padding: const EdgeInsets.all(HavenSpacing.md),
+      children: [
+        ...docs.map((doc) => _DocumentRow(doc: doc, itemId: itemId)),
+        const SizedBox(height: HavenSpacing.sm),
+        Center(
+          child: OutlinedButton.icon(
+            onPressed: () => DocumentUploadSheet.show(
+              context,
+              itemId,
+              initialType: type,
+            ),
+            icon: const Icon(Icons.add, size: 18),
+            label: Text(type == null ? 'Add Document' : 'Add ${type!.displayLabel}'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: HavenColors.secondary,
+              side: const BorderSide(color: HavenColors.border),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// RecentMaintenanceCard — last 3 entries for the item with a "View all" link.
+// ---------------------------------------------------------------------------
+
+class RecentMaintenanceCard extends ConsumerWidget {
+  final String itemId;
+
+  const RecentMaintenanceCard({super.key, required this.itemId});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final historyAsync =
+        ref.watch(maintenanceHistoryByItemProvider(itemId));
+    final dateFormat = DateFormat.yMMMd();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(HavenSpacing.md),
+      decoration: BoxDecoration(
+        color: HavenColors.elevated,
+        borderRadius: BorderRadius.circular(HavenRadius.card),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const SectionHeader(title: 'RECENT MAINTENANCE'),
+              const Spacer(),
+              IconButton(
+                tooltip: 'Customize schedule',
+                icon: const Icon(Icons.tune,
+                    size: 18, color: HavenColors.secondary),
+                onPressed: () => context.push(
+                  AppRoutes.customizeSchedule.replaceAll(':itemId', itemId),
+                ),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+              ),
+              historyAsync.maybeWhen(
+                data: (entries) => entries.isEmpty
+                    ? const SizedBox.shrink()
+                    : TextButton(
+                        onPressed: () => context.push(
+                          '${AppRoutes.maintenanceHistory}?item_id=$itemId',
+                        ),
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: HavenSpacing.sm,
+                          ),
+                          minimumSize: const Size(0, 32),
+                        ),
+                        child: const Text(
+                          'View all',
+                          style: TextStyle(color: HavenColors.secondary),
+                        ),
+                      ),
+                orElse: () => const SizedBox.shrink(),
+              ),
+            ],
+          ),
+          const SizedBox(height: HavenSpacing.sm),
+          historyAsync.when(
+            loading: () => const Padding(
+              padding: EdgeInsets.symmetric(vertical: HavenSpacing.md),
+              child: Center(
+                child: SizedBox(width: 20, height: 20, child: HavenLoader()),
+              ),
+            ),
+            error: (_, __) => const Text(
+              'Could not load maintenance history',
+              style: TextStyle(color: HavenColors.expired),
+            ),
+            data: (entries) {
+              if (entries.isEmpty) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const Padding(
+                      padding: EdgeInsets.symmetric(
+                        vertical: HavenSpacing.sm,
+                      ),
+                      child: Text(
+                        'No maintenance logged yet',
+                        style: TextStyle(color: HavenColors.textTertiary),
+                      ),
+                    ),
+                    const SizedBox(height: HavenSpacing.sm),
+                    OutlinedButton.icon(
+                      onPressed: () => context.push(AppRoutes.logMaintenance),
+                      icon: const Icon(Icons.add_task, size: 18),
+                      label: const Text('Log maintenance'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: HavenColors.secondary,
+                        side: const BorderSide(color: HavenColors.border),
+                      ),
+                    ),
+                  ],
+                );
+              }
+              final recent = entries.take(3).toList();
+              return Column(
+                children: [
+                  for (final entry in recent) ...[
+                    _MaintenanceRow(entry: entry, dateFormat: dateFormat),
+                    if (entry != recent.last)
+                      const Divider(
+                        height: 1,
+                        color: HavenColors.border,
+                      ),
+                  ],
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MaintenanceRow extends StatelessWidget {
+  final MaintenanceHistory entry;
+  final DateFormat dateFormat;
+
+  const _MaintenanceRow({required this.entry, required this.dateFormat});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: HavenSpacing.sm),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.check_circle_outline,
+            size: 18,
+            color: HavenColors.active,
+          ),
+          const SizedBox(width: HavenSpacing.sm),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  entry.taskName,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: HavenColors.textPrimary,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  dateFormat.format(entry.completedDate),
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: HavenColors.textTertiary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Document row within accordion
 // ---------------------------------------------------------------------------
 
@@ -679,6 +1077,41 @@ class _DocumentRowState extends ConsumerState<_DocumentRow> {
 
   Document get doc => widget.doc;
   String get itemId => widget.itemId;
+
+  Future<void> _confirmAndDelete() async {
+    if (_isDeletingDocument) return;
+    final confirmed = await showHavenConfirmDialog(
+      context,
+      title: 'Delete document?',
+      body: 'Remove "${doc.fileName}"? This cannot be undone.',
+      confirmLabel: 'Delete',
+      isDestructive: true,
+    );
+    if (!confirmed) return;
+    if (!mounted) return;
+    // Capture messenger BEFORE any further async hop so success/failure
+    // can still be surfaced if the row is removed from the tree (F047).
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _isDeletingDocument = true);
+    try {
+      await deleteDocument(
+        ref,
+        documentId: doc.id,
+        itemId: itemId,
+      );
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Document deleted')),
+      );
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(content: Text(ErrorHandler.getUserMessage(e))),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isDeletingDocument = false);
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -722,40 +1155,7 @@ class _DocumentRowState extends ConsumerState<_DocumentRow> {
             ),
           );
         },
-        onLongPress: () async {
-          if (_isDeletingDocument) return;
-          final confirmed = await showHavenConfirmDialog(
-            context,
-            title: 'Delete document?',
-            body: 'Remove "${doc.fileName}"? This cannot be undone.',
-            confirmLabel: 'Delete',
-            isDestructive: true,
-          );
-          if (confirmed && context.mounted) {
-            // Capture messenger so we can surface success/failure even if
-            // the row has been removed from the tree (F047).
-            final messenger = ScaffoldMessenger.of(context);
-            setState(() => _isDeletingDocument = true);
-            try {
-              await deleteDocument(
-                ref,
-                documentId: doc.id,
-                itemId: itemId,
-              );
-              messenger.showSnackBar(
-                const SnackBar(content: Text('Document deleted')),
-              );
-            } catch (e) {
-              messenger.showSnackBar(
-                SnackBar(content: Text(ErrorHandler.getUserMessage(e))),
-              );
-            } finally {
-              if (mounted) {
-                setState(() => _isDeletingDocument = false);
-              }
-            }
-          }
-        },
+        onLongPress: _confirmAndDelete,
         child: Container(
           padding: const EdgeInsets.all(HavenSpacing.sm),
           decoration: BoxDecoration(
@@ -765,7 +1165,26 @@ class _DocumentRowState extends ConsumerState<_DocumentRow> {
           ),
           child: Row(
             children: [
-              DocumentTypeIcon.widget(doc.type, size: 22),
+              // Thumbnail (image) or type icon (PDF / DOC).
+              ClipRRect(
+                borderRadius: BorderRadius.circular(HavenRadius.micro),
+                child: doc.isImage
+                    ? HavenImage(
+                        url: doc.thumbnailUrl ?? doc.fileUrl,
+                        width: 40,
+                        height: 40,
+                        fit: BoxFit.cover,
+                        errorFallback: DocumentTypeIcon.widget(doc.type, size: 22),
+                      )
+                    : Container(
+                        width: 40,
+                        height: 40,
+                        color: HavenColors.elevated,
+                        child: Center(
+                          child: DocumentTypeIcon.widget(doc.type, size: 22),
+                        ),
+                      ),
+              ),
               const SizedBox(width: HavenSpacing.sm),
               Expanded(
                 child: Column(
@@ -790,6 +1209,15 @@ class _DocumentRowState extends ConsumerState<_DocumentRow> {
                     ),
                   ],
                 ),
+              ),
+              IconButton(
+                icon: const Icon(
+                  Icons.delete_outline,
+                  size: 18,
+                  color: HavenColors.textTertiary,
+                ),
+                tooltip: 'Delete document',
+                onPressed: _isDeletingDocument ? null : _confirmAndDelete,
               ),
               const Icon(
                 Icons.open_in_new,
@@ -839,7 +1267,7 @@ class _DetailRow extends StatelessWidget {
               ),
               Expanded(
                 child: Text(
-                  hasValue ? value! : '\u2014',
+                  hasValue ? value! : '—',
                   style: const TextStyle(
                     fontSize: 14,
                     color: HavenColors.textPrimary,
