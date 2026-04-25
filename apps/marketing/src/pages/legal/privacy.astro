@@ -7,134 +7,161 @@ import Footer from '../../components/Footer.astro';
 <Layout title="Privacy Policy - HavenKeep">
   <Navigation />
   <div class="max-w-4xl mx-auto px-4 py-16 pt-28">
-    <h1 class="text-4xl font-bold text-white mb-8">Privacy Policy</h1>
-    
-    <p class="text-gray-400 mb-8">
-      <strong>Last Updated:</strong> February 1, 2025
+    <h1 class="text-4xl font-bold text-white mb-4">Privacy Policy</h1>
+
+    <p class="text-gray-400 mb-12">
+      <strong>Last Updated:</strong> April 25, 2026
     </p>
 
     <div class="prose prose-lg prose-invert max-w-none">
       <section class="mb-12">
-        <h2 class="text-2xl font-bold text-white mb-4">1. Introduction</h2>
+        <h2 class="text-2xl font-bold text-white mb-4">Summary</h2>
         <p class="text-gray-300 leading-relaxed mb-4">
-          Welcome to HavenKeep (&ldquo;we,&rdquo; &ldquo;our,&rdquo; or &ldquo;us&rdquo;). We respect your privacy and are committed to protecting your personal data. This privacy policy explains how we collect, use, and safeguard your information when you use our warranty tracking application.
+          HavenKeep is a personal warranty and receipt tracker. The data we collect exists to make the app work for you — find the right warranty, send the right reminder, attach the right receipt. We don&apos;t sell it, we don&apos;t share it for advertising, and we delete it when you ask.
+        </p>
+        <p class="text-gray-300 leading-relaxed">
+          The sections below cover what we collect, who we share it with (a small list of vendors who need it to deliver the service), how it&apos;s protected, and how to exercise your rights — including deleting your account.
         </p>
       </section>
 
       <section class="mb-12">
-        <h2 class="text-2xl font-bold text-white mb-4">2. Information We Collect</h2>
-        
-        <h3 class="text-xl font-semibold text-white mb-3">2.1 Information You Provide</h3>
+        <h2 class="text-2xl font-bold text-white mb-4">1. Information you provide</h2>
+
+        <h3 class="text-xl font-semibold text-white mb-3 mt-6">Account information</h3>
+        <p class="text-gray-300 mb-4">
+          When you sign up, we collect your email address, a name (display name only — no real-name requirement), and either a password (hashed with bcrypt; we never see the plaintext) or an OAuth identifier from Google Sign-In or Apple Sign-In. The OAuth path returns only an opaque user ID and your verified email; we do not receive your Google or Apple password.
+        </p>
+
+        <h3 class="text-xl font-semibold text-white mb-3 mt-6">Items, warranties, and documents</h3>
+        <p class="text-gray-300 mb-4">
+          Everything you log inside HavenKeep: product names, purchase dates, warranty expiry, vendor names, receipts and warranty cards you upload, photos of items, maintenance schedules, and any notes you write. Receipts and photos are stored encrypted on our object-storage server.
+        </p>
+
+        <h3 class="text-xl font-semibold text-white mb-3 mt-6">Email scanner (Gmail / Outlook OAuth)</h3>
+        <p class="text-gray-300 mb-4">
+          The optional email scanner connects to your Gmail or Outlook account using OAuth with a <strong class="text-white">read-only</strong> scope. We <em>only</em> read messages that match purchase-confirmation patterns; we do not send mail, modify your inbox, change folders, or read messages outside that pattern. The OAuth access token is stored encrypted; the refresh token is rotated automatically. You can revoke this access at any time from your Google or Microsoft account settings, and we delete our copy when you remove the integration in HavenKeep or delete your account.
+        </p>
+
+        <h3 class="text-xl font-semibold text-white mb-3 mt-6">Payment information</h3>
+        <p class="text-gray-300 mb-4">
+          If you subscribe to HavenKeep Premium, payment is processed by Apple (App Store), Google (Play Billing), or Stripe (web). We never see your card number. We receive a transaction ID, the product purchased, and the renewal status from these providers, which we store to know whether your subscription is active.
+        </p>
+      </section>
+
+      <section class="mb-12">
+        <h2 class="text-2xl font-bold text-white mb-4">2. Information collected automatically</h2>
+
+        <h3 class="text-xl font-semibold text-white mb-3 mt-6">Device and app data</h3>
+        <p class="text-gray-300 mb-4">
+          Operating system version, app version, device model, language, and timezone — used to deliver the right build and help diagnose bugs.
+        </p>
+
+        <h3 class="text-xl font-semibold text-white mb-3 mt-6">Crash logs and diagnostics</h3>
+        <p class="text-gray-300 mb-4">
+          When the app crashes, Firebase Crashlytics collects a stack trace and minimal device context (OS, app version, free memory at crash time). Crashlytics does <strong class="text-white">not</strong> collect the contents of your warranties, receipts, or photos. Crash reports are retained for 90 days and then deleted.
+        </p>
+
+        <h3 class="text-xl font-semibold text-white mb-3 mt-6">Push notification token</h3>
+        <p class="text-gray-300 mb-4">
+          To deliver warranty-expiry reminders and other notifications you&apos;ve opted into, we register your device with Firebase Cloud Messaging (Android) or Apple Push Notification service (iOS). The token is rotated by the OS; we delete our copy when you sign out or delete your account.
+        </p>
+
+        <h3 class="text-xl font-semibold text-white mb-3 mt-6">Usage events</h3>
+        <p class="text-gray-300 mb-4">
+          We log limited usage events (e.g. &ldquo;item created&rdquo;, &ldquo;reminder dismissed&rdquo;) so we know which features get used and where users get stuck. These events are linked to your account, and you can opt out in <em>Settings → Privacy → Telemetry</em>. Aggregated counts are retained indefinitely; per-user events are deleted on account deletion.
+        </p>
+      </section>
+
+      <section class="mb-12">
+        <h2 class="text-2xl font-bold text-white mb-4">3. Sub-processors and third parties</h2>
+        <p class="text-gray-300 mb-4">
+          We use a small number of vendors to operate HavenKeep. They process data on our behalf under data processing agreements; they are not allowed to use it for their own purposes.
+        </p>
         <ul class="list-disc pl-6 text-gray-300 space-y-2 mb-4">
-          <li><strong class="text-gray-100">Account Information:</strong> Email address, name, password</li>
-          <li><strong class="text-gray-100">Item Information:</strong> Product details, purchase dates, warranty information</li>
-          <li><strong class="text-gray-100">Documents:</strong> Receipts, warranty cards, product photos you choose to upload</li>
-          <li><strong class="text-gray-100">Payment Information:</strong> Credit card details (processed securely by Stripe, we never store full card numbers)</li>
+          <li><strong class="text-white">Google (Firebase Auth, Crashlytics, Cloud Messaging, Sign-In)</strong> — authentication, crash reporting, push delivery.</li>
+          <li><strong class="text-white">Apple (Sign in with Apple, APNs)</strong> — iOS sign-in and push delivery.</li>
+          <li><strong class="text-white">Microsoft (Outlook OAuth)</strong> — only if you connect the email scanner to Outlook.</li>
+          <li><strong class="text-white">Stripe</strong> — web payments. (App Store and Play Store handle their own billing.)</li>
+          <li><strong class="text-white">RevenueCat</strong> — subscription state aggregation across iOS / Android / web.</li>
+          <li><strong class="text-white">SendGrid</strong> — transactional email (verification, password reset, deletion confirmation).</li>
+          <li><strong class="text-white">Our own servers</strong> — Postgres for application data, MinIO for receipt photos. Self-hosted, not on a third-party cloud database.</li>
         </ul>
+        <p class="text-gray-300">
+          We do not sell, rent, or share your data with advertisers or data brokers. We do not have any advertising SDKs in the app.
+        </p>
+      </section>
 
-        <h3 class="text-xl font-semibold text-white mb-3">2.2 Automatically Collected Information</h3>
+      <section class="mb-12">
+        <h2 class="text-2xl font-bold text-white mb-4">4. Data security</h2>
+        <ul class="list-disc pl-6 text-gray-300 space-y-2">
+          <li><strong class="text-white">In transit:</strong> TLS 1.2+ on every connection. Mobile clients additionally pin the leaf certificate on production builds so a compromised CA can&apos;t intercept HavenKeep traffic.</li>
+          <li><strong class="text-white">At rest:</strong> AES-256-GCM for sensitive fields in the database; full-disk encryption on the database host; receipts and photos encrypted in object storage.</li>
+          <li><strong class="text-white">Passwords:</strong> bcrypt (work factor 12). We never see plaintext passwords.</li>
+          <li><strong class="text-white">Access control:</strong> row-level isolation in the database means one user&apos;s queries can never return another user&apos;s data, even if application code has a bug.</li>
+          <li><strong class="text-white">Backups:</strong> daily encrypted backups; 30-day retention; tested with weekly restore drills.</li>
+        </ul>
+      </section>
+
+      <section class="mb-12">
+        <h2 class="text-2xl font-bold text-white mb-4">5. Retention and deletion</h2>
+        <p class="text-gray-300 mb-4">
+          Your data is retained as long as your account is active. When you delete your account (<a href="/legal/delete-account" class="text-blue-400 hover:text-blue-300">how to delete</a>), we soft-delete immediately, allow a 7-day grace period to cancel, then cryptographically erase the record from active systems. The data ages out of backups within 30 days.
+        </p>
+        <p class="text-gray-300">
+          We retain the minimum information legally required for fraud prevention and accounting (e.g. an audit-log entry that an account existed and was deleted, without the personal data it contained).
+        </p>
+      </section>
+
+      <section class="mb-12">
+        <h2 class="text-2xl font-bold text-white mb-4">6. Your rights (GDPR + CCPA + similar)</h2>
+        <p class="text-gray-300 mb-4">
+          Regardless of where you live, HavenKeep gives every user the same rights:
+        </p>
         <ul class="list-disc pl-6 text-gray-300 space-y-2 mb-4">
-          <li><strong class="text-gray-100">Usage Data:</strong> How you interact with our app, features used, time spent</li>
-          <li><strong class="text-gray-100">Device Information:</strong> Device type, operating system, app version</li>
-          <li><strong class="text-gray-100">Log Data:</strong> IP address, access times, error logs</li>
+          <li><strong class="text-white">Access</strong> — request a copy of everything we hold about you.</li>
+          <li><strong class="text-white">Correction</strong> — fix anything inaccurate.</li>
+          <li><strong class="text-white">Deletion</strong> — see the <a href="/legal/delete-account" class="text-blue-400 hover:text-blue-300">delete account</a> page.</li>
+          <li><strong class="text-white">Export</strong> — download all your items, warranties, and uploaded documents in a portable format from <em>Settings → Data → Export</em>.</li>
+          <li><strong class="text-white">Restrict / object</strong> — opt out of telemetry or marketing email.</li>
+          <li><strong class="text-white">Withdraw consent</strong> — disconnect the email scanner or revoke OAuth tokens at any time.</li>
         </ul>
-      </section>
-
-      <section class="mb-12">
-        <h2 class="text-2xl font-bold text-white mb-4">3. How We Use Your Information</h2>
-        <p class="text-gray-300 leading-relaxed mb-4">We use your information to:</p>
-        <ul class="list-disc pl-6 text-gray-300 space-y-2 mb-4">
-          <li>Provide and maintain our warranty tracking service</li>
-          <li>Send warranty expiration reminders and notifications</li>
-          <li>Process your payments and manage your subscription</li>
-          <li>Improve our app and develop new features</li>
-          <li>Respond to your support requests</li>
-          <li>Send important updates about our service (you can opt out of marketing emails)</li>
-          <li>Prevent fraud and ensure security</li>
-        </ul>
-      </section>
-
-      <section class="mb-12">
-        <h2 class="text-2xl font-bold text-white mb-4">4. Data Storage and Security</h2>
-        <p class="text-gray-300 leading-relaxed mb-4">We take data security seriously:</p>
-        <ul class="list-disc pl-6 text-gray-300 space-y-2 mb-4">
-          <li><strong class="text-gray-100">Encryption:</strong> All data is encrypted in transit (TLS 1.3) and at rest (AES-256)</li>
-          <li><strong class="text-gray-100">Secure Infrastructure:</strong> Industry-standard security practices with PostgreSQL</li>
-          <li><strong class="text-gray-100">Access Control:</strong> Row-level security ensures users can only access their own data</li>
-          <li><strong class="text-gray-100">Regular Backups:</strong> Daily automated backups for data recovery</li>
-          <li><strong class="text-gray-100">No Third-Party Sharing:</strong> We never sell your data to third parties</li>
-        </ul>
-      </section>
-
-      <section class="mb-12">
-        <h2 class="text-2xl font-bold text-white mb-4">5. Data Sharing and Disclosure</h2>
-        <p class="text-gray-300 leading-relaxed mb-4">We only share your data in these limited circumstances:</p>
-        <ul class="list-disc pl-6 text-gray-300 space-y-2 mb-4">
-          <li><strong class="text-gray-100">Service Providers:</strong> Trusted partners who help us operate our service (e.g., Stripe for payments)</li>
-          <li><strong class="text-gray-100">Legal Requirements:</strong> When required by law or to protect our rights</li>
-          <li><strong class="text-gray-100">Business Transfers:</strong> In the event of a merger or acquisition (you will be notified)</li>
-          <li><strong class="text-gray-100">With Your Consent:</strong> Any other sharing will require your explicit permission</li>
-        </ul>
-      </section>
-
-      <section class="mb-12">
-        <h2 class="text-2xl font-bold text-white mb-4">6. Your Rights</h2>
-        <p class="text-gray-300 leading-relaxed mb-4">You have the right to:</p>
-        <ul class="list-disc pl-6 text-gray-300 space-y-2 mb-4">
-          <li><strong class="text-gray-100">Access:</strong> Request a copy of your personal data</li>
-          <li><strong class="text-gray-100">Correction:</strong> Update or correct your information</li>
-          <li><strong class="text-gray-100">Deletion:</strong> Request deletion of your account and data</li>
-          <li><strong class="text-gray-100">Export:</strong> Download your data in a portable format</li>
-          <li><strong class="text-gray-100">Opt-Out:</strong> Unsubscribe from marketing emails</li>
-          <li><strong class="text-gray-100">Restrict Processing:</strong> Limit how we use your data</li>
-        </ul>
-        <p class="text-gray-300 leading-relaxed mb-4">
-          To exercise these rights, contact us at <a href="mailto:privacy@havenkeep.com" class="text-primary hover:underline">privacy@havenkeep.com</a>
+        <p class="text-gray-300">
+          California residents have the same rights under CCPA and we do not discriminate against users who exercise them. EU/UK residents can lodge a complaint with their local data protection authority. To exercise any right, email <a href="mailto:privacy@havenkeep.app" class="text-blue-400 hover:text-blue-300">privacy@havenkeep.app</a>.
         </p>
       </section>
 
       <section class="mb-12">
-        <h2 class="text-2xl font-bold text-white mb-4">7. Data Retention</h2>
-        <p class="text-gray-300 leading-relaxed mb-4">
-          We retain your data for as long as your account is active. If you delete your account, we will delete your personal data within 30 days, except where we are required to retain it for legal purposes.
+        <h2 class="text-2xl font-bold text-white mb-4">7. Children</h2>
+        <p class="text-gray-300">
+          HavenKeep is not directed at children under 13 and we do not knowingly collect data from them. The store-listed target audience is 13 and older. If you are a parent or guardian and believe your child has created an account, email <a href="mailto:privacy@havenkeep.app" class="text-blue-400 hover:text-blue-300">privacy@havenkeep.app</a> and we&apos;ll delete it.
         </p>
       </section>
 
       <section class="mb-12">
-        <h2 class="text-2xl font-bold text-white mb-4">8. Children&apos;s Privacy</h2>
-        <p class="text-gray-300 leading-relaxed mb-4">
-          Our service is not intended for children under 13. We do not knowingly collect data from children. If you believe we have inadvertently collected data from a child, please contact us immediately.
+        <h2 class="text-2xl font-bold text-white mb-4">8. International transfers</h2>
+        <p class="text-gray-300">
+          Our servers are hosted in the European Union. If you access HavenKeep from outside the EU, your data is transferred to the EU under standard contractual clauses (SCCs). We do not transfer data outside the EU/EEA except to the named sub-processors above, each of whom has its own SCC-compliant transfer mechanism.
         </p>
       </section>
 
       <section class="mb-12">
-        <h2 class="text-2xl font-bold text-white mb-4">9. International Data Transfers</h2>
-        <p class="text-gray-300 leading-relaxed mb-4">
-          Your data may be transferred to and processed in countries other than your own. We ensure appropriate safeguards are in place to protect your data in accordance with this privacy policy.
+        <h2 class="text-2xl font-bold text-white mb-4">9. Changes</h2>
+        <p class="text-gray-300">
+          When we change this policy in a way that affects you, we&apos;ll email you 14 days before the change takes effect. The current version always lives at this URL with a &ldquo;Last Updated&rdquo; date at the top.
         </p>
       </section>
 
       <section class="mb-12">
-        <h2 class="text-2xl font-bold text-white mb-4">10. Changes to This Policy</h2>
-        <p class="text-gray-300 leading-relaxed mb-4">
-          We may update this privacy policy from time to time. We will notify you of significant changes via email or in-app notification. Continued use of the service after changes constitutes acceptance of the updated policy.
-        </p>
-      </section>
-
-      <section class="mb-12">
-        <h2 class="text-2xl font-bold text-white mb-4">11. Contact Us</h2>
-        <p class="text-gray-300 leading-relaxed mb-4">
-          If you have questions about this privacy policy or our data practices, please contact us:
-        </p>
+        <h2 class="text-2xl font-bold text-white mb-4">10. Contact</h2>
         <ul class="list-none text-gray-300 space-y-2">
-          <li><strong class="text-gray-100">Email:</strong> <a href="mailto:privacy@havenkeep.com" class="text-primary hover:underline">privacy@havenkeep.com</a></li>
-          <li><strong class="text-gray-100">Support:</strong> <a href="mailto:support@havenkeep.com" class="text-primary hover:underline">support@havenkeep.com</a></li>
+          <li><strong class="text-white">Privacy questions or rights requests:</strong> <a href="mailto:privacy@havenkeep.app" class="text-blue-400 hover:text-blue-300">privacy@havenkeep.app</a></li>
+          <li><strong class="text-white">General support:</strong> <a href="mailto:support@havenkeep.app" class="text-blue-400 hover:text-blue-300">support@havenkeep.app</a></li>
         </ul>
       </section>
     </div>
 
     <div class="mt-12 pt-8 border-t border-gray-700">
-      <a href="/" class="text-primary hover:text-primary/80 font-medium">&larr; Back to Home</a>
+      <a href="/" class="text-blue-400 hover:text-blue-300 font-medium">&larr; Back to Home</a>
     </div>
   </div>
   <Footer />
