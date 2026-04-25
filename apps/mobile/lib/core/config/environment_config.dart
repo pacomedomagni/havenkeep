@@ -39,6 +39,22 @@ class EnvironmentConfig {
   /// Outlook OAuth redirect URI (optional).
   final String outlookRedirectUri;
 
+  /// Google Sign-In server (web) OAuth client ID. The mobile SDK passes this
+  /// as `serverClientId` so the resulting idToken's `aud` matches what the
+  /// backend `/auth/google` endpoint verifies against. Read from the
+  /// Firebase project's auto-created Web OAuth client.
+  final String googleServerClientId;
+
+  /// Apple Sign-In Services ID (Android / web flow). Configured in the
+  /// Apple Developer Portal; the iOS native flow ignores this and uses
+  /// the bundle ID directly.
+  final String appleServicesId;
+
+  /// Apple Sign-In return URL (Android / web flow). Apple redirects the
+  /// browser to this after sign-in; the URL must match the one registered
+  /// against the Services ID in the Apple Developer Portal.
+  final String appleRedirectUri;
+
   /// Firebase Android API key (optional — Firebase is skipped if empty).
   final String firebaseAndroidApiKey;
 
@@ -87,6 +103,9 @@ class EnvironmentConfig {
     required this.outlookClientId,
     required this.outlookTenant,
     required this.outlookRedirectUri,
+    required this.googleServerClientId,
+    required this.appleServicesId,
+    required this.appleRedirectUri,
     required this.firebaseAndroidApiKey,
     required this.firebaseIosApiKey,
     required this.firebaseProjectId,
@@ -155,6 +174,20 @@ class EnvironmentConfig {
       fallback: '',
     );
 
+    // Social sign-in
+    final googleServerClientId = dotenv.get(
+      'GOOGLE_SERVER_CLIENT_ID',
+      fallback: '',
+    );
+    final appleServicesId = dotenv.get(
+      'APPLE_SERVICES_ID',
+      fallback: '',
+    );
+    final appleRedirectUri = dotenv.get(
+      'APPLE_REDIRECT_URI',
+      fallback: '',
+    );
+
     // Firebase configuration (optional — Firebase is skipped when keys are empty)
     final firebaseAndroidApiKey = dotenv.get(
       'FIREBASE_ANDROID_API_KEY',
@@ -215,6 +248,9 @@ class EnvironmentConfig {
       outlookClientId: outlookClientId,
       outlookTenant: outlookTenant,
       outlookRedirectUri: outlookRedirectUri,
+      googleServerClientId: googleServerClientId,
+      appleServicesId: appleServicesId,
+      appleRedirectUri: appleRedirectUri,
       firebaseAndroidApiKey: firebaseAndroidApiKey,
       firebaseIosApiKey: firebaseIosApiKey,
       firebaseProjectId: firebaseProjectId,

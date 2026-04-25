@@ -8,6 +8,7 @@ import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shared_ui/shared_ui.dart';
 
+import '../../main.dart' show environmentConfigProvider;
 import '../../core/providers/auth_provider.dart';
 import '../../core/utils/error_handler.dart';
 import '../../core/widgets/havenkeep_logo.dart';
@@ -53,11 +54,28 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
   Future<void> _signInWithApple() async {
     setState(() => _isLoading = true);
     try {
+      // iOS uses the native Apple Sign-In flow; everything else (Android,
+      // web, desktop) goes through Apple's web OAuth flow which needs a
+      // Services ID + return URL configured in the Apple Developer Portal.
+      final config = ref.read(environmentConfigProvider);
+      WebAuthenticationOptions? webOptions;
+      if (!Platform.isIOS) {
+        if (config.appleServicesId.isEmpty || config.appleRedirectUri.isEmpty) {
+          if (mounted) _showError('Apple Sign-In is not configured for this platform.');
+          return;
+        }
+        webOptions = WebAuthenticationOptions(
+          clientId: config.appleServicesId,
+          redirectUri: Uri.parse(config.appleRedirectUri),
+        );
+      }
+
       final credential = await SignInWithApple.getAppleIDCredential(
         scopes: [
           AppleIDAuthorizationScopes.email,
           AppleIDAuthorizationScopes.fullName,
         ],
+        webAuthenticationOptions: webOptions,
       );
 
       final idToken = credential.identityToken;
@@ -95,7 +113,16 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
   Future<void> _signInWithGoogle() async {
     setState(() => _isLoading = true);
     try {
-      final googleSignIn = GoogleSignIn(scopes: ['email', 'profile']);
+      // serverClientId is the Web OAuth client ID Firebase auto-creates in
+      // the linked Cloud project. Passing it makes the resulting idToken's
+      // `aud` match what the backend `/auth/google` endpoint verifies
+      // against — required for Google Sign-In to work on Android, and the
+      // recommended pattern on iOS too.
+      final serverClientId = ref.read(environmentConfigProvider).googleServerClientId;
+      final googleSignIn = GoogleSignIn(
+        scopes: const ['email', 'profile'],
+        serverClientId: serverClientId.isNotEmpty ? serverClientId : null,
+      );
       final account = await googleSignIn.signIn();
 
       if (account == null) {
@@ -256,11 +283,12 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
 
                 const SizedBox(height: HavenSpacing.xl),
 
-                // Auth buttons
-                if (Platform.isIOS) ...[
-                  _buildAppleButton(),
-                  const SizedBox(height: HavenSpacing.sm),
-                ],
+                // Auth buttons. Apple Sign-In is shown on every platform —
+                // iOS uses the native flow, Android (and web/desktop) use
+                // Apple's web OAuth flow. Both feed into the same backend
+                // /auth/apple endpoint that accepts either audience.
+                _buildAppleButton(),
+                const SizedBox(height: HavenSpacing.sm),
                 _buildGoogleButton(),
                 const SizedBox(height: HavenSpacing.sm),
                 _buildEmailButton(),

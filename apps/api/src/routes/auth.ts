@@ -879,7 +879,15 @@ const appleOAuthSchema = Joi.object({
 
 router.post('/apple', authRateLimiter, validate(appleOAuthSchema), async (req, res, next) => {
   try {
-    if (!config.apple?.bundleId) {
+    // The /apple endpoint is enabled if at least one valid audience is
+    // configured — either the iOS bundle ID (native iOS flow) or one or more
+    // Services IDs (Android / web flow).
+    const allowedAudiences = [
+      config.apple?.bundleId,
+      ...(config.apple?.servicesIds ?? []),
+    ].filter((a): a is string => typeof a === 'string' && a.length > 0);
+
+    if (allowedAudiences.length === 0) {
       throw new AppError('Apple Sign-In is not configured', 501);
     }
 
@@ -906,11 +914,14 @@ router.post('/apple', authRateLimiter, validate(appleOAuthSchema), async (req, r
     const signingKey = await appleJwksClient.getSigningKey(decodedHeader.header.kid);
     const publicKey = signingKey.getPublicKey();
 
-    // Verify the token signature and claims
+    // Verify the token signature and claims. `audience` accepts an array;
+    // jwt.verify passes if the token's aud matches any entry. Cast to the
+    // non-empty-tuple type the @types/jsonwebtoken overload requires —
+    // safe because the empty-list path threw at line ~890.
     const decoded = jwt.verify(idToken, publicKey, {
       algorithms: ['RS256'],
       issuer: 'https://appleid.apple.com',
-      audience: config.apple.bundleId,
+      audience: allowedAudiences as [string, ...string[]],
     }) as {
       sub: string;
       email?: string;

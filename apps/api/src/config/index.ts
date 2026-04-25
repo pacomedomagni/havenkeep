@@ -101,6 +101,15 @@ export const config = {
 
   apple: {
     bundleId: process.env.APPLE_BUNDLE_ID || '',
+    // Comma-separated Apple Services IDs used by the Android / web Sign-in
+    // with Apple flow. iOS native flow's identity token is `aud`-stamped with
+    // the bundle ID; the Android web flow's token is `aud`-stamped with the
+    // Services ID configured in the Apple Developer Portal. Both are
+    // accepted here so a single backend endpoint validates either path.
+    servicesIds: (process.env.APPLE_SERVICES_IDS || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0),
   },
 
   openai: {

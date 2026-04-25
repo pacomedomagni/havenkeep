@@ -39,6 +39,12 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        // Scheme registered with flutter_web_auth_2's CallbackActivity in
+        // AndroidManifest.xml. Must match the scheme of OUTLOOK_REDIRECT_URI
+        // (and any other custom-scheme OAuth redirects). The "havenkeep"
+        // default works as long as redirect URIs follow havenkeep://*.
+        manifestPlaceholders["appAuthRedirectScheme"] = "havenkeep"
     }
 
     signingConfigs {
