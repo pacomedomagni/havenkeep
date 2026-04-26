@@ -763,9 +763,11 @@ function validateRevenueCatWebhookAuth(req: Request, res: Response, next: NextFu
  * during SDK initialization. Also checks aliases for account transfers.
  */
 async function findUserByRevenueCatId(appUserId: string, aliases: string[]): Promise<string | null> {
-  // The app_user_id should be the HavenKeep user UUID — try direct match first
+  // The app_user_id should be the HavenKeep user UUID — try direct match
+  // first. Filter `deleted_at IS NULL` so RevenueCat events for a
+  // soft-deleted user can't provision premium against the tombstone row.
   const directResult = await query(
-    `SELECT id FROM users WHERE id = $1`,
+    `SELECT id FROM users WHERE id = $1 AND deleted_at IS NULL`,
     [appUserId]
   );
 
@@ -776,7 +778,7 @@ async function findUserByRevenueCatId(appUserId: string, aliases: string[]): Pro
   // Check aliases (RevenueCat may send aliased IDs after transfers/merges)
   for (const alias of aliases) {
     const aliasResult = await query(
-      `SELECT id FROM users WHERE id = $1`,
+      `SELECT id FROM users WHERE id = $1 AND deleted_at IS NULL`,
       [alias]
     );
     if (aliasResult.rows.length > 0) {

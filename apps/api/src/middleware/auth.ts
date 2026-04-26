@@ -171,13 +171,23 @@ export function requirePremium(req: Request, res: Response, next: NextFunction) 
     return next(new AppError('Premium plan required', 403));
   }
 
-  if (req.user.planExpiresAt) {
-    const expiresAtUtc = new Date(req.user.planExpiresAt).getTime();
-    const nowUtc = Date.now();
-    const PREMIUM_GRACE_PERIOD_MS = 24 * 60 * 60 * 1000;
-    if (expiresAtUtc + PREMIUM_GRACE_PERIOD_MS < nowUtc) {
-      return next(new AppError('Premium plan has expired', 403));
-    }
+  // Default-deny: a premium row with no expiry is a data bug (every paid
+  // path should set plan_expires_at). Treat it as expired rather than
+  // grant indefinite premium — the user only loses access for one
+  // request, while the underlying bug surfaces in logs and can be fixed.
+  if (!req.user.planExpiresAt) {
+    logger.warn(
+      { userId: req.user.id },
+      'requirePremium: user has plan=premium but plan_expires_at is NULL — treating as expired',
+    );
+    return next(new AppError('Premium plan has expired', 403));
+  }
+
+  const expiresAtUtc = new Date(req.user.planExpiresAt).getTime();
+  const nowUtc = Date.now();
+  const PREMIUM_GRACE_PERIOD_MS = 24 * 60 * 60 * 1000;
+  if (expiresAtUtc + PREMIUM_GRACE_PERIOD_MS < nowUtc) {
+    return next(new AppError('Premium plan has expired', 403));
   }
 
   next();

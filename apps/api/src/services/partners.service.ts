@@ -169,7 +169,7 @@ export class PartnersService {
         [userId, options.limit, offset]
       ),
       pool.query(
-        `SELECT COUNT(*) FROM users WHERE referred_by = $1`,
+        `SELECT COUNT(*) FROM users WHERE referred_by = $1 AND deleted_at IS NULL`,
         [userId]
       ),
     ]);

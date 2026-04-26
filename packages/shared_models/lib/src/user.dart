@@ -33,6 +33,15 @@ class User {
   /// later (Ch08-User-D004).
   final DateTime? deletionScheduledFor;
 
+  /// True when the user has requested an email change but the verification
+  /// link in the new mailbox hasn't been clicked yet. Drives the
+  /// "verification pending" badge on the profile screen.
+  final bool emailChangePending;
+
+  /// The new email address awaiting verification. Only non-null when
+  /// [emailChangePending] is true.
+  final String? emailChangeTarget;
+
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -52,6 +61,8 @@ class User {
     this.isPartner = false,
     this.deletedAt,
     this.deletionScheduledFor,
+    this.emailChangePending = false,
+    this.emailChangeTarget,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -78,6 +89,8 @@ class User {
       isPartner: json['is_partner'] as bool? ?? false,
       deletedAt: _parseDate(json['deleted_at']),
       deletionScheduledFor: _parseDate(json['deletion_scheduled_for']),
+      emailChangePending: json['email_change_pending'] as bool? ?? false,
+      emailChangeTarget: json['email_change_target'] as String?,
       createdAt: _parseDate(json['created_at'])!,
       updatedAt: _parseDate(json['updated_at'])!,
     );
@@ -103,6 +116,8 @@ class User {
       if (deletedAt != null) 'deleted_at': deletedAt!.toIso8601String(),
       if (deletionScheduledFor != null)
         'deletion_scheduled_for': deletionScheduledFor!.toIso8601String(),
+      if (emailChangePending) 'email_change_pending': true,
+      if (emailChangeTarget != null) 'email_change_target': emailChangeTarget,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
     };
@@ -134,6 +149,9 @@ class User {
     bool clearDeletedAt = false,
     DateTime? deletionScheduledFor,
     bool clearDeletionScheduledFor = false,
+    bool? emailChangePending,
+    String? emailChangeTarget,
+    bool clearEmailChangeTarget = false,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -158,6 +176,10 @@ class User {
       deletionScheduledFor: clearDeletionScheduledFor
           ? null
           : (deletionScheduledFor ?? this.deletionScheduledFor),
+      emailChangePending: emailChangePending ?? this.emailChangePending,
+      emailChangeTarget: clearEmailChangeTarget
+          ? null
+          : (emailChangeTarget ?? this.emailChangeTarget),
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );

@@ -124,12 +124,16 @@ class _ConflictCardState extends ConsumerState<_ConflictCard> {
       if (keepLocal) {
         // Push the local copy as the new authoritative version.
         await repo.updateItem(winning);
-      } else {
-        // Server version is already authoritative; nothing to push, just
-        // drop the parked row and let the items list re-fetch from API.
       }
-
+      // For both branches: drop the local cached row of the conflicting
+      // item before invalidating the provider. Without this, the local
+      // SQLite still holds the loser, and an offline edit made between
+      // resolution and the next API re-fetch would build on the stale
+      // baseline and trigger the same 409 on next sync. Removing the
+      // row forces the next read of itemsProvider to repopulate from
+      // the API (which is now authoritative on either branch).
       final db = ref.read(localDatabaseProvider);
+      await db.removeItem(winning.id);
       await db.removeConflict(widget.conflict.id);
 
       // Refresh the conflict count + list for the UI.

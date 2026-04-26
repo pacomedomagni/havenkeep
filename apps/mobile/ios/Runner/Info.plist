@@ -37,8 +37,6 @@
 	<string>HavenKeep needs camera access to scan receipts, warranties, and barcodes.</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>HavenKeep uses Face ID to securely access your warranty data.</string>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>HavenKeep needs microphone access for video capture when documenting items.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>HavenKeep needs permission to save exported documents to your photo library.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

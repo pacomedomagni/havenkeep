@@ -9,4 +9,4 @@
 #   export SUPPLY_JSON_KEY=~/.secrets/google-play-service-account.json
 
 json_key_file(ENV["SUPPLY_JSON_KEY"] || File.expand_path("~/.secrets/google-play-service-account.json"))
-package_name("com.flokou.havenkeep")
+package_name("app.havenkeep.mobile")

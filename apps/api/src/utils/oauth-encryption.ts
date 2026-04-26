@@ -11,6 +11,12 @@ import { config } from '../config';
  *   - ciphertext: base64 string
  *   - iv:         base64 of 12 random bytes (24-char base64 fits CHAR(24))
  *   - tag:        base64 of the 16-byte GCM auth tag (24-char base64)
+ *
+ * Key rotation: encrypt always uses the primary secret. decrypt tries
+ * the primary key first, then walks `oauthEncryptionSecretsLegacy` if
+ * the GCM auth-tag check fails. Operators rotate by adding the new
+ * secret as primary + pushing the old secret into the legacy list, then
+ * re-encrypting rows in the background before dropping the legacy entry.
  */
 
 export interface EncryptedToken {
@@ -22,18 +28,32 @@ export interface EncryptedToken {
 const ALGO = 'aes-256-gcm';
 const IV_BYTES = 12;
 
-let cachedKey: Buffer | null = null;
-let cachedKeyFor: string | null = null;
+const keyCache = new Map<string, Buffer>();
 
-function getKey(): Buffer {
+function deriveKey(secret: string): Buffer {
+  const cached = keyCache.get(secret);
+  if (cached) return cached;
+  const key = crypto.createHash('sha256').update(secret, 'utf8').digest();
+  keyCache.set(secret, key);
+  return key;
+}
+
+function getPrimaryKey(): Buffer {
   const secret = config.oauthEncryptionSecret;
   if (!secret) {
     throw new Error('OAuth encryption secret is not configured');
   }
-  if (cachedKey && cachedKeyFor === secret) return cachedKey;
-  cachedKey = crypto.createHash('sha256').update(secret, 'utf8').digest();
-  cachedKeyFor = secret;
-  return cachedKey;
+  return deriveKey(secret);
+}
+
+function getCandidateKeys(): Buffer[] {
+  const keys: Buffer[] = [getPrimaryKey()];
+  for (const legacy of config.oauthEncryptionSecretsLegacy ?? []) {
+    if (legacy && legacy !== config.oauthEncryptionSecret) {
+      keys.push(deriveKey(legacy));
+    }
+  }
+  return keys;
 }
 
 export function isOAuthEncryptionConfigured(): boolean {
@@ -44,7 +64,7 @@ export function encryptToken(plaintext: string): EncryptedToken {
   if (!plaintext) {
     throw new Error('Cannot encrypt empty token');
   }
-  const key = getKey();
+  const key = getPrimaryKey();
   const iv = crypto.randomBytes(IV_BYTES);
   const cipher = crypto.createCipheriv(ALGO, key, iv);
   const enc = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
@@ -58,7 +78,6 @@ export function encryptToken(plaintext: string): EncryptedToken {
 }
 
 export function decryptToken(payload: EncryptedToken): string {
-  const key = getKey();
   // The schema uses CHAR(24) for the IV/tag columns, which Postgres
   // right-pads with spaces. Trim before base64 decoding so the round-trip
   // matches what the cipher expects.
@@ -66,8 +85,18 @@ export function decryptToken(payload: EncryptedToken): string {
   const tag = Buffer.from(payload.tag.trim(), 'base64');
   const ciphertext = Buffer.from(payload.ciphertext, 'base64');
 
-  const decipher = crypto.createDecipheriv(ALGO, key, iv);
-  decipher.setAuthTag(tag);
-  const dec = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
-  return dec.toString('utf8');
+  const candidates = getCandidateKeys();
+  let lastErr: unknown;
+  for (const key of candidates) {
+    try {
+      const decipher = crypto.createDecipheriv(ALGO, key, iv);
+      decipher.setAuthTag(tag);
+      const dec = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+      return dec.toString('utf8');
+    } catch (err) {
+      // GCM auth tag mismatch — try the next candidate key.
+      lastErr = err;
+    }
+  }
+  throw lastErr ?? new Error('OAuth token decryption failed');
 }

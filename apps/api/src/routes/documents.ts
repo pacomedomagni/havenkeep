@@ -68,7 +68,7 @@ router.get('/', asyncHandler(async (req: AuthRequest, res) => {
 
     const result = await query(
       `SELECT id, item_id, user_id, type, object_key, file_name, file_size,
-              mime_type, thumbnail_key, created_at
+              mime_type, thumbnail_key, created_at, updated_at
          FROM documents
         WHERE user_id = $1 AND item_id = $2
         ORDER BY created_at DESC, id DESC
@@ -82,7 +82,7 @@ router.get('/', asyncHandler(async (req: AuthRequest, res) => {
 
   const result = await query(
     `SELECT id, item_id, user_id, type, object_key, file_name, file_size,
-            mime_type, thumbnail_key, created_at
+            mime_type, thumbnail_key, created_at, updated_at
        FROM documents
       WHERE user_id = $1
       ORDER BY created_at DESC, id DESC
@@ -97,7 +97,7 @@ router.get('/', asyncHandler(async (req: AuthRequest, res) => {
 router.get('/:id', validate(uuidParamSchema, 'params'), asyncHandler(async (req: AuthRequest, res) => {
   const result = await query(
     `SELECT id, item_id, user_id, type, object_key, file_name, file_size,
-            mime_type, thumbnail_key, created_at
+            mime_type, thumbnail_key, created_at, updated_at
        FROM documents
       WHERE id = $1 AND user_id = $2`,
     [req.params.id, req.user!.id],
@@ -240,7 +240,7 @@ router.post(
             `INSERT INTO documents (
               user_id, item_id, type, object_key, file_name, file_size, mime_type, thumbnail_key
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            RETURNING id, item_id, user_id, type, object_key, file_name, file_size, mime_type, thumbnail_key, created_at`,
+            RETURNING id, item_id, user_id, type, object_key, file_name, file_size, mime_type, thumbnail_key, created_at, updated_at`,
             [
               req.user!.id,
               itemId,

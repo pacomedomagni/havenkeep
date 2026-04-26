@@ -194,12 +194,17 @@ class ItemsRepository {
   Future<Item> updateItem(Item item) async {
     try {
       final json = item.toJson();
-      // Remove fields that shouldn't be sent in updates
+      // Strip server-managed + read-only fields. The API's updateItemSchema
+      // only allows the editable subset; in non-prod environments
+      // `stripUnknown` is off so unexpected keys cause a 400. archived_at
+      // and added_via are server-side state, not client-editable.
       json.remove('warranty_end_date');
       json.remove('created_at');
       json.remove('updated_at');
       json.remove('id');
       json.remove('user_id');
+      json.remove('archived_at');
+      json.remove('added_via');
 
       final data = await _client.put(
         pathSegments: ['api', 'v1', 'items', item.id],

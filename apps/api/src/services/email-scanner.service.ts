@@ -675,7 +675,10 @@ export class EmailScannerService {
     userId: string,
     providerEmail: string,
   ): Promise<void> {
-    const userRes = await pool.query('SELECT email FROM users WHERE id = $1', [userId]);
+    const userRes = await pool.query(
+      'SELECT email FROM users WHERE id = $1 AND deleted_at IS NULL',
+      [userId],
+    );
     const havenkeepEmail = userRes.rows[0]?.email?.toLowerCase();
     if (!havenkeepEmail) {
       throw new AppError('User not found', 404);
@@ -1382,7 +1385,7 @@ ${maskPII(stripHtmlTags(emailData.body).substring(0, 4000))}`,
   ): Promise<string | null> {
     if (enforceFreeLimit) {
       const userResult = await db.query(
-        'SELECT plan FROM users WHERE id = $1 FOR UPDATE',
+        'SELECT plan FROM users WHERE id = $1 AND deleted_at IS NULL FOR UPDATE',
         [userId],
       );
       if (userResult.rows[0]?.plan === 'free') {

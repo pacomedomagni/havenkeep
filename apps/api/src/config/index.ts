@@ -196,7 +196,16 @@ export const config = {
 
   // OAuth refresh tokens for the email scanner are encrypted at rest with
   // AES-256-GCM. Key derived from this secret via SHA-256 → 32-byte key.
+  // [Legacy] is a comma-separated list of previously-active secrets;
+  // decrypt tries them in order if the primary key fails its GCM auth
+  // tag check. This makes secret rotation a two-step process: rotate the
+  // primary, push the old value into the legacy list, then re-encrypt
+  // existing rows in the background before dropping the legacy entry.
   oauthEncryptionSecret: readSecret('OAUTH_TOKEN_ENCRYPTION_SECRET') || '',
+  oauthEncryptionSecretsLegacy: (process.env.OAUTH_TOKEN_ENCRYPTION_SECRET_LEGACY || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0),
 
   cors: {
     origins: (process.env.CORS_ORIGINS || 'http://localhost:3000,http://localhost:3001')

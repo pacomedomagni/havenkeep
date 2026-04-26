@@ -1063,8 +1063,16 @@ router.post('/apple', authRateLimiter, validate(appleOAuthSchema), async (req, r
       }
     }
 
+    // Apple only returns the email on the first sign-in to a given Service
+    // ID. If the apple_user_id lookup also failed (genuine first-ever
+    // sign-in but the email field was suppressed for any reason — Hide-My-
+    // Email failure mode, client lost the field between the Apple flow
+    // and our endpoint, etc.), synthesize a deterministic placeholder so
+    // we can still mint the account. The placeholder uses an obviously
+    // non-routable host so we never accidentally email it; the user can
+    // attach a real recovery email from Settings later.
     if (!email) {
-      throw new AppError('Email not provided by Apple. Please grant email permission.', 401);
+      email = `apple-${appleUserId}@privaterelay.apple.local`;
     }
 
     if (!userResult) {
