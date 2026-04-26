@@ -122,7 +122,7 @@ class _WarrantyDurationPickerState extends State<WarrantyDurationPicker> {
             // Unit dropdown
             Expanded(
               child: DropdownButtonFormField<_DurationUnit>(
-                value: _unit,
+                initialValue: _unit,
                 decoration: const InputDecoration(
                   fillColor: HavenColors.surface,
                   filled: true,
