@@ -232,7 +232,7 @@ class EnvironmentConfig {
     );
     final firebaseIosBundleId = dotenv.get(
       'FIREBASE_IOS_BUNDLE_ID',
-      fallback: 'com.flokou.havenkeep',
+      fallback: 'app.havenkeep.mobile',
     );
 
     // App URL and support email

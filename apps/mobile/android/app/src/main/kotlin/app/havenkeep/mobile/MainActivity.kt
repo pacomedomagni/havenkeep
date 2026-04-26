@@ -1,4 +1,4 @@
-package com.flokou.havenkeep
+package app.havenkeep.mobile
 
 import io.flutter.embedding.android.FlutterActivity
 

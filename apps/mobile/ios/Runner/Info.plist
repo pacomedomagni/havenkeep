@@ -70,7 +70,7 @@
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
 			<key>CFBundleURLName</key>
-			<string>com.flokou.havenkeep.google</string>
+			<string>app.havenkeep.mobile.google</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<!-- TODO: Replace with reversed Google Client ID from GoogleService-Info.plist -->
@@ -85,7 +85,7 @@
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
 			<key>CFBundleURLName</key>
-			<string>com.flokou.havenkeep.deeplink</string>
+			<string>app.havenkeep.mobile.deeplink</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>havenkeep</string>

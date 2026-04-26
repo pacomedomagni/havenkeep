@@ -37,6 +37,6 @@ class DefaultFirebaseOptions {
     messagingSenderId: dotenv.get('FIREBASE_MESSAGING_SENDER_ID', fallback: ''),
     projectId: dotenv.get('FIREBASE_PROJECT_ID', fallback: ''),
     storageBucket: dotenv.get('FIREBASE_STORAGE_BUCKET', fallback: ''),
-    iosBundleId: dotenv.get('FIREBASE_IOS_BUNDLE_ID', fallback: 'com.flokou.havenkeep'),
+    iosBundleId: dotenv.get('FIREBASE_IOS_BUNDLE_ID', fallback: 'app.havenkeep.mobile'),
   );
 }

@@ -1,0 +1,22 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["TEAMID.app.havenkeep.mobile"],
+        "components": [
+          {
+            "/": "/gift/*",
+            "comment": "Open the in-app gift activation flow with the code in the path."
+          },
+          {
+            "/": "/referral/*",
+            "comment": "Open the in-app referral redemption flow with the code in the path."
+          }
+        ]
+      }
+    ]
+  },
+  "webcredentials": {
+    "apps": ["TEAMID.app.havenkeep.mobile"]
+  }
+}

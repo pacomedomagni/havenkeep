@@ -1,0 +1,104 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Navigation from '../components/Navigation.astro';
+import Footer from '../components/Footer.astro';
+---
+
+<Layout
+  title="Support"
+  description="Get help with HavenKeep — FAQ, contact form, account deletion, and direct email support."
+>
+  <Navigation />
+  <main>
+    <!-- Hero -->
+    <section class="pt-32 pb-16 bg-gradient-to-b from-gray-900 to-gray-800">
+      <div class="container">
+        <div class="max-w-4xl mx-auto text-center">
+          <h1 class="text-5xl md:text-6xl font-bold text-white mb-6">
+            Support
+          </h1>
+          <p class="text-xl md:text-2xl text-gray-300">
+            We answer every email. Most questions are covered in the FAQ — for everything else, we're one message away.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Quick links -->
+    <section class="py-16 bg-gray-900">
+      <div class="container">
+        <div class="max-w-5xl mx-auto grid md:grid-cols-3 gap-6">
+          <a
+            href="/faq"
+            class="block bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-xl p-8 transition-colors"
+          >
+            <div class="text-primary text-3xl mb-4">📚</div>
+            <h2 class="text-2xl font-bold text-white mb-3">FAQ</h2>
+            <p class="text-gray-400">
+              Common questions about warranties, the email scanner, premium, and how data is stored.
+            </p>
+          </a>
+
+          <a
+            href="/contact"
+            class="block bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-xl p-8 transition-colors"
+          >
+            <div class="text-primary text-3xl mb-4">✉️</div>
+            <h2 class="text-2xl font-bold text-white mb-3">Contact us</h2>
+            <p class="text-gray-400">
+              Use the form for technical support, billing questions, partnership inquiries, or feature requests.
+            </p>
+          </a>
+
+          <a
+            href="/legal/delete-account"
+            class="block bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-xl p-8 transition-colors"
+          >
+            <div class="text-primary text-3xl mb-4">🗑️</div>
+            <h2 class="text-2xl font-bold text-white mb-3">Delete account</h2>
+            <p class="text-gray-400">
+              Step-by-step instructions for removing your account and all associated data — in-app or by email.
+            </p>
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <!-- Direct contact -->
+    <section class="py-16 bg-gray-800">
+      <div class="container">
+        <div class="max-w-3xl mx-auto text-center">
+          <h2 class="text-3xl font-bold text-white mb-4">Email us directly</h2>
+          <p class="text-gray-300 mb-8">
+            Prefer email? Reach the team at:
+          </p>
+          <a
+            href="mailto:hello@havenkeep.com"
+            class="inline-block bg-primary hover:bg-secondary text-white font-semibold py-4 px-10 rounded-lg transition-colors text-lg"
+          >
+            hello@havenkeep.com
+          </a>
+          <p class="text-gray-500 mt-6 text-sm">
+            We aim to respond within one business day.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Privacy + terms quick links -->
+    <section class="py-12 bg-gray-900 border-t border-gray-800">
+      <div class="container">
+        <div class="max-w-3xl mx-auto text-center">
+          <p class="text-gray-400 mb-4">Other resources</p>
+          <div class="flex flex-wrap justify-center gap-6 text-sm">
+            <a href="/legal/privacy" class="text-gray-300 hover:text-primary underline">Privacy Policy</a>
+            <a href="/legal/terms" class="text-gray-300 hover:text-primary underline">Terms of Service</a>
+            <a href="/cookies" class="text-gray-300 hover:text-primary underline">Cookie Policy</a>
+            <a href="/security" class="text-gray-300 hover:text-primary underline">Security</a>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+  <Footer />
+</Layout>

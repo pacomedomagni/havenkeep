@@ -14,5 +14,11 @@
 	<array>
 		<string>applinks:havenkeep.com</string>
 	</array>
+	<!-- APNs entitlement — required for FirebaseMessaging to receive
+	     remote notifications. Xcode auto-flips this to "production" when
+	     the build is exported for App Store / TestFlight, so leaving the
+	     development value here is correct. -->
+	<key>aps-environment</key>
+	<string>development</string>
 </dict>
 </plist>
