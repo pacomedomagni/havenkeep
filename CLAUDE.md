@@ -1,11 +1,13 @@
 # HavenKeep — Project Rules + Outstanding Work
 
-This is the single markdown file in the repo. It carries:
+This is the primary markdown file in the repo. It carries:
 1. Non-negotiable rules every Claude Code session must follow.
 2. Stack quick-reference for orientation.
 3. The outstanding-work ledger — every task left after the audit-remediation pass.
 
 When something here is done, delete the entry. Don't park new TODOs in code or in scattered notes — keep them here.
+
+The only other markdown file allowed in the repo is `apps/mobile/IOS_DEPLOYMENT.md` — the iOS → TestFlight runbook lives next to the app it deploys. Any other `*.md` file is a violation of Rule 3 and must be folded into CLAUDE.md or deleted.
 
 ---
 
