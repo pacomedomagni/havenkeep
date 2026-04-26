@@ -1,0 +1,63 @@
+# iOS deployment — Havenkeep
+
+Build a signed IPA → upload to App Store Connect → release via TestFlight.
+
+The `.ipa` build itself is automated by Flutter. Upload uses the shared
+`~/bin/upload-ipa.sh` wrapper, which talks to App Store Connect with the
+shared API key that works across every Flutter app on this laptop
+(Restorae, Fortify, Loni, Havenkeep, Legalci). See `~/.secrets/README.md`
+for the credential inventory.
+
+## Connection
+
+| | |
+|---|---|
+| **Apple team** | `N3RF2GHS99` (Kouakou Domagni — personal team) |
+| **Bundle ID** | `app.havenkeep.mobile` |
+| **Display name** | `Havenkeep` |
+
+## One-shot release
+
+From `apps/mobile/`:
+
+```bash
+flutter build ipa --release \
+  --dart-define=API_BASE_URL=https://api.staging.havenkeep.app/api/v1 \
+  --dart-define=WEB_FRONTEND_URL=https://staging.havenkeep.app
+  # add APPLE_/GOOGLE_ defines as the social-auth flows roll out
+
+upload-ipa.sh
+```
+
+`upload-ipa.sh` auto-discovers the IPA at `build/ios/ipa/*.ipa`,
+validates it, and uploads via `xcrun altool`. Build appears in App Store
+Connect → TestFlight 5-15 min later.
+
+## Manual upload
+
+```bash
+open -a Transporter
+# drag build/ios/ipa/<your>.ipa onto the window
+# click Deliver
+```
+
+## Build number rule
+
+`pubspec.yaml` carries `version: 1.0.0+N`. Apple rejects duplicate `+N`
+within a version string, so bump for every upload.
+
+Current: `1.0.0+8`.
+
+## TestFlight ceremony
+
+- **Export Compliance** — confirm `ITSAppUsesNonExemptEncryption=false` in
+  `ios/Runner/Info.plist` so App Store Connect doesn't ask on every
+  upload.
+- **Build number monotonic** — bump `+N` before every upload. Apple
+  rejects duplicates within a version.
+
+## Crash reports
+
+Crash reports surface in App Store Connect → TestFlight → (build) →
+Crashes for testers who opt in to Apple's crash sharing. Pair this with
+the API's server-side error logs for any 5xx the client triggers.
