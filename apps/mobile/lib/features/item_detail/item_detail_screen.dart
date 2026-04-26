@@ -10,6 +10,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/providers/documents_provider.dart';
 import '../../core/providers/items_provider.dart';
 import '../../core/providers/maintenance_provider.dart';
+import '../maintenance/log_maintenance_screen.dart';
 import '../../core/utils/error_handler.dart';
 import '../../core/utils/money_formatter.dart';
 import '../../core/router/router.dart';
@@ -977,7 +978,10 @@ class RecentMaintenanceCard extends ConsumerWidget {
                     ),
                     const SizedBox(height: HavenSpacing.sm),
                     OutlinedButton.icon(
-                      onPressed: () => context.push(AppRoutes.logMaintenance),
+                      onPressed: () => LogMaintenanceScreen.showAsSheet(
+                        context,
+                        itemId: itemId,
+                      ),
                       icon: const Icon(Icons.add_task, size: 18),
                       label: const Text('Log maintenance'),
                       style: OutlinedButton.styleFrom(

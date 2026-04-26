@@ -209,11 +209,4 @@ export const config = {
     windowMs: 15 * 60 * 1000, // 15 minutes
     max: 100, // limit each IP to 100 requests per windowMs
   },
-
-  // F114: Cloudflare Turnstile secret used to validate the contact form
-  // captcha. When unset (e.g. local dev), captcha verification is skipped
-  // and a warning is logged so an unconfigured prod deploy is loud.
-  turnstile: {
-    secretKey: readSecret('TURNSTILE_SECRET_KEY') || '',
-  },
 };

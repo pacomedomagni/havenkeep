@@ -21,6 +21,7 @@ import '../../core/widgets/haven_loader.dart';
 import '../../core/widgets/responsive_box.dart';
 import '../premium/premium_teaser_card.dart';
 import 'milestone_banner.dart';
+import 'recent_activity_card.dart';
 import '../../core/utils/haven_haptics.dart';
 
 /// Home dashboard — the main screen (Screen 3.1).
@@ -205,6 +206,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               // Maintenance card
               const SizedBox(height: HavenSpacing.lg),
               const _MaintenanceCard(),
+
+              // Recent activity feed — "what just happened" surface fed
+              // by the user-scoped audit log.
+              const SizedBox(height: HavenSpacing.lg),
+              const RecentActivityCard(),
 
               // Tip card
               if (!_tipDismissed) ...[

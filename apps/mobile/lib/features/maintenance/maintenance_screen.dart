@@ -16,12 +16,122 @@ import '../../core/widgets/haven_illustration.dart';
 import '../../core/widgets/haven_loader.dart';
 import '../../core/utils/haven_haptics.dart';
 
+/// Due-window filter for the maintenance dashboard. `all` shows everything
+/// the API returned; the day-bounded options trim to tasks whose
+/// `daysUntilDue` falls within the window (overdue tasks are always shown
+/// — they're never "out of window").
+enum _DueWindow { all, sevenDays, thirtyDays, ninetyDays }
+
+extension _DueWindowLabel on _DueWindow {
+  String get label => switch (this) {
+        _DueWindow.all => 'All',
+        _DueWindow.sevenDays => 'Next 7 days',
+        _DueWindow.thirtyDays => 'Next 30 days',
+        _DueWindow.ninetyDays => 'Next 90 days',
+      };
+
+  int? get days => switch (this) {
+        _DueWindow.all => null,
+        _DueWindow.sevenDays => 7,
+        _DueWindow.thirtyDays => 30,
+        _DueWindow.ninetyDays => 90,
+      };
+}
+
+/// Composite key for selection mode — a task is uniquely identified by
+/// `itemId|scheduleId`.
+String _taskKey(String itemId, String scheduleId) => '$itemId|$scheduleId';
+
 /// Dashboard showing due/overdue maintenance tasks grouped by item.
-class MaintenanceScreen extends ConsumerWidget {
+class MaintenanceScreen extends ConsumerStatefulWidget {
   const MaintenanceScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<MaintenanceScreen> createState() => _MaintenanceScreenState();
+}
+
+class _MaintenanceScreenState extends ConsumerState<MaintenanceScreen> {
+  _DueWindow _filter = _DueWindow.all;
+  bool _selectionMode = false;
+  final Set<String> _selected = <String>{};
+
+  void _toggleSelectionMode() {
+    setState(() {
+      _selectionMode = !_selectionMode;
+      if (!_selectionMode) _selected.clear();
+    });
+  }
+
+  void _toggleSelected(String key) {
+    setState(() {
+      if (_selected.contains(key)) {
+        _selected.remove(key);
+      } else {
+        _selected.add(key);
+      }
+    });
+  }
+
+  /// Bulk mark-done. Logs each selected task as a `MaintenanceHistory`
+  /// entry and invalidates the dependent providers in one pass at the end.
+  Future<void> _bulkMarkDone(
+      List<MaintenanceDueItem> visibleItems, String userId) async {
+    if (_selected.isEmpty) return;
+    final repo = ref.read(maintenanceRepositoryProvider);
+    final touchedItemIds = <String>{};
+    int successCount = 0;
+    final failures = <String>[];
+
+    for (final item in visibleItems) {
+      for (final task in item.tasks) {
+        if (!_selected.contains(_taskKey(item.itemId, task.scheduleId))) {
+          continue;
+        }
+        try {
+          await repo.logTask(MaintenanceHistory(
+            id: '',
+            userId: userId,
+            itemId: item.itemId,
+            scheduleId: task.scheduleId,
+            taskName: task.taskName,
+            completedDate: DateTime.now(),
+            createdAt: DateTime.now(),
+          ));
+          touchedItemIds.add(item.itemId);
+          successCount++;
+        } catch (e) {
+          failures.add('${task.taskName}: ${ErrorHandler.getUserMessage(e)}');
+        }
+      }
+    }
+
+    HavenHaptics.confirm();
+    ref.invalidate(maintenanceDueProvider);
+    ref.invalidate(maintenanceHistoryProvider);
+    for (final id in touchedItemIds) {
+      ref.invalidate(maintenanceHistoryByItemProvider(id));
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _selectionMode = false;
+      _selected.clear();
+    });
+    final messenger = ScaffoldMessenger.of(context);
+    if (failures.isEmpty) {
+      messenger.showSnackBar(
+        SnackBar(content: Text('Marked $successCount task${successCount == 1 ? '' : 's'} done')),
+      );
+    } else {
+      messenger.showSnackBar(
+        SnackBar(content: Text(
+            'Marked $successCount done · ${failures.length} failed')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final dueAsync = ref.watch(maintenanceDueProvider);
     final snoozesAsync = ref.watch(activeMaintenanceSnoozesProvider);
     // Snoozes are local-only and load instantly; treat the loading window as
@@ -32,22 +142,40 @@ class MaintenanceScreen extends ConsumerWidget {
     return Scaffold(
       backgroundColor: HavenColors.background,
       appBar: AppBar(
-        title: const Text('Maintenance'),
+        title: Text(_selectionMode
+            ? '${_selected.length} selected'
+            : 'Maintenance'),
+        leading: _selectionMode
+            ? IconButton(
+                icon: const Icon(Icons.close),
+                tooltip: 'Cancel selection',
+                onPressed: _toggleSelectionMode,
+              )
+            : null,
         actions: [
-          IconButton(
-            icon: const Icon(Icons.history),
-            tooltip: 'History',
-            onPressed: () => context.push(AppRoutes.maintenanceHistory),
-          ),
+          if (!_selectionMode) ...[
+            IconButton(
+              icon: const Icon(Icons.checklist),
+              tooltip: 'Select tasks',
+              onPressed: _toggleSelectionMode,
+            ),
+            IconButton(
+              icon: const Icon(Icons.history),
+              tooltip: 'History',
+              onPressed: () => context.push(AppRoutes.maintenanceHistory),
+            ),
+          ],
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => context.push(AppRoutes.logMaintenance),
-        icon: const Icon(Icons.add),
-        label: const Text('Log Task'),
-        backgroundColor: HavenColors.primary,
-        foregroundColor: HavenColors.textPrimary,
-      ),
+      floatingActionButton: _selectionMode
+          ? null
+          : FloatingActionButton.extended(
+              onPressed: () => context.push(AppRoutes.logMaintenance),
+              icon: const Icon(Icons.add),
+              label: const Text('Log Task'),
+              backgroundColor: HavenColors.primary,
+              foregroundColor: HavenColors.textPrimary,
+            ),
       body: dueAsync.when(
         loading: () => const Center(child: HavenLoader()),
         error: (e, _) => Center(
@@ -64,15 +192,18 @@ class MaintenanceScreen extends ConsumerWidget {
           ),
         ),
         data: (summary) {
-          // Hide snoozed tasks from the due list. We rebuild the per-item
-          // task list so an item whose only due tasks are snoozed disappears
-          // entirely.
+          // Hide snoozed tasks AND apply the due-window filter. Overdue
+          // tasks always pass through — they're never "out of window".
+          final windowDays = _filter.days;
           final visibleItems = summary.items
               .map((it) {
                 final visibleTasks = it.tasks.where((t) {
                   final key = MaintenanceSnoozeService.storageKey(
                       it.itemId, t.scheduleId);
-                  return !snoozes.containsKey(key);
+                  if (snoozes.containsKey(key)) return false;
+                  if (windowDays == null) return true;
+                  if (t.isOverdue) return true;
+                  return t.daysUntilDue <= windowDays;
                 }).toList();
                 if (visibleTasks.length == it.tasks.length) return it;
                 return MaintenanceDueItem(
@@ -86,6 +217,17 @@ class MaintenanceScreen extends ConsumerWidget {
               })
               .where((it) => it.tasks.isNotEmpty)
               .toList();
+
+          // Drop selected keys that no longer correspond to a visible task
+          // (e.g. user changed the filter). Without this the bottom bar
+          // count drifts above what the user can actually see.
+          if (_selectionMode) {
+            final visibleKeys = <String>{
+              for (final it in visibleItems)
+                for (final t in it.tasks) _taskKey(it.itemId, t.scheduleId),
+            };
+            _selected.retainWhere(visibleKeys.contains);
+          }
 
           if (visibleItems.isEmpty) {
             return const Center(
@@ -120,49 +262,100 @@ class MaintenanceScreen extends ConsumerWidget {
               0, (s, it) => s + it.tasks.where((t) => t.isOverdue).length);
 
           // Virtualized list so users with 200+ items don't build every card.
-          return RefreshIndicator(
-            onRefresh: () async {
-              ref.invalidate(maintenanceDueProvider);
-              await ref.read(maintenanceDueProvider.future);
-            },
-            color: HavenColors.primary,
-            child: ListView.builder(
-              padding: const EdgeInsets.all(HavenSpacing.md),
-              itemCount: visibleItems.length + 1, // +1 for summary card
-              itemBuilder: (context, index) {
-                if (index == 0) {
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: HavenSpacing.lg),
-                    child: Container(
-                      padding: const EdgeInsets.all(HavenSpacing.md),
-                      decoration: BoxDecoration(
-                        color: HavenColors.elevated,
-                        borderRadius:
-                            BorderRadius.circular(HavenRadius.card),
-                      ),
-                      child: Row(
-                        children: [
-                          _SummaryChip(
-                            count: totalOverdueVisible,
-                            label: 'Overdue',
-                            color: HavenColors.expired,
+          // Indexes:  0 = filter chips,  1 = summary card,  2..N = items.
+          return Stack(
+            children: [
+              RefreshIndicator(
+                onRefresh: () async {
+                  ref.invalidate(maintenanceDueProvider);
+                  await ref.read(maintenanceDueProvider.future);
+                },
+                color: HavenColors.primary,
+                child: ListView.builder(
+                  padding: EdgeInsets.fromLTRB(
+                    HavenSpacing.md,
+                    HavenSpacing.md,
+                    HavenSpacing.md,
+                    // Leave room for the bulk-action bar so the last card
+                    // isn't covered when selection mode is active.
+                    _selectionMode && _selected.isNotEmpty
+                        ? 96
+                        : HavenSpacing.md,
+                  ),
+                  itemCount: visibleItems.length + 2,
+                  itemBuilder: (context, index) {
+                    if (index == 0) {
+                      return Padding(
+                        padding:
+                            const EdgeInsets.only(bottom: HavenSpacing.md),
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
+                            children: [
+                              for (final w in _DueWindow.values) ...[
+                                FilterChip(
+                                  label: Text(w.label),
+                                  selected: _filter == w,
+                                  onSelected: (_) =>
+                                      setState(() => _filter = w),
+                                  backgroundColor: HavenColors.surface,
+                                  selectedColor: HavenColors.primary
+                                      .withValues(alpha: 0.2),
+                                  side: BorderSide(
+                                    color: _filter == w
+                                        ? HavenColors.primary
+                                        : HavenColors.border,
+                                  ),
+                                  labelStyle: TextStyle(
+                                    color: _filter == w
+                                        ? HavenColors.primary
+                                        : HavenColors.textPrimary,
+                                  ),
+                                ),
+                                const SizedBox(width: HavenSpacing.sm),
+                              ],
+                            ],
                           ),
-                          const SizedBox(width: HavenSpacing.md),
-                          _SummaryChip(
-                            count: totalVisible - totalOverdueVisible,
-                            label: 'Coming Up',
-                            color: HavenColors.expiring,
+                        ),
+                      );
+                    }
+                    if (index == 1) {
+                      return Padding(
+                        padding:
+                            const EdgeInsets.only(bottom: HavenSpacing.lg),
+                        child: Container(
+                          padding: const EdgeInsets.all(HavenSpacing.md),
+                          decoration: BoxDecoration(
+                            color: HavenColors.elevated,
+                            borderRadius:
+                                BorderRadius.circular(HavenRadius.card),
                           ),
-                        ],
-                      ),
-                    ),
-                  );
-                }
+                          child: Row(
+                            children: [
+                              _SummaryChip(
+                                count: totalOverdueVisible,
+                                label: 'Overdue',
+                                color: HavenColors.expired,
+                              ),
+                              const SizedBox(width: HavenSpacing.md),
+                              _SummaryChip(
+                                count: totalVisible - totalOverdueVisible,
+                                label: 'Coming Up',
+                                color: HavenColors.expiring,
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }
 
-                final item = visibleItems[index - 1];
+                final item = visibleItems[index - 2];
                 return _MaintenanceItemCard(
                   item: item,
                   dateFormat: dateFormat,
+                  selectionMode: _selectionMode,
+                  selectedKeys: _selected,
+                  onToggleSelected: _toggleSelected,
                   onSnooze: (task, option) async {
                     final nextDue = DateTime.now()
                         .add(Duration(days: task.daysUntilDue));
@@ -238,8 +431,59 @@ class MaintenanceScreen extends ConsumerWidget {
                     }
                   },
                 );
-              },
-            ),
+                  },
+                ),
+              ),
+              if (_selectionMode && _selected.isNotEmpty)
+                Positioned(
+                  left: HavenSpacing.md,
+                  right: HavenSpacing.md,
+                  bottom: HavenSpacing.md,
+                  child: SafeArea(
+                    top: false,
+                    child: Material(
+                      elevation: 8,
+                      color: HavenColors.elevated,
+                      borderRadius: BorderRadius.circular(HavenRadius.card),
+                      child: Padding(
+                        padding: const EdgeInsets.all(HavenSpacing.md),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                '${_selected.length} task${_selected.length == 1 ? '' : 's'} selected',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  color: HavenColors.textPrimary,
+                                ),
+                              ),
+                            ),
+                            ElevatedButton.icon(
+                              icon: const Icon(Icons.check, size: 18),
+                              label: Text(
+                                  'Mark ${_selected.length} done'),
+                              onPressed: () {
+                                final userId = ref
+                                    .read(currentUserProvider)
+                                    .value
+                                    ?.id;
+                                if (userId == null) {
+                                  ScaffoldMessenger.of(context)
+                                      .showSnackBar(const SnackBar(
+                                          content: Text(
+                                              'You need to be signed in to log maintenance.')));
+                                  return;
+                                }
+                                _bulkMarkDone(visibleItems, userId);
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
           );
         },
       ),
@@ -298,12 +542,18 @@ class _MaintenanceItemCard extends StatelessWidget {
   final void Function(MaintenanceDueTask task) onMarkDone;
   final Future<void> Function(
       MaintenanceDueTask task, MaintenanceSnoozeOption option) onSnooze;
+  final bool selectionMode;
+  final Set<String> selectedKeys;
+  final void Function(String key) onToggleSelected;
 
   const _MaintenanceItemCard({
     required this.item,
     required this.dateFormat,
     required this.onMarkDone,
     required this.onSnooze,
+    required this.selectionMode,
+    required this.selectedKeys,
+    required this.onToggleSelected,
   });
 
   @override
@@ -480,29 +730,40 @@ class _MaintenanceItemCard extends StatelessWidget {
                       ],
                     ),
                   ),
-                  TextButton(
-                    onPressed: () => onMarkDone(task),
-                    style: TextButton.styleFrom(
-                      foregroundColor: HavenColors.active,
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                      minimumSize: const Size(0, 32),
+                  if (selectionMode)
+                    Checkbox(
+                      value: selectedKeys
+                          .contains(_taskKey(item.itemId, task.scheduleId)),
+                      onChanged: (_) => onToggleSelected(
+                          _taskKey(item.itemId, task.scheduleId)),
+                      activeColor: HavenColors.primary,
+                    )
+                  else ...[
+                    TextButton(
+                      onPressed: () => onMarkDone(task),
+                      style: TextButton.styleFrom(
+                        foregroundColor: HavenColors.active,
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        minimumSize: const Size(0, 32),
+                      ),
+                      child: const Text('Done', style: TextStyle(fontSize: 13)),
                     ),
-                    child: const Text('Done', style: TextStyle(fontSize: 13)),
-                  ),
-                  PopupMenuButton<MaintenanceSnoozeOption>(
-                    tooltip: 'Snooze',
-                    icon: const Icon(Icons.snooze,
-                        size: 18, color: HavenColors.textSecondary),
-                    padding: EdgeInsets.zero,
-                    onSelected: (option) => onSnooze(task, option),
-                    itemBuilder: (_) => [
-                      for (final opt in MaintenanceSnoozeService.options)
-                        PopupMenuItem<MaintenanceSnoozeOption>(
-                          value: opt,
-                          child: Text('Snooze ${opt.displayLabel.toLowerCase()}'),
-                        ),
-                    ],
-                  ),
+                    PopupMenuButton<MaintenanceSnoozeOption>(
+                      tooltip: 'Snooze',
+                      icon: const Icon(Icons.snooze,
+                          size: 18, color: HavenColors.textSecondary),
+                      padding: EdgeInsets.zero,
+                      onSelected: (option) => onSnooze(task, option),
+                      itemBuilder: (_) => [
+                        for (final opt in MaintenanceSnoozeService.options)
+                          PopupMenuItem<MaintenanceSnoozeOption>(
+                            value: opt,
+                            child: Text(
+                                'Snooze ${opt.displayLabel.toLowerCase()}'),
+                          ),
+                      ],
+                    ),
+                  ],
                 ],
               ),
             );

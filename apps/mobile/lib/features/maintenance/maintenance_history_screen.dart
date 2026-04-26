@@ -25,6 +25,9 @@ class MaintenanceHistoryScreen extends ConsumerStatefulWidget {
       _MaintenanceHistoryScreenState();
 }
 
+/// View mode toggle in the maintenance history app bar.
+enum _ViewMode { list, calendar }
+
 class _MaintenanceHistoryScreenState
     extends ConsumerState<MaintenanceHistoryScreen> {
   static const _pageSize = 20;
@@ -36,6 +39,10 @@ class _MaintenanceHistoryScreenState
   bool _isInitialLoad = true;
   bool _hasMore = true;
   String? _error;
+
+  _ViewMode _viewMode = _ViewMode.list;
+  // Selected day in calendar mode. Null = "show all loaded entries".
+  DateTime? _selectedDay;
 
   @override
   void initState() {
@@ -119,8 +126,104 @@ class _MaintenanceHistoryScreenState
               ? 'Maintenance History'
               : 'Item Maintenance History',
         ),
+        actions: [
+          IconButton(
+            tooltip: _viewMode == _ViewMode.list
+                ? 'Calendar view'
+                : 'List view',
+            icon: Icon(_viewMode == _ViewMode.list
+                ? Icons.calendar_month
+                : Icons.list),
+            onPressed: () => setState(() {
+              _viewMode = _viewMode == _ViewMode.list
+                  ? _ViewMode.calendar
+                  : _ViewMode.list;
+              if (_viewMode == _ViewMode.list) _selectedDay = null;
+            }),
+          ),
+        ],
       ),
-      body: _buildBody(dateFormat),
+      body: _viewMode == _ViewMode.list
+          ? _buildBody(dateFormat)
+          : _buildCalendar(dateFormat),
+    );
+  }
+
+  /// Calendar-month view: a CalendarDatePicker with dot markers for days
+  /// that have entries, plus the day's entries listed below.
+  Widget _buildCalendar(DateFormat dateFormat) {
+    if (_isInitialLoad && _isLoading) {
+      return const Center(child: HavenLoader());
+    }
+
+    // Index entries by their normalized completion day so the marker
+    // predicate is O(1) per day.
+    final byDay = <DateTime, List<MaintenanceHistory>>{};
+    for (final e in _items) {
+      final key = DateTime(
+          e.completedDate.year, e.completedDate.month, e.completedDate.day);
+      (byDay[key] ??= []).add(e);
+    }
+
+    final today = DateTime.now();
+    final selected = _selectedDay ?? today;
+    final dayEntries = _selectedDay == null
+        ? const <MaintenanceHistory>[]
+        : (byDay[DateTime(selected.year, selected.month, selected.day)] ??
+            const <MaintenanceHistory>[]);
+
+    return Column(
+      children: [
+        // Calendar — restricted to dates that have entries (or today if
+        // no entries exist) to avoid letting users tap into a vacuum.
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: HavenSpacing.sm),
+          child: CalendarDatePicker(
+            initialDate: selected,
+            firstDate: byDay.keys.isEmpty
+                ? today.subtract(const Duration(days: 365))
+                : byDay.keys.reduce((a, b) => a.isBefore(b) ? a : b),
+            lastDate: today,
+            currentDate: today,
+            onDateChanged: (d) => setState(() => _selectedDay = d),
+            selectableDayPredicate: (d) {
+              final key = DateTime(d.year, d.month, d.day);
+              return byDay.containsKey(key);
+            },
+          ),
+        ),
+        const Divider(height: 1, color: HavenColors.border),
+        Expanded(
+          child: _selectedDay == null
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(HavenSpacing.lg),
+                    child: Text(
+                      byDay.isEmpty
+                          ? 'No completed maintenance to show.'
+                          : 'Tap a highlighted day to see what was logged.',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: HavenColors.textSecondary,
+                      ),
+                    ),
+                  ),
+                )
+              : dayEntries.isEmpty
+                  ? const Center(
+                      child: Text(
+                        'Nothing logged on this day.',
+                        style: TextStyle(color: HavenColors.textSecondary),
+                      ),
+                    )
+                  : ListView.builder(
+                      padding: const EdgeInsets.all(HavenSpacing.md),
+                      itemCount: dayEntries.length,
+                      itemBuilder: (_, i) =>
+                          _buildHistoryTile(dayEntries[i], dateFormat),
+                    ),
+        ),
+      ],
     );
   }
 

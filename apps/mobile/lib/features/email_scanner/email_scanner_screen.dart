@@ -8,6 +8,7 @@ import 'package:shared_ui/shared_ui.dart';
 
 import '../../core/providers/email_scanner_provider.dart';
 import '../../core/providers/items_provider.dart';
+import '../../core/services/email_scanner_repository.dart';
 import '../../core/utils/error_handler.dart';
 import '../../main.dart';
 import '../../core/widgets/haven_illustration.dart';
@@ -139,6 +140,12 @@ class EmailScannerScreen extends ConsumerWidget {
             error: (_, __) => const SizedBox.shrink(),
           ),
 
+          // Connected accounts (granted scopes + in-app disconnect).
+          const _ConnectedAccountsSection(),
+
+          // Low-confidence review queue.
+          const _ReviewQueueSection(),
+
           const SectionHeader(title: 'SCAN HISTORY'),
           const SizedBox(height: HavenSpacing.sm),
           scansAsync.when(
@@ -150,7 +157,15 @@ class EmailScannerScreen extends ConsumerWidget {
                 );
               }
               return Column(
-                children: scans.map((scan) => _ScanCard(scan: scan)).toList(),
+                children: scans
+                    .map((scan) => _ScanCard(
+                          scan: scan,
+                          onCancel: scan.status == EmailScanStatus.scanning ||
+                                  scan.status == EmailScanStatus.pending
+                              ? () => _confirmAndCancelScan(context, ref, scan)
+                              : null,
+                        ))
+                    .toList(),
               );
             },
             loading: () => const _LoadingState(),
@@ -162,6 +177,49 @@ class EmailScannerScreen extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  /// Confirm-and-cancel for an in-flight scan from the history card.
+  /// Routes through the notifier which handles polling cleanup +
+  /// server-side cancel + list refresh.
+  Future<void> _confirmAndCancelScan(
+    BuildContext context,
+    WidgetRef ref,
+    EmailScan scan,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        backgroundColor: HavenColors.elevated,
+        title: const Text('Cancel scan?'),
+        content: const Text(
+          'Stop this scan now. Receipts already imported are kept.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(false),
+            child: const Text('Keep scanning'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: HavenColors.expired,
+            ),
+            child: const Text('Cancel scan'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await ref.read(emailScansProvider.notifier).cancelScan(scan.id);
+      messenger.showSnackBar(const SnackBar(content: Text('Scan cancelled')));
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(content: Text(ErrorHandler.getUserMessage(e))),
+      );
+    }
   }
 
   Future<void> _startScan(
@@ -484,8 +542,9 @@ class _ProviderButtons extends StatelessWidget {
 
 class _ScanCard extends StatelessWidget {
   final EmailScan scan;
+  final VoidCallback? onCancel;
 
-  const _ScanCard({required this.scan});
+  const _ScanCard({required this.scan, this.onCancel});
 
   @override
   Widget build(BuildContext context) {
@@ -573,6 +632,419 @@ class _ScanCard extends StatelessWidget {
               ),
             ),
           ],
+          if (onCancel != null) ...[
+            const SizedBox(height: HavenSpacing.xs),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: onCancel,
+                icon: const Icon(Icons.stop_circle_outlined, size: 16),
+                label: const Text('Cancel scan'),
+                style: TextButton.styleFrom(
+                  foregroundColor: HavenColors.expired,
+                  padding: const EdgeInsets.symmetric(horizontal: HavenSpacing.sm),
+                  minimumSize: const Size(0, 32),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Connected-accounts strip — lists each linked email integration with
+/// the granted OAuth scopes and an in-app disconnect button. Closes the
+/// audit gap that "Disconnect any time from Settings" was a claim with no
+/// in-app surface backing it.
+class _ConnectedAccountsSection extends ConsumerWidget {
+  const _ConnectedAccountsSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final async = ref.watch(emailIntegrationsProvider);
+    return async.when(
+      data: (integrations) {
+        if (integrations.isEmpty) return const SizedBox.shrink();
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SectionHeader(title: 'CONNECTED ACCOUNTS'),
+            const SizedBox(height: HavenSpacing.sm),
+            for (final i in integrations) _IntegrationCard(integration: i),
+            const SizedBox(height: HavenSpacing.lg),
+          ],
+        );
+      },
+      loading: () => const SizedBox.shrink(),
+      error: (_, __) => const SizedBox.shrink(),
+    );
+  }
+}
+
+class _IntegrationCard extends ConsumerWidget {
+  final EmailIntegration integration;
+  const _IntegrationCard({required this.integration});
+
+  Future<void> _confirmDisconnect(
+    BuildContext context,
+    WidgetRef ref,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final providerLabel =
+        integration.provider == 'gmail' ? 'Gmail' : 'Outlook';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        backgroundColor: HavenColors.elevated,
+        title: Text('Disconnect $providerLabel?'),
+        content: Text(
+          'We will stop scanning your $providerLabel inbox and revoke the '
+          'OAuth tokens on the server. Already-imported items stay in your '
+          'library.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(false),
+            child: const Text('Keep connected'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: HavenColors.expired,
+            ),
+            child: const Text('Disconnect'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    try {
+      await ref
+          .read(emailScannerRepositoryProvider)
+          .revokeIntegration(provider: integration.provider);
+      ref.invalidate(emailIntegrationsProvider);
+      messenger.showSnackBar(
+        SnackBar(content: Text('$providerLabel disconnected')),
+      );
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(content: Text(ErrorHandler.getUserMessage(e))),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final providerLabel =
+        integration.provider == 'gmail' ? 'Gmail' : 'Outlook';
+    return Container(
+      margin: const EdgeInsets.only(bottom: HavenSpacing.sm),
+      padding: const EdgeInsets.all(HavenSpacing.md),
+      decoration: BoxDecoration(
+        color: HavenColors.surface,
+        borderRadius: BorderRadius.circular(HavenRadius.card),
+        border: Border.all(color: HavenColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                integration.provider == 'gmail'
+                    ? Icons.mark_email_read_outlined
+                    : Icons.mark_email_unread_outlined,
+                color: HavenColors.primary,
+                size: 18,
+              ),
+              const SizedBox(width: HavenSpacing.sm),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      providerLabel,
+                      style: const TextStyle(
+                        color: HavenColors.textPrimary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    Text(
+                      integration.providerEmail,
+                      style: const TextStyle(
+                        color: HavenColors.textSecondary,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              TextButton(
+                onPressed: () => _confirmDisconnect(context, ref),
+                style: TextButton.styleFrom(
+                  foregroundColor: HavenColors.expired,
+                ),
+                child: const Text('Disconnect'),
+              ),
+            ],
+          ),
+          if (integration.grantedScopes.isNotEmpty) ...[
+            const SizedBox(height: HavenSpacing.sm),
+            const Text(
+              'Granted scopes',
+              style: TextStyle(
+                color: HavenColors.textTertiary,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.4,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Wrap(
+              spacing: 6,
+              runSpacing: 4,
+              children: [
+                for (final scope in integration.grantedScopes)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: HavenColors.primary.withValues(alpha: 0.12),
+                      borderRadius:
+                          BorderRadius.circular(HavenRadius.chip),
+                    ),
+                    child: Text(
+                      _shortScope(scope),
+                      style: const TextStyle(
+                        color: HavenColors.primary,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// Trim noisy OAuth scope URLs down to the trailing component so the
+  /// chip stays readable (`gmail.readonly` instead of the full URL).
+  String _shortScope(String scope) {
+    final slashIdx = scope.lastIndexOf('/');
+    if (slashIdx == -1) return scope;
+    return scope.substring(slashIdx + 1);
+  }
+}
+
+/// Low-confidence review-queue surface. Renders one card per pending row
+/// with Approve / Reject controls; hides itself when the queue is empty
+/// so the screen stays clean for the happy path.
+class _ReviewQueueSection extends ConsumerWidget {
+  const _ReviewQueueSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final async = ref.watch(emailReviewQueueProvider);
+    return async.when(
+      data: (entries) {
+        if (entries.isEmpty) return const SizedBox.shrink();
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const SectionHeader(title: 'REVIEW QUEUE'),
+                const SizedBox(width: HavenSpacing.sm),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: HavenColors.expiring.withValues(alpha: 0.18),
+                    borderRadius: BorderRadius.circular(HavenRadius.chip),
+                  ),
+                  child: Text(
+                    '${entries.length}',
+                    style: const TextStyle(
+                      color: HavenColors.expiring,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: HavenSpacing.sm),
+            for (final e in entries) _ReviewCard(entry: e),
+            const SizedBox(height: HavenSpacing.lg),
+          ],
+        );
+      },
+      loading: () => const SizedBox.shrink(),
+      error: (_, __) => const SizedBox.shrink(),
+    );
+  }
+}
+
+class _ReviewCard extends ConsumerStatefulWidget {
+  final EmailReviewQueueEntry entry;
+  const _ReviewCard({required this.entry});
+
+  @override
+  ConsumerState<_ReviewCard> createState() => _ReviewCardState();
+}
+
+class _ReviewCardState extends ConsumerState<_ReviewCard> {
+  bool _busy = false;
+
+  Future<void> _approve() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await ref
+          .read(emailScannerRepositoryProvider)
+          .approveReview(widget.entry.id);
+      ref.invalidate(emailReviewQueueProvider);
+      ref.invalidate(emailImportedItemsProvider);
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Receipt approved and item created')),
+      );
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(content: Text(ErrorHandler.getUserMessage(e))),
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _reject() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await ref
+          .read(emailScannerRepositoryProvider)
+          .rejectReview(widget.entry.id);
+      ref.invalidate(emailReviewQueueProvider);
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Receipt rejected')),
+      );
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(content: Text(ErrorHandler.getUserMessage(e))),
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final entry = widget.entry;
+    final confidencePct = (entry.confidenceScore * 100).round();
+    // The AI-extracted purchase date lives inside `suggestedItem` rather
+    // than as a top-level field; surface it when present so reviewers can
+    // sanity-check the date before approving.
+    final rawPurchaseDate = entry.suggestedItem['purchaseDate'] as String?;
+    final purchaseDate = rawPurchaseDate == null
+        ? null
+        : DateTime.tryParse(rawPurchaseDate);
+    return Container(
+      margin: const EdgeInsets.only(bottom: HavenSpacing.sm),
+      padding: const EdgeInsets.all(HavenSpacing.md),
+      decoration: BoxDecoration(
+        color: HavenColors.surface,
+        borderRadius: BorderRadius.circular(HavenRadius.card),
+        border: Border.all(color: HavenColors.expiring.withValues(alpha: 0.4)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  entry.suggestedName,
+                  style: const TextStyle(
+                    color: HavenColors.textPrimary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: HavenColors.expiring.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(HavenRadius.chip),
+                ),
+                child: Text(
+                  '$confidencePct% match',
+                  style: const TextStyle(
+                    color: HavenColors.expiring,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: HavenSpacing.xs),
+          Text(
+            entry.suggestedBrand?.isNotEmpty == true
+                ? '${entry.suggestedBrand} · ${entry.senderDomain}'
+                : entry.senderDomain,
+            style: const TextStyle(
+              color: HavenColors.textSecondary,
+              fontSize: 12,
+            ),
+          ),
+          if (purchaseDate != null) ...[
+            const SizedBox(height: 2),
+            Text(
+              'Purchased ${DateFormat.yMMMd().format(purchaseDate)}',
+              style: const TextStyle(
+                color: HavenColors.textTertiary,
+                fontSize: 11,
+              ),
+            ),
+          ],
+          const SizedBox(height: HavenSpacing.sm),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              TextButton(
+                onPressed: _busy ? null : _reject,
+                style: TextButton.styleFrom(
+                  foregroundColor: HavenColors.textSecondary,
+                ),
+                child: const Text('Reject'),
+              ),
+              const SizedBox(width: HavenSpacing.xs),
+              ElevatedButton.icon(
+                onPressed: _busy ? null : _approve,
+                icon: _busy
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child:
+                            CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.check, size: 16),
+                label: const Text('Approve'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: HavenColors.primary,
+                  foregroundColor: Colors.white,
+                ),
+              ),
+            ],
+          ),
         ],
       ),
     );

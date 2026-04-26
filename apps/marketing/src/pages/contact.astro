@@ -82,12 +82,22 @@ import Footer from '../components/Footer.astro';
                 ></textarea>
               </div>
 
-              <!-- Audit Ch10-W068: Cloudflare Turnstile placeholder. The widget
-                   only renders when PUBLIC_TURNSTILE_SITE_KEY is set so local
-                   dev still works without an account. The backend's
-                   /api/v1/contact endpoint enforces the matching server-side
-                   verification. -->
-              <div id="contact-turnstile" class="cf-turnstile" data-sitekey={import.meta.env.PUBLIC_TURNSTILE_SITE_KEY ?? ''} data-theme="dark"></div>
+              <!-- Honeypot. Visually hidden + aria-hidden + autocomplete=off
+                   so real users (and assistive tech) never see or fill it.
+                   Naive bots fill every field they find — the API treats a
+                   non-empty value as a bot signal and silently drops the
+                   submission. Pairs with the existing IP rate limiter; we
+                   intentionally don't run a third-party CAPTCHA. -->
+              <div class="absolute left-[-10000px] top-auto w-px h-px overflow-hidden" aria-hidden="true">
+                <label for="website">Website (leave blank)</label>
+                <input
+                  type="text"
+                  id="website"
+                  name="website"
+                  tabindex="-1"
+                  autocomplete="off"
+                />
+              </div>
 
               <button
                 type="submit"
@@ -201,20 +211,14 @@ import Footer from '../components/Footer.astro';
 
 <!-- Audit Ch10-W069: same-origin POST goes to the API behind the marketing
      edge proxy, never via cross-origin without an explicit credentials
-     policy. Audit Ch10-W068, W072: Cloudflare Turnstile token attached when
-     the widget is mounted. Audit Ch10-W070: failure no longer auto-redirects
-     to a mailto link — that masked the failure as success and broke users
-     without a configured native mail client. -->
+     policy. Audit Ch10-W070: failure no longer auto-redirects to a mailto
+     link — that masked the failure as success and broke users without a
+     configured native mail client. -->
 <script>
   const form = document.getElementById('contact-form') as HTMLFormElement | null;
   const submitBtn = document.getElementById('contact-submit') as HTMLButtonElement | null;
   const successMsg = document.getElementById('contact-success');
   const errorMsg = document.getElementById('contact-error');
-
-  function getTurnstileToken(): string | null {
-    const w = window as unknown as { turnstile?: { getResponse: (selector: string) => string | undefined } };
-    return w.turnstile?.getResponse('#contact-turnstile') ?? null;
-  }
 
   form?.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -224,6 +228,9 @@ import Footer from '../components/Footer.astro';
     const email = (document.getElementById('email') as HTMLInputElement).value.trim();
     const subject = (document.getElementById('subject') as HTMLSelectElement).value;
     const message = (document.getElementById('message') as HTMLTextAreaElement).value.trim();
+    // Honeypot — humans never see this field. Forwarded to the API so the
+    // server can drop bot submissions silently.
+    const website = (document.getElementById('website') as HTMLInputElement).value;
 
     errorMsg?.classList.add('hidden');
     successMsg?.classList.add('hidden');
@@ -235,14 +242,12 @@ import Footer from '../components/Footer.astro';
     const timeout = window.setTimeout(() => controller.abort(), 15_000);
     try {
       const apiUrl = (import.meta.env.PUBLIC_API_URL as string | undefined) ?? '';
-      const turnstileToken = getTurnstileToken();
       const response = await fetch(`${apiUrl}/api/v1/contact`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(turnstileToken ? { 'X-Turnstile-Token': turnstileToken } : {}),
         },
-        body: JSON.stringify({ name, email, subject, message }),
+        body: JSON.stringify({ name, email, subject, message, website }),
         signal: controller.signal,
         credentials: 'omit',
       });

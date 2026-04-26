@@ -85,16 +85,9 @@ Every gate is currently green: api tsc, dashboard tsc + build, marketing build, 
 ### A. Gated on infra you control (not code defects)
 
 - **`apps/api npm test` execution.** Tests typecheck and the helpers + setup + 30+ new test files all wire up correctly, but the suite needs a `havenkeep_test` Postgres on `:5432`. The `fortify-postgres-1` container holds that port locally. Either free the port + `createdb havenkeep_test && cd apps/api && npm run db:migrate && npm test`, or update `__tests__/setup.ts` to read `TEST_DB_PORT` and run a sidecar Postgres on a free port. The TRUNCATE guard refuses to run unless `DB_NAME` contains "test".
-- **Cloudflare Turnstile site key.** Verification helpers + env vars + widget mounts wired in dashboard + marketing + API. No real key issued. Production deploy needs `PUBLIC_TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY`.
 - **Production CSP report-uri / CSP enforcement headers** (W078 / W111). Marketing site is static Astro — the headers must be set by Caddy in front of it. `astro.config.mjs` documents which headers Caddy needs.
 - **Firebase Crashlytics DSN** (optional). The Dart enum-drift funnel (`registerUnknownEnumReporter`) is wired and ready for a custom transport.
 
 ### B. Mobile feature gaps
 
-Still open after the audit-remediation passes:
-- **Inline maintenance log on item detail.** Item detail currently links out to `AppRoutes.logMaintenance` (`features/item_detail/item_detail_screen.dart:970`); the audit asked for an inline editor on the same screen so the user doesn't lose context. Make the existing log_maintenance form mountable as a sheet/expander.
-- **Calendar-month view of completed maintenance.** History screen lists rows but has no month grid. Add a `CalendarDatePicker`/grid surface in `features/maintenance/maintenance_history_screen.dart`.
-- **Due-window filter chips + bulk mark-done.** Maintenance list needs `FilterChip`s for 7 / 30 / 90 days plus a multi-select bulk "mark done" action.
-- **Home: explicit recent-activity feed widget.** `features/home/dashboard_screen.dart` has the milestone banner only — the audit asked for a recent-activity feed (item added, claim filed, document uploaded). Hydrate from the audit log API the dashboard already calls.
-- **Email scanner UX gaps.** `email_scanner_screen.dart` has a `disconnect any time from Settings` line but no in-app disconnect button, no granted-scopes display widget, no low-confidence review queue UI, and the visible `Cancel` button at line 271 is the dialog dismiss — not a "cancel scan in progress" button.
-- **Ch05-F098 splash retry tap-to-retry UI.** No `features/splash/` directory exists. Either delete the splash retry audit item if the app has no splash screen, or add a splash with a tap-to-retry on bootstrap failure.
+All audit-flagged mobile gaps have been closed in this branch. The list previously here covered: inline maintenance log on item detail, calendar-month history view, due-window filter chips + bulk mark-done, home recent-activity feed, email-scanner UX (cancel mid-scan / granted-scopes display / in-app disconnect / low-confidence review queue), and Ch05-F098 splash tap-to-retry. All shipped — re-add entries here if a regression surfaces.

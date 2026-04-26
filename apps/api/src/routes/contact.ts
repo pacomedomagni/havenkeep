@@ -8,58 +8,8 @@ import { contactRateLimiter, readRateLimiter } from '../middleware/rateLimiter';
 import { sendSuccess, sendMessage } from '../utils/response';
 import { submitContactSchema } from '../validators/contact.validator';
 import { authenticate, requireAdmin } from '../middleware/auth';
-import { config } from '../config';
-import { AppError } from '../utils/errors';
 
 const router = Router();
-
-/**
- * F114: server-side Turnstile verification. Skipped (with a warning) when
- * the secret key isn't configured — keeps local dev unblocked but a prod
- * deploy that forgets to set TURNSTILE_SECRET_KEY surfaces in the logs on
- * every submission.
- */
-async function verifyTurnstile(token: string | undefined, remoteIp: string): Promise<void> {
-  if (!config.turnstile.secretKey) {
-    logger.warn('TURNSTILE_SECRET_KEY not configured — contact form CAPTCHA disabled');
-    return;
-  }
-  if (!token) {
-    throw new AppError('Captcha token missing', 400);
-  }
-  const params = new URLSearchParams({
-    secret: config.turnstile.secretKey,
-    response: token,
-    remoteip: remoteIp,
-  });
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 5000);
-  try {
-    const resp = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: params.toString(),
-      signal: controller.signal,
-    });
-    if (!resp.ok) {
-      throw new AppError('Captcha verification service unavailable', 503);
-    }
-    const json = (await resp.json()) as { success?: boolean; 'error-codes'?: string[] };
-    if (!json.success) {
-      logger.warn({ codes: json['error-codes'] }, 'Turnstile verification failed');
-      throw new AppError('Captcha verification failed', 400);
-    }
-  } catch (err: any) {
-    if (err instanceof AppError) throw err;
-    if (err.name === 'AbortError') {
-      throw new AppError('Captcha verification timed out', 504);
-    }
-    logger.error({ err }, 'Turnstile verification error');
-    throw new AppError('Captcha verification error', 503);
-  } finally {
-    clearTimeout(timeout);
-  }
-}
 
 /**
  * @route   POST /api/v1/contact
@@ -71,12 +21,27 @@ router.post(
   contactRateLimiter,
   validate(submitContactSchema),
   asyncHandler(async (req, res) => {
-    const { name, email, subject, message, turnstileToken } = req.body as {
-      name: string; email: string; subject: string; message: string; turnstileToken?: string;
+    const { name, email, subject, message, website } = req.body as {
+      name: string;
+      email: string;
+      subject: string;
+      message: string;
+      // Honeypot — see contact.validator.ts.
+      website?: string;
     };
 
-    // F114: verify CAPTCHA before we touch the DB or fan out to SendGrid.
-    await verifyTurnstile(turnstileToken, req.socket.remoteAddress || 'unknown');
+    // Honeypot trip: silently 200 so a probing bot can't tell whether the
+    // submission was rejected. We log so abuse triage can grep for it.
+    if (website && website.trim().length > 0) {
+      logger.warn(
+        { ip: req.socket.remoteAddress, email },
+        'Contact form honeypot tripped — silently dropping submission',
+      );
+      return sendMessage(
+        res,
+        'Message sent successfully. We will get back to you within 24 hours.',
+      );
+    }
 
     // F115: strip CR/LF from `name` so it can't inject extra headers when
     // it's interpolated into the email subject ("Contact Form: <subj> -

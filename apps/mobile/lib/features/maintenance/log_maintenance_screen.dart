@@ -14,8 +14,53 @@ import '../../core/widgets/haven_loader.dart';
 import '../../core/utils/haven_haptics.dart';
 
 /// Form to log a completed maintenance task.
+///
+/// Mountable two ways: as a full-screen route (default) or as a modal bottom
+/// sheet via [showAsSheet]. The sheet path is what item_detail uses so the
+/// user doesn't lose item context when they tap "Log maintenance".
 class LogMaintenanceScreen extends ConsumerStatefulWidget {
-  const LogMaintenanceScreen({super.key});
+  /// Pre-selected item id. When provided the item picker is hidden and the
+  /// form skips straight to the task fields — matches the "log from this
+  /// item's screen" entry path.
+  final String? initialItemId;
+
+  /// When true the form renders without a Scaffold/AppBar, so it can be
+  /// mounted in a modal bottom sheet without doubling chrome.
+  final bool embeddedInSheet;
+
+  const LogMaintenanceScreen({
+    super.key,
+    this.initialItemId,
+    this.embeddedInSheet = false,
+  });
+
+  /// Show the form in a modal bottom sheet pre-populated with [itemId].
+  /// Returns once the sheet is dismissed.
+  static Future<void> showAsSheet(
+    BuildContext context, {
+    required String itemId,
+  }) {
+    return showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: HavenColors.background,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(HavenRadius.card)),
+      ),
+      builder: (sheetContext) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.85,
+          minChildSize: 0.5,
+          maxChildSize: 0.95,
+          expand: false,
+          builder: (_, scrollController) => LogMaintenanceScreen(
+            initialItemId: itemId,
+            embeddedInSheet: true,
+          ),
+        );
+      },
+    );
+  }
 
   @override
   ConsumerState<LogMaintenanceScreen> createState() =>
@@ -33,6 +78,12 @@ class _LogMaintenanceScreenState extends ConsumerState<LogMaintenanceScreen> {
   String? _selectedItemId;
   String? _selectedScheduleId;
   bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedItemId = widget.initialItemId;
+  }
 
   @override
   void dispose() {
@@ -132,15 +183,42 @@ class _LogMaintenanceScreenState extends ConsumerState<LogMaintenanceScreen> {
   Widget build(BuildContext context) {
     final itemsAsync = ref.watch(itemsProvider);
     final dateFormat = DateFormat.yMMMd();
+    // When the caller pinned a specific item, hide the picker and the
+    // section label so the form goes straight to task fields.
+    final showItemPicker = widget.initialItemId == null;
 
-    return Scaffold(
-      backgroundColor: HavenColors.background,
-      appBar: AppBar(title: const Text('Log Maintenance')),
-      body: Form(
-        key: _formKey,
-        child: ListView(
-          padding: const EdgeInsets.all(HavenSpacing.md),
-          children: [
+    final form = Form(
+      key: _formKey,
+      child: ListView(
+        padding: const EdgeInsets.all(HavenSpacing.md),
+        children: [
+          if (widget.embeddedInSheet) ...[
+            // Sheet handle so the sheet still feels draggable even though
+            // the form scrolls.
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: HavenSpacing.md),
+                decoration: BoxDecoration(
+                  color: HavenColors.border,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const Center(
+              child: Text(
+                'Log Maintenance',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: HavenColors.textPrimary,
+                ),
+              ),
+            ),
+            const SizedBox(height: HavenSpacing.lg),
+          ],
+          if (showItemPicker) ...[
             // Item picker
             const _SectionLabel('Item'),
             const SizedBox(height: HavenSpacing.sm),
@@ -180,15 +258,17 @@ class _LogMaintenanceScreenState extends ConsumerState<LogMaintenanceScreen> {
               ),
             ),
             const SizedBox(height: HavenSpacing.lg),
+          ], // showItemPicker
 
-            // Schedule picker (visible only when an item is selected)
-            if (_selectedItemId != null) ...[
-              _buildSchedulePicker(itemsAsync),
-              const SizedBox(height: HavenSpacing.lg),
-            ],
+          // Schedule picker (visible only when an item is selected — either
+          // pre-pinned by the caller or chosen via the picker above).
+          if (_selectedItemId != null) ...[
+            _buildSchedulePicker(itemsAsync),
+            const SizedBox(height: HavenSpacing.lg),
+          ],
 
-            // Task name
-            const _SectionLabel('Task Name'),
+          // Task name
+          const _SectionLabel('Task Name'),
             const SizedBox(height: HavenSpacing.sm),
             TextFormField(
               controller: _taskNameController,
@@ -359,10 +439,21 @@ class _LogMaintenanceScreenState extends ConsumerState<LogMaintenanceScreen> {
                     : const Text('Log Task'),
               ),
             ),
-            const SizedBox(height: HavenSpacing.xxl),
-          ],
-        ),
+          const SizedBox(height: HavenSpacing.xxl),
+        ],
       ),
+    );
+
+    if (widget.embeddedInSheet) {
+      return SafeArea(
+        top: false,
+        child: form,
+      );
+    }
+    return Scaffold(
+      backgroundColor: HavenColors.background,
+      appBar: AppBar(title: const Text('Log Maintenance')),
+      body: form,
     );
   }
 

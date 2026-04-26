@@ -40,10 +40,9 @@ export const submitContactSchema = Joi.object({
     'string.max': 'Message must be 5000 characters or fewer',
     'any.required': 'Message is required',
   }),
-  // F114: Cloudflare Turnstile captcha token. Optional in the schema so
-  // local dev (no key set) doesn't break, but the route enforces presence
-  // when TURNSTILE_SECRET_KEY is configured.
-  turnstileToken: Joi.string().max(2048).optional().allow(''),
-})
-  .rename('cf_turnstile_response', 'turnstileToken', { ignoreUndefined: true, override: false })
-  .rename('cf-turnstile-response', 'turnstileToken', { ignoreUndefined: true, override: false });
+  // Honeypot — humans never see the `website` input on the page (it's
+  // visually hidden + aria-hidden + autocomplete=off). Naive bots fill
+  // every field they find, so a non-empty value is a strong bot signal.
+  // The route handler treats any value as an automatic reject.
+  website: Joi.string().allow('').max(2048).optional(),
+});

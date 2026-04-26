@@ -39,8 +39,14 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
   late final AnimationController _animController;
   late final void Function(AnimationStatus) _statusListener;
   Timer? _fallbackTimer;
+  Timer? _stuckTimer;
   bool _hasNavigated = false;
   bool _animationComplete = false;
+  // Ch05-F098: surfaced when bootstrap stalls — usually the homes query
+  // hanging on a flaky network. Tap-to-retry lets the user kick the loop
+  // again without force-quitting the app.
+  bool _bootstrapFailed = false;
+  Object? _bootstrapError;
 
   @override
   void initState() {
@@ -78,10 +84,16 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
   @override
   void dispose() {
     _fallbackTimer?.cancel();
+    _stuckTimer?.cancel();
     _animController.removeStatusListener(_statusListener);
     _animController.dispose();
     super.dispose();
   }
+
+  /// Show the retry surface if bootstrap hasn't navigated within
+  /// [_kBootstrapStuckThreshold] of starting. Prevents the user from
+  /// staring at a frozen splash if `hasHomeProvider` never resolves.
+  static const Duration _kBootstrapStuckThreshold = Duration(seconds: 12);
 
   /// Navigate based on synchronous auth state.
   ///
@@ -93,27 +105,60 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
   Future<void> _navigate() async {
     if (_hasNavigated || !mounted) return;
 
-    final isAuthenticated = ref.read(isAuthenticatedProvider);
-    LoggingService.debug(
-      'Splash navigating',
-      {'isAuthenticated': isAuthenticated},
-    );
+    _stuckTimer?.cancel();
+    _stuckTimer = Timer(_kBootstrapStuckThreshold, () {
+      if (!_hasNavigated && mounted) {
+        LoggingService.warn('Splash bootstrap stuck — surfacing tap-to-retry');
+        setState(() => _bootstrapFailed = true);
+      }
+    });
 
-    if (!isAuthenticated) {
+    try {
+      final isAuthenticated = ref.read(isAuthenticatedProvider);
+      LoggingService.debug(
+        'Splash navigating',
+        {'isAuthenticated': isAuthenticated},
+      );
+
+      if (!isAuthenticated) {
+        _hasNavigated = true;
+        _stuckTimer?.cancel();
+        context.go(AppRoutes.welcome);
+        return;
+      }
+
+      // Ch05-F088: prefer the cached answer so cold-start hits its
+      // destination in ~150ms instead of waiting on the homes query.
+      // Either a fresh API value (already resolved) or a cached boolean
+      // is fine — the homes provider keeps refreshing in the background
+      // and the router itself re-checks when the user lands.
+      final hasHome = await _resolveHasHome();
+      if (!mounted) return;
       _hasNavigated = true;
-      context.go(AppRoutes.welcome);
-      return;
+      _stuckTimer?.cancel();
+      context.go(hasHome ? AppRoutes.dashboard : AppRoutes.firstAction);
+    } catch (err, stack) {
+      LoggingService.error('Splash bootstrap failed', err, stack);
+      if (mounted) {
+        setState(() {
+          _bootstrapFailed = true;
+          _bootstrapError = err;
+        });
+      }
     }
+  }
 
-    // Ch05-F088: prefer the cached answer so cold-start hits its
-    // destination in ~150ms instead of waiting on the homes query.
-    // Either a fresh API value (already resolved) or a cached boolean
-    // is fine — the homes provider keeps refreshing in the background
-    // and the router itself re-checks when the user lands.
-    final hasHome = await _resolveHasHome();
+  /// Tap-to-retry handler. Reset the failed flag, invalidate the providers
+  /// that gate navigation, and re-enter `_navigate` so the user can break
+  /// out of a transient connectivity stall without restarting the app.
+  void _retryBootstrap() {
     if (!mounted) return;
-    _hasNavigated = true;
-    context.go(hasHome ? AppRoutes.dashboard : AppRoutes.firstAction);
+    setState(() {
+      _bootstrapFailed = false;
+      _bootstrapError = null;
+    });
+    ref.invalidate(hasHomeProvider);
+    _navigate();
   }
 
   /// Read [hasHomeProvider] if it already has a value; otherwise fall
@@ -258,6 +303,40 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
                 color: HavenColors.textSecondary,
               ),
             ),
+            if (_bootstrapFailed) ...[
+              const SizedBox(height: HavenSpacing.xl),
+              const Text(
+                "Couldn't reach HavenKeep.",
+                style: TextStyle(
+                  fontSize: 14,
+                  color: HavenColors.textSecondary,
+                ),
+              ),
+              if (_bootstrapError != null) ...[
+                const SizedBox(height: HavenSpacing.xs),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: HavenSpacing.lg),
+                  child: Text(
+                    _bootstrapError.toString(),
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: HavenColors.textTertiary,
+                    ),
+                  ),
+                ),
+              ],
+              const SizedBox(height: HavenSpacing.md),
+              OutlinedButton.icon(
+                onPressed: _retryBootstrap,
+                icon: const Icon(Icons.refresh, size: 18),
+                label: const Text('Tap to retry'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: HavenColors.primary,
+                  side: const BorderSide(color: HavenColors.primary),
+                ),
+              ),
+            ],
           ],
         ),
       ),

@@ -132,8 +132,19 @@ const remainder = posts.slice(1);
                   Subscribe
                 </button>
               </div>
-              <!-- Audit Ch10-W068, W072: Cloudflare Turnstile widget. -->
-              <div id="newsletter-turnstile" class="cf-turnstile self-center" data-sitekey={import.meta.env.PUBLIC_TURNSTILE_SITE_KEY ?? ''} data-theme="dark"></div>
+              <!-- Honeypot — visually hidden + aria-hidden + autocomplete=off
+                   so real users never fill it. The newsletter API is also
+                   protected by `newsletterRateLimiter` (5 / hour / IP). -->
+              <div class="absolute left-[-10000px] top-auto w-px h-px overflow-hidden" aria-hidden="true">
+                <label for="newsletter-website">Website (leave blank)</label>
+                <input
+                  type="text"
+                  id="newsletter-website"
+                  name="newsletter-website"
+                  tabindex="-1"
+                  autocomplete="off"
+                />
+              </div>
             </form>
             <p id="newsletter-success" class="hidden text-accent font-semibold mt-4" role="status">Thanks for subscribing! You'll receive our latest updates.</p>
             <p id="newsletter-error" class="hidden text-red-400 font-semibold mt-4" role="alert"></p>
@@ -146,37 +157,41 @@ const remainder = posts.slice(1);
 </Layout>
 
 <script>
-  // Audit Ch10-W068, W071, W072, W073: same-origin POST to the API behind
-  // the marketing edge proxy, Turnstile token attached when present, and the
-  // success state stays sticky until reload (no auto-reset that would
-  // encourage duplicate submits).
+  // Audit Ch10-W069, W071, W073: same-origin POST to the API behind the
+  // marketing edge proxy, success state stays sticky until reload (no
+  // auto-reset that would encourage duplicate submits). Bot defence is
+  // the honeypot input above + the API-side `newsletterRateLimiter`.
   const form = document.getElementById('newsletter-form') as HTMLFormElement | null;
   const submitBtn = document.getElementById('newsletter-submit') as HTMLButtonElement | null;
   const successMsg = document.getElementById('newsletter-success');
   const errorMsg = document.getElementById('newsletter-error');
-
-  function turnstileToken(): string | null {
-    const w = window as unknown as { turnstile?: { getResponse: (sel: string) => string | undefined } };
-    return w.turnstile?.getResponse('#newsletter-turnstile') ?? null;
-  }
 
   form?.addEventListener('submit', async (e) => {
     e.preventDefault();
     if (!submitBtn || submitBtn.disabled) return;
 
     const email = (document.getElementById('newsletter-email') as HTMLInputElement).value.trim();
+    // Honeypot — drop client-side too so a tripped bot doesn't even hit
+    // the API. The server still rejects independently in case the form
+    // is submitted programmatically.
+    const honeypot = (document.getElementById('newsletter-website') as HTMLInputElement | null)?.value ?? '';
+    if (honeypot.trim().length > 0) {
+      // Pretend success so a probing bot can't tell whether it was caught.
+      form.classList.add('hidden');
+      successMsg?.classList.remove('hidden');
+      return;
+    }
+
     submitBtn.disabled = true;
     submitBtn.textContent = 'Subscribing...';
     errorMsg?.classList.add('hidden');
 
     const apiUrl = (import.meta.env.PUBLIC_API_URL as string | undefined) ?? '';
-    const token = turnstileToken();
     try {
       const response = await fetch(`${apiUrl}/api/v1/newsletter/subscribe`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { 'X-Turnstile-Token': token } : {}),
         },
         body: JSON.stringify({ email }),
         credentials: 'omit',
