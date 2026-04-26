@@ -119,22 +119,27 @@ class _NavItem extends StatelessWidget {
       selected: isSelected,
       child: InkWell(
         onTap: onTap,
+        // Tighter vertical rhythm so a 24px icon + 12px label + spacer
+        // fit inside BottomAppBar's default 60px height. Previous 8/4
+        // padding overflowed by ~5px on iOS 26 — visible as a red
+        // "BOTTOM OVERFLOWED" indicator in debug builds + a faint hairline
+        // in release.
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
+          padding: const EdgeInsets.symmetric(vertical: 4),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Icon(
                 isSelected ? activeIcon : icon,
                 color: color,
-                size: 24,
+                size: 22,
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: 2),
               Text(
                 label,
                 style: TextStyle(
                   color: color,
-                  fontSize: 12,
+                  fontSize: 11,
                   fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
                 ),
               ),

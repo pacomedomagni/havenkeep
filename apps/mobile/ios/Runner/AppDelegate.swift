@@ -22,9 +22,15 @@ import UIKit
     // The Dart side (`AppLifecycleService.backgroundRefreshAllowed`) reads
     // this before scheduling background-driven notifications so users who
     // disabled the OS toggle aren't pinged via locally-scheduled paths.
+    // The pluginRegistry creates a registrar on demand for any plugin
+    // name, so requesting "havenkeep_lifecycle" gives us a real messenger
+    // to attach the channel to. Modern Flutter dropped the
+    // `engineBridge.binaryMessenger` shortcut in favour of going through
+    // the per-plugin registrar.
+    let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "havenkeep_lifecycle")!
     let lifecycleChannel = FlutterMethodChannel(
       name: "havenkeep/lifecycle",
-      binaryMessenger: engineBridge.pluginRegistry.registrar(forPlugin: "havenkeep_lifecycle")?.messenger() ?? engineBridge.binaryMessenger
+      binaryMessenger: registrar.messenger()
     )
     lifecycleChannel.setMethodCallHandler { (call, result) in
       switch call.method {

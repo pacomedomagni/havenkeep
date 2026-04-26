@@ -8,6 +8,7 @@ import '../providers/homes_provider.dart';
 import '../providers/demo_mode_provider.dart';
 import '../widgets/main_scaffold.dart';
 import '../../features/onboarding/splash_screen.dart';
+import '../../features/onboarding/onboarding_intro_screen.dart';
 import '../../features/onboarding/preview_screen.dart';
 import '../../features/onboarding/demo_dashboard_wrapper.dart';
 import '../../features/onboarding/welcome_screen.dart';
@@ -56,6 +57,7 @@ import '../../features/search/global_search_screen.dart';
 /// Route path constants.
 abstract class AppRoutes {
   static const splash = '/';
+  static const intro = '/intro';
   static const preview = '/preview';
   static const demo = '/demo';
   static const welcome = '/welcome';
@@ -173,9 +175,11 @@ final routerProvider = Provider<GoRouter>((ref) {
         return AppRoutes.demo;
       }
 
-      // Not authenticated → go to welcome
+      // Not authenticated → allow welcome AND the first-launch /intro
+      // carousel; everything else redirects to /welcome.
       if (!isAuthenticated) {
         if (location == AppRoutes.welcome) return null;
+        if (location == AppRoutes.intro) return null;
         return AppRoutes.welcome;
       }
 
@@ -223,6 +227,14 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.splash,
         builder: (context, state) => const SplashScreen(),
+      ),
+
+      // First-launch intro carousel (2 pages). The splash routes here
+      // when SharedPreferences[onboarding_intro_seen] is unset; the
+      // screen sets the flag on completion so returning users skip it.
+      GoRoute(
+        path: AppRoutes.intro,
+        builder: (context, state) => const OnboardingIntroScreen(),
       ),
 
       // Preview screens (shown before auth)

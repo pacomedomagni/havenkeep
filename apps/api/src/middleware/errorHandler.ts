@@ -101,7 +101,15 @@ export function errorHandler(
   const pgWrapped = pgErrorToApp(err);
   if (pgWrapped) {
     logger.warn(
-      { code: pgWrapped.code, pgCode: (err as any).code, path: req.path },
+      {
+        code: pgWrapped.code,
+        pgCode: (err as any).code,
+        pgMessage: (err as any).message,
+        pgDetail: (err as any).detail,
+        pgColumn: (err as any).column,
+        pgTable: (err as any).table,
+        path: req.path,
+      },
       'PG error mapped to AppError',
     );
     return res.status(pgWrapped.statusCode).json({

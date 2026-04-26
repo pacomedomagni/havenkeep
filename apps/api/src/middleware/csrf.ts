@@ -40,21 +40,24 @@ function constantTimeEquals(a: string, b: string): boolean {
 /**
  * Validate the double-submit CSRF token on state-changing requests.
  *
- * Bearer auth bypass: ONLY skipped when the request carries no cookie at all
- * (audit Ch11-I009). A request that ships a Bearer header AND a session
- * cookie is a browser request whose CSRF protection still applies — the
- * "skip" used to wave through a forged form post that piggy-backed a stale
- * Bearer header.
+ * The protection model: cookies in flight = browser session; no cookies =
+ * pure API client (mobile, server-to-server). XSRF needs a victim's
+ * cookie to forge against — without one, an attacker can't exploit
+ * anything. So we bypass CSRF when there are no cookies at all,
+ * regardless of whether a Bearer token is also present.
+ *
+ * The previous gate also required a Bearer token to bypass, which made
+ * `/auth/login` unreachable from mobile (no Bearer yet on first sign-in,
+ * no cookies because mobile clients don't store them).
  */
 export function validateCsrfToken(req: Request, res: Response, next: NextFunction) {
   const safeMethods = ['GET', 'HEAD', 'OPTIONS'];
   if (safeMethods.includes(req.method)) return next();
 
-  const hasCookieAuth = Boolean(req.cookies?.[CSRF_COOKIE]) || Object.keys(req.cookies ?? {}).length > 0;
-  const hasBearer = (req.headers.authorization ?? '').startsWith('Bearer ');
+  const hasAnyCookie = Object.keys(req.cookies ?? {}).length > 0;
 
-  // Pure Bearer-auth API call (no cookies in flight) — CSRF doesn't apply.
-  if (hasBearer && !hasCookieAuth) return next();
+  // No cookies = no browser session at risk → CSRF doesn't apply.
+  if (!hasAnyCookie) return next();
 
   // Cookie session must always present a matching token (Ch11-I031: the old
   // skip-if-no-cookie path let a request with no CSRF cookie bypass entirely;

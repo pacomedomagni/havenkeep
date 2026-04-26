@@ -11,6 +11,7 @@ import '../../core/providers/homes_provider.dart';
 import '../../core/router/router.dart';
 import '../../core/services/logging_service.dart';
 import '../../core/widgets/havenkeep_logo.dart';
+import 'onboarding_intro_screen.dart';
 
 /// SharedPreferences key for the cached "user has at least one home"
 /// answer. Lets the splash short-circuit to the right destination on
@@ -121,9 +122,16 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
       );
 
       if (!isAuthenticated) {
+        // First-launch only: route through the 2-page intro carousel
+        // before /welcome. The intro screen flips the prefs flag on
+        // completion so this only fires once per install.
+        final prefs = await SharedPreferences.getInstance();
+        final hasSeenIntro =
+            prefs.getBool(OnboardingIntroScreen.introSeenPrefsKey) ?? false;
+        if (!mounted) return;
         _hasNavigated = true;
         _stuckTimer?.cancel();
-        context.go(AppRoutes.welcome);
+        context.go(hasSeenIntro ? AppRoutes.welcome : AppRoutes.intro);
         return;
       }
 

@@ -78,13 +78,29 @@ COMMENT ON TABLE receipt_scan_idempotency IS
 -- existing document link. Going forward, the DB stores only the bucket-
 -- relative object key, and `getPublicUrl(object_key)` builds the URL at
 -- read time.
-ALTER TABLE documents RENAME COLUMN file_url TO object_key;
+--
+-- Guarded with information_schema lookups so a fresh install bootstrapped
+-- from `schema.sql` (which captures the post-rename column names) doesn't
+-- re-attempt the RENAME and fail with "undefined column".
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'documents' AND column_name = 'file_url'
+  ) THEN
+    ALTER TABLE documents RENAME COLUMN file_url TO object_key;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'documents' AND column_name = 'thumbnail_url'
+  ) THEN
+    ALTER TABLE documents RENAME COLUMN thumbnail_url TO thumbnail_key;
+  END IF;
+END $$;
 
 COMMENT ON COLUMN documents.object_key IS
   'Bucket-relative object key. Public URL is built at read time via getPublicUrl().';
-
--- Same treatment for thumbnail_url → thumbnail_key.
-ALTER TABLE documents RENAME COLUMN thumbnail_url TO thumbnail_key;
 
 COMMENT ON COLUMN documents.thumbnail_key IS
   'Bucket-relative thumbnail object key. Public URL is built at read time.';
