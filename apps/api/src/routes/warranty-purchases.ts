@@ -13,6 +13,7 @@ import { asyncHandler } from '../utils/async-handler';
 import { query } from '../db';
 import { AppError } from '../utils/errors';
 import { writeRateLimiter } from '../middleware/rateLimiter';
+import { idempotency } from '../middleware/idempotency';
 import { sendSuccess, sendMessage } from '../utils/response';
 
 const router = Router();
@@ -171,6 +172,7 @@ router.post(
   '/',
   writeRateLimiter,
   validate(createWarrantyPurchaseSchema),
+  idempotency('warranty-purchases:create'),
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
     const purchase = await WarrantyPurchasesService.createPurchase(userId, req.body);
@@ -189,6 +191,7 @@ router.post(
   validate(uuidParamSchema, 'params'),
   writeRateLimiter,
   validate(cancelWarrantyPurchaseSchema),
+  idempotency('warranty-purchases:cancel'),
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
     const purchase = await WarrantyPurchasesService.cancelPurchase(

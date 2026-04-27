@@ -2,6 +2,7 @@ import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE, clearAuthCookies } from '@/lib/auth';
 import { API_URL } from '@/lib/config';
+import { csrfTokenOk } from '@/lib/csrf';
 import { fetchWithTimeout } from '@/lib/fetch';
 
 /**
@@ -21,6 +22,14 @@ function isSameOriginFetch(request: NextRequest): boolean {
 export async function POST(request: NextRequest) {
   if (!isSameOriginFetch(request)) {
     return NextResponse.json({ error: 'Cross-origin request rejected' }, { status: 403 });
+  }
+
+  // S2-N: every other mutation route enforces double-submit CSRF; logout
+  // was the lone exception. Without this, a cross-tab attacker that
+  // already has a valid auth cookie can force-logout the user via a
+  // subdomain-issued POST that sets sec-fetch-site=same-site.
+  if (!csrfTokenOk(request)) {
+    return NextResponse.json({ error: 'CSRF token missing or mismatched' }, { status: 403 });
   }
 
   const cookieStore = await cookies();

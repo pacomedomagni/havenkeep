@@ -37,7 +37,7 @@ class WarrantyClaim {
     required this.repairCost,
     required this.amountSaved,
     this.outOfPocket = 0,
-    this.status = ClaimStatus.pending,
+    this.status = ClaimStatus.filed,
     this.filedWith,
     this.claimNumber,
     this.notes,
@@ -61,7 +61,7 @@ class WarrantyClaim {
       repairCost: (json['repair_cost'] as num?)?.toDouble() ?? 0,
       amountSaved: (json['amount_saved'] as num?)?.toDouble() ?? 0,
       outOfPocket: (json['out_of_pocket'] as num?)?.toDouble() ?? 0,
-      status: ClaimStatus.fromJson(json['status'] as String? ?? 'pending'),
+      status: ClaimStatus.fromJson(json['status'] as String? ?? 'filed'),
       filedWith: json['filed_with'] as String?,
       claimNumber: json['claim_number'] as String?,
       notes: json['notes'] as String?,
@@ -107,24 +107,24 @@ class WarrantyClaim {
 }
 
 /// Status of a warranty claim. Wire format is snake_case to match the
-/// Postgres `claim_status` enum (Ch08-WarrantyClaim-D024).
+/// Postgres `claim_status` constraint set by migration 060
+/// (Ch08-WarrantyClaim-D024): `filed | in_review | approved | denied |
+/// settled | closed`.
 enum ClaimStatus {
-  pending,
-  submitted,
+  filed,
   inReview,
   approved,
   denied,
-  completed,
-  cancelled;
+  settled,
+  closed;
 
   static const Map<String, ClaimStatus> _byName = {
-    'pending': ClaimStatus.pending,
-    'submitted': ClaimStatus.submitted,
+    'filed': ClaimStatus.filed,
     'in_review': ClaimStatus.inReview,
     'approved': ClaimStatus.approved,
     'denied': ClaimStatus.denied,
-    'completed': ClaimStatus.completed,
-    'cancelled': ClaimStatus.cancelled,
+    'settled': ClaimStatus.settled,
+    'closed': ClaimStatus.closed,
   };
 
   factory ClaimStatus.fromJson(String value) {
@@ -132,14 +132,14 @@ enum ClaimStatus {
     if (mapped != null) return mapped;
     // Unknown value: log via the shared funnel (Ch08-D018) so an enum drift
     // between server and client surfaces in platform logs (and any custom
-    // reporter the bootstrap registers), then coerce to `pending` so the UI
+    // reporter the bootstrap registers), then coerce to `filed` so the UI
     // keeps rendering.
     logUnknownEnumValue(
       enumName: 'ClaimStatus',
       unknownValue: value,
-      fallback: 'pending',
+      fallback: 'filed',
     );
-    return ClaimStatus.pending;
+    return ClaimStatus.filed;
   }
 
   String toJson() => switch (this) {
@@ -148,13 +148,12 @@ enum ClaimStatus {
       };
 
   String get displayLabel => switch (this) {
-        ClaimStatus.pending => 'Pending',
-        ClaimStatus.submitted => 'Submitted',
+        ClaimStatus.filed => 'Filed',
         ClaimStatus.inReview => 'In Review',
         ClaimStatus.approved => 'Approved',
         ClaimStatus.denied => 'Denied',
-        ClaimStatus.completed => 'Completed',
-        ClaimStatus.cancelled => 'Cancelled',
+        ClaimStatus.settled => 'Settled',
+        ClaimStatus.closed => 'Closed',
       };
 }
 

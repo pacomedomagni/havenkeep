@@ -2,7 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import Stripe from 'stripe';
 import crypto from 'crypto';
 import { config } from '../config';
-import { pool, query } from '../db';
+import { pool, query, getClient } from '../db';
 import { logger } from '../utils/logger';
 
 /**
@@ -82,38 +82,67 @@ async function claimWebhookEvent(
   eventCreatedAt: Date,
   payloadDigest: string,
 ): Promise<ClaimOutcome> {
-  const result = await query(
-    `INSERT INTO webhook_events (
-       event_id, source, event_type, status, claimed_at,
-       event_created_at, first_seen_at, last_seen_at, payload_digest, attempts
-     )
-     VALUES ($1, $2, $3, 'pending', NOW(), $4, NOW(), NOW(), $5, 1)
-     ON CONFLICT (source, event_id) DO UPDATE
-       SET status = CASE
-                      WHEN webhook_events.status IN ('processed', 'dead_letter')
-                        THEN webhook_events.status
-                      WHEN webhook_events.attempts + 1 >= ${MAX_WEBHOOK_ATTEMPTS}
-                        THEN 'dead_letter'
-                      ELSE 'pending'
-                    END,
-           claimed_at = CASE
-                          WHEN webhook_events.status IN ('processed', 'dead_letter')
-                            THEN webhook_events.claimed_at
-                          ELSE NOW()
-                        END,
-           last_seen_at = NOW(),
-           attempts = CASE
+  // S1-G: under heavy parallel deliveries, the `attempts + 1 >= MAX` branch
+  // could be evaluated by two transactions that each saw the same `attempts`
+  // and both flipped to `dead_letter` (or, worse, neither did). Wrap the
+  // claim in an explicit transaction and lock the existing row with
+  // `SELECT … FOR UPDATE` before the upsert so the threshold check + status
+  // transition are atomic against the row's committed state.
+  const client = await getClient();
+  try {
+    await client.query('BEGIN');
+
+    // Take the row lock if the row already exists. The first concurrent
+    // caller takes it; the second waits until COMMIT, then sees the bumped
+    // `attempts` when its own UPSERT evaluates the CASE expression.
+    await client.query(
+      `SELECT 1 FROM webhook_events
+        WHERE source = $1 AND event_id = $2
+        FOR UPDATE`,
+      [source, eventId],
+    );
+
+    const result = await client.query(
+      `INSERT INTO webhook_events (
+         event_id, source, event_type, status, claimed_at,
+         event_created_at, first_seen_at, last_seen_at, payload_digest, attempts
+       )
+       VALUES ($1, $2, $3, 'pending', NOW(), $4, NOW(), NOW(), $5, 1)
+       ON CONFLICT (source, event_id) DO UPDATE
+         SET status = CASE
                         WHEN webhook_events.status IN ('processed', 'dead_letter')
-                          THEN webhook_events.attempts
-                        ELSE webhook_events.attempts + 1
-                      END
-     RETURNING status, attempts, (xmax = 0) AS inserted`,
-    [eventId, source, eventType, eventCreatedAt, payloadDigest],
-  );
-  const row = result.rows[0];
-  if (row.status === 'processed') return 'processed';
-  if (row.status === 'dead_letter') return 'dead_letter';
-  return row.inserted ? 'claimed' : 'retry';
+                          THEN webhook_events.status
+                        WHEN webhook_events.attempts + 1 >= ${MAX_WEBHOOK_ATTEMPTS}
+                          THEN 'dead_letter'
+                        ELSE 'pending'
+                      END,
+             claimed_at = CASE
+                            WHEN webhook_events.status IN ('processed', 'dead_letter')
+                              THEN webhook_events.claimed_at
+                            ELSE NOW()
+                          END,
+             last_seen_at = NOW(),
+             attempts = CASE
+                          WHEN webhook_events.status IN ('processed', 'dead_letter')
+                            THEN webhook_events.attempts
+                          ELSE webhook_events.attempts + 1
+                        END
+       RETURNING status, attempts, (xmax = 0) AS inserted`,
+      [eventId, source, eventType, eventCreatedAt, payloadDigest],
+    );
+
+    await client.query('COMMIT');
+
+    const row = result.rows[0];
+    if (row.status === 'processed') return 'processed';
+    if (row.status === 'dead_letter') return 'dead_letter';
+    return row.inserted ? 'claimed' : 'retry';
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 async function markWebhookProcessed(eventId: string, source: string): Promise<void> {

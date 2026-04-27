@@ -150,3 +150,37 @@ describe('middleware refresh path', () => {
     expect(res.url).toContain('/login');
   }, 10_000);
 });
+
+describe('apiClient single-flight refresh (S2-S)', () => {
+  it('coalesces concurrent 401s into one /auth/refresh call', async () => {
+    // 5 concurrent calls all see 401 first, then succeed after refresh.
+    // Each call hits the upstream twice (once original, once retry); the
+    // refresh path must only fire ONCE in total.
+    const responses = [
+      { ok: false, status: 401, json: async () => ({}) }, // call 1 initial 401
+      { ok: false, status: 401, json: async () => ({}) }, // call 2 initial 401
+      { ok: false, status: 401, json: async () => ({}) }, // call 3 initial 401
+      { ok: false, status: 401, json: async () => ({}) }, // call 4 initial 401
+      { ok: false, status: 401, json: async () => ({}) }, // call 5 initial 401
+      { ok: true, status: 200, json: async () => ({ ok: true }) }, // refresh
+      { ok: true, status: 200, json: async () => ({ data: 'ok-1' }) },
+      { ok: true, status: 200, json: async () => ({ data: 'ok-2' }) },
+      { ok: true, status: 200, json: async () => ({ data: 'ok-3' }) },
+      { ok: true, status: 200, json: async () => ({ data: 'ok-4' }) },
+      { ok: true, status: 200, json: async () => ({ data: 'ok-5' }) },
+    ];
+    let i = 0;
+    mockFetch.mockImplementation(() => Promise.resolve(responses[i++]));
+
+    const { apiClient } = await import('../lib/api');
+    const all = await Promise.all(
+      Array.from({ length: 5 }, (_, k) => apiClient(`/api/v1/widget-${k}`)),
+    );
+
+    expect(all.length).toBe(5);
+    const refreshCalls = mockFetch.mock.calls.filter(
+      (c: unknown[]) => typeof c[0] === 'string' && (c[0] as string).includes('/api/auth/refresh'),
+    );
+    expect(refreshCalls.length).toBe(1);
+  });
+});

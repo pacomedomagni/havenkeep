@@ -83,12 +83,19 @@ class AuthRepository {
     return user;
   }
 
-  /// Sign in with Apple. Accepts the Apple ID token from the platform SDK.
+  /// Sign in with Apple. Accepts the Apple ID token from the platform SDK
+  /// plus the *unhashed* per-attempt nonce. The server hashes it again and
+  /// verifies the result against the `nonce` claim Apple baked into the
+  /// token (S1-H — replay protection).
   Future<models.User?> signInWithApple({
     required String idToken,
+    required String nonce,
     String? fullName,
   }) async {
-    final body = <String, dynamic>{'idToken': idToken};
+    final body = <String, dynamic>{
+      'idToken': idToken,
+      'nonce': nonce,
+    };
     if (fullName != null) body['fullName'] = fullName;
 
     final data = await _client.post(

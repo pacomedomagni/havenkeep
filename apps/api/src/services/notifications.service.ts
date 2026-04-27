@@ -749,8 +749,8 @@ export class NotificationsService {
         JOIN users u ON u.id = i.user_id
         LEFT JOIN notification_preferences np ON np.user_id = u.id
         WHERE i.is_archived = FALSE
-          AND i.warranty_end_date BETWEEN CURRENT_DATE
-            AND CURRENT_DATE + make_interval(days => COALESCE(np.first_reminder_days, 30))
+          AND i.warranty_end_date BETWEEN (NOW() AT TIME ZONE 'UTC')::date
+            AND (NOW() AT TIME ZONE 'UTC')::date + make_interval(days => COALESCE(np.first_reminder_days, 30))
           AND NOT EXISTS (
             SELECT 1 FROM notification_history nh
             WHERE nh.item_id = i.id
@@ -892,7 +892,7 @@ export class NotificationsService {
         LEFT JOIN notification_preferences np ON np.user_id = i.user_id
         WHERE i.is_archived = FALSE
           AND i.purchase_date IS NOT NULL
-          AND (COALESCE(last_done.completed_date, i.purchase_date::DATE) + make_interval(months => ms.frequency_months)) <= CURRENT_DATE
+          AND (COALESCE(last_done.completed_date, i.purchase_date::DATE) + make_interval(months => ms.frequency_months)) <= (NOW() AT TIME ZONE 'UTC')::date
           AND NOT EXISTS (
             SELECT 1
             FROM notification_history nh
@@ -1016,7 +1016,7 @@ export class NotificationsService {
           JOIN users u ON u.id = i.user_id
           LEFT JOIN notification_preferences np ON np.user_id = u.id
           WHERE i.is_archived = FALSE
-            AND i.warranty_end_date < CURRENT_DATE
+            AND i.warranty_end_date < (NOW() AT TIME ZONE 'UTC')::date
             AND i.price > 200
             AND NOT EXISTS (
               SELECT 1 FROM warranty_purchases wp

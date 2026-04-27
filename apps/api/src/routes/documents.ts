@@ -5,6 +5,7 @@ import { query, getClient } from '../db';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { AppError } from '../utils/errors';
 import { uploadRateLimiter } from '../middleware/rateLimiter';
+import { idempotency } from '../middleware/idempotency';
 import { validate } from '../middleware/validate';
 import { uploadDocumentSchema, updateDocumentSchema, uuidParamSchema } from '../validators';
 import { minioClient, BUCKET_NAME, generateObjectKey, getPublicUrl } from '../config/minio';
@@ -129,6 +130,7 @@ router.post(
   uploadRateLimiter,
   upload.array('files', 5),
   validate(uploadDocumentSchema),
+  idempotency('documents:upload'),
   asyncHandler(async (req: AuthRequest, res) => {
     const { itemId, type } = req.body;
     const files = (req.files as Express.Multer.File[]) || [];

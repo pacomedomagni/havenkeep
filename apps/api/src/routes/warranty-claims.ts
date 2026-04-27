@@ -10,6 +10,7 @@ import {
 } from '../validators/warranty-claims.validator';
 import { asyncHandler } from '../utils/async-handler';
 import { writeRateLimiter, readRateLimiter } from '../middleware/rateLimiter';
+import { idempotency } from '../middleware/idempotency';
 import { sendSuccess, sendMessage } from '../utils/response';
 
 const router = Router();
@@ -33,6 +34,7 @@ router.post(
   '/',
   writeRateLimiter,
   validate(createWarrantyClaimSchema),
+  idempotency('warranty-claims:create'),
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
     const claim = await WarrantyClaimsService.createClaim(userId, req.body);
@@ -131,6 +133,7 @@ router.put(
   validate(uuidParamSchema, 'params'),
   writeRateLimiter,
   validate(updateWarrantyClaimSchema),
+  idempotency('warranty-claims:update'),
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
     const claim = await WarrantyClaimsService.updateClaim(
@@ -152,6 +155,7 @@ router.delete(
   '/:id',
   validate(uuidParamSchema, 'params'),
   writeRateLimiter,
+  idempotency('warranty-claims:delete'),
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
     await WarrantyClaimsService.deleteClaim(req.params.id, userId);

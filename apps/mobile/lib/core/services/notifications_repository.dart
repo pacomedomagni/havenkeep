@@ -78,11 +78,13 @@ class NotificationsRepository {
 
   /// Create or update notification preferences.
   Future<NotificationPreferences> upsertPreferences(
-    NotificationPreferences prefs,
-  ) async {
+    NotificationPreferences prefs, {
+    String? idempotencyKey,
+  }) async {
     final data = await _client.put(
       pathSegments: const ['api', 'v1', 'notifications', 'preferences'],
       body: prefs.toJson(),
+      idempotencyKey: idempotencyKey,
     );
     return NotificationPreferences.fromJson(
         data['data'] as Map<String, dynamic>);

@@ -406,6 +406,7 @@ void main() {
 
         final user = await repository.signInWithApple(
           idToken: 'apple-id-token',
+          nonce: 'apple-nonce-raw',
           fullName: 'Apple User',
         );
 
@@ -414,6 +415,7 @@ void main() {
 
         verify(mockClient.post(pathSegments: const ['api', 'v1', 'auth', 'apple'], body: {
           'idToken': 'apple-id-token',
+          'nonce': 'apple-nonce-raw',
           'fullName': 'Apple User',
         })).called(1);
       });

@@ -1354,10 +1354,16 @@ ${maskPII(stripHtmlTags(emailData.body).substring(0, 4000))}`,
     targetClient?: { query: (...args: any[]) => Promise<any> },
   ): Promise<boolean | string | null> {
     if (targetClient) {
+      // Caller (approveReview) owns the transaction — the FOR UPDATE on
+      // users + the items INSERT both run on its client.
       const itemId = await this.createItemUsing(targetClient, userId, receipt, scanId, false);
       return itemId;
     }
 
+    // S2-M: keep the FOR UPDATE on users (line ~1388) and the items INSERT
+    // in a single transaction so a concurrent scan worker can't slip in
+    // between the plan check and the row creation. Rolls back on any
+    // failure so a partial write never leaks.
     const client = await pool.connect();
     try {
       await client.query('BEGIN');

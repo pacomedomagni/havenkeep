@@ -59,6 +59,7 @@ class DocumentsRepository {
     required String fileName,
     required DocumentType type,
     String? mimeType,
+    String? idempotencyKey,
   }) async {
     try {
       final file = File(filePath);
@@ -72,6 +73,7 @@ class DocumentsRepository {
           'type': type.toJson(),
           if (mimeType != null) 'mime_type': mimeType,
         },
+        idempotencyKey: idempotencyKey,
       );
 
       return Document.fromJson(data['data'] as Map<String, dynamic>);

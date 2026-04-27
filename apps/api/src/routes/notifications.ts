@@ -10,6 +10,7 @@ import {
 } from '../validators/notifications.validator';
 import { asyncHandler } from '../utils/async-handler';
 import { writeRateLimiter } from '../middleware/rateLimiter';
+import { idempotency } from '../middleware/idempotency';
 import { pool } from '../db';
 import { sendSuccess, sendMessage } from '../utils/response';
 
@@ -271,6 +272,7 @@ router.put(
   '/preferences',
   writeRateLimiter,
   validate(updatePreferencesSchema),
+  idempotency('notifications:preferences'),
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
     const prefs = { ...req.body, userId };

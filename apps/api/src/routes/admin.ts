@@ -88,6 +88,31 @@ router.get('/stats', async (req, res, next) => {
   }
 });
 
+// S2-K: audit log hash-chain integrity check. Returns `{ ok: true }` when
+// the chain is intact, otherwise `{ ok: false, brokenAt }` with the first
+// row whose hash doesn't agree with its predecessor. Backed by the
+// `verify_audit_chain()` SQL function installed in mig 065.
+router.get('/audit/verify', async (req, res, next) => {
+  try {
+    const broken = await AuditService.verifyHashChain();
+    if (broken.length === 0) {
+      sendSuccess(res, { ok: true, lastVerifiedAt: new Date().toISOString() });
+      return;
+    }
+    sendSuccess(res, {
+      ok: false,
+      lastVerifiedAt: new Date().toISOString(),
+      brokenAt: {
+        id: broken[0].broken_id,
+        at: broken[0].broken_at,
+      },
+      brokenCount: broken.length,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Full admin stats (dashboard overview)
 router.get('/stats/full', async (req, res, next) => {
   try {
@@ -102,15 +127,18 @@ router.get('/stats/full', async (req, res, next) => {
       logger.warn({ err }, 'Redis cache read failed for admin:stats:full, falling back to DB');
     }
 
+    // S1-D: every users count filters soft-deletes so stats reflect live
+    // accounts. Items don't have soft-delete (only is_archived); intent
+    // here is "all items ever indexed," so leave the items counts alone.
     const stats = await query(`
       SELECT
-        (SELECT COUNT(*) FROM users) AS total_users,
-        (SELECT COUNT(*) FROM users WHERE plan = 'premium') AS premium_users,
+        (SELECT COUNT(*) FROM users WHERE deleted_at IS NULL) AS total_users,
+        (SELECT COUNT(*) FROM users WHERE plan = 'premium' AND deleted_at IS NULL) AS premium_users,
         (SELECT COUNT(*) FROM items) AS total_items,
         (SELECT COUNT(*) FROM items WHERE created_at >= NOW() - INTERVAL '24 hours') AS items_last_24h,
-        (SELECT COUNT(*) FROM users WHERE created_at >= NOW() - INTERVAL '24 hours') AS signups_last_24h,
-        (SELECT COUNT(*) FROM users WHERE created_at >= NOW() - INTERVAL '7 days') AS signups_last_7d,
-        (SELECT COUNT(*) FROM users WHERE created_at >= NOW() - INTERVAL '30 days') AS signups_last_30d,
+        (SELECT COUNT(*) FROM users WHERE created_at >= NOW() - INTERVAL '24 hours' AND deleted_at IS NULL) AS signups_last_24h,
+        (SELECT COUNT(*) FROM users WHERE created_at >= NOW() - INTERVAL '7 days' AND deleted_at IS NULL) AS signups_last_7d,
+        (SELECT COUNT(*) FROM users WHERE created_at >= NOW() - INTERVAL '30 days' AND deleted_at IS NULL) AS signups_last_30d,
         (SELECT COALESCE(SUM(price), 0) FROM items) AS total_value_protected,
         (SELECT COUNT(DISTINCT ua.user_id) FROM user_analytics ua WHERE ua.last_active_at >= NOW() - INTERVAL '24 hours') AS dau,
         (SELECT COUNT(DISTINCT ua.user_id) FROM user_analytics ua WHERE ua.last_active_at >= NOW() - INTERVAL '7 days') AS wau,
@@ -184,6 +212,7 @@ router.get('/users/activity', async (req, res, next) => {
         MAX(GREATEST(i.created_at, i.updated_at)) AS last_activity
       FROM users u
       LEFT JOIN items i ON i.user_id = u.id AND i.is_archived = FALSE
+      WHERE u.deleted_at IS NULL
       GROUP BY u.id, u.email, u.full_name, u.plan, u.created_at
       ORDER BY u.created_at DESC
       LIMIT 500
@@ -594,6 +623,7 @@ router.get('/partners/:id', validate(userIdParamSchema, 'params'), async (req, r
         p.stripe_onboarded,
         u.referral_code,
         p.is_active,
+        p.status,
         p.created_at,
         p.updated_at,
         u.email,

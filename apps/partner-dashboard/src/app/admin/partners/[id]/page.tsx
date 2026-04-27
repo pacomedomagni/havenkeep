@@ -146,8 +146,12 @@ export default async function PartnerDetailPage({ params }: { params: Promise<{ 
                 <>
                   <span className="inline-flex h-3 w-3 rounded-full bg-green-400" />
                   <span className="text-white">Connected</span>
+                  {/* S2-P: masked — full Stripe acct id is enough to look up
+                      the account in the Stripe dashboard, so we render the
+                      last 8 chars only. Lookup workflows can use the
+                      partner's email instead. */}
                   <span className="text-haven-text-tertiary text-sm font-mono ml-2">
-                    {partner.stripe_account_id}
+                    acct_••••{String(partner.stripe_account_id).slice(-8)}
                   </span>
                 </>
               ) : (

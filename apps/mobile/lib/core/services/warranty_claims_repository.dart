@@ -8,14 +8,35 @@ class WarrantyClaimsRepository {
 
   WarrantyClaimsRepository(this._client);
 
-  /// Get all claims for the current user.
+  /// Get the first page of claims for the current user.
+  ///
+  /// S2-T: the API returns a keyset cursor in `meta.pagination.next_cursor`
+  /// (audit Ch02-F008). The list screen doesn't expose infinite scroll
+  /// today, so a single 100-row page is enough — but [getClaimsPage]
+  /// surfaces the cursor and `hasMore` flag so a future paginated UI
+  /// doesn't have to re-thread the contract.
   Future<List<WarrantyClaim>> getClaims({String? itemId}) async {
+    final page = await getClaimsPage(itemId: itemId);
+    return page.items;
+  }
+
+  /// Fetch one page of claims, returning the keyset cursor for the next
+  /// page when one exists. Pass [cursor] to fetch subsequent pages.
+  Future<ClaimsPage> getClaimsPage({
+    String? itemId,
+    String? cursor,
+    int limit = 100,
+  }) async {
     try {
       final params = <String, String>{
-        'limit': '100',
-        'page': '1',
+        'limit': limit.toString(),
       };
       if (itemId != null) params['item_id'] = itemId;
+      if (cursor != null) {
+        params['cursor'] = cursor;
+      } else {
+        params['page'] = '1';
+      }
 
       final data = await _client.get(
         pathSegments: const ['api', 'v1', 'warranty-claims'],
@@ -23,9 +44,19 @@ class WarrantyClaimsRepository {
       );
       final claims = (data['data'] as List)
           .map((json) => WarrantyClaim.fromJson(json as Map<String, dynamic>))
-          .toList();
+          .toList(growable: false);
 
-      return claims;
+      final pagination =
+          (data['meta'] as Map<String, dynamic>?)?['pagination']
+              as Map<String, dynamic>?;
+      final nextCursor = pagination?['next_cursor'] as String?;
+      final hasMore = pagination?['has_more'] as bool? ?? (nextCursor != null);
+
+      return ClaimsPage(
+        items: claims,
+        nextCursor: nextCursor,
+        hasMore: hasMore,
+      );
     } catch (e) {
       debugPrint('[WarrantyClaimsRepository] getClaims failed: $e');
       rethrow;
@@ -111,4 +142,18 @@ class WarrantyClaimsRepository {
       rethrow;
     }
   }
+}
+
+/// One keyset-paginated page of warranty claims plus the cursor needed to
+/// fetch the next page (S2-T).
+class ClaimsPage {
+  final List<WarrantyClaim> items;
+  final String? nextCursor;
+  final bool hasMore;
+
+  const ClaimsPage({
+    required this.items,
+    required this.nextCursor,
+    required this.hasMore,
+  });
 }

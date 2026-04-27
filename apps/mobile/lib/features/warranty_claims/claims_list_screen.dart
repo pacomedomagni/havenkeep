@@ -179,13 +179,12 @@ class _ClaimCard extends ConsumerWidget {
   const _ClaimCard({required this.claim, required this.dateFormat});
 
   Color _statusColor(ClaimStatus status) => switch (status) {
-        ClaimStatus.pending => HavenColors.expiring,
-        ClaimStatus.submitted => HavenColors.expiring,
+        ClaimStatus.filed => HavenColors.expiring,
         ClaimStatus.inReview => HavenColors.primary,
         ClaimStatus.approved => HavenColors.active,
-        ClaimStatus.completed => HavenColors.active,
+        ClaimStatus.settled => HavenColors.active,
+        ClaimStatus.closed => HavenColors.textSecondary,
         ClaimStatus.denied => HavenColors.expired,
-        ClaimStatus.cancelled => HavenColors.expired,
       };
 
   @override

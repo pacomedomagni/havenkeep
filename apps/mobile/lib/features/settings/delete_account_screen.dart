@@ -10,6 +10,7 @@ import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import '../../../main.dart' show environmentConfigProvider;
 import '../../core/providers/auth_provider.dart';
 import '../../core/services/auth_repository.dart';
+import '../../core/utils/apple_sign_in_nonce.dart';
 import '../../core/utils/error_handler.dart';
 import '../../core/widgets/haven_loader.dart';
 import '../../core/utils/haven_haptics.dart';
@@ -203,17 +204,22 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
         redirectUri: Uri.parse(config.appleRedirectUri),
       );
     }
+    final appleNonce = AppleSignInNonce.generate();
     final credential = await SignInWithApple.getAppleIDCredential(
       scopes: [
         AppleIDAuthorizationScopes.email,
         AppleIDAuthorizationScopes.fullName,
       ],
+      nonce: appleNonce.hashed,
       webAuthenticationOptions: webOptions,
     );
     final idToken = credential.identityToken;
     if (idToken == null) return false;
 
-    final reauthed = await repo.signInWithApple(idToken: idToken);
+    final reauthed = await repo.signInWithApple(
+      idToken: idToken,
+      nonce: appleNonce.raw,
+    );
     return reauthed != null && reauthed.id == user.id;
   }
 

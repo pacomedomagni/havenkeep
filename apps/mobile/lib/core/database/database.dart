@@ -36,7 +36,7 @@ class HavenDatabase extends _$HavenDatabase {
       : super(_openConnection(userId: userId));
 
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -52,6 +52,11 @@ class HavenDatabase extends _$HavenDatabase {
                 break;
               case 3:
                 await m.createTable(syncConflicts);
+                break;
+              case 4:
+                // S2-E: thread an Idempotency-Key per queue entry so a
+                // re-sent in-flight action can't duplicate writes.
+                await m.addColumn(offlineQueue, offlineQueue.idempotencyKey);
                 break;
             }
           }
@@ -116,12 +121,22 @@ class HavenDatabase extends _$HavenDatabase {
   // OFFLINE QUEUE
   // ---------------------------------------------------------------------------
 
-  /// Fetch all pending (un-synced) queue entries, ordered oldest first.
+  /// Fetch all queue entries the sync loop should attempt — both `pending`
+  /// (never sent) and `in_flight` (sent but not yet acknowledged because
+  /// the previous run crashed mid-write). Ordered oldest first. Re-sending
+  /// an `in_flight` entry is safe because the entry carries an
+  /// idempotency key the server uses to collapse duplicate writes (S2-C).
   Future<List<OfflineQueueData>> getPendingActions() =>
       (select(offlineQueue)
-            ..where((t) => t.status.equals('pending'))
+            ..where((t) => t.status.isIn(['pending', 'in_flight']))
             ..orderBy([(t) => OrderingTerm.asc(t.createdAt)]))
           .get();
+
+  /// Mark a queued action as currently being sent. Persisted before the
+  /// network call so a crash mid-flight leaves a recoverable record.
+  Future<void> markActionInFlight(int actionId) =>
+      (update(offlineQueue)..where((t) => t.id.equals(actionId)))
+          .write(const OfflineQueueCompanion(status: Value('in_flight')));
 
   /// Count of pending sync items.
   Future<int> get pendingCount async {
@@ -303,11 +318,13 @@ LazyDatabase _openConnection({String? userId}) {
 
     final file = await resolveDatabaseFile(userId: userId);
     final keyBytes = await SecureStorageService.getOrCreateDbEncryptionKey();
-    // SQLCipher's PRAGMA key accepts a hex blob literal — `x'…'` — which
-    // tells SQLCipher to use the raw bytes verbatim and skip its own
-    // PBKDF2 derivation step (we already have a 256-bit CSPRNG key).
-    final passphrase = "x'${_bytesToHex(keyBytes)}'";
-
+    // S2-G: minimise the lifetime of the raw key in the Dart heap. Convert
+    // to the SQLCipher `x'…'` blob literal once, zero out the byte buffer
+    // immediately, and don't capture the passphrase outside the setup
+    // closure. Dart's GC won't proactively zero memory for us — this is
+    // best-effort under the language's memory model, but it shrinks the
+    // window where a heap dump could recover the key from minutes to one
+    // database open.
     return NativeDatabase(
       file,
       setup: (db) {
@@ -321,7 +338,16 @@ LazyDatabase _openConnection({String? userId}) {
             'HavenKeep database.',
           );
         }
-        db.execute('PRAGMA key = "$passphrase";');
+        final passphrase = "x'${_bytesToHex(keyBytes)}'";
+        try {
+          db.execute('PRAGMA key = "$passphrase";');
+        } finally {
+          // Wipe the bytes; the hex string and `passphrase` go out of
+          // scope when this closure returns.
+          for (var i = 0; i < keyBytes.length; i++) {
+            keyBytes[i] = 0;
+          }
+        }
       },
     );
   });

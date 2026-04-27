@@ -278,36 +278,36 @@ Tests, logs, dead deps, defense in depth. After Phase 3: regressions on the Phas
 
 ```
 Phase 1
-[ ] 1.1   long-password lockout
-[ ] 1.2   claim status enum
-[ ] 1.3   FCM registration
-[ ] 1.4   admin soft-delete filters
-[ ] 1.5   reconciliation float drift
-[ ] 1.6   partner status field
-[ ] 1.7   push token poisoning
-[ ] 1.8   webhook dead-letter race
-[ ] 1.9   Apple nonce
-[ ] 1.10  idempotency key generation
-[ ] 1.11  idempotency key honored server-side
-[ ] 1.12  durable queue ack
+[x] 1.1   long-password lockout
+[x] 1.2   claim status enum
+[x] 1.3   FCM registration
+[x] 1.4   admin soft-delete filters
+[x] 1.5   reconciliation float drift
+[x] 1.6   partner status field
+[x] 1.7   push token poisoning
+[x] 1.8   webhook dead-letter race
+[x] 1.9   Apple nonce
+[x] 1.10  idempotency key generation
+[x] 1.11  idempotency key honored server-side
+[x] 1.12  durable queue ack
 
 Phase 2
-[ ] 2.1   warranty status UTC (mobile)
-[ ] 2.2   reminder window UTC (server)
-[ ] 2.3   claim amount service-level invariant
-[ ] 2.4   sqlcipher key wipe
-[ ] 2.5   push route allowlist
-[ ] 2.6   reconciliation archived filter
-[ ] 2.7   audit hash-chain verification + cron
-[ ] 2.8   seed remaining category defaults
-[ ] 2.9   email scanner txn boundary
-[ ] 2.10  dashboard logout CSRF
-[ ] 2.11  dashboard layout role gates
-[ ] 2.12  Stripe account masking
-[ ] 2.13  itemDetailProvider autoDispose
-[ ] 2.14  money locale-aware
-[ ] 2.15  single-flight refresh
-[ ] 2.16  mobile keyset pagination
+[x] 2.1   warranty status UTC (mobile)
+[x] 2.2   reminder window UTC (server)
+[x] 2.3   claim amount service-level invariant
+[x] 2.4   sqlcipher key wipe
+[x] 2.5   push route allowlist
+[x] 2.6   reconciliation archived filter
+[x] 2.7   audit hash-chain verification + cron
+[x] 2.8   seed remaining category defaults
+[x] 2.9   email scanner txn boundary
+[x] 2.10  dashboard logout CSRF
+[x] 2.11  dashboard layout role gates
+[x] 2.12  Stripe account masking
+[x] 2.13  itemDetailProvider autoDispose
+[x] 2.14  money locale-aware
+[x] 2.15  single-flight refresh
+[x] 2.16  mobile keyset pagination
 
 Phase 3
 [ ] 3.1   partner analytics cents

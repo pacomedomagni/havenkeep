@@ -1,3 +1,4 @@
+import '_unknown_enum_log.dart';
 import 'enums.dart';
 
 /// A realtor / builder / contractor partner profile.
@@ -49,8 +50,15 @@ class Partner {
   /// JSON; presence is surfaced as a boolean only.
   final bool stripeOnboarded;
 
-  /// Approval flag. New partners default to FALSE pending admin approval
-  /// (Ch08-Partner-D058 — mig 017 changed the DB default).
+  /// Three-state approval status (mig 071 / Ch10-W054). This is the source
+  /// of truth — `isActive` is kept in sync for legacy callers but new code
+  /// should branch on [status] so it can distinguish "pending review" from
+  /// "explicitly rejected."
+  final PartnerStatus status;
+
+  /// Legacy approval flag — true iff [status] is [PartnerStatus.active].
+  /// Retained for backwards compatibility with screens that haven't migrated
+  /// to [status] yet (Ch08-Partner-D058 — mig 017 changed the DB default).
   final bool isActive;
 
   /// Identity-verified flag (Ch08-Partner-D059).
@@ -79,6 +87,7 @@ class Partner {
     this.defaultMessage,
     this.defaultPremiumMonths = 6,
     this.stripeOnboarded = false,
+    this.status = PartnerStatus.pending,
     this.isActive = false,
     this.isVerified = false,
     this.serviceAreas = const [],
@@ -107,6 +116,7 @@ class Partner {
           (json['default_premium_months'] as num?)?.toInt() ?? 6,
       stripeOnboarded: json['stripe_onboarded'] as bool? ??
           (json['has_stripe_account'] as bool? ?? false),
+      status: PartnerStatus.fromJson(json['status'] as String? ?? 'pending'),
       isActive: json['is_active'] as bool? ?? false,
       isVerified: json['is_verified'] as bool? ?? false,
       serviceAreas: json['service_areas'] is List
@@ -133,6 +143,7 @@ class Partner {
         'default_message': defaultMessage,
         'default_premium_months': defaultPremiumMonths,
         'stripe_onboarded': stripeOnboarded,
+        'status': status.toJson(),
         'is_active': isActive,
         'is_verified': isVerified,
         'service_areas': serviceAreas,
@@ -160,6 +171,7 @@ class Partner {
     bool clearDefaultMessage = false,
     int? defaultPremiumMonths,
     bool? stripeOnboarded,
+    PartnerStatus? status,
     bool? isActive,
     bool? isVerified,
     List<String>? serviceAreas,
@@ -182,6 +194,7 @@ class Partner {
           clearDefaultMessage ? null : (defaultMessage ?? this.defaultMessage),
       defaultPremiumMonths: defaultPremiumMonths ?? this.defaultPremiumMonths,
       stripeOnboarded: stripeOnboarded ?? this.stripeOnboarded,
+      status: status ?? this.status,
       isActive: isActive ?? this.isActive,
       isVerified: isVerified ?? this.isVerified,
       serviceAreas: serviceAreas ?? this.serviceAreas,
@@ -201,6 +214,39 @@ class Partner {
 
   @override
   int get hashCode => id.hashCode;
+}
+
+/// Mirrors the `partner_status` Postgres enum (mig 071 / Ch10-W054):
+/// `pending | active | rejected`.
+enum PartnerStatus {
+  pending,
+  active,
+  rejected;
+
+  static const Map<String, PartnerStatus> _byName = {
+    'pending': PartnerStatus.pending,
+    'active': PartnerStatus.active,
+    'rejected': PartnerStatus.rejected,
+  };
+
+  factory PartnerStatus.fromJson(String value) {
+    final mapped = _byName[value];
+    if (mapped != null) return mapped;
+    logUnknownEnumValue(
+      enumName: 'PartnerStatus',
+      unknownValue: value,
+      fallback: 'pending',
+    );
+    return PartnerStatus.pending;
+  }
+
+  String toJson() => name;
+
+  String get displayLabel => switch (this) {
+        PartnerStatus.pending => 'Pending',
+        PartnerStatus.active => 'Active',
+        PartnerStatus.rejected => 'Rejected',
+      };
 }
 
 /// Mirrors the `partner_tier` Postgres enum (basic / premium / platinum).

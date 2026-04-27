@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { API_URL } from '@/lib/config';
 import { ACCESS_TOKEN_COOKIE } from '@/lib/auth';
+import { csrfTokenOk } from '@/lib/csrf';
 
 // ─── Hardening rules (audit Ch10-W001..W005, W028) ───
 //
@@ -78,23 +79,6 @@ function originGuardOk(request: NextRequest): boolean {
   // (caller handles GET vs mutation separately).
   const fetchSite = request.headers.get('sec-fetch-site');
   return fetchSite === 'same-origin' || fetchSite === 'same-site';
-}
-
-const CSRF_COOKIE = 'csrf_token';
-const CSRF_HEADER = 'x-csrf-token';
-
-function csrfTokenOk(request: NextRequest): boolean {
-  const cookieToken = request.cookies.get(CSRF_COOKIE)?.value;
-  const headerToken = request.headers.get(CSRF_HEADER);
-  if (!cookieToken || !headerToken) return false;
-  if (cookieToken.length < 16 || headerToken.length < 16) return false;
-  // Constant-time-ish: compare lengths first, then byte-by-byte.
-  if (cookieToken.length !== headerToken.length) return false;
-  let same = 0;
-  for (let i = 0; i < cookieToken.length; i++) {
-    same |= cookieToken.charCodeAt(i) ^ headerToken.charCodeAt(i);
-  }
-  return same === 0;
 }
 
 async function proxyRequest(request: NextRequest, pathParts: string[]) {

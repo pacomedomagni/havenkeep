@@ -19,6 +19,7 @@ import {
   itemsListRateLimiter,
   csvExportRateLimiter,
 } from '../middleware/rateLimiter';
+import { idempotency } from '../middleware/idempotency';
 import { asyncHandler } from '../utils/async-handler';
 import { sendSuccess, sendMessage } from '../utils/response';
 
@@ -393,7 +394,7 @@ router.get('/:id', validate(uuidParamSchema, 'params'), asyncHandler(async (req:
 }));
 
 // Create item
-router.post('/', writeRateLimiter, validate(createItemSchema), asyncHandler(async (req: AuthRequest, res) => {
+router.post('/', writeRateLimiter, validate(createItemSchema), idempotency('items:create'), asyncHandler(async (req: AuthRequest, res) => {
   const client = await getClient();
   try {
     const {
@@ -527,7 +528,7 @@ router.post('/', writeRateLimiter, validate(createItemSchema), asyncHandler(asyn
 
 // Update item — keyed-allowlist update, atomic warranty recompute, ownership
 // check on home_id moves (audit Ch02-F011/F012/F017/F018).
-router.put('/:id', writeRateLimiter, validate(uuidParamSchema, 'params'), validate(updateItemSchema), asyncHandler(async (req: AuthRequest, res) => {
+router.put('/:id', writeRateLimiter, validate(uuidParamSchema, 'params'), validate(updateItemSchema), idempotency('items:update'), asyncHandler(async (req: AuthRequest, res) => {
   const { id } = req.params;
   const updates = req.body;
 
@@ -675,7 +676,7 @@ router.put('/:id', writeRateLimiter, validate(uuidParamSchema, 'params'), valida
 }));
 
 // Delete item
-router.delete('/:id', writeRateLimiter, validate(uuidParamSchema, 'params'), asyncHandler(async (req: AuthRequest, res) => {
+router.delete('/:id', writeRateLimiter, validate(uuidParamSchema, 'params'), idempotency('items:delete'), asyncHandler(async (req: AuthRequest, res) => {
   const client = await getClient();
   try {
     await client.query('BEGIN');

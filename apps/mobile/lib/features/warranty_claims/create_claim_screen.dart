@@ -39,7 +39,7 @@ class _CreateClaimScreenState extends ConsumerState<CreateClaimScreen> {
   final _notesController = TextEditingController();
 
   DateTime _claimDate = DateTime.now();
-  ClaimStatus _status = ClaimStatus.pending;
+  ClaimStatus _status = ClaimStatus.filed;
   bool _saving = false;
   final List<File> _attachments = [];
 

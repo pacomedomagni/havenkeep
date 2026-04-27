@@ -26,6 +26,38 @@ function getCsrfToken(): string | null {
 
 const MUTATION_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
+// S2-S: a burst of 401s shouldn't fan out into a stampede of /auth/refresh
+// calls — each one rotates the refresh family on the server, so the second
+// concurrent caller would invalidate the first's freshly-minted access
+// token. Funnel everyone through a single shared promise; the first 401
+// kicks off the refresh, the rest await the same result.
+let inFlightRefresh: Promise<boolean> | null = null;
+
+function refreshOnce(timeoutMs: number): Promise<boolean> {
+  if (inFlightRefresh) return inFlightRefresh;
+  const refreshController = new AbortController();
+  const refreshTimeout = setTimeout(() => refreshController.abort(), timeoutMs);
+  inFlightRefresh = (async () => {
+    try {
+      const refreshResponse = await fetch('/api/auth/refresh', {
+        method: 'POST',
+        credentials: 'include',
+        signal: refreshController.signal,
+      });
+      return refreshResponse.ok;
+    } catch {
+      return false;
+    } finally {
+      clearTimeout(refreshTimeout);
+      // Clear the slot so the *next* 401 (after this one resolves)
+      // can start a new refresh — we don't want to cache a permanent
+      // failure or success across the session.
+      inFlightRefresh = null;
+    }
+  })();
+  return inFlightRefresh;
+}
+
 /**
  * Client-side API helper. JWT is in httpOnly cookies; mutating requests
  * must carry the double-submit CSRF token in the `X-CSRF-Token` header.
@@ -94,19 +126,8 @@ export async function apiClient<T = unknown>(
 
   if (response.status === 401 && retryOnAuthFailure) {
     // Single attempt — never retry the retry. (Ch10-W048)
-    let refreshOk = false;
-    try {
-      const refreshController = new AbortController();
-      const refreshTimeout = setTimeout(() => refreshController.abort(), timeoutMs);
-      const refreshResponse = await fetch('/api/auth/refresh', {
-        method: 'POST',
-        credentials: 'include',
-        signal: refreshController.signal,
-      }).finally(() => clearTimeout(refreshTimeout));
-      refreshOk = refreshResponse.ok;
-    } catch {
-      refreshOk = false;
-    }
+    // Single-flight refresh per S2-S: concurrent 401s share one /auth/refresh.
+    const refreshOk = await refreshOnce(timeoutMs);
 
     if (refreshOk) {
       try {

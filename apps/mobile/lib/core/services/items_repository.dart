@@ -172,12 +172,14 @@ class ItemsRepository {
   // CREATE
   // ============================================
 
-  /// Create a new item.
-  Future<Item> createItem(Item item) async {
+  /// Create a new item. Pass [idempotencyKey] from the offline-sync queue
+  /// so a re-sent in-flight entry doesn't duplicate the row server-side.
+  Future<Item> createItem(Item item, {String? idempotencyKey}) async {
     try {
       final data = await _client.post(
         pathSegments: const ['api', 'v1', 'items'],
         body: item.toInsertJson(),
+        idempotencyKey: idempotencyKey,
       );
       return Item.fromJson(data['data'] as Map<String, dynamic>);
     } catch (e) {
@@ -191,7 +193,7 @@ class ItemsRepository {
   // ============================================
 
   /// Update an existing item.
-  Future<Item> updateItem(Item item) async {
+  Future<Item> updateItem(Item item, {String? idempotencyKey}) async {
     try {
       final json = item.toJson();
       // Strip server-managed + read-only fields. The API's updateItemSchema
@@ -209,6 +211,7 @@ class ItemsRepository {
       final data = await _client.put(
         pathSegments: ['api', 'v1', 'items', item.id],
         body: json,
+        idempotencyKey: idempotencyKey,
       );
       return Item.fromJson(data['data'] as Map<String, dynamic>);
     } catch (e) {
@@ -248,10 +251,11 @@ class ItemsRepository {
   // ============================================
 
   /// Permanently delete an item.
-  Future<void> deleteItem(String id) async {
+  Future<void> deleteItem(String id, {String? idempotencyKey}) async {
     try {
       await _client.delete(
         pathSegments: ['api', 'v1', 'items', id],
+        idempotencyKey: idempotencyKey,
       );
     } catch (e) {
       debugPrint('[ItemsRepository] deleteItem failed: $e');

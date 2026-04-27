@@ -17,6 +17,8 @@ import { EmailService } from '../services/email.service';
 import { blacklistTokenAuto } from '../utils/token-blacklist';
 import { generateUniqueReferralCode } from '../utils/referral-code';
 import { isDisposableEmail } from '../utils/disposable-emails';
+import { preHashForBcrypt } from '../utils/password';
+import { getRedisClient } from '../utils/redis';
 
 const router = Router();
 
@@ -50,17 +52,6 @@ function hashToken(token: string): string {
 const hashRefreshToken = hashToken;
 
 /**
- * Pre-hash a password to defang bcrypt's 72-byte truncation (Ch01-F005).
- * bcrypt(SHA-256(password) base64-encoded) gives a fixed 44-char input that
- * uses the full keyspace of the original password.  We cap to 72 bytes
- * post-hash too so bcrypt's internal limit is never reached even if the
- * implementation changes.
- */
-function preHashForBcrypt(password: string): string {
-  return crypto.createHash('sha256').update(password, 'utf8').digest('base64').slice(0, 72);
-}
-
-/**
  * Sanitize a free-form string for inclusion in audit-log descriptions
  * (Ch01-F058). Strips control / non-printable characters and caps length so
  * a malicious email like `attacker\nrole_change=admin\n@evil.com` can't
@@ -87,6 +78,54 @@ const getIpAddress = (req: any): string => {
   }
   return ip;
 };
+
+/**
+ * S1-H: record an Apple Sign-In nonce hash as consumed so a replay of the
+ * same id-token + nonce pair fails the second time. Prefers Redis when
+ * available (SET … NX EX gives O(1) replay detection without DB writes);
+ * falls back to a small Postgres table whose PRIMARY KEY uniqueness
+ * enforces the same invariant.
+ *
+ * Throws an AppError(401) on replay. The TTL covers any realistic delivery
+ * slop on the Apple-issued token (Apple's exp is ~10 min; we keep nonces
+ * for 5 min from consumption).
+ */
+const APPLE_NONCE_TTL_SECONDS = 300;
+
+async function markAppleNonceConsumed(nonceHash: string): Promise<void> {
+  const key = `apple_nonce:${nonceHash}`;
+  try {
+    const redis = await getRedisClient();
+    const setResult = await redis.set(key, '1', { NX: true, EX: APPLE_NONCE_TTL_SECONDS });
+    if (setResult === null) {
+      // SET NX returned null => key already existed => replay.
+      throw new AppError('Apple nonce has already been used', 401);
+    }
+    return;
+  } catch (err) {
+    if (err instanceof AppError) throw err;
+    // Redis unreachable — fall through to the DB-backed table.
+    logger.warn({ err }, 'Apple nonce check via Redis failed, falling back to DB');
+  }
+
+  try {
+    const expiresAt = new Date(Date.now() + APPLE_NONCE_TTL_SECONDS * 1000);
+    const result = await query(
+      `INSERT INTO apple_sign_in_nonces (nonce_hash, expires_at)
+         VALUES ($1, $2)
+         ON CONFLICT (nonce_hash) DO NOTHING
+         RETURNING nonce_hash`,
+      [nonceHash, expiresAt],
+    );
+    if (result.rowCount === 0) {
+      throw new AppError('Apple nonce has already been used', 401);
+    }
+  } catch (err) {
+    if (err instanceof AppError) throw err;
+    logger.error({ err }, 'Apple nonce DB insert failed');
+    throw new AppError('Could not validate sign-in token', 500);
+  }
+}
 
 async function resolveReferredBy(referralCode?: string): Promise<string | null> {
   if (!referralCode) return null;
@@ -544,7 +583,6 @@ router.post('/logout', authenticate, refreshRateLimiter, validate(logoutSchema),
     // Drop the cached user row so the next request after re-login isn't
     // served the stale 10s cache entry (Ch01-F048).
     try {
-      const { getRedisClient } = await import('../utils/redis');
       const redis = await getRedisClient();
       await redis.del(`user:${userId}`);
     } catch (err) {
@@ -969,8 +1007,14 @@ router.post('/google', authRateLimiter, validate(googleOAuthSchema), async (req,
 });
 
 // Apple OAuth — accept ID token from mobile, verify, create/find user, return JWT
+//
+// S1-H: `nonce` is the unhashed random string the client generated for this
+// sign-in attempt. The client passed SHA-256(nonce) to Apple's SDK; we hash
+// it again and confirm it matches the `nonce` claim baked into the ID token.
+// Required (not optional) — without it a stolen ID token is replayable.
 const appleOAuthSchema = Joi.object({
   idToken: Joi.string().required(),
+  nonce: Joi.string().min(8).max(256).required(),
   fullName: Joi.string().optional(),
   referralCode: Joi.string().optional(),
 });
@@ -989,7 +1033,13 @@ router.post('/apple', authRateLimiter, validate(appleOAuthSchema), async (req, r
       throw new AppError('Apple Sign-In is not configured', 501);
     }
 
-    const { idToken, fullName: appleFullName, referralCode } = req.body;
+    const { idToken, nonce, fullName: appleFullName, referralCode } = req.body;
+
+    // S1-H: hash the client-supplied nonce once so we can compare against the
+    // ID token's `nonce` claim *and* use the hash as the replay-protection
+    // key. The Apple SDK requires the SHA-256 hex of the random value as
+    // input and bakes the *same* hex into the resulting ID token's claims.
+    const nonceHash = crypto.createHash('sha256').update(nonce, 'utf8').digest('hex');
 
     // Verify Apple ID token against Apple's public keys (JWKS, lazy-init singleton)
     if (!appleJwksClientInstance) {
@@ -1025,11 +1075,23 @@ router.post('/apple', authRateLimiter, validate(appleOAuthSchema), async (req, r
       email?: string;
       email_verified?: boolean;
       aud?: string;
+      nonce?: string;
     };
 
     if (!decoded || !decoded.sub) {
       throw new AppError('Invalid Apple token', 401);
     }
+
+    // S1-H: verify the SHA-256 of the client-supplied nonce matches the
+    // `nonce` claim Apple baked into the token, then record the hash so the
+    // same id-token+nonce pair can never be replayed.
+    if (typeof decoded.nonce !== 'string' || decoded.nonce.length === 0) {
+      throw new AppError('Apple token missing nonce claim', 401);
+    }
+    if (decoded.nonce !== nonceHash) {
+      throw new AppError('Apple token nonce mismatch', 401);
+    }
+    await markAppleNonceConsumed(nonceHash);
 
     const appleUserId = decoded.sub;
     let email = decoded.email?.toLowerCase();

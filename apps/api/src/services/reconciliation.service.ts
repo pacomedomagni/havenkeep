@@ -1,5 +1,6 @@
 import { pool } from '../db';
 import { logger } from '../utils/logger';
+import { decimalToCents, centsToDecimalString } from '../utils/money';
 
 /**
  * ReconciliationService — detects and fixes drift between source tables
@@ -39,12 +40,19 @@ export class ReconciliationService {
           COALESCE(mh.actual_maintenance, 0)    AS actual_maintenance
         FROM user_analytics ua
         LEFT JOIN (
+          -- S2-I: claims for archived items shouldn't count toward the
+          -- "lifetime savings" headline. mig 028 changed item_id to ON
+          -- DELETE SET NULL, so a claim whose item was deleted survives
+          -- with item_id=NULL — keep those (they represent real savings).
+          -- Only filter where the join finds an *archived* item.
           SELECT
-            user_id,
-            SUM(amount_saved)  AS actual_savings,
-            COUNT(*)           AS actual_claims
-          FROM warranty_claims
-          GROUP BY user_id
+            wc.user_id,
+            SUM(wc.amount_saved)  AS actual_savings,
+            COUNT(*)              AS actual_claims
+          FROM warranty_claims wc
+          LEFT JOIN items i ON i.id = wc.item_id
+          WHERE i.id IS NULL OR i.is_archived = FALSE
+          GROUP BY wc.user_id
         ) wc ON wc.user_id = ua.user_id
         LEFT JOIN (
           SELECT
@@ -60,16 +68,19 @@ export class ReconciliationService {
       for (const row of result.rows) {
         const drifts: string[] = [];
 
-        const storedSavings = parseFloat(row.stored_savings) || 0;
-        const actualSavings = parseFloat(row.actual_savings) || 0;
+        // S1-E: compare in integer cents. parseFloat on a DECIMAL string can
+        // produce values that don't equal each other across recomputes
+        // (e.g. 19.99 vs 19.989999999999998), causing phantom drift.
+        const storedSavingsCents = decimalToCents(row.stored_savings);
+        const actualSavingsCents = decimalToCents(row.actual_savings);
         const storedClaims = parseInt(row.stored_claims, 10) || 0;
         const actualClaims = parseInt(row.actual_claims, 10) || 0;
         const storedMaintenance = parseInt(row.stored_maintenance, 10) || 0;
         const actualMaintenance = parseInt(row.actual_maintenance, 10) || 0;
 
-        if (storedSavings !== actualSavings) {
+        if (storedSavingsCents !== actualSavingsCents) {
           drifts.push(
-            `total_warranty_savings: stored=${storedSavings}, actual=${actualSavings}`
+            `total_warranty_savings: stored=${storedSavingsCents}c, actual=${actualSavingsCents}c`
           );
         }
         if (storedClaims !== actualClaims) {
@@ -101,7 +112,12 @@ export class ReconciliationService {
                  total_maintenance_completed = $3,
                  updated_at                  = NOW()
              WHERE user_id = $4`,
-            [actualSavings, actualClaims, actualMaintenance, row.user_id]
+            [
+              centsToDecimalString(actualSavingsCents),
+              actualClaims,
+              actualMaintenance,
+              row.user_id,
+            ]
           );
 
           stats.discrepanciesFixed += drifts.length;

@@ -36,7 +36,7 @@ WarrantyClaim createTestClaim({
     claimDate: now,
     repairCost: repairCost,
     amountSaved: amountSaved,
-    status: status ?? ClaimStatus.pending,
+    status: status ?? ClaimStatus.filed,
     createdAt: now,
     updatedAt: now,
   );

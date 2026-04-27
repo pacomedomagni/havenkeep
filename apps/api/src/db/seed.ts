@@ -15,10 +15,10 @@
  */
 
 import bcrypt from 'bcryptjs';
-import crypto from 'crypto';
 import { pool } from './index';
 import { config } from '../config';
 import { logger } from '../utils/logger';
+import { preHashForBcrypt } from '../utils/password';
 
 interface SeedUserSpec {
   email: string;
@@ -52,13 +52,6 @@ const SEED_USERS: SeedUserSpec[] = [
     withDefaultHome: false,
   },
 ];
-
-// Mirror the register handler's pre-hash so the resulting bcrypt hash is
-// compatible with the production sign-in path (bcrypt only sees a 44-char
-// SHA-256 base64 string, never the raw password).
-function preHashForBcrypt(password: string): string {
-  return crypto.createHash('sha256').update(password, 'utf8').digest('base64').slice(0, 72);
-}
 
 async function seedUser(spec: SeedUserSpec): Promise<{ userId: string; created: boolean }> {
   const passwordHash = await bcrypt.hash(preHashForBcrypt(spec.password), 10);

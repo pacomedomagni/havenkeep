@@ -22,7 +22,7 @@ void main() {
     String id = 'claim-1',
     String itemId = 'item-1',
     String userId = 'user-1',
-    String status = 'pending',
+    String status = 'filed',
     double repairCost = 150.0,
     double amountSaved = 150.0,
   }) {

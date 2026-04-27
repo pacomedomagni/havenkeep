@@ -11,6 +11,7 @@ import 'package:shared_ui/shared_ui.dart';
 
 import '../../main.dart' show environmentConfigProvider;
 import '../../core/providers/auth_provider.dart';
+import '../../core/utils/apple_sign_in_nonce.dart';
 import '../../core/utils/error_handler.dart';
 import '../../core/widgets/havenkeep_logo.dart';
 import 'forgot_password_screen.dart';
@@ -103,11 +104,17 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
         );
       }
 
+      // S1-H: per-attempt random nonce. Pass the SHA-256 to Apple's SDK and
+      // the unhashed value to the API so the server can verify the token's
+      // `nonce` claim and reject replays.
+      final appleNonce = AppleSignInNonce.generate();
+
       final credential = await SignInWithApple.getAppleIDCredential(
         scopes: [
           AppleIDAuthorizationScopes.email,
           AppleIDAuthorizationScopes.fullName,
         ],
+        nonce: appleNonce.hashed,
         webAuthenticationOptions: webOptions,
       );
 
@@ -128,6 +135,7 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
 
       await ref.read(currentUserProvider.notifier).signInWithApple(
             idToken: idToken,
+            nonce: appleNonce.raw,
             fullName: fullName,
           );
       // Navigation handled by GoRouter auth guard

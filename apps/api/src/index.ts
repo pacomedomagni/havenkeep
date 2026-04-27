@@ -13,6 +13,7 @@ import { closeRedisClient } from './utils/redis';
 import { NotificationsService } from './services/notifications.service';
 import { WarrantyPurchasesService } from './services/warranty-purchases.service';
 import { ReconciliationService } from './services/reconciliation.service';
+import { AuditService } from './services/audit.service';
 import { pool, isDatabaseReady } from './db';
 import { createApp } from './app';
 
@@ -145,6 +146,22 @@ function scheduleExpirationNotifications() {
       // the homebuyer never redeemed.
       expireUnactivatedPartnerGifts().catch((err) =>
         logger.error({ err }, 'Partner gift auto-expiry job failed'),
+      ),
+      // S2-K: daily audit log hash-chain check. A break here means a row
+      // was tampered with after the fact; we surface as `error` so any
+      // log forwarder pages on it.
+      AuditService.verifyHashChain().then(
+        (broken) => {
+          if (broken.length > 0) {
+            logger.error(
+              { brokenCount: broken.length, firstBrokenAt: broken[0] },
+              'Audit log hash chain INTEGRITY FAILURE — possible tampering',
+            );
+          } else {
+            logger.info('Audit log hash chain verification passed');
+          }
+        },
+        (err) => logger.error({ err }, 'Audit hash chain verification failed'),
       ),
     ]);
 

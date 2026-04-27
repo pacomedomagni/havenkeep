@@ -17,6 +17,7 @@ import { EmailScannerService } from '../services/email-scanner.service';
 import { verifyPremiumRateLimiter, passwordChangeRateLimiter, writeRateLimiter } from '../middleware/rateLimiter';
 import { asyncHandler } from '../utils/async-handler';
 import { sendSuccess, sendMessage } from '../utils/response';
+import { preHashForBcrypt } from '../utils/password';
 
 const router = Router();
 router.use(authenticate);
@@ -122,17 +123,42 @@ router.put('/me', writeRateLimiter, validate(updateUserSchema), asyncHandler(asy
   });
 }));
 
-// Register push notification token
+// Register push notification token.
+//
+// S1-I: an FCM token uniquely identifies a single device install. If a
+// previous owner of this device sent the same token under a different
+// account, we must not let their row coexist — both rows would receive
+// pushes addressed to the new owner. The fix: in one transaction, evict
+// any rows for this token belonging to other users, then upsert ours.
+// This matches the real-world flow (sign out → sign in as someone else
+// on the same phone) and is safe because FCM rotates tokens on app
+// reinstall / data clear.
 router.post('/push-token', writeRateLimiter, validate(pushTokenSchema), asyncHandler(async (req, res) => {
   const { fcmToken, platform } = req.body;
+  const userId = req.user!.id;
+  const platformValue = platform || 'unknown';
 
-  await query(
-    `INSERT INTO user_push_tokens (user_id, fcm_token, platform, updated_at)
-     VALUES ($1, $2, $3, NOW())
-     ON CONFLICT (user_id, fcm_token)
-     DO UPDATE SET platform = $3, updated_at = NOW()`,
-    [req.user!.id, fcmToken, platform || 'unknown']
-  );
+  const client = await getClient();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      `DELETE FROM user_push_tokens WHERE fcm_token = $1 AND user_id <> $2`,
+      [fcmToken, userId],
+    );
+    await client.query(
+      `INSERT INTO user_push_tokens (user_id, fcm_token, platform, updated_at)
+       VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (user_id, fcm_token)
+       DO UPDATE SET platform = $3, updated_at = NOW()`,
+      [userId, fcmToken, platformValue],
+    );
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
 
   sendMessage(res, 'Push token registered');
 }));
@@ -282,7 +308,7 @@ router.post('/me/change-email', writeRateLimiter, validate(changeEmailSchema), a
   }
 
   // Verify current password
-  const valid = await bcrypt.compare(password, user.password_hash);
+  const valid = await bcrypt.compare(preHashForBcrypt(password), user.password_hash);
   if (!valid) {
     throw new AppError('Incorrect password', 401);
   }
@@ -369,19 +395,19 @@ router.put('/me/password', passwordChangeRateLimiter, validate(changePasswordSch
   }
 
   // Verify current password
-  const valid = await bcrypt.compare(currentPassword, userResult.rows[0].password_hash);
+  const valid = await bcrypt.compare(preHashForBcrypt(currentPassword), userResult.rows[0].password_hash);
   if (!valid) {
     throw new AppError('Current password is incorrect', 401);
   }
 
   // Prevent setting the same password
-  const samePassword = await bcrypt.compare(newPassword, userResult.rows[0].password_hash);
+  const samePassword = await bcrypt.compare(preHashForBcrypt(newPassword), userResult.rows[0].password_hash);
   if (samePassword) {
     throw new AppError('New password must be different from current password', 400);
   }
 
   // Hash and update new password
-  const newHash = await bcrypt.hash(newPassword, 12);
+  const newHash = await bcrypt.hash(preHashForBcrypt(newPassword), 12);
   await query(
     `UPDATE users SET password_hash = $1 WHERE id = $2`,
     [newHash, req.user!.id]
@@ -433,7 +459,7 @@ router.delete('/me', validate(deleteAccountSchema), asyncHandler(async (req, res
     if (!password) {
       throw new AppError('Password is required to delete your account', 400);
     }
-    const valid = await bcrypt.compare(password, user.password_hash);
+    const valid = await bcrypt.compare(preHashForBcrypt(password), user.password_hash);
     if (!valid) {
       throw new AppError('Invalid password', 401);
     }

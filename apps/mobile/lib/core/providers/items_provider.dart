@@ -284,8 +284,14 @@ final needsAttentionProvider = Provider<AsyncValue<List<Item>>>((ref) {
 });
 
 /// Single item detail by ID.
+///
+/// S2-Q: `autoDispose` so closing a detail screen releases the cached
+/// row instead of accumulating one entry per item the user has ever
+/// inspected this session. The list providers (`itemsProvider`,
+/// `topItemsProvider`, etc.) are still long-lived — only this per-id
+/// family is bounded.
 final itemDetailProvider =
-    FutureProvider.family<Item, String>((ref, itemId) async {
+    FutureProvider.family.autoDispose<Item, String>((ref, itemId) async {
   return ref.read(itemsRepositoryProvider).getItemById(itemId);
 });
 

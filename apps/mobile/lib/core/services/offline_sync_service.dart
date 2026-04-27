@@ -12,6 +12,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_models/shared_models.dart';
+import 'package:uuid/uuid.dart';
 
 import '../database/database.dart';
 import '../providers/auth_provider.dart';
@@ -198,6 +199,11 @@ class OfflineSyncService {
       await _db.removeOldestEntries(_kQueueEvictionCount);
     }
 
+    // S2-E: stamp a UUID at enqueue time so the same key flows through
+    // every retry of this entry. Server-side idempotency middleware uses
+    // (user_id, route_key, idempotency_key) to collapse duplicate writes.
+    final idempotencyKey = const Uuid().v4();
+
     await _db.enqueueAction(OfflineQueueCompanion(
       entityType: Value(entityType),
       entityId: Value(entityId),
@@ -206,6 +212,7 @@ class OfflineSyncService {
       status: const Value('pending'),
       createdAt: Value(DateTime.now()),
       attempts: const Value(0),
+      idempotencyKey: Value(idempotencyKey),
     ));
   }
 
@@ -253,6 +260,13 @@ class OfflineSyncService {
         }
 
         try {
+          // S2-C: flip to `in_flight` *before* the network call. If the
+          // process is killed between now and the markActionSynced below,
+          // the next run will pick this entry back up via getPendingActions
+          // and re-send with the same idempotency key — the server's
+          // request_idempotency cache will return the cached response
+          // without duplicating the underlying write.
+          await _db.markActionInFlight(entry.id);
           await _processEntry(entry);
           await _db.markActionSynced(entry.id);
           final domain = _domainFor(entry.action);
@@ -367,6 +381,11 @@ class OfflineSyncService {
   }
 
   /// Process a single queue entry by dispatching to the appropriate repository.
+  ///
+  /// Threads [OfflineQueueData.idempotencyKey] through every mutating call so
+  /// that a re-sent in-flight entry collapses to the original write
+  /// server-side. Entries enqueued before the schema-v4 migration have a
+  /// null key and degrade gracefully (server treats them as non-idempotent).
   Future<void> _processEntry(OfflineQueueData entry) async {
     late final OfflineAction action;
     late final Map<String, dynamic> payload;
@@ -378,16 +397,22 @@ class OfflineSyncService {
       return;
     }
 
+    final idempotencyKey = entry.idempotencyKey;
+
     switch (action) {
       case OfflineAction.create_item:
         final item = Item.fromJson(payload);
-        await _ref.read(itemsRepositoryProvider).createItem(item);
+        await _ref
+            .read(itemsRepositoryProvider)
+            .createItem(item, idempotencyKey: idempotencyKey);
         break;
 
       case OfflineAction.update_item:
         final item = Item.fromJson(payload);
         try {
-          await _ref.read(itemsRepositoryProvider).updateItem(item);
+          await _ref
+              .read(itemsRepositoryProvider)
+              .updateItem(item, idempotencyKey: idempotencyKey);
         } on ApiConflictException {
           // 409 Conflict: server version differs — park the divergence
           // for the user to resolve. We deliberately do NOT silently
@@ -399,7 +424,7 @@ class OfflineSyncService {
       case OfflineAction.delete_item:
         await _ref
             .read(itemsRepositoryProvider)
-            .deleteItem(entry.entityId);
+            .deleteItem(entry.entityId, idempotencyKey: idempotencyKey);
         break;
 
       case OfflineAction.create_document:
@@ -408,7 +433,9 @@ class OfflineSyncService {
 
       case OfflineAction.update_preferences:
         final prefs = NotificationPreferences.fromJson(payload);
-        await _ref.read(notificationsRepositoryProvider).upsertPreferences(prefs);
+        await _ref
+            .read(notificationsRepositoryProvider)
+            .upsertPreferences(prefs, idempotencyKey: idempotencyKey);
         break;
     }
   }
@@ -486,6 +513,7 @@ class OfflineSyncService {
           filePath: filePath,
           fileName: fileName ?? file.uri.pathSegments.last,
           type: docType,
+          idempotencyKey: entry.idempotencyKey,
         );
 
     // Upload landed — drop the persisted copy. We only delete inside the

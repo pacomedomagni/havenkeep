@@ -335,7 +335,7 @@ export class WarrantyClaimsService {
       // Verify claim belongs to user. Lock so a concurrent update doesn't
       // race the status transition validation below.
       const claimCheck = await client.query(
-        'SELECT id, amount_saved, status FROM warranty_claims WHERE id = $1 AND user_id = $2 FOR UPDATE',
+        'SELECT id, amount_saved, repair_cost, status FROM warranty_claims WHERE id = $1 AND user_id = $2 FOR UPDATE',
         [claimId, userId]
       );
 
@@ -346,7 +346,26 @@ export class WarrantyClaimsService {
       // F004: avoid parseFloat on DECIMAL columns; use the cents helper so
       // the diff math doesn't drift across float→DECIMAL round-trips.
       const oldAmountCents = decimalToCents(claimCheck.rows[0].amount_saved);
+      const oldRepairCostCents = decimalToCents(claimCheck.rows[0].repair_cost);
       const fromStatus = claimCheck.rows[0].status as ClaimStatus;
+
+      // S2-F: surface the migration-033 CHECK as an ergonomic 400 instead
+      // of letting the DB throw a generic 500. Compute the *effective*
+      // post-update amounts (current row + this patch) and reject if the
+      // invariant `amount_saved <= repair_cost` would be violated. The
+      // DB constraint stays in place as defense in depth.
+      const effectiveRepairCostCents = data.repairCost !== undefined
+          ? decimalToCents(String(data.repairCost))
+          : oldRepairCostCents;
+      const effectiveAmountSavedCents = data.amountSaved !== undefined
+          ? decimalToCents(String(data.amountSaved))
+          : oldAmountCents;
+      if (effectiveAmountSavedCents > effectiveRepairCostCents) {
+        throw new AppError(
+          'amount_saved cannot exceed repair_cost',
+          400,
+        );
+      }
 
       // F010 / F001: validate state-machine transition before issuing the UPDATE.
       let toStatus: ClaimStatus | null = null;

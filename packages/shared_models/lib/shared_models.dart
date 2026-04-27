@@ -30,7 +30,7 @@ export 'src/receipt_scan_result.dart';
 export 'src/barcode_lookup_result.dart';
 export 'src/contact_submission.dart' show ContactSubmission;
 export 'src/tip.dart' show Tip;
-export 'src/partner.dart' show Partner, PartnerSubscriptionTier;
+export 'src/partner.dart' show Partner, PartnerSubscriptionTier, PartnerStatus;
 export 'src/warranty_claim.dart' show WarrantyClaim, ClaimStatus;
 export 'src/maintenance.dart'
     show

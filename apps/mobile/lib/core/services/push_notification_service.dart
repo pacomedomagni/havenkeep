@@ -8,16 +8,18 @@ import 'package:api_client/api_client.dart';
 import '../router/router.dart';
 import 'notification_display_service.dart';
 
-/// Allowed route prefixes for deep link navigation from push notifications.
-/// Routes not matching any of these prefixes will be rejected.
-const _kAllowedRoutePrefixes = [
-  '/items',
-  '/homes',
-  '/warranties',
-  '/notifications',
-  '/settings',
-  '/profile',
-];
+/// Allowed first-segment matches for deep-link navigation from push
+/// notifications. S2-H: matching on first path segment (not `startsWith`)
+/// blocks `/items/../settings/delete-account` style traversals that the
+/// previous prefix check would have accepted.
+const _kAllowedRouteSegments = {
+  'items',
+  'homes',
+  'warranties',
+  'notifications',
+  'settings',
+  'profile',
+};
 
 /// Handles Firebase Cloud Messaging for push notifications.
 ///
@@ -124,9 +126,11 @@ class PushNotificationService {
       }
 
       final token = await messaging.getToken();
-      if (token != null && kDebugMode) {
+      if (token == null) return;
+      if (kDebugMode) {
         debugPrint('[Push] FCM Token: ${token.substring(0, 20)}...');
       }
+      await _registerTokenWithBackend(token);
     } catch (e) {
       debugPrint('[Push] requestPermissionAndRegisterToken failed: $e');
     }
@@ -187,9 +191,19 @@ class PushNotificationService {
         );
   }
 
-  /// Check whether a route matches the allowed deep link whitelist.
+  /// Check whether a route's first path segment is allowlisted. Reject
+  /// empty paths and any path whose first segment isn't in the set —
+  /// blocks both bogus prefixes and `..`-based traversal attempts.
   bool _isAllowedRoute(String route) {
-    return _kAllowedRoutePrefixes.any((prefix) => route.startsWith(prefix));
+    final Uri parsed;
+    try {
+      parsed = Uri.parse(route);
+    } catch (_) {
+      return false;
+    }
+    final segments = parsed.pathSegments.where((s) => s.isNotEmpty).toList();
+    if (segments.isEmpty) return false;
+    return _kAllowedRouteSegments.contains(segments.first);
   }
 
   /// Handle a notification tap (background or terminated state).

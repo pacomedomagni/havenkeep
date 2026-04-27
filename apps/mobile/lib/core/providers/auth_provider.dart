@@ -202,6 +202,7 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
   /// Sign in with Apple.
   Future<User?> signInWithApple({
     required String idToken,
+    required String nonce,
     String? fullName,
   }) async {
     final repo = ref.read(authRepositoryProvider);
@@ -209,6 +210,7 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
     try {
       final user = await repo.signInWithApple(
         idToken: idToken,
+        nonce: nonce,
         fullName: fullName,
       );
 

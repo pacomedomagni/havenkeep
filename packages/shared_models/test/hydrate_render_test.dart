@@ -336,7 +336,7 @@ void main() {
     expect(MaintenanceSchedule.fromJson(s.toJson()).toJson(), s.toJson());
   });
 
-  test('ClaimStatus._byName surfaces unknown as pending without throwing', () {
-    expect(ClaimStatus.fromJson('made_up_status'), ClaimStatus.pending);
+  test('ClaimStatus._byName surfaces unknown as filed without throwing', () {
+    expect(ClaimStatus.fromJson('made_up_status'), ClaimStatus.filed);
   });
 }

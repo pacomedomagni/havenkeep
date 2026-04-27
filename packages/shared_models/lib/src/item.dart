@@ -224,14 +224,21 @@ class Item {
   }
 
   /// Compute warranty status client-side (when not using the view).
+  ///
+  /// S2-A: compares in UTC. The server stores `warranty_end_date` as a
+  /// UTC instant; comparing it to a *local* `DateTime(now.year, ...)` flips
+  /// the result around midnight in the device's local zone (e.g. a warranty
+  /// ending at 00:00Z appeared expired on a -08:00 device for the last 8
+  /// hours of its valid life).
   WarrantyStatus get computedWarrantyStatus {
     if (warrantyStatus != null) return warrantyStatus!;
 
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
+    final nowUtc = DateTime.now().toUtc();
+    final today = DateTime.utc(nowUtc.year, nowUtc.month, nowUtc.day);
+    final endUtc = warrantyEndDate.toUtc();
 
-    if (warrantyEndDate.isBefore(today)) return WarrantyStatus.expired;
-    if (warrantyEndDate.difference(today).inDays <= 90) {
+    if (endUtc.isBefore(today)) return WarrantyStatus.expired;
+    if (endUtc.difference(today).inDays <= 90) {
       return WarrantyStatus.expiring;
     }
     return WarrantyStatus.active;
@@ -241,9 +248,9 @@ class Item {
   int get computedDaysRemaining {
     if (daysRemaining != null) return daysRemaining!;
 
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    return warrantyEndDate.difference(today).inDays;
+    final nowUtc = DateTime.now().toUtc();
+    final today = DateTime.utc(nowUtc.year, nowUtc.month, nowUtc.day);
+    return warrantyEndDate.toUtc().difference(today).inDays;
   }
 
   Item copyWith({

@@ -22,8 +22,9 @@ class _MockNotificationsRepository extends Mock
   // NotificationPreferences parameter.
   @override
   Future<NotificationPreferences> upsertPreferences(
-    NotificationPreferences prefs,
-  ) {
+    NotificationPreferences prefs, {
+    String? idempotencyKey,
+  }) {
     final epoch = DateTime.utc(1970);
     final fallback = NotificationPreferences(
       userId: 'test-user',
@@ -31,7 +32,11 @@ class _MockNotificationsRepository extends Mock
       updatedAt: epoch,
     );
     return super.noSuchMethod(
-      Invocation.method(#upsertPreferences, [prefs]),
+      Invocation.method(
+        #upsertPreferences,
+        [prefs],
+        {#idempotencyKey: idempotencyKey},
+      ),
       returnValue: Future.value(fallback),
       returnValueForMissingStub: Future.value(fallback),
     ) as Future<NotificationPreferences>;

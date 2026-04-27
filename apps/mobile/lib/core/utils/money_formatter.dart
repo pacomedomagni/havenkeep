@@ -13,11 +13,26 @@ import 'package:intl/intl.dart';
 class Money {
   Money._();
 
-  static final NumberFormat _currency =
-      NumberFormat.currency(locale: 'en_US', symbol: '\$', decimalDigits: 2);
+  static const String _defaultLocale = 'en_US';
 
-  static final NumberFormat _currencyWhole =
-      NumberFormat.currency(locale: 'en_US', symbol: '\$', decimalDigits: 0);
+  // S2-R: cache one NumberFormat per (locale, decimalDigits) pair so the
+  // hot path doesn't allocate per call. The *symbol* stays USD because
+  // the backend bills in USD via Stripe — only the decimal/thousands
+  // separators track the device locale, so a French user sees
+  // `$1 234,50` instead of `$1,234.50`.
+  static final Map<String, NumberFormat> _currencyCache = {};
+
+  static NumberFormat _currencyFor(String locale, int decimalDigits) {
+    final key = '$locale:$decimalDigits';
+    return _currencyCache.putIfAbsent(
+      key,
+      () => NumberFormat.currency(
+        locale: locale,
+        symbol: '\$',
+        decimalDigits: decimalDigits,
+      ),
+    );
+  }
 
   /// Formats a currency amount with two decimals and thousands separators.
   ///
@@ -26,24 +41,25 @@ class Money {
   /// back to the em dash so a malformed wire value never crashes the UI.
   ///
   /// `Money.format(1234.5)` → `$1,234.50`.
-  /// `Money.format('1234.50')` → `$1,234.50`.
-  static String format(Object? amount) {
+  /// Pass [locale] (BCP-47 / ICU form, e.g. `'fr_FR'`) at call sites that
+  /// have a `BuildContext` — the helper falls back to `en_US` otherwise.
+  static String format(Object? amount, {String? locale}) {
     final value = _toNum(amount);
     if (value == null) return '—';
-    return _currency.format(value);
+    return _currencyFor(locale ?? _defaultLocale, 2).format(value);
   }
 
   /// Formats without decimals. `Money.formatWhole(1234)` → `$1,234`.
   /// Accepts a `num` or numeric string for the same reason as [format].
-  static String formatWhole(Object? amount) {
+  static String formatWhole(Object? amount, {String? locale}) {
     final value = _toNum(amount);
     if (value == null) return '—';
-    return _currencyWhole.format(value);
+    return _currencyFor(locale ?? _defaultLocale, 0).format(value);
   }
 
   /// Compact form with K / M suffixes for large values (hero cards).
   /// `Money.formatCompact(1234)` → `$1.2K`, `Money.formatCompact(1_500_000)` → `$1.5M`.
-  static String formatCompact(Object? amount) {
+  static String formatCompact(Object? amount, {String? locale}) {
     final value = _toNum(amount);
     if (value == null) return '—';
     final magnitude = value.abs();
@@ -54,7 +70,7 @@ class Money {
     if (magnitude >= 10000) {
       return '$sign\$${(magnitude / 1000).toStringAsFixed(1)}K';
     }
-    return _currencyWhole.format(value);
+    return _currencyFor(locale ?? _defaultLocale, 0).format(value);
   }
 
   /// Parses a user-entered price string into a normalized DECIMAL string
