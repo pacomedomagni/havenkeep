@@ -5,6 +5,7 @@ import CommissionTable from '@/components/commission-table';
 import { CurrencyDollarIcon, ClockIcon } from '@heroicons/react/24/outline';
 import type { Commission, CommissionStatus } from '@/lib/types';
 import { apiClient } from '@/lib/api';
+import { logError } from '@/lib/log-error';
 import { formatCurrency } from '@/lib/utils';
 
 export default function CommissionsPage() {
@@ -34,7 +35,7 @@ export default function CommissionsPage() {
       }
     } catch (err) {
       setError('Failed to load commissions. Please try again.');
-      console.error('Error fetching commissions:', err);
+      logError('Error fetching commissions', err);
     } finally {
       setLoading(false);
     }

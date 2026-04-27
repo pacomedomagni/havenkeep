@@ -3,14 +3,15 @@ import StatsCard from '@/components/StatsCard'
 import PartnerTable from '@/components/partner-table'
 import Pagination from '@/components/Pagination'
 import { serverApiClient, requireAdmin } from '@/lib/auth'
+import type { AdminPartnerListItem, PaginationMeta } from '@/lib/api-types'
 import { UsersIcon, ClockIcon, CheckCircleIcon } from '@heroicons/react/24/outline'
 
 async function getPartners(page: number = 1) {
   try {
-    const result = await serverApiClient<{ data: any[]; pagination: any }>(`/api/v1/admin/partners?page=${page}&limit=20`)
+    const result = await serverApiClient<{ data: AdminPartnerListItem[]; pagination: PaginationMeta }>(`/api/v1/admin/partners?page=${page}&limit=20`)
     return { partners: result.data || [], pagination: result.pagination }
   } catch {
-    return { partners: [], pagination: null }
+    return { partners: [] as AdminPartnerListItem[], pagination: null }
   }
 }
 
@@ -26,13 +27,13 @@ export default async function PartnersPage({
   const { partners, pagination } = await getPartners(page)
 
   const totalPartners = partners.length
-  const statusOf = (p: any): 'pending' | 'active' | 'rejected' => {
+  const statusOf = (p: AdminPartnerListItem): 'pending' | 'active' | 'rejected' => {
     if (p.status === 'pending' || p.status === 'active' || p.status === 'rejected') return p.status
     return p.is_active ? 'active' : 'pending'
   }
-  const pendingPartners = partners.filter((p: any) => statusOf(p) === 'pending').length
-  const activePartners = partners.filter((p: any) => statusOf(p) === 'active').length
-  const rejectedPartners = partners.filter((p: any) => statusOf(p) === 'rejected').length
+  const pendingPartners = partners.filter((p) => statusOf(p) === 'pending').length
+  const activePartners = partners.filter((p) => statusOf(p) === 'active').length
+  const rejectedPartners = partners.filter((p) => statusOf(p) === 'rejected').length
 
   return (
     <>
@@ -77,7 +78,7 @@ export default async function PartnersPage({
         )}
 
         <PartnerTable partners={partners} />
-        {pagination && (
+        {pagination && pagination.total_pages != null && pagination.total != null && (
           <Pagination
             page={pagination.page}
             totalPages={pagination.total_pages}

@@ -6,6 +6,7 @@ import GenerateReferral from '@/components/generate-referral';
 import { PlusIcon } from '@heroicons/react/24/outline';
 import type { Referral, ReferralStatus } from '@/lib/types';
 import { apiClient } from '@/lib/api';
+import { logError } from '@/lib/log-error';
 
 const filterTabs: { label: string; value: ReferralStatus | 'all' }[] = [
   { label: 'All', value: 'all' },
@@ -45,7 +46,7 @@ export default function ReferralsPage() {
       }
     } catch (err) {
       setError('Failed to load referrals. Please try again.');
-      console.error('Error fetching referrals:', err);
+      logError('Error fetching referrals', err);
     } finally {
       setLoading(false);
     }

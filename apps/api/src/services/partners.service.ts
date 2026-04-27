@@ -9,7 +9,7 @@ import { EmailService } from './email.service';
 import { generateUniqueReferralCode } from '../utils/referral-code';
 import { getRedisClient } from '../utils/redis';
 import { addMonthsSafe } from '../utils/dates';
-import { commissionCents, dollarsToCents, centsToDecimalString } from '../utils/money';
+import { commissionCents, dollarsToCents, centsToDecimalString, decimalToCents } from '../utils/money';
 
 /**
  * Activation codes are 64 bits of entropy, formatted XXXX-XXXX-XXXX-XXXX
@@ -1055,9 +1055,11 @@ export class PartnersService {
     activated_gifts: number;
     pending_gifts: number;
     activation_rate: number;
-    total_commissions: number;
-    pending_commissions: number;
-    paid_commissions: number;
+    // S3-A: cent-accurate decimal strings (e.g. "7.00"). Display layer
+    // formats; doing math on these is a bug — prefer the raw cents.
+    total_commissions: string;
+    pending_commissions: string;
+    paid_commissions: string;
     recent_activity: any[];
   }> {
     try {
@@ -1140,14 +1142,17 @@ export class PartnersService {
         [partnerId]
       );
 
+      // S3-A: aggregate in integer cents and only convert to a display
+      // string at the response edge. parseFloat on DECIMAL would compound
+      // float drift at the 100-row scale (100 × $0.07 → $6.999999).
       return {
         total_gifts: parseInt(stats.total_gifts),
         activated_gifts: parseInt(stats.activated_gifts),
         pending_gifts: parseInt(stats.pending_gifts),
         activation_rate: Math.round(activationRate),
-        total_commissions: parseFloat(commissions.total_commissions) || 0,
-        pending_commissions: parseFloat(commissions.pending_commissions) || 0,
-        paid_commissions: parseFloat(commissions.paid_commissions) || 0,
+        total_commissions: centsToDecimalString(decimalToCents(commissions.total_commissions)),
+        pending_commissions: centsToDecimalString(decimalToCents(commissions.pending_commissions)),
+        paid_commissions: centsToDecimalString(decimalToCents(commissions.paid_commissions)),
         recent_activity: recentActivity.rows,
       };
     } catch (error) {

@@ -47,10 +47,17 @@ async function ensureMigrationsTable() {
 }
 
 /**
- * The base schema.sql runs on a brand-new DB. Detection used to be "does the
- * users table exist?" which races a partial bootstrap (Ch00-DB003). After
- * migration 045 ships, the canonical signal is the `schema_version` row with
- * phase='base'; until then we fall back to the table-presence check.
+ * The base schema.sql runs on a brand-new DB. Migration 045 introduced
+ * `schema_version` as the canonical "is the base done?" marker — that's
+ * the *only* signal we trust now. The previous `users + items + partners`
+ * table-presence fallback (S3-F) raced a partial bootstrap: a crash mid
+ * schema.sql could leave those three tables present without the rest of
+ * the dependency tree, and the runner would skip schema.sql forever.
+ *
+ * schema.sql is now fully idempotent (every CREATE has IF NOT EXISTS and
+ * triggers/types are wrapped in DO blocks), so re-running it on an already-
+ * bootstrapped DB is a safe no-op. That means: when schema_version is
+ * missing OR doesn't carry the 'base' row, replay schema.sql.
  */
 async function ensureBaseSchema() {
   const versionTable = await pool.query(
@@ -61,21 +68,10 @@ async function ensureBaseSchema() {
       `SELECT 1 FROM schema_version WHERE phase = 'base' LIMIT 1`,
     );
     if (baseRow.rows.length > 0) return;
-  } else {
-    // Pre-045 installations: a populated users + items + partners trio is
-    // strong-enough evidence the base schema is in place.
-    const probe = await pool.query(
-      `SELECT to_regclass('public.users') AS u,
-              to_regclass('public.items') AS i,
-              to_regclass('public.partners') AS p`,
-    );
-    if (probe.rows[0]?.u && probe.rows[0]?.i && probe.rows[0]?.p) {
-      return;
-    }
   }
 
   const schemaSql = readFileSync(join(__dirname, '..', 'schema.sql'), 'utf-8');
-  logger.info('Applying base schema.sql before running migrations');
+  logger.info('Applying base schema.sql (schema_version row absent or missing base phase)');
   await pool.query(schemaSql);
 }
 

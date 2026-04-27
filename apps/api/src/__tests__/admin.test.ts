@@ -164,4 +164,41 @@ describe('Admin routes - /api/v1/admin', () => {
       expect(res.status).toBe(403);
     });
   });
+
+  // S3-12.4 / S1-D: admin stats must exclude soft-deleted users from
+  // every users count so leadership numbers reflect live accounts.
+  describe('Admin stats exclude soft-deleted users (S1-D)', () => {
+    it('drops soft-deleted users from stats/full and user-activity', async () => {
+      const { user: live } = await createTestUser({ email: 'live@test.com' });
+      const { user: dead } = await createTestUser({ email: 'dead@test.com' });
+      const { user: admin, token: adminToken } = await createTestUser({
+        email: 'admin@test.com',
+        isAdmin: true,
+      });
+
+      const { pool } = require('../db');
+      // Mark `dead` as soft-deleted.
+      await pool.query(
+        `UPDATE users SET deleted_at = NOW(), plan = 'suspended' WHERE id = $1`,
+        [dead.id],
+      );
+
+      const stats = await request(app)
+        .get('/api/v1/admin/stats/full')
+        .set('Authorization', `Bearer ${adminToken}`);
+      expect(stats.status).toBe(200);
+      // total_users counts live + admin (= 2), excluding `dead`.
+      const total = Number(stats.body.data?.total_users ?? stats.body.total_users);
+      expect(total).toBe(2);
+
+      const activity = await request(app)
+        .get('/api/v1/admin/users/activity')
+        .set('Authorization', `Bearer ${adminToken}`);
+      expect(activity.status).toBe(200);
+      const ids = (activity.body.data ?? activity.body).map((r: any) => r.id);
+      expect(ids).toContain(live.id);
+      expect(ids).toContain(admin.id);
+      expect(ids).not.toContain(dead.id);
+    });
+  });
 });

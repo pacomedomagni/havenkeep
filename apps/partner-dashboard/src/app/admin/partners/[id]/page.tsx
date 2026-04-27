@@ -2,11 +2,12 @@ import Header from '@/components/Header'
 import StatsCard from '@/components/StatsCard'
 import PartnerActions from '@/components/partner-actions'
 import { serverApiClient, requireAdmin } from '@/lib/auth'
+import type { AdminPartnerDetail } from '@/lib/api-types'
 import { GiftIcon, UserGroupIcon, CurrencyDollarIcon } from '@heroicons/react/24/outline'
 
 async function getPartner(id: string) {
   try {
-    const { data: partner } = await serverApiClient<{ data: any }>(`/api/v1/admin/partners/${id}`)
+    const { data: partner } = await serverApiClient<{ data: AdminPartnerDetail }>(`/api/v1/admin/partners/${id}`)
     return partner
   } catch {
     return null

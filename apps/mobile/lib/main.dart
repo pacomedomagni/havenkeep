@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:api_client/api_client.dart';
+import 'package:shared_models/shared_models.dart';
 import 'package:shared_ui/shared_ui.dart';
 
 import 'core/config/environment.dart';
@@ -79,6 +80,18 @@ Future<void> main() async {
       LoggingService.info('App starting', {
         'environment': config.environment.name,
         'apiBaseUrl': config.apiBaseUrl,
+      });
+
+      // S3-D: forward unknown-enum drift through the same logging service
+      // we already configured. `dart:developer.log` stays on as the
+      // always-on transport; this gives us a Loki-shipped signal too via
+      // LoggingService's pino-side wiring (and Crashlytics if/when wired).
+      registerUnknownEnumReporter((enumName, value, fallback) {
+        LoggingService.warn('enum_drift', {
+          'enum': enumName,
+          'value': value,
+          'fallback': fallback,
+        });
       });
 
       // Initialize API client

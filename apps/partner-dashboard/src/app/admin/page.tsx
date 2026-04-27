@@ -1,11 +1,12 @@
 import Header from '@/components/Header'
 import StatsCard from '@/components/StatsCard'
 import { serverApiClient, requireAdmin } from '@/lib/auth'
+import type { AdminFullStats, AdminUserListItem } from '@/lib/api-types'
 import { UsersIcon, CubeIcon, CurrencyDollarIcon, ChartBarIcon } from '@heroicons/react/24/outline'
 
 async function getAdminStats() {
   try {
-    const { data: stats } = await serverApiClient<{ data: any }>('/api/v1/admin/stats/full')
+    const { data: stats } = await serverApiClient<{ data: AdminFullStats }>('/api/v1/admin/stats/full')
     return { data: stats, error: false }
   } catch {
     return {
@@ -29,7 +30,7 @@ async function getAdminStats() {
 
 async function getRecentUsers() {
   try {
-    const { data: users } = await serverApiClient<{ data: any[] }>('/api/v1/admin/users?page=1&limit=5')
+    const { data: users } = await serverApiClient<{ data: AdminUserListItem[] }>('/api/v1/admin/users?page=1&limit=5')
     return { data: users || [], error: false }
   } catch {
     return { data: [], error: true }
@@ -136,7 +137,7 @@ export default async function DashboardPage() {
                   No users yet
                 </div>
               ) : (
-                recentUsers.map((user: any) => (
+                recentUsers.map((user) => (
                   <div key={user.id} className="px-6 py-4 hover:bg-haven-elevated/50 transition-colors">
                     <div className="flex items-center justify-between">
                       <div>

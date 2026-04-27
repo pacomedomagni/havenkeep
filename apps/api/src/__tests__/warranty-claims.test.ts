@@ -49,16 +49,16 @@ describe('Warranty Claims API - /api/v1/warranty-claims', () => {
         .set('Authorization', `Bearer ${token}`)
         .send({
           item_id: item.id,
-          repair_cost: 150.00,
-          amount_saved: 300.00,
+          repair_cost: 300.00,
+          amount_saved: 150.00,
           issue_description: 'Motor failed after 2 years',
         });
 
       expect(res.status).toBe(201);
       expect(res.body.success).toBe(true);
       expect(res.body.data.item_id).toBe(item.id);
-      expect(res.body.data.repair_cost).toBe('150.00');
-      expect(res.body.data.amount_saved).toBe('300.00');
+      expect(res.body.data.repair_cost).toBe('300.00');
+      expect(res.body.data.amount_saved).toBe('150.00');
       expect(res.body.data.id).toBeDefined();
       expect(res.body.message).toBe('Warranty claim created successfully');
     });
@@ -73,10 +73,10 @@ describe('Warranty Claims API - /api/v1/warranty-claims', () => {
         .set('Authorization', `Bearer ${token}`)
         .send({
           item_id: item.id,
-          repair_cost: 250.00,
-          amount_saved: 500.00,
+          repair_cost: 500.00,
+          amount_saved: 250.00,
           issue_description: 'Compressor stopped working',
-          status: 'pending',
+          status: 'filed',
           claim_date: '2025-01-15',
           filed_with: 'Samsung Warranty',
           notes: 'Contacted support on Jan 10th',
@@ -84,7 +84,7 @@ describe('Warranty Claims API - /api/v1/warranty-claims', () => {
 
       expect(res.status).toBe(201);
       expect(res.body.success).toBe(true);
-      expect(res.body.data.status).toBe('pending');
+      expect(res.body.data.status).toBe('filed');
       expect(res.body.data.filed_with).toBe('Samsung Warranty');
       expect(res.body.data.notes).toBe('Contacted support on Jan 10th');
     });
@@ -94,8 +94,8 @@ describe('Warranty Claims API - /api/v1/warranty-claims', () => {
         .post('/api/v1/warranty-claims')
         .send({
           item_id: '00000000-0000-0000-0000-000000000000',
-          repair_cost: 100,
-          amount_saved: 200,
+          repair_cost: 200,
+          amount_saved: 100,
         });
 
       expect(res.status).toBe(401);
@@ -125,8 +125,8 @@ describe('Warranty Claims API - /api/v1/warranty-claims', () => {
         .set('Authorization', `Bearer ${token}`)
         .send({
           item_id: '00000000-0000-0000-0000-000000000000',
-          repair_cost: 100,
-          amount_saved: 200,
+          repair_cost: 200,
+          amount_saved: 100,
         });
 
       expect([400, 404]).toContain(res.status);
@@ -146,7 +146,7 @@ describe('Warranty Claims API - /api/v1/warranty-claims', () => {
         await request(app)
           .post('/api/v1/warranty-claims')
           .set('Authorization', `Bearer ${token}`)
-          .send({ item_id: item.id, repair_cost: i * 100, amount_saved: i * 200 });
+          .send({ item_id: item.id, repair_cost: i * 200, amount_saved: i * 100 });
       }
 
       const res = await request(app)
@@ -172,12 +172,12 @@ describe('Warranty Claims API - /api/v1/warranty-claims', () => {
       await request(app)
         .post('/api/v1/warranty-claims')
         .set('Authorization', `Bearer ${token}`)
-        .send({ item_id: itemA.id, repair_cost: 100, amount_saved: 200 });
+        .send({ item_id: itemA.id, repair_cost: 200, amount_saved: 100 });
 
       await request(app)
         .post('/api/v1/warranty-claims')
         .set('Authorization', `Bearer ${token}`)
-        .send({ item_id: itemB.id, repair_cost: 50, amount_saved: 100 });
+        .send({ item_id: itemB.id, repair_cost: 100, amount_saved: 50 });
 
       const res = await request(app)
         .get(`/api/v1/warranty-claims?item_id=${itemA.id}`)
@@ -200,7 +200,7 @@ describe('Warranty Claims API - /api/v1/warranty-claims', () => {
       await request(app)
         .post('/api/v1/warranty-claims')
         .set('Authorization', `Bearer ${token}`)
-        .send({ item_id: item.id, repair_cost: 100, amount_saved: 500 });
+        .send({ item_id: item.id, repair_cost: 500, amount_saved: 100 });
 
       const res = await request(app)
         .get('/api/v1/warranty-claims/savings')
@@ -273,7 +273,7 @@ describe('Warranty Claims API - /api/v1/warranty-claims', () => {
       const createRes = await request(app)
         .post('/api/v1/warranty-claims')
         .set('Authorization', `Bearer ${userB.token}`)
-        .send({ item_id: itemB.id, repair_cost: 100, amount_saved: 200 });
+        .send({ item_id: itemB.id, repair_cost: 200, amount_saved: 100 });
 
       const claimId = createRes.body.data.id;
 
@@ -297,18 +297,18 @@ describe('Warranty Claims API - /api/v1/warranty-claims', () => {
       const createRes = await request(app)
         .post('/api/v1/warranty-claims')
         .set('Authorization', `Bearer ${token}`)
-        .send({ item_id: item.id, repair_cost: 100, amount_saved: 200, status: 'pending' });
+        .send({ item_id: item.id, repair_cost: 200, amount_saved: 100, status: 'filed' });
 
       const claimId = createRes.body.data.id;
 
       const res = await request(app)
         .put(`/api/v1/warranty-claims/${claimId}`)
         .set('Authorization', `Bearer ${token}`)
-        .send({ status: 'completed', repair_cost: 125.00 });
+        .send({ status: 'in_review', repair_cost: 250.00 });
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
-      expect(res.body.data.status).toBe('completed');
+      expect(res.body.data.status).toBe('in_review');
       expect(res.body.message).toBe('Warranty claim updated successfully');
     });
   });
@@ -353,7 +353,7 @@ describe('Warranty Claims API - /api/v1/warranty-claims', () => {
       const createRes = await request(app)
         .post('/api/v1/warranty-claims')
         .set('Authorization', `Bearer ${userB.token}`)
-        .send({ item_id: itemB.id, repair_cost: 100, amount_saved: 200 });
+        .send({ item_id: itemB.id, repair_cost: 200, amount_saved: 100 });
 
       const claimId = createRes.body.data.id;
 
@@ -363,6 +363,73 @@ describe('Warranty Claims API - /api/v1/warranty-claims', () => {
         .set('Authorization', `Bearer ${userA.token}`);
 
       expect(res.status).toBe(404);
+    });
+  });
+
+  // S3-12.10/11/12 / S1-bundle: Idempotency-Key end-to-end. The mobile
+  // offline queue stamps a UUID per entry and re-sends with the same key
+  // after a crash; the server's request_idempotency middleware must
+  // collapse the second request into the cached response without
+  // creating a duplicate row.
+  describe('Idempotency-Key end-to-end (S1-J/K/L)', () => {
+    it('replays the cached response for a repeated POST with the same key', async () => {
+      const { user, token } = await createTestUser({ email: 'idempo@test.com' });
+      const home = await createTestHome(user.id);
+      const item = await createTestItem(user.id, home.id);
+      const key = `idempo-${require('crypto').randomUUID()}`;
+      const body = {
+        item_id: item.id,
+        repair_cost: 200,
+        amount_saved: 100,
+        issue_description: 'Compressor noise',
+      };
+
+      const first = await request(app)
+        .post('/api/v1/warranty-claims')
+        .set('Authorization', `Bearer ${token}`)
+        .set('Idempotency-Key', key)
+        .send(body);
+      expect(first.status).toBe(201);
+      const firstId = first.body.data?.id ?? first.body.id;
+      expect(firstId).toBeDefined();
+
+      const second = await request(app)
+        .post('/api/v1/warranty-claims')
+        .set('Authorization', `Bearer ${token}`)
+        .set('Idempotency-Key', key)
+        .send(body);
+      // Must replay the same response (status + id), not create a new row.
+      expect(second.status).toBe(201);
+      const secondId = second.body.data?.id ?? second.body.id;
+      expect(secondId).toBe(firstId);
+
+      const { pool } = require('../db');
+      const rows = await pool.query(
+        `SELECT id FROM warranty_claims WHERE user_id = $1 AND item_id = $2`,
+        [user.id, item.id],
+      );
+      expect(rows.rows.length).toBe(1);
+    });
+
+    it('rejects with 409 when the same key is reused for a different body', async () => {
+      const { user, token } = await createTestUser({ email: 'idempo-conflict@test.com' });
+      const home = await createTestHome(user.id);
+      const item = await createTestItem(user.id, home.id);
+      const key = `idempo-${require('crypto').randomUUID()}`;
+
+      const first = await request(app)
+        .post('/api/v1/warranty-claims')
+        .set('Authorization', `Bearer ${token}`)
+        .set('Idempotency-Key', key)
+        .send({ item_id: item.id, repair_cost: 200, amount_saved: 100 });
+      expect(first.status).toBe(201);
+
+      const second = await request(app)
+        .post('/api/v1/warranty-claims')
+        .set('Authorization', `Bearer ${token}`)
+        .set('Idempotency-Key', key)
+        .send({ item_id: item.id, repair_cost: 999, amount_saved: 100 });
+      expect(second.status).toBe(409);
     });
   });
 });

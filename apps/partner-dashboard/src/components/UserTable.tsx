@@ -16,7 +16,8 @@ interface User {
   plan: string
   created_at: string
   total_items: number
-  total_value: number
+  // pg returns numeric columns as strings; the cell formatter coerces.
+  total_value: number | string
   last_activity: string | null
 }
 

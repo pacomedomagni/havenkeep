@@ -326,6 +326,35 @@ describe('Auth API', () => {
       expect(known.body.message).toBe(unknown.body.message);
     });
 
+    // S3-B / Ch01-F017: response time must be ≥ FORGOT_PASSWORD_MIN_DURATION_MS
+    // for both branches so an attacker can't time-side-channel "user exists"
+    // out of the route. The floor is 250ms; we assert ≥ 200 to absorb test
+    // harness jitter while still catching a regression that drops the floor
+    // entirely (e.g. someone removes the setTimeout to "make it faster").
+    it('takes at least the constant-time floor for both known and unknown emails', async () => {
+      const { user } = await createTestUser({
+        email: 'fp-timing@test.com',
+        emailVerified: true,
+      });
+
+      const tKnownStart = Date.now();
+      await request(app)
+        .post('/api/v1/auth/forgot-password')
+        .send({ email: user.email });
+      const tKnown = Date.now() - tKnownStart;
+
+      const tUnknownStart = Date.now();
+      await request(app)
+        .post('/api/v1/auth/forgot-password')
+        .send({ email: 'no-such-user-fp-timing@test.com' });
+      const tUnknown = Date.now() - tUnknownStart;
+
+      // Use 200ms as the regression floor (250ms target with 50ms slack).
+      // If a refactor removes the floor, both numbers drop below this.
+      expect(tKnown).toBeGreaterThanOrEqual(200);
+      expect(tUnknown).toBeGreaterThanOrEqual(200);
+    });
+
     // F017: never email a reset link to an unverified address.
     it('does not issue a reset token for unverified email accounts', async () => {
       const { user } = await createTestUser({
@@ -395,6 +424,79 @@ describe('Auth API', () => {
 
       expect(first.status).toBe(200);
       expect(second.status).toBe(400);
+    });
+  });
+
+  // S3-C: jsonwebtoken's `verify()` rejects `alg: none` only when the caller
+  // pins an `algorithms: [...]` allowlist. Both Apple and Google handlers do
+  // (`['RS256']`); these tests pin that contract so a future refactor that
+  // forgets the option is caught immediately.
+  describe('OAuth alg:none rejection (S3-C)', () => {
+    function noneToken(payload: Record<string, unknown>): string {
+      const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' })).toString('base64url');
+      const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
+      // Empty signature segment — what an `alg: none` forger would send.
+      return `${header}.${body}.`;
+    }
+
+    it('rejects an alg:none ID token on /auth/google', async () => {
+      const res = await request(app)
+        .post('/api/v1/auth/google')
+        .send({
+          idToken: noneToken({
+            iss: 'accounts.google.com',
+            aud: 'whatever',
+            sub: 'attacker',
+            email: 'attacker@test.com',
+          }),
+        });
+      expect(res.status).toBe(401);
+    });
+
+    it('rejects an alg:none ID token on /auth/apple', async () => {
+      const res = await request(app)
+        .post('/api/v1/auth/apple')
+        .send({
+          idToken: noneToken({
+            iss: 'https://appleid.apple.com',
+            aud: 'app.havenkeep.mobile',
+            sub: 'attacker',
+            nonce: 'irrelevant',
+          }),
+          nonce: 'irrelevant-raw-nonce-string',
+        });
+      expect(res.status).toBe(401);
+    });
+  });
+
+  // S3-12.9 / S1-H: the consumed-nonce store must reject a second use of
+  // the same hash. We can't test the full /auth/apple flow without
+  // mocking Apple's JWKS, but the storage layer is what enforces the
+  // replay guarantee — exercise the table directly.
+  describe('Apple Sign-In nonce replay guard (S1-H)', () => {
+    it('rejects the second insert of the same nonce hash', async () => {
+      const { pool } = require('../db');
+      const crypto = require('crypto');
+      const hash = crypto.createHash('sha256').update('replay-test-nonce').digest('hex');
+      const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+
+      const first = await pool.query(
+        `INSERT INTO apple_sign_in_nonces (nonce_hash, expires_at)
+            VALUES ($1, $2)
+            ON CONFLICT (nonce_hash) DO NOTHING
+            RETURNING nonce_hash`,
+        [hash, expiresAt],
+      );
+      expect(first.rowCount).toBe(1);
+
+      const second = await pool.query(
+        `INSERT INTO apple_sign_in_nonces (nonce_hash, expires_at)
+            VALUES ($1, $2)
+            ON CONFLICT (nonce_hash) DO NOTHING
+            RETURNING nonce_hash`,
+        [hash, expiresAt],
+      );
+      expect(second.rowCount).toBe(0);
     });
   });
 });

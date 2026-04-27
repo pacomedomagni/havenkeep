@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { apiClient } from '@/lib/api';
+import { logError } from '@/lib/log-error';
 
 interface Gift {
   id: string;
@@ -43,7 +44,7 @@ export default function GiftsPage() {
       }
     } catch (err) {
       setError('Failed to load gifts.');
-      console.error('Error fetching gifts:', err);
+      logError('Error fetching gifts', err);
     } finally {
       setLoading(false);
     }

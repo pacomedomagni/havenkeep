@@ -90,12 +90,19 @@ class DeepLinkService {
       return segments.isNotEmpty && segments.first == value;
     }
 
+    // S3-K: every code we accept from a deep link must match this regex.
+    // Server-issued gift / referral codes are alphanumeric with optional
+    // dashes/underscores; anything else is a path traversal attempt or a
+    // crafted URL trying to smuggle a route segment through.
+    bool isValidCode(String code) =>
+        code.isNotEmpty && RegExp(r'^[a-zA-Z0-9_-]{1,64}$').hasMatch(code);
+
     // havenkeep://gift/<code> — partner activation code, distinct from
     // referral codes. Routes to the gift activation flow with the code
     // pre-filled.
     if (uri.scheme == 'havenkeep' && hasHost('gift') && segments.isNotEmpty) {
       final code = segments.first.trim();
-      if (code.isEmpty) return null;
+      if (!isValidCode(code)) return null;
       return '/gift/$code';
     }
 
@@ -104,7 +111,7 @@ class DeepLinkService {
         hasHost('referral') &&
         segments.isNotEmpty) {
       final code = segments.first.trim();
-      if (code.isEmpty) return null;
+      if (!isValidCode(code)) return null;
       return '/referral/$code';
     }
 
@@ -113,7 +120,7 @@ class DeepLinkService {
         firstSegmentIs('gift') &&
         segments.length >= 2) {
       final code = segments[1].trim();
-      if (code.isEmpty) return null;
+      if (!isValidCode(code)) return null;
       return '/gift/$code';
     }
 
@@ -122,7 +129,7 @@ class DeepLinkService {
         firstSegmentIs('referral') &&
         segments.length >= 2) {
       final code = segments[1].trim();
-      if (code.isEmpty) return null;
+      if (!isValidCode(code)) return null;
       return '/referral/$code';
     }
 

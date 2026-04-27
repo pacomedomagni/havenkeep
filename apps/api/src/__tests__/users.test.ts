@@ -202,4 +202,110 @@ describe('Users API', () => {
       expect(after.rows[0].plan).toBe('premium');
     });
   });
+
+  // S3-12.1 / S1-C: every password-touching route on /users must run input
+  // through preHashForBcrypt so passwords > 72 bytes don't silently
+  // truncate to the 72-byte prefix shared with every other long password.
+  describe('Long-password handling on /users routes (S1-C)', () => {
+    const longPassword =
+      'x'.repeat(80) + 'EndOfLongPasswordWithUniqueSuffix-2026!';
+
+    it('change-password accepts an 80+ byte password', async () => {
+      const { user, token } = await createTestUser({
+        email: 'longpw-change@test.com',
+        password: longPassword,
+      });
+
+      const newPassword = 'a'.repeat(85) + 'NewSuffix-9!';
+      const res = await request(app)
+        .put('/api/v1/users/me/password')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          currentPassword: longPassword,
+          newPassword,
+        });
+
+      expect(res.status).toBe(200);
+
+      const { pool } = require('../db');
+      const row = await pool.query(
+        `SELECT password_hash FROM users WHERE id = $1`,
+        [user.id],
+      );
+      expect(row.rows[0].password_hash).toBeTruthy();
+    });
+
+    it('change-email accepts an 80+ byte password as confirmation', async () => {
+      const { token } = await createTestUser({
+        email: 'longpw-email@test.com',
+        password: longPassword,
+      });
+
+      const res = await request(app)
+        .put('/api/v1/users/me/email')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          password: longPassword,
+          newEmail: 'longpw-email-new@test.com',
+        });
+
+      expect(res.status).toBe(200);
+    });
+
+    it('account-delete accepts an 80+ byte password', async () => {
+      const { token } = await createTestUser({
+        email: 'longpw-delete@test.com',
+        password: longPassword,
+      });
+
+      const res = await request(app)
+        .delete('/api/v1/users/me')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ password: longPassword });
+
+      expect(res.status).toBe(200);
+    });
+  });
+
+  // S3-12.7 / S1-I: registering the same FCM token under user A then user B
+  // must remove A's row — otherwise both accounts receive pushes addressed
+  // to whoever's currently logged in on the device.
+  describe('Push token poisoning protection (S1-I)', () => {
+    it('reassigns an FCM token from user A to user B', async () => {
+      const fcmToken = `fcm-${require('crypto').randomUUID()}`;
+      const { user: userA, token: tokenA } = await createTestUser({
+        email: 'pushpoison-a@test.com',
+      });
+      const { user: userB, token: tokenB } = await createTestUser({
+        email: 'pushpoison-b@test.com',
+      });
+
+      const a = await request(app)
+        .post('/api/v1/users/push-token')
+        .set('Authorization', `Bearer ${tokenA}`)
+        .send({ fcmToken, platform: 'ios' });
+      expect(a.status).toBe(200);
+
+      const b = await request(app)
+        .post('/api/v1/users/push-token')
+        .set('Authorization', `Bearer ${tokenB}`)
+        .send({ fcmToken, platform: 'android' });
+      expect(b.status).toBe(200);
+
+      const { pool } = require('../db');
+      const rows = await pool.query(
+        `SELECT user_id, platform FROM user_push_tokens WHERE fcm_token = $1`,
+        [fcmToken],
+      );
+      expect(rows.rows.length).toBe(1);
+      expect(rows.rows[0].user_id).toBe(userB.id);
+      expect(rows.rows[0].platform).toBe('android');
+      // userA should have no row for this token any more.
+      const aRows = await pool.query(
+        `SELECT 1 FROM user_push_tokens WHERE fcm_token = $1 AND user_id = $2`,
+        [fcmToken, userA.id],
+      );
+      expect(aRows.rows.length).toBe(0);
+    });
+  });
 });

@@ -143,6 +143,11 @@ export class NotificationsService {
       // F038: hide rows that FCM/email rejected — the user should never see
       // a notification we couldn't actually deliver. 'pending' + 'delivered'
       // are surfaced; 'failed' + 'skipped' are not.
+      //
+      // S3-J: hide notifications whose item has since been archived. The
+      // join is LEFT so notifications with no item (account-level alerts)
+      // are still surfaced — only the rows that *do* point at an item
+      // require the item to be active.
       let query = `
         SELECT nh.*,
                nt.name as template_name,
@@ -152,6 +157,7 @@ export class NotificationsService {
         LEFT JOIN items i ON i.id = nh.item_id
         WHERE nh.user_id = $1
           AND nh.delivery_status IN ('pending', 'delivered')
+          AND (nh.item_id IS NULL OR i.is_archived = FALSE)
       `;
       const params: any[] = [userId];
 

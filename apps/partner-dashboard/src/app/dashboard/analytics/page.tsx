@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import ConversionFunnel from '@/components/charts/conversion-funnel';
 import EarningsChart from '@/components/charts/earnings-chart';
 import { apiClient } from '@/lib/api';
+import { logError } from '@/lib/log-error';
 import { formatCurrency } from '@/lib/utils';
 
 interface AnalyticsData {
@@ -11,9 +12,10 @@ interface AnalyticsData {
   activated_gifts: number;
   pending_gifts: number;
   activation_rate: number;
-  total_commissions: number;
-  pending_commissions: number;
-  paid_commissions: number;
+  // Cent-accurate decimal strings from /partners/analytics (S3-A).
+  total_commissions: number | string;
+  pending_commissions: number | string;
+  paid_commissions: number | string;
   recent_activity: any[];
 }
 
@@ -60,7 +62,7 @@ export default function AnalyticsPage() {
       }
     } catch (err) {
       setError('Failed to load analytics data.');
-      console.error('Error fetching analytics:', err);
+      logError('Error fetching analytics', err);
     } finally {
       setLoading(false);
     }

@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import { pool } from '../db';
 import { config } from '../config';
 import { createApp } from '../app';
+import { preHashForBcrypt } from '../utils/password';
 
 export function getTestApp() {
   return createApp();
@@ -33,7 +34,13 @@ export function getAdminToken(userId: string, email: string) {
 
 export async function createTestUser(overrides: Record<string, any> = {}) {
   const email = (overrides.email || `test-${crypto.randomUUID()}@test.com`).toLowerCase();
-  const passwordHash = await bcrypt.hash(overrides.password || 'TestPassword123!', 4); // low rounds for speed
+  // Mirror the production hashing pipeline — preHashForBcrypt + bcrypt — so
+  // long-password regressions surface in tests instead of being silently
+  // truncated by bcrypt's 72-byte input cap (S3-12 / S1-C).
+  const passwordHash = await bcrypt.hash(
+    preHashForBcrypt(overrides.password || 'TestPassword123!'),
+    4, // low rounds for speed
+  );
   const fullName = overrides.fullName || 'Test User';
   const isAdmin = overrides.isAdmin || false;
   const plan = overrides.plan || 'free';

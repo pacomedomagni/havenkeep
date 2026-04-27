@@ -339,4 +339,50 @@ void main() {
   test('ClaimStatus._byName surfaces unknown as filed without throwing', () {
     expect(ClaimStatus.fromJson('made_up_status'), ClaimStatus.filed);
   });
+
+  // S3-12.2 / S1-A: every server-issued claim status round-trips verbatim.
+  test('ClaimStatus round-trips every server-issued value', () {
+    final wireValues = [
+      'filed',
+      'in_review',
+      'approved',
+      'denied',
+      'settled',
+      'closed',
+    ];
+    for (final wire in wireValues) {
+      final parsed = ClaimStatus.fromJson(wire);
+      expect(parsed.toJson(), wire,
+          reason: 'ClaimStatus.$wire must round-trip without coercion');
+    }
+  });
+
+  // S3-12.6 / S1-F: Partner.status hydrates from `status` and falls through
+  // unknown values to pending without throwing.
+  test('Partner round-trip preserves status field', () {
+    final json = {
+      'id': '11111111-1111-1111-1111-111111111111',
+      'user_id': '22222222-2222-2222-2222-222222222222',
+      'partner_type': 'realtor',
+      'company_name': 'Acme Realty',
+      'subscription_tier': 'basic',
+      'default_premium_months': 6,
+      'stripe_onboarded': true,
+      'status': 'pending',
+      'is_active': false,
+      'is_verified': false,
+      'service_areas': <String>[],
+      'created_at': '2026-01-01T00:00:00.000Z',
+      'updated_at': '2026-04-25T00:00:00.000Z',
+    };
+    final partner = Partner.fromJson(json);
+    expect(partner.status, PartnerStatus.pending);
+    expect(partner.toJson()['status'], 'pending');
+    final round = Partner.fromJson(partner.toJson());
+    expect(round.status, partner.status);
+  });
+
+  test('PartnerStatus.fromJson coerces unknown values to pending', () {
+    expect(PartnerStatus.fromJson('made_up'), PartnerStatus.pending);
+  });
 }

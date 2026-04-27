@@ -435,8 +435,8 @@ router.get(
   requirePartner,
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
-    const startDate = req.query.startDate as string | undefined;
-    const endDate = req.query.endDate as string | undefined;
+    let startDate = req.query.startDate as string | undefined;
+    let endDate = req.query.endDate as string | undefined;
 
     // Validate date format if provided (YYYY-MM-DD)
     const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
@@ -445,6 +445,32 @@ router.get(
     }
     if (endDate && !dateRegex.test(endDate)) {
       throw new AppError('Invalid endDate format. Use YYYY-MM-DD.', 400);
+    }
+
+    // S3-G: bound the window. Partner analytics scans a per-row commission
+    // ledger; an unbounded range (or a 130-year window) produces an
+    // unnecessarily large query and can pin a worker. Cap the window at
+    // 365 days, default to last 90 days when omitted.
+    const MAX_RANGE_DAYS = 365;
+    const DEFAULT_RANGE_DAYS = 90;
+    const todayUtc = new Date().toISOString().slice(0, 10);
+    if (!endDate) endDate = todayUtc;
+    if (!startDate) {
+      const start = new Date(endDate + 'T00:00:00Z');
+      start.setUTCDate(start.getUTCDate() - DEFAULT_RANGE_DAYS);
+      startDate = start.toISOString().slice(0, 10);
+    }
+    const startMs = Date.parse(startDate + 'T00:00:00Z');
+    const endMs = Date.parse(endDate + 'T00:00:00Z');
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || startMs > endMs) {
+      throw new AppError('Invalid date range', 400);
+    }
+    const spanDays = Math.floor((endMs - startMs) / (24 * 60 * 60 * 1000));
+    if (spanDays > MAX_RANGE_DAYS) {
+      throw new AppError(
+        `Date range cannot exceed ${MAX_RANGE_DAYS} days`,
+        400,
+      );
     }
 
     const analytics = await PartnersService.getPartnerAnalytics(userId, { startDate, endDate });

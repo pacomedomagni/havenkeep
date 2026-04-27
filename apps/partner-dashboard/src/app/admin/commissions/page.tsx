@@ -3,23 +3,24 @@ import StatsCard from '@/components/StatsCard'
 import AdminCommissionTable from '@/components/admin-commission-table'
 import Pagination from '@/components/Pagination'
 import { serverApiClient, requireAdmin } from '@/lib/auth'
+import type { AdminCommission, AdminCommissionStats, PaginationMeta } from '@/lib/api-types'
 import { ClockIcon, CheckBadgeIcon, BanknotesIcon } from '@heroicons/react/24/outline'
 
 async function getCommissions(page: number = 1) {
   try {
-    const result = await serverApiClient<{ data: any[]; pagination: any }>(`/api/v1/admin/commissions?page=${page}&limit=20`)
+    const result = await serverApiClient<{ data: AdminCommission[]; pagination: PaginationMeta }>(`/api/v1/admin/commissions?page=${page}&limit=20`)
     return { data: { commissions: result.data || [], pagination: result.pagination }, error: false }
   } catch {
-    return { data: { commissions: [], pagination: null }, error: true }
+    return { data: { commissions: [] as AdminCommission[], pagination: null }, error: true }
   }
 }
 
 async function getCommissionStats() {
   try {
-    const { data: stats } = await serverApiClient<{ data: any }>('/api/v1/admin/commissions/stats')
-    return { data: stats || { total_pending_amount: 0, total_approved_amount: 0, total_paid_amount: 0 }, error: false }
+    const { data: stats } = await serverApiClient<{ data: AdminCommissionStats }>('/api/v1/admin/commissions/stats')
+    return { data: stats || { total_pending_amount: 0, total_approved_amount: 0, total_paid_amount: 0, count_pending: 0, count_approved: 0, count_paid: 0 }, error: false }
   } catch {
-    return { data: { total_pending_amount: 0, total_approved_amount: 0, total_paid_amount: 0 }, error: true }
+    return { data: { total_pending_amount: 0, total_approved_amount: 0, total_paid_amount: 0, count_pending: 0, count_approved: 0, count_paid: 0 } as AdminCommissionStats, error: true }
   }
 }
 
@@ -79,7 +80,7 @@ export default async function CommissionsPage({
         </div>
 
         <AdminCommissionTable commissions={commissions} />
-        {pagination && (
+        {pagination && pagination.total_pages != null && pagination.total != null && (
           <Pagination
             page={pagination.page}
             totalPages={pagination.total_pages}

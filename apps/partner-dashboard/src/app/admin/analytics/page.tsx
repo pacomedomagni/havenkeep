@@ -3,14 +3,15 @@ import StatsCard from '@/components/StatsCard'
 import SignupsChart from '@/components/SignupsChart'
 import ItemsChart from '@/components/ItemsChart'
 import { serverApiClient, requireAdmin } from '@/lib/auth'
+import type { AdminFullStats, AdminDailyPoint } from '@/lib/api-types'
 import { UsersIcon, CubeIcon, ChartBarIcon } from '@heroicons/react/24/outline'
 
 async function getAnalyticsData() {
   try {
     const [statsResult, signupsResult, itemsResult] = await Promise.all([
-      serverApiClient<{ data: any }>('/api/v1/admin/stats/full'),
-      serverApiClient<{ data: any[] }>('/api/v1/admin/stats/daily-signups?days=30'),
-      serverApiClient<{ data: any[] }>('/api/v1/admin/stats/daily-items?days=30'),
+      serverApiClient<{ data: AdminFullStats }>('/api/v1/admin/stats/full'),
+      serverApiClient<{ data: AdminDailyPoint[] }>('/api/v1/admin/stats/daily-signups?days=30'),
+      serverApiClient<{ data: AdminDailyPoint[] }>('/api/v1/admin/stats/daily-items?days=30'),
     ])
 
     return {
