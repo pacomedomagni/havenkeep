@@ -8,7 +8,7 @@
       "namespace": "android_app",
       "package_name": "app.havenkeep.mobile",
       "sha256_cert_fingerprints": [
-        "REPLACE_WITH_UPLOAD_KEY_SHA256",
+        "70:21:27:A4:AD:2D:8B:8B:73:0F:60:DD:62:45:71:DA:A0:96:EB:EF:81:76:8A:FC:EF:28:D1:F7:F8:AF:9F:90",
         "REPLACE_WITH_PLAY_APP_SIGNING_SHA256"
       ]
     }

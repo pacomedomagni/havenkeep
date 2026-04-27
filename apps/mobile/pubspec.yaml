@@ -116,6 +116,24 @@ dev_dependencies:
   drift_dev: ^2.21.2
   riverpod_generator: ^2.0.0
   mockito: ^5.0.0
+  # One-shot launcher icon generator. Run `dart run flutter_launcher_icons`
+  # after editing the config or swapping assets/icons/app-icon.png.
+  flutter_launcher_icons: ^0.14.0
+
+# Adaptive launcher icon config (Android 8+ / iOS). The plugin emits the
+# mipmap-anydpi-v26 layers (foreground + background) Android needs to
+# render the icon shape correctly across launchers. iOS gets a flattened
+# AppIcon.appiconset rebuild.
+flutter_launcher_icons:
+  image_path: "assets/icons/app-icon.png"
+  android: true
+  ios: true
+  remove_alpha_ios: true
+  # Background colour behind the foreground layer on adaptive devices.
+  # Mirrors the brand surface so the icon doesn't read as washed-out on
+  # white system themes.
+  adaptive_icon_background: "#0F172A"
+  adaptive_icon_foreground: "assets/icons/app-icon.png"
 
 flutter:
   uses-material-design: true
