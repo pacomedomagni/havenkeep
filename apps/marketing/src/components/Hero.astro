@@ -28,9 +28,11 @@
         Sound familiar? HavenKeep makes sure it never happens again.
       </p>
 
-      <!-- CTAs -->
+      <!-- CTAs. The "Protect" button anchors to the App Store / Play Store
+           badges directly below — there's no consumer web signup yet, so
+           sending users into a dead app.havenkeep.com flow is broken. -->
       <div class="flex flex-col sm:flex-row gap-4 justify-center mb-6">
-        <a href="https://app.havenkeep.com/signup" class="btn-primary text-lg px-8 py-4 flex items-center justify-center gap-2">
+        <a href="#download-hero" class="btn-primary text-lg px-8 py-4 flex items-center justify-center gap-2">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
           </svg>
@@ -45,7 +47,7 @@
       </div>
 
       <!-- App Store Buttons -->
-      <div class="flex flex-wrap justify-center gap-4 mb-6">
+      <div id="download-hero" class="flex flex-wrap justify-center gap-4 mb-6">
         <a
           href="https://apps.apple.com/app/havenkeep"
           class="inline-flex items-center gap-2 bg-black hover:bg-gray-800 text-white px-5 py-2.5 rounded-lg border border-gray-700 transition-colors"
@@ -61,7 +63,7 @@
           </div>
         </a>
         <a
-          href="https://play.google.com/store/apps/details?id=com.havenkeep"
+          href="https://play.google.com/store/apps/details?id=app.havenkeep.mobile"
           class="inline-flex items-center gap-2 bg-black hover:bg-gray-800 text-white px-5 py-2.5 rounded-lg border border-gray-700 transition-colors"
           target="_blank"
           rel="noopener noreferrer"
@@ -105,89 +107,86 @@
       </div>
     </div>
 
-    <!-- CSS App Mockup -->
-    <div class="max-w-5xl mx-auto">
+    <!-- Phone mockup. HavenKeep is mobile-only today (iOS + Android), so
+         the hero shows a phone instead of a fictional desktop dashboard. -->
+    <div class="max-w-sm mx-auto">
       <div class="relative">
         <!-- Glow effect -->
-        <div class="absolute -inset-4 bg-gradient-to-r from-primary/20 via-secondary/20 to-primary/20 rounded-2xl blur-xl"></div>
+        <div class="absolute -inset-6 bg-gradient-to-r from-primary/20 via-secondary/20 to-primary/20 rounded-[3rem] blur-2xl"></div>
 
-        <!-- App window -->
-        <div class="relative rounded-xl overflow-hidden border border-gray-700 bg-gray-900 shadow-2xl">
-          <!-- Window titlebar -->
-          <div class="flex items-center gap-2 px-4 py-3 bg-gray-800 border-b border-gray-700">
-            <div class="flex gap-1.5">
-              <div class="w-3 h-3 rounded-full bg-red-500/80"></div>
-              <div class="w-3 h-3 rounded-full bg-yellow-500/80"></div>
-              <div class="w-3 h-3 rounded-full bg-green-500/80"></div>
-            </div>
-            <div class="flex-1 text-center">
-              <span class="text-xs text-gray-500 font-mono">app.havenkeep.com/dashboard</span>
+        <!-- Phone frame -->
+        <div class="relative rounded-[2.5rem] border-[10px] border-gray-800 bg-gray-900 shadow-2xl overflow-hidden">
+          <!-- Notch -->
+          <div class="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-6 bg-gray-800 rounded-b-2xl z-10"></div>
+
+          <!-- Status bar -->
+          <div class="flex items-center justify-between px-6 pt-3 pb-2 bg-gray-900 text-white text-xs">
+            <span class="font-medium">9:41</span>
+            <div class="flex items-center gap-1">
+              <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true"><path fill-rule="evenodd" d="M17.778 8.222c-4.296-4.296-11.26-4.296-15.556 0A1 1 0 01.808 6.808c5.076-5.076 13.308-5.076 18.384 0a1 1 0 01-1.414 1.414zM14.95 11.05a7 7 0 00-9.9 0 1 1 0 01-1.414-1.414 9 9 0 0112.728 0 1 1 0 01-1.414 1.414zM12.12 13.88a3 3 0 00-4.242 0 1 1 0 01-1.415-1.415 5 5 0 017.072 0 1 1 0 01-1.415 1.415zM9 16a1 1 0 011-1h.01a1 1 0 110 2H10a1 1 0 01-1-1z" clip-rule="evenodd" /></svg>
+              <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true"><path d="M2 4.75A.75.75 0 012.75 4h14.5a.75.75 0 01.75.75v10.5a.75.75 0 01-.75.75H2.75a.75.75 0 01-.75-.75V4.75z" /></svg>
             </div>
           </div>
 
-          <!-- Dashboard content -->
-          <div class="p-6">
-            <!-- Top bar -->
-            <div class="flex items-center justify-between mb-6">
+          <!-- Screen content -->
+          <div class="px-5 pt-3 pb-6">
+            <!-- Header -->
+            <div class="flex items-center justify-between mb-5">
               <div>
                 <h3 class="text-lg font-semibold text-white">My Warranties</h3>
-                <p class="text-sm text-gray-400">3 expiring soon</p>
+                <p class="text-xs text-gray-400">3 expiring soon</p>
               </div>
-              <button class="bg-primary text-white text-sm px-4 py-2 rounded-lg font-medium flex items-center gap-2">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
-                Add Item
+              <button class="w-9 h-9 bg-primary rounded-full flex items-center justify-center" aria-label="Add item">
+                <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4" /></svg>
               </button>
             </div>
 
             <!-- Stats row -->
-            <div class="grid grid-cols-3 gap-4 mb-6">
-              <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
-                <p class="text-2xl font-bold text-white">24</p>
-                <p class="text-xs text-gray-400">Total Items</p>
+            <div class="grid grid-cols-3 gap-2 mb-5">
+              <div class="bg-gray-800 rounded-lg p-3 border border-gray-700">
+                <p class="text-base font-bold text-white">24</p>
+                <p class="text-[10px] text-gray-400">Items</p>
               </div>
-              <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
-                <p class="text-2xl font-bold text-accent">$8,420</p>
-                <p class="text-xs text-gray-400">Protected Value</p>
+              <div class="bg-gray-800 rounded-lg p-3 border border-gray-700">
+                <p class="text-base font-bold text-accent">$8,420</p>
+                <p class="text-[10px] text-gray-400">Protected</p>
               </div>
-              <div class="bg-gray-800 rounded-lg p-4 border border-yellow-600/30">
-                <p class="text-2xl font-bold text-yellow-400">3</p>
-                <p class="text-xs text-gray-400">Expiring Soon</p>
+              <div class="bg-gray-800 rounded-lg p-3 border border-yellow-600/30">
+                <p class="text-base font-bold text-yellow-400">3</p>
+                <p class="text-[10px] text-gray-400">Expiring</p>
               </div>
             </div>
 
             <!-- Item list -->
-            <div class="space-y-3">
-              <div class="flex items-center gap-4 bg-gray-800/50 rounded-lg p-4 border border-red-500/30">
-                <div class="w-10 h-10 bg-red-500/10 rounded-lg flex items-center justify-center">
-                  <svg class="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
+            <div class="space-y-2.5">
+              <div class="flex items-center gap-3 bg-gray-800/50 rounded-lg p-3 border border-red-500/30">
+                <div class="w-9 h-9 bg-red-500/10 rounded-lg flex items-center justify-center flex-shrink-0">
+                  <svg class="w-4 h-4 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
                 </div>
                 <div class="flex-1 min-w-0">
-                  <p class="text-sm font-medium text-white">Samsung Dishwasher DW80R5061</p>
-                  <p class="text-xs text-red-400">Expires in 5 days &bull; $1,249 value</p>
+                  <p class="text-xs font-medium text-white truncate">Samsung Dishwasher</p>
+                  <p class="text-[10px] text-red-400">Expires in 5 days</p>
                 </div>
-                <span class="text-xs bg-red-500/20 text-red-300 px-2.5 py-1 rounded-full font-medium whitespace-nowrap">Claim Now</span>
               </div>
 
-              <div class="flex items-center gap-4 bg-gray-800/50 rounded-lg p-4 border border-yellow-500/20">
-                <div class="w-10 h-10 bg-yellow-500/10 rounded-lg flex items-center justify-center">
-                  <svg class="w-5 h-5 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+              <div class="flex items-center gap-3 bg-gray-800/50 rounded-lg p-3 border border-yellow-500/20">
+                <div class="w-9 h-9 bg-yellow-500/10 rounded-lg flex items-center justify-center flex-shrink-0">
+                  <svg class="w-4 h-4 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                 </div>
                 <div class="flex-1 min-w-0">
-                  <p class="text-sm font-medium text-white">LG 65&rdquo; OLED TV</p>
-                  <p class="text-xs text-yellow-400">Expires in 23 days &bull; $2,199 value</p>
+                  <p class="text-xs font-medium text-white truncate">LG 65&rdquo; OLED TV</p>
+                  <p class="text-[10px] text-yellow-400">Expires in 23 days</p>
                 </div>
-                <span class="text-xs bg-yellow-500/20 text-yellow-300 px-2.5 py-1 rounded-full font-medium whitespace-nowrap">Expiring Soon</span>
               </div>
 
-              <div class="flex items-center gap-4 bg-gray-800/50 rounded-lg p-4 border border-gray-700">
-                <div class="w-10 h-10 bg-accent/10 rounded-lg flex items-center justify-center">
-                  <svg class="w-5 h-5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+              <div class="flex items-center gap-3 bg-gray-800/50 rounded-lg p-3 border border-gray-700">
+                <div class="w-9 h-9 bg-accent/10 rounded-lg flex items-center justify-center flex-shrink-0">
+                  <svg class="w-4 h-4 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                 </div>
                 <div class="flex-1 min-w-0">
-                  <p class="text-sm font-medium text-white">MacBook Pro 16&rdquo; M3</p>
-                  <p class="text-xs text-gray-400">Expires Dec 2026 &bull; $3,499 value</p>
+                  <p class="text-xs font-medium text-white truncate">MacBook Pro 16&rdquo; M3</p>
+                  <p class="text-[10px] text-gray-400">Expires Dec 2026</p>
                 </div>
-                <span class="text-xs bg-accent/20 text-accent px-2.5 py-1 rounded-full font-medium whitespace-nowrap">Protected</span>
               </div>
             </div>
           </div>

@@ -9,23 +9,23 @@ const faqs = [
     questions: [
       {
         q: "What's the difference between the Free and Premium plans?",
-        a: "The Free plan lets you track up to 5 items with basic warranty tracking, email reminders, and full mobile app access — free forever, no credit card required. Premium unlocks unlimited items and properties, AI-powered receipt scanning (OCR), PDF and CSV export, smart multi-stage reminders, and priority support. Premium starts at just $2/month when billed annually."
+        a: "The Free plan lets you track up to 5 items with basic warranty tracking, email reminders, and full mobile app access — free forever, no credit card required. Premium unlocks unlimited items and properties, AI-powered receipt scanning (OCR), PDF and CSV export, customizable expiry reminders, and priority support. Premium starts at just $2/month when billed annually."
       },
       {
         q: "Can I switch plans anytime?",
-        a: "Yes! You can upgrade, downgrade, or cancel your plan at any time. Changes take effect immediately, and we'll prorate any charges or credits."
+        a: "Yes. You can upgrade or cancel Premium at any time through your App Store or Google Play account. Cancellations take effect at the end of your current billing period."
       },
       {
         q: "Is there a free trial for Premium?",
-        a: "Absolutely! All new Premium subscriptions come with a 14-day free trial. No credit card required to start. If you don't upgrade, you'll automatically move to the Free plan — no charge."
+        a: "The Free plan is free forever — track up to 5 items with no time limit. When the App Store and Google Play offer Premium intro pricing or trials, you'll see them in the upgrade flow inside the app."
       },
       {
         q: "How much do I save with annual billing?",
         a: "The annual plan is $24/year, compared to $2.99/month ($35.88/year). That's a 33% savings — like getting 4 months free."
       },
       {
-        q: "Do you offer refunds?",
-        a: "Yes! We offer a 30-day money-back guarantee on all paid plans. If you're not satisfied, we'll refund your payment, no questions asked."
+        q: "How do refunds work?",
+        a: "Premium is billed through the App Store or Google Play, and refunds follow each platform's published policy. If you'd like help requesting one, email support@havenkeep.com and we'll walk you through it."
       },
     ]
   },
@@ -42,7 +42,7 @@ const faqs = [
       },
       {
         q: "How do notifications and reminders work?",
-        a: "Free plan users receive email reminders before a warranty expires. Premium users get smart multi-stage reminders — notifications at 90 days, 30 days, 7 days, and the day of expiration — via email and push notifications on mobile. You can customize the timing in your account settings."
+        a: "Free plan users receive email reminders before a warranty expires (default: 30 days ahead). Premium users get email plus push notifications, and can change the lead time in Settings to whatever suits each item — from a week out to several months. You always control the timing."
       },
     ]
   },
@@ -51,7 +51,7 @@ const faqs = [
     questions: [
       {
         q: "How is my data secured?",
-        a: "All data is encrypted using AES-256 at rest and TLS 1.3 in transit. We host on enterprise-grade cloud infrastructure with 24/7 intrusion detection, automated security patching, and geographic redundancy. We never sell your data to third parties. For more details, visit our Security page."
+        a: "Sensitive fields are encrypted at the application layer with AES-256-GCM, the database disk is fully encrypted, and the local on-device database uses SQLCipher (AES-256). Everything is sent over TLS 1.3. We never sell your data to third parties. For more details, visit our Security page."
       },
       {
         q: "Can I export my data?",
@@ -68,7 +68,7 @@ const faqs = [
     questions: [
       {
         q: "Is there a mobile app?",
-        a: "Yes! HavenKeep is available on iOS and Android as well as the web. Your data syncs instantly across all your devices. The mobile app includes receipt scanning with your camera, push notifications, and full warranty management — everything you need on the go."
+        a: "Yes — HavenKeep is a mobile app, available on iOS and Android. Sign in on every household phone and your warranties stay in sync across all of them. The app includes receipt scanning with your camera, push notifications, and full warranty management — everything you need on the go."
       },
       {
         q: "What happens to my data if I cancel?",
@@ -151,11 +151,11 @@ const faqs = [
             Our team is here to help. Get in touch with us anytime.
           </p>
           <div class="flex flex-col sm:flex-row gap-4 justify-center">
-            <a href="https://app.havenkeep.com/signup" class="bg-white text-primary hover:bg-gray-100 font-semibold py-4 px-8 rounded-lg transition-colors duration-200 text-lg">
-              Start Free Trial
+            <a href="/#download-hero" class="bg-white text-primary hover:bg-gray-100 font-semibold py-4 px-8 rounded-lg transition-colors duration-200 text-lg">
+              Get the App
             </a>
             <a href="/contact" class="bg-white/10 hover:bg-white/20 text-white border-2 border-white font-semibold py-4 px-8 rounded-lg transition-colors duration-200 text-lg">
-              Contact Sales
+              Contact Us
             </a>
           </div>
         </div>

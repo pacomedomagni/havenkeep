@@ -84,8 +84,8 @@
           </li>
         </ul>
 
-        <a href="https://app.havenkeep.com/signup" class="btn-secondary w-full block text-center">
-          Get Started Free
+        <a href="#download-premium" class="btn-secondary w-full block text-center">
+          Get the App — Free
         </a>
       </div>
 
@@ -142,7 +142,7 @@
             <svg class="w-5 h-5 text-accent mt-0.5 mr-3 flex-shrink-0" aria-hidden="true" fill="currentColor" viewBox="0 0 20 20">
               <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
             </svg>
-            <span class="text-gray-200">Mobile + web app</span>
+            <span class="text-gray-200">iOS &amp; Android apps</span>
           </li>
           <li class="flex items-start">
             <svg class="w-5 h-5 text-accent mt-0.5 mr-3 flex-shrink-0" aria-hidden="true" fill="currentColor" viewBox="0 0 20 20">
@@ -154,13 +154,13 @@
             <svg class="w-5 h-5 text-accent mt-0.5 mr-3 flex-shrink-0" aria-hidden="true" fill="currentColor" viewBox="0 0 20 20">
               <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
             </svg>
-            <span class="text-gray-200">PDF, CSV & email export</span>
+            <span class="text-gray-200">PDF, CSV &amp; email export</span>
           </li>
           <li class="flex items-start">
             <svg class="w-5 h-5 text-accent mt-0.5 mr-3 flex-shrink-0" aria-hidden="true" fill="currentColor" viewBox="0 0 20 20">
               <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
             </svg>
-            <span class="text-gray-200">Smart multi-stage reminders</span>
+            <span class="text-gray-200">Customizable expiry reminders</span>
           </li>
           <li class="flex items-start">
             <svg class="w-5 h-5 text-accent mt-0.5 mr-3 flex-shrink-0" aria-hidden="true" fill="currentColor" viewBox="0 0 20 20">
@@ -170,14 +170,19 @@
           </li>
         </ul>
 
-        <a href="https://app.havenkeep.com/signup?plan=premium" class="btn-primary w-full block text-center">
-          Start 14-Day Free Trial
+        <!-- Premium is purchased through the App Store / Play Store; no
+             web-checkout flow exists, so the CTA points at the store badges
+             below the cards. -->
+        <a href="#download-premium" class="btn-primary w-full block text-center">
+          Get Premium in the App
         </a>
-        <p class="text-center text-gray-500 text-xs mt-3">14-day free trial &bull; No credit card required &bull; Cancel anytime</p>
+        <p class="text-center text-gray-500 text-xs mt-3">Available in the iOS &amp; Android apps &bull; Cancel anytime in your store account</p>
       </div>
     </div>
 
-    <!-- Money-back guarantee -->
+    <!-- Cancel anytime — refunds run through the App Store / Play Store
+         per their published policies; we don't operate a separate web
+         refund flow, so we don't promise one. -->
     <div class="reveal mt-12 max-w-2xl mx-auto text-center">
       <div class="bg-gray-900 border border-gray-700 rounded-2xl p-6 flex flex-col sm:flex-row items-center gap-4">
         <div class="w-12 h-12 bg-accent/10 rounded-full flex items-center justify-center flex-shrink-0">
@@ -186,10 +191,44 @@
           </svg>
         </div>
         <div class="text-left">
-          <p class="text-white font-semibold">30-Day Money-Back Guarantee</p>
-          <p class="text-gray-400 text-sm">Not convinced? Get a full refund within 30 days, no questions asked. We&apos;re that confident you&apos;ll love it.</p>
+          <p class="text-white font-semibold">Cancel anytime</p>
+          <p class="text-gray-400 text-sm">Premium is billed through the App Store or Google Play. Cancel in your store account at any time &mdash; refunds follow the platform&apos;s published policy.</p>
         </div>
       </div>
+    </div>
+
+    <!-- Store-badge anchor target so the Premium / Free CTAs above scroll to
+         a real download spot. We render compact App Store + Play Store badges
+         here (the Hero already has the larger versions). -->
+    <div id="download-premium" class="mt-12 flex flex-wrap justify-center gap-4 reveal">
+      <a
+        href="https://apps.apple.com/app/havenkeep"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="inline-flex items-center gap-2 bg-black hover:bg-gray-900 text-white px-5 py-2.5 rounded-lg border border-gray-700 transition-colors"
+      >
+        <svg class="w-6 h-6" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/>
+        </svg>
+        <div class="text-left">
+          <div class="text-[10px] leading-none opacity-80">Download on the</div>
+          <div class="text-sm font-semibold leading-tight">App Store</div>
+        </div>
+      </a>
+      <a
+        href="https://play.google.com/store/apps/details?id=app.havenkeep.mobile"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="inline-flex items-center gap-2 bg-black hover:bg-gray-900 text-white px-5 py-2.5 rounded-lg border border-gray-700 transition-colors"
+      >
+        <svg class="w-6 h-6" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M3.609 1.814L13.792 12 3.61 22.186a.996.996 0 01-.61-.92V2.734a1 1 0 01.609-.92zm10.89 10.893l2.302 2.302-10.937 6.333 8.635-8.635zm3.199-3.198l2.807 1.626a1 1 0 010 1.73l-2.808 1.626L15.206 12l2.492-2.491zM5.864 2.658L16.8 8.99l-2.302 2.302-8.634-8.634z"/>
+        </svg>
+        <div class="text-left">
+          <div class="text-[10px] leading-none opacity-80">Get it on</div>
+          <div class="text-sm font-semibold leading-tight">Google Play</div>
+        </div>
+      </a>
     </div>
   </div>
 </section>
