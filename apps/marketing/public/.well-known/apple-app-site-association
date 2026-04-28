@@ -2,7 +2,7 @@
   "applinks": {
     "details": [
       {
-        "appIDs": ["TEAMID.app.havenkeep.mobile"],
+        "appIDs": ["N3RF2GHS99.app.havenkeep.mobile"],
         "components": [
           {
             "/": "/gift/*",
@@ -17,6 +17,6 @@
     ]
   },
   "webcredentials": {
-    "apps": ["TEAMID.app.havenkeep.mobile"]
+    "apps": ["N3RF2GHS99.app.havenkeep.mobile"]
   }
 }

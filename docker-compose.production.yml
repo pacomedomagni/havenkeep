@@ -72,6 +72,7 @@ services:
       OPENAI_API_KEY_FILE: /run/secrets/openai_api_key
       REVENUECAT_SECRET_API_KEY_FILE: /run/secrets/revenuecat_secret_api_key
       REVENUECAT_WEBHOOK_SECRET_FILE: /run/secrets/revenuecat_webhook_secret
+      FIREBASE_SERVICE_ACCOUNT_JSON_FILE: /run/secrets/firebase_service_account_json
       # Inline env (non-secret) — set in the deploy host's .env file.
       CORS_ORIGINS: ${CORS_ORIGINS}
       FRONTEND_URL: ${FRONTEND_URL}
@@ -103,6 +104,7 @@ services:
       - openai_api_key
       - revenuecat_secret_api_key
       - revenuecat_webhook_secret
+      - firebase_service_account_json
     depends_on:
       postgres:
         condition: service_healthy
@@ -185,3 +187,9 @@ secrets:
     file: ./secrets/revenuecat_secret_api_key.txt
   revenuecat_webhook_secret:
     file: ./secrets/revenuecat_webhook_secret.txt
+  firebase_service_account_json:
+    # Service-account JSON downloaded from Firebase Console →
+    # Project settings → Service accounts. Single file, full JSON
+    # (no escaping). The api's readSecret() picks it up via the
+    # *_FILE env var above.
+    file: ./secrets/firebase_service_account_json.txt

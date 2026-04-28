@@ -7,7 +7,13 @@ This is the primary markdown file in the repo. It carries:
 
 When something here is done, delete the entry. Don't park new TODOs in code or in scattered notes — keep them here.
 
-The only other markdown file allowed in the repo is `apps/mobile/IOS_DEPLOYMENT.md` — the iOS → TestFlight runbook lives next to the app it deploys. Any other `*.md` file is a violation of Rule 3 and must be folded into CLAUDE.md or deleted.
+Other markdown files allowed in the repo:
+- `apps/mobile/IOS_DEPLOYMENT.md` — iOS → TestFlight runbook lives next to the app it deploys.
+- `apps/mobile/store/STORE_LISTING.md` — App Store + Play Store listing copy (titles, descriptions, keywords, privacy questionnaires).
+- `apps/mobile/store/PLAY_CONSOLE_ANSWERS.md` — Pre-filled answers for Play Console's App Content + Data Safety forms.
+- `apps/mobile/store/APP_REVIEW_NOTES.md` — Demo account credentials + reviewer walkthrough script for App Review.
+
+Any other `*.md` file is a violation of Rule 3 and must be folded into one of the files above or deleted.
 
 ---
 
@@ -96,16 +102,13 @@ All audit-flagged mobile gaps have been closed in this branch. The list previous
 
 ### C. App Store / Play Store submission
 
-Code-side everything is ready: bundle ID `app.havenkeep.mobile`, iOS PrivacyInfo.xcprivacy with required-reasons APIs + data collection categories, APNs entitlement, Apple Sign-In + Associated Domains entitlements, complete Info.plist permission strings + `ITSAppUsesNonExemptEncryption=false`, all marketing legal pages (`/legal/privacy`, `/legal/terms`, `/legal/delete-account`, `/cookies`, `/security`), and a `/support` page (App Store Support URL). Universal Links + App Links manifest files exist at `apps/marketing/public/.well-known/`.
+Code-side everything is ready: bundle ID `app.havenkeep.mobile`, Apple Team ID `N3RF2GHS99` wired into AASA + Xcode signing, upload-key SHA-256 wired into `assetlinks.json`, iOS PrivacyInfo.xcprivacy with required-reasons APIs + data collection categories, APNs entitlement, Apple Sign-In + Associated Domains entitlements, complete Info.plist permission strings + `ITSAppUsesNonExemptEncryption=false`, all marketing legal pages (`/legal/privacy`, `/legal/terms`, `/legal/delete-account`, `/cookies`, `/security`), a `/support` page (App Store Support URL), Caddy AASA MIME-type + CSP headers, and an adaptive Android launcher icon. Universal Links + App Links manifest files at `apps/marketing/public/.well-known/`.
 
 The remaining work is **off-platform configuration only** — no code blocks shipping:
 
-1. **Apple Team ID** — fill into `apps/marketing/public/.well-known/apple-app-site-association` (replace `TEAMID` placeholder, in two spots). Get from Apple Developer Account → Membership.
-2. **Android signing fingerprints** — fill into `apps/marketing/public/.well-known/assetlinks.json` (replace `REPLACE_WITH_UPLOAD_KEY_SHA256` and `REPLACE_WITH_PLAY_APP_SIGNING_SHA256`). Get upload key from `keytool -list -v -keystore upload-keystore.jks`; get Play App Signing fingerprint from Play Console → App Integrity.
-3. **Caddy MIME type for `/.well-known/apple-app-site-association`** — Apple requires `Content-Type: application/json` and the file MUST NOT have an extension. Add `header /.well-known/apple-app-site-association Content-Type application/json` to the Caddy config in front of marketing.
-4. **Firebase config files** — download fresh `GoogleService-Info.plist` and `google-services.json` from Firebase Console and place them at `apps/mobile/ios/Runner/GoogleService-Info.plist` and `apps/mobile/android/app/google-services.json`. Both are gitignored.
-5. **Reversed Google Client ID** — replace `com.googleusercontent.apps.REPLACE-WITH-CLIENT-ID` in `apps/mobile/ios/Runner/Info.plist` (CFBundleURLSchemes) with the value from `GoogleService-Info.plist` `REVERSED_CLIENT_ID`.
-6. **Apple Sign-In Services IDs** — create `app.havenkeep.mobile.signin` and `app.havenkeep.mobile.signin.staging` in Apple Developer portal under Identifiers → Services IDs. Configure each with the marketing domain as the Web Authentication redirect URL.
-7. **App Store Connect** — create app record with bundle ID `app.havenkeep.mobile`. Privacy URL: `https://havenkeep.com/legal/privacy`. Support URL: `https://havenkeep.com/support`. Marketing URL (optional): `https://havenkeep.com`. Account Deletion: in-app via Settings → Delete Account. Privacy Nutrition Label: mirror the categories declared in `PrivacyInfo.xcprivacy`.
-8. **Play Console** — create app with package name `app.havenkeep.mobile`. Privacy Policy: `https://havenkeep.com/legal/privacy`. Data Safety form: mirror `PrivacyInfo.xcprivacy` categories. Account deletion: in-app + `https://havenkeep.com/legal/delete-account`. Target API level 35 is auto-met by Flutter 3.41+.
-9. **Adaptive Android launcher icon** (polish, not blocking) — current Android icon is the legacy `mipmap-*/ic_launcher.png` only. For Android 8+ (min SDK 26+) consider adding `mipmap-anydpi-v26/ic_launcher.xml` + foreground/background layers. Cleanest path: add `flutter_launcher_icons` dev dep, configure with the existing `assets/icons/app-icon.png`, run `dart run flutter_launcher_icons`.
+1. **Play App Signing fingerprint** — after the first AAB upload, copy the SHA-256 from Play Console → App integrity → App signing key fingerprint and replace `REPLACE_WITH_PLAY_APP_SIGNING_SHA256` in `apps/marketing/public/.well-known/assetlinks.json`. The upload-key fingerprint (`70:21:27:A4:…`) is already wired.
+2. **Firebase config files** — download fresh `GoogleService-Info.plist` and `google-services.json` from Firebase Console and place them at `apps/mobile/ios/Runner/GoogleService-Info.plist` and `apps/mobile/android/app/google-services.json`. Both are gitignored.
+3. **Reversed Google Client ID** — replace `com.googleusercontent.apps.REPLACE-WITH-CLIENT-ID` in `apps/mobile/ios/Runner/Info.plist` (CFBundleURLSchemes) with the value from `GoogleService-Info.plist` `REVERSED_CLIENT_ID`.
+4. **Apple Sign-In Services IDs** — create `app.havenkeep.mobile.signin` and `app.havenkeep.mobile.signin.staging` in Apple Developer portal under Identifiers → Services IDs. Configure each with the marketing domain as the Web Authentication redirect URL.
+5. **App Store Connect** — create app record with bundle ID `app.havenkeep.mobile`. Privacy URL: `https://havenkeep.com/legal/privacy`. Support URL: `https://havenkeep.com/support`. Marketing URL (optional): `https://havenkeep.com`. Account Deletion: in-app via Settings → Delete Account. Privacy Nutrition Label: mirror the categories declared in `PrivacyInfo.xcprivacy`.
+6. **Play Console** — create app with package name `app.havenkeep.mobile`. Privacy Policy: `https://havenkeep.com/legal/privacy`. Data Safety form: mirror `PrivacyInfo.xcprivacy` categories. Account deletion: in-app + `https://havenkeep.com/legal/delete-account`. Target API level 35 is auto-met by Flutter 3.41+.

@@ -71,8 +71,8 @@
 			<string>app.havenkeep.mobile.google</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<!-- TODO: Replace with reversed Google Client ID from GoogleService-Info.plist -->
-				<string>com.googleusercontent.apps.REPLACE-WITH-CLIENT-ID</string>
+				<!-- Reversed Google Client ID from GoogleService-Info.plist (project havenkeep-firebase-project). The GoogleSignIn iOS SDK reads REVERSED_CLIENT_ID at runtime; this URL scheme must match for the OAuth callback to land. -->
+				<string>com.googleusercontent.apps.452180570234-9dk44rfr9t8ungu0lk5cq3h6vk3fvk9v</string>
 			</array>
 		</dict>
 		<!-- Custom scheme so havenkeep://gift/<code> opens the app. The
