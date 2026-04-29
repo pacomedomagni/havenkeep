@@ -8,23 +8,16 @@ import { uploadRateLimiter } from '../middleware/rateLimiter';
 import { idempotency } from '../middleware/idempotency';
 import { validate } from '../middleware/validate';
 import { uploadDocumentSchema, updateDocumentSchema, uuidParamSchema } from '../validators';
-import { minioClient, BUCKET_NAME, generateObjectKey, getPublicUrl } from '../config/minio';
+import { minioClient, BUCKET_NAME, generateObjectKey, presignedUrlForKey } from '../config/minio';
 import { logger } from '../utils/logger';
 import { AuditService } from '../services/audit.service';
 import { validateMagicBytes, isMimeTypeAllowed, assertNotZipBomb } from '../utils/file-validation';
+import { SHARP_INPUT_OPTIONS } from '../utils/sharp-config';
 import { asyncHandler } from '../utils/async-handler';
 import { sendSuccess, sendMessage } from '../utils/response';
 
 const router = Router();
 router.use(authenticate);
-
-// Audit Ch02-F025: cap sharp's max input pixels at 100M (10kx10k) so an
-// image-bomb doesn't OOM the worker. sharp's default cap is 268 megapixels
-// — generous enough that a ~30MB PNG can crash a 512MB pod. Apply the cap
-// once at module load.
-sharp.cache(false);
-sharp.concurrency(1);
-const SHARP_PIXEL_LIMIT = 100_000_000;
 
 // Audit Ch02-F026: on-disk storage means a 10MB upload doesn't pin the V8
 // heap during sharp's decode. Multer cleans the temp file on response close.
@@ -77,7 +70,7 @@ router.get('/', asyncHandler(async (req: AuthRequest, res) => {
       [req.user!.id, itemId, limitNum, offset],
     );
 
-    sendSuccess(res, result.rows.map(toDocumentResponse));
+    sendSuccess(res, await Promise.all(result.rows.map(toDocumentResponse)));
     return;
   }
 
@@ -91,7 +84,7 @@ router.get('/', asyncHandler(async (req: AuthRequest, res) => {
     [req.user!.id, limitNum, offset],
   );
 
-  sendSuccess(res, result.rows.map(toDocumentResponse));
+  sendSuccess(res, await Promise.all(result.rows.map(toDocumentResponse)));
 }));
 
 // Get single document
@@ -108,19 +101,20 @@ router.get('/:id', validate(uuidParamSchema, 'params'), asyncHandler(async (req:
     throw new AppError('Document not found', 404);
   }
 
-  sendSuccess(res, toDocumentResponse(result.rows[0]));
+  sendSuccess(res, await toDocumentResponse(result.rows[0]));
 }));
 
-// Audit Ch02-F040: DB stores object_key only; URLs are built at read time
-// via getPublicUrl(). This decouples the DB from the current MinIO public
-// host so a hostname rotation doesn't silently break every existing link.
-function toDocumentResponse(row: any): any {
+// Audit Ch02-F040 + S-CR-02: DB stores `object_key` only; mint a fresh
+// presigned URL at response time so a leaked URL is useless within
+// PRESIGNED_URL_TTL_SECONDS (15 min default). Async because the MinIO
+// presigner is async; callers must await.
+async function toDocumentResponse(row: any): Promise<any> {
   if (!row) return row;
-  return {
-    ...row,
-    file_url: row.object_key ? getPublicUrl(row.object_key) : null,
-    thumbnail_url: row.thumbnail_key ? getPublicUrl(row.thumbnail_key) : null,
-  };
+  const [file_url, thumbnail_url] = await Promise.all([
+    presignedUrlForKey(row.object_key),
+    presignedUrlForKey(row.thumbnail_key),
+  ]);
+  return { ...row, file_url, thumbnail_url };
 }
 
 // Audit Ch02-F068: schema validation runs after multer so multipart text
@@ -189,14 +183,14 @@ router.post(
           // we don't end up with a thumbnail referencing a missing source.
           if (file.mimetype.startsWith('image/')) {
             try {
-              fileBuffer = await sharp(fileBufferRaw, { limitInputPixels: SHARP_PIXEL_LIMIT })
+              fileBuffer = await sharp(fileBufferRaw, SHARP_INPUT_OPTIONS)
                 .resize(2000, 2000, { fit: 'inside', withoutEnlargement: true })
                 .webp({ quality: 85 })
                 .toBuffer();
               contentType = 'image/webp';
               uploadFilename = file.originalname.replace(/\.[^.]+$/, '') + '.webp';
 
-              const thumbnailBuffer = await sharp(fileBufferRaw, { limitInputPixels: SHARP_PIXEL_LIMIT })
+              const thumbnailBuffer = await sharp(fileBufferRaw, SHARP_INPUT_OPTIONS)
                 .resize(300, 300, { fit: 'cover' })
                 .webp({ quality: 80 })
                 .toBuffer();
@@ -304,8 +298,8 @@ router.post(
     }
 
     const responsePayload = uploadedDocuments.length === 1
-      ? toDocumentResponse(uploadedDocuments[0])
-      : uploadedDocuments.map(toDocumentResponse);
+      ? await toDocumentResponse(uploadedDocuments[0])
+      : await Promise.all(uploadedDocuments.map(toDocumentResponse));
 
     sendSuccess(res, responsePayload, {
       status: 201,
@@ -391,7 +385,12 @@ router.put(
       },
     });
 
-    sendSuccess(res, result.rows[0]);
+    // 1.6: presign URLs in the response. Pre-1.6 this returned the raw
+    // row including `object_key` / `thumbnail_key` (now MinIO keys, not
+    // URLs since S-CR-02), so the Dart `Document.fromJson` reading
+    // `file_url` got an empty string and any `Image.network(doc.fileUrl)`
+    // call after rename/retag silently failed.
+    sendSuccess(res, await toDocumentResponse(result.rows[0]));
   }),
 );
 

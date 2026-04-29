@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
@@ -86,6 +87,21 @@ class _ReceiptScanScreenState extends ConsumerState<ReceiptScanScreen> {
       });
 
       await _processReceipt();
+    } on PlatformException catch (e) {
+      // 4.14 / M-MED-09: image_picker surfaces permission denial as a
+      // PlatformException with code `camera_access_denied`. Without
+      // this branch the user saw a raw "Camera access denied" string
+      // and no path forward — they had to know to open Settings → app
+      // → Camera permissions on their own. Show a clearer message.
+      if (!mounted) return;
+      final denied = e.code == 'camera_access_denied' ||
+          e.code == 'photo_access_denied';
+      setState(() {
+        _error = denied
+            ? 'Camera access is off for HavenKeep. Open Settings to enable it.'
+            : ErrorHandler.getUserMessage(e);
+        _isScanning = false;
+      });
     } catch (e) {
       if (!mounted) return;
       setState(() {

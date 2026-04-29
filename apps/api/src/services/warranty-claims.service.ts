@@ -226,7 +226,11 @@ export class WarrantyClaimsService {
   }
 
   /**
-   * Get all claims for a user
+   * Get all claims for a user.
+   *
+   * 2.13: optional [homeId] scopes to a single home so the mobile
+   * home-switcher actually filters claims. The count query mirrors the
+   * JOIN + filters so pagination.total stays consistent.
    */
   static async getUserClaims(
     userId: string,
@@ -234,9 +238,10 @@ export class WarrantyClaimsService {
       limit?: number;
       offset?: number;
       itemId?: string;
+      homeId?: string;
     } = {}
   ): Promise<{ claims: WarrantyClaim[]; total: number }> {
-    const { limit = 50, offset = 0, itemId } = options;
+    const { limit = 50, offset = 0, itemId, homeId } = options;
 
     try {
       let query = `
@@ -254,6 +259,10 @@ export class WarrantyClaimsService {
         query += ` AND c.item_id = $${params.length + 1}`;
         params.push(itemId);
       }
+      if (homeId) {
+        query += ` AND i.home_id = $${params.length + 1}`;
+        params.push(homeId);
+      }
 
       query += ` ORDER BY c.claim_date DESC, c.created_at DESC`;
       query += ` LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
@@ -261,11 +270,21 @@ export class WarrantyClaimsService {
 
       const result = await pool.query(query, params);
 
-      // Get total count
-      const countQuery = itemId
-        ? 'SELECT COUNT(*) FROM warranty_claims WHERE user_id = $1 AND item_id = $2'
-        : 'SELECT COUNT(*) FROM warranty_claims WHERE user_id = $1';
-      const countParams = itemId ? [userId, itemId] : [userId];
+      let countQuery = `
+        SELECT COUNT(*)
+          FROM warranty_claims c
+          JOIN items i ON i.id = c.item_id
+         WHERE c.user_id = $1
+      `;
+      const countParams: any[] = [userId];
+      if (itemId) {
+        countQuery += ` AND c.item_id = $${countParams.length + 1}`;
+        countParams.push(itemId);
+      }
+      if (homeId) {
+        countQuery += ` AND i.home_id = $${countParams.length + 1}`;
+        countParams.push(homeId);
+      }
       const countResult = await pool.query(countQuery, countParams);
 
       return {

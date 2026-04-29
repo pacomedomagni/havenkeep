@@ -25,10 +25,35 @@ router.use(requirePremium);
 // explicitly forbidden so a client that hasn't been updated fails loudly
 // instead of silently sending a raw OAuth token the server no longer
 // accepts.
+// S-ME-06: allowlist the OAuth redirect_uri the client can pass to the
+// token exchange. Google + Microsoft both bind redirect_uri to the
+// auth-code grant on their side, but pinning it here too means a stolen
+// auth code from a hostile client can't redirect tokens to an unexpected
+// HavenKeep deploy / dev tunnel even if it happens to match an old
+// registration. Configurable via `OAUTH_REDIRECT_URI_PREFIXES`
+// (comma-separated). Defaults to the canonical mobile + web callbacks.
+const OAUTH_REDIRECT_URI_PREFIXES = (
+  process.env.OAUTH_REDIRECT_URI_PREFIXES ||
+  'havenkeep://oauth-callback,https://havenkeep.com/oauth-callback,https://havenkeep.kouakoudomagni.com/oauth-callback'
+)
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+function redirectUriAllowed(value: string, helpers: Joi.CustomHelpers): any {
+  if (!OAUTH_REDIRECT_URI_PREFIXES.some((prefix) => value === prefix || value.startsWith(prefix))) {
+    return helpers.error('any.invalid', { reason: 'redirect_uri not in allowlist' });
+  }
+  return value;
+}
+
 const initiateScanSchema = Joi.object({
   provider: Joi.string().valid('gmail', 'outlook').required(),
   code: Joi.string().min(1).max(4096).required(),
-  redirect_uri: Joi.string().uri({ scheme: ['http', 'https'] }).required(),
+  redirect_uri: Joi.string()
+    .uri({ scheme: ['http', 'https', 'havenkeep'] })
+    .custom(redirectUriAllowed, 'redirect_uri allowlist')
+    .required(),
   date_range_start: Joi.date().iso().optional(),
   date_range_end: Joi.date().iso().optional(),
   access_token: Joi.any().forbidden(),

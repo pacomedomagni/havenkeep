@@ -72,16 +72,65 @@ export function generateItemImageKey(userId: string, itemId: string, ext: string
   return `item-images/${userId}/${itemId}/${entropy}.${safeExt}`;
 }
 
+// S-CR-02: default TTL for presigned download URLs. Short enough that a
+// leaked URL (referrer header, screenshot, support inbox) is useless within
+// minutes; long enough that the user's natural scroll-through-list flow
+// doesn't re-fetch URLs every screen. Override per-route when a different
+// trade-off is right.
+export const PRESIGNED_URL_TTL_SECONDS = 15 * 60; // 15 minutes
+
 /**
- * Public URL for the given object key. In production set MINIO_PUBLIC_URL to
- * the host browsers actually reach (e.g. https://files.havenkeep.com).
- * In dev we fall back to the local endpoint, which is reachable from the
- * developer's browser when MinIO is exposed on localhost.
+ * Mint a short-lived presigned download URL for a private object. The
+ * bucket should be private (no public-read policy); each retrieval mints
+ * a fresh time-bound URL on demand.
+ *
+ * Pre-S-CR-02 the bucket served `getPublicUrl` permanent unsigned URLs:
+ * a single leaked URL gave indefinite access to the file with no
+ * rotation, no revocation, no audit trail. The fix is to never persist
+ * a URL — DB columns hold the object KEY only — and re-mint a presigned
+ * URL on every authenticated read.
+ *
+ * Empty / null object key returns null (caller should treat as "no
+ * file"). Caller is responsible for ownership checks BEFORE calling —
+ * this helper signs whatever key it's given.
  */
-export function getPublicUrl(objectKey: string): string {
-  if (PUBLIC_BASE_URL) {
-    return `${PUBLIC_BASE_URL}/${BUCKET_NAME}/${objectKey}`;
+export async function presignedDownloadUrl(
+  objectKey: string | null | undefined,
+  ttlSeconds: number = PRESIGNED_URL_TTL_SECONDS,
+): Promise<string | null> {
+  if (!objectKey) return null;
+  return minioClient.presignedGetObject(BUCKET_NAME, objectKey, ttlSeconds);
+}
+
+/**
+ * If `MINIO_PUBLIC_URL` is configured, replace the host in a presigned
+ * URL produced by the MinIO SDK so browsers fetch via the public host
+ * (e.g. files.havenkeep.com) rather than the internal Docker hostname
+ * (e.g. minio:9000). The presigned signature stays valid because MinIO
+ * signs based on path + query, not host.
+ */
+export function rewriteMinIOHostForBrowser(presignedUrl: string): string {
+  if (!PUBLIC_BASE_URL) return presignedUrl;
+  try {
+    const url = new URL(presignedUrl);
+    const publicUrl = new URL(PUBLIC_BASE_URL);
+    url.protocol = publicUrl.protocol;
+    url.host = publicUrl.host;
+    return url.toString();
+  } catch {
+    return presignedUrl;
   }
-  const protocol = config.minio.useSSL ? 'https' : 'http';
-  return `${protocol}://${config.minio.endpoint}:${config.minio.port}/${BUCKET_NAME}/${objectKey}`;
+}
+
+/**
+ * Mint a presigned URL for browser consumption. Wraps presignedDownloadUrl
+ * + rewriteMinIOHostForBrowser. Returns null on null input.
+ */
+export async function presignedUrlForKey(
+  objectKey: string | null | undefined,
+  ttlSeconds: number = PRESIGNED_URL_TTL_SECONDS,
+): Promise<string | null> {
+  const signed = await presignedDownloadUrl(objectKey, ttlSeconds);
+  if (!signed) return null;
+  return rewriteMinIOHostForBrowser(signed);
 }

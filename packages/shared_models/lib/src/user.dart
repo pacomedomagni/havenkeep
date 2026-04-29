@@ -91,8 +91,9 @@ class User {
       deletionScheduledFor: _parseDate(json['deletion_scheduled_for']),
       emailChangePending: json['email_change_pending'] as bool? ?? false,
       emailChangeTarget: json['email_change_target'] as String?,
-      createdAt: _parseDate(json['created_at'])!,
-      updatedAt: _parseDate(json['updated_at'])!,
+      // 4.1: server-stamped timestamps fall back instead of crashing.
+      createdAt: _parseDate(json['created_at']) ?? DateTime.now(),
+      updatedAt: _parseDate(json['updated_at']) ?? DateTime.now(),
     );
   }
 

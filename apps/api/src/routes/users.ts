@@ -2,11 +2,11 @@ import { Router } from 'express';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import { query, getClient } from '../db';
-import { authenticate } from '../middleware/auth';
+import { authenticate, invalidateUserCache } from '../middleware/auth';
 import { AppError } from '../utils/errors';
 import { validate } from '../middleware/validate';
 import { updateUserSchema, pushTokenSchema } from '../validators';
-import { changePasswordSchema, deleteAccountSchema, providerParamSchema } from '../validators/users.validator';
+import { changePasswordSchema, deleteAccountSchema, providerParamSchema, verifyPremiumSchema } from '../validators/users.validator';
 import { changeEmailSchema } from '../validators/auth.validator';
 import { blacklistTokenAuto } from '../utils/token-blacklist';
 import { config } from '../config';
@@ -18,6 +18,17 @@ import { verifyPremiumRateLimiter, passwordChangeRateLimiter, writeRateLimiter }
 import { asyncHandler } from '../utils/async-handler';
 import { sendSuccess, sendMessage } from '../utils/response';
 import { preHashForBcrypt } from '../utils/password';
+import { presignedUrlForKey } from '../config/minio';
+
+// S-CR-02: avatar_url is now a MinIO object key, not a URL. Mint a fresh
+// presigned URL on every response so a leaked URL is useless within
+// PRESIGNED_URL_TTL_SECONDS (15 min default).
+async function presignAvatar<T extends { avatar_url?: string | null }>(row: T): Promise<T> {
+  if (row && row.avatar_url) {
+    (row as any).avatar_url = await presignedUrlForKey(row.avatar_url);
+  }
+  return row;
+}
 
 const router = Router();
 router.use(authenticate);
@@ -59,16 +70,19 @@ router.get('/me', asyncHandler(async (req, res) => {
     throw new AppError('User not found', 404);
   }
 
-  const row = result.rows[0];
+  const row = await presignAvatar(result.rows[0]);
   sendSuccess(res, {
     ...row,
     email_change_pending: row.email_change_target !== null,
   });
 }));
 
-// Update user profile
+// Update user profile.
+//
+// S-CR-02: avatar URLs are no longer settable here. POST /uploads/avatar
+// writes the MinIO object key directly. PUT /me only accepts fullName.
 router.put('/me', writeRateLimiter, validate(updateUserSchema), asyncHandler(async (req, res) => {
-  const { fullName, avatarUrl } = req.body;
+  const { fullName } = req.body;
   const updates: string[] = [];
   const values: any[] = [];
   let paramIndex = 1;
@@ -76,11 +90,6 @@ router.put('/me', writeRateLimiter, validate(updateUserSchema), asyncHandler(asy
   if (fullName !== undefined) {
     updates.push(`full_name = $${paramIndex++}`);
     values.push(fullName);
-  }
-
-  if (avatarUrl !== undefined) {
-    updates.push(`avatar_url = $${paramIndex++}`);
-    values.push(avatarUrl);
   }
 
   if (updates.length === 0) {
@@ -116,7 +125,12 @@ router.put('/me', writeRateLimiter, validate(updateUserSchema), asyncHandler(asy
     throw new AppError('User not found', 404);
   }
 
-  const row = result.rows[0];
+  // 2.3: PUT /me can shift `email_verified` (an unverified email
+  // verification flow) which is part of the cache shape. Cheap to
+  // invalidate even for fullName-only updates.
+  await invalidateUserCache(req.user!.id);
+
+  const row = await presignAvatar(result.rows[0]);
   sendSuccess(res, {
     ...row,
     email_change_pending: row.email_change_target !== null,
@@ -169,7 +183,7 @@ router.post('/push-token', writeRateLimiter, validate(pushTokenSchema), asyncHan
 // `app_user_id` == HavenKeep user uuid at SDK init time (the same
 // assumption the RC webhook makes). This stops anyone from upgrading
 // their own account by passing a victim's RC id.
-router.post('/me/verify-premium', verifyPremiumRateLimiter, asyncHandler(async (req, res) => {
+router.post('/me/verify-premium', verifyPremiumRateLimiter, validate(verifyPremiumSchema), asyncHandler(async (req, res) => {
   const { revenueCatAppUserId } = req.body;
   const authUserId = req.user!.id;
 
@@ -254,16 +268,34 @@ router.post('/me/verify-premium', verifyPremiumRateLimiter, asyncHandler(async (
     throw new AppError('User not found', 404);
   }
 
+  // 2.3: plan flipped — drop the user-row cache so the next request is
+  // gated against the live row, not the previous (free / expired premium)
+  // value held in the 10s cache window across replicas.
+  await invalidateUserCache(req.user!.id);
+
   if (previousPlan && previousPlan !== newPlan) {
-    const action =
-      newPlan === 'premium' ? 'user.plan_upgrade' : 'user.plan_downgrade';
+    // 4.5: distinguish reactivation (suspended → premium) from a fresh
+    // upgrade (free → premium). The audit log was previously labelling
+    // both as "user.plan_upgrade" which made it impossible to tell
+    // "admin reverted a suspension" from "user took the free trial".
+    let action: 'user.plan_upgrade' | 'user.plan_downgrade' | 'user.plan_reactivate';
+    let description: string;
+    if (newPlan === 'premium') {
+      if (previousPlan === 'suspended') {
+        action = 'user.plan_reactivate';
+        description = 'Re-verified premium after suspension';
+      } else {
+        action = 'user.plan_upgrade';
+        description = 'Upgraded to premium';
+      }
+    } else {
+      action = 'user.plan_downgrade';
+      description = 'Downgraded to free';
+    }
     await AuditService.logFromRequest(req, action, {
       resourceType: 'user',
       resourceId: result.rows[0].id,
-      description:
-        newPlan === 'premium'
-          ? 'Upgraded to premium'
-          : 'Downgraded to free',
+      description,
       metadata: {
         previous_plan: previousPlan,
         new_plan: newPlan,
@@ -503,6 +535,10 @@ router.delete('/me', validate(deleteAccountSchema), asyncHandler(async (req, res
     client.release();
   }
 
+  // 2.3: drop user-row cache so the next request from any replica sees
+  // `deleted_at` populated and rejects on the standard auth path.
+  await invalidateUserCache(req.user!.id);
+
   // Revoke any stored OAuth integrations (Gmail/Outlook scanner). Done
   // outside the txn because it touches a separate concern (provider auth)
   // and we don't want a missing oauth-integrations table to roll back the
@@ -571,6 +607,9 @@ router.post('/me/recover', asyncHandler(async (req, res) => {
       RETURNING plan`,
     [req.user!.id],
   );
+
+  // 2.3: cache still has deleted_at + plan='suspended' from soft-delete.
+  await invalidateUserCache(req.user!.id);
 
   await AuditService.logFromRequest(req, 'user.update', {
     resourceType: 'user',
@@ -769,6 +808,10 @@ router.delete(
     } finally {
       client.release();
     }
+
+    // 2.3: cache holds password_hash-derived auth_provider — invalidate so
+    // the next request reflects the new linked-provider mix.
+    await invalidateUserCache(req.user!.id);
 
     await AuditService.logFromRequest(req, 'user.update', {
       resourceType: 'user',

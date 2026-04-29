@@ -63,6 +63,9 @@ dependencies:
   firebase_messaging: ^16.0.0
   flutter_local_notifications: ^17.0.0
 
+  # --- Crash reporting ---
+  firebase_crashlytics: ^5.0.0
+
   # --- Deep Links ---
   app_links: ^6.0.0
 

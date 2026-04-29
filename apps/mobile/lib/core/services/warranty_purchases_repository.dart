@@ -8,13 +8,18 @@ class WarrantyPurchasesRepository {
 
   WarrantyPurchasesRepository(this._client);
 
-  Future<List<WarrantyPurchase>> getPurchases({String? itemId, String? status}) async {
+  Future<List<WarrantyPurchase>> getPurchases({
+    String? itemId,
+    String? homeId,
+    String? status,
+  }) async {
     try {
       final params = <String, String>{
         'limit': '100',
         'page': '1',
       };
       if (itemId != null) params['item_id'] = itemId;
+      if (homeId != null) params['home_id'] = homeId;
       if (status != null) params['status'] = status;
 
       final data = await _client.get(

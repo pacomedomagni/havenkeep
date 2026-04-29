@@ -53,7 +53,7 @@ router.get(
   validate(getClaimsQuerySchema, 'query'),
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
-    const { itemId } = req.query;
+    const { itemId, homeId } = req.query;
 
     // BE-1/2/3: Explicitly convert and clamp pagination params to safe integers
     const page = Math.max(1, parseInt(req.query.page as string, 10) || 1);
@@ -64,6 +64,7 @@ router.get(
       limit,
       offset,
       itemId: itemId as string,
+      homeId: homeId as string | undefined,
     });
 
     sendSuccess(res, result.claims, {

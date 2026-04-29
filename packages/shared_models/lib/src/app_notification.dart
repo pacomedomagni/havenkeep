@@ -99,14 +99,15 @@ class AppNotification {
       data: json['data'] is Map
           ? Map<String, dynamic>.from(json['data'] as Map)
           : const {},
-      sentAt: _parseDate(json['sent_at'])!,
+      // 4.1: server-stamped timestamps fall back instead of crashing.
+      sentAt: _parseDate(json['sent_at']) ?? DateTime.now(),
       deliveredAt: _parseDate(json['delivered_at']),
       openedAt: _parseDate(json['opened_at']),
       actionTaken: json['action_taken'] as String?,
       actionTakenAt: _parseDate(json['action_taken_at']),
       platform: json['platform'] as String?,
       fcmMessageId: json['fcm_message_id'] as String?,
-      createdAt: _parseDate(json['created_at'])!,
+      createdAt: _parseDate(json['created_at']) ?? DateTime.now(),
     );
   }
 

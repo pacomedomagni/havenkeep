@@ -26,7 +26,20 @@ import { logger } from '../utils/logger';
 // the route handler should still rely on its own DB-level uniqueness
 // (`ON CONFLICT DO NOTHING`) for true idempotence.
 
-export function idempotency(routeKey: string) {
+// S-HI-04: cap the persisted response body. Most replay-eligible
+// responses are small (a created-row JSON, a deleted-confirmation
+// message); anything bigger is almost always a multi-row upload that
+// the client can refetch from the canonical list endpoint. Capping
+// here prevents an attacker who can hit any idempotency-protected
+// route from filling the table with megabyte-sized rows.
+const MAX_RESPONSE_BYTES = 32 * 1024;
+
+// S-ME-11: per-route TTL override. Default 24h; sensitive routes
+// (delete account, change password) can opt to a 5min replay window.
+const DEFAULT_TTL_SECONDS = 24 * 60 * 60;
+
+export function idempotency(routeKey: string, opts: { ttlSeconds?: number } = {}) {
+  const ttlSeconds = opts.ttlSeconds ?? DEFAULT_TTL_SECONDS;
   return async function idempotencyMiddleware(
     req: Request,
     res: Response,
@@ -81,23 +94,63 @@ export function idempotency(routeKey: string) {
       const status = res.statusCode || 200;
       if (!persisted && status >= 200 && status < 300) {
         persisted = true;
-        // Fire-and-forget; failures must not block the response.
-        pool
-          .query(
-            `INSERT INTO request_idempotency
-                (user_id, route_key, idempotency_key, request_hash,
-                 response_status, response_json)
-              VALUES ($1, $2, $3, $4, $5, $6)
-              ON CONFLICT (user_id, route_key, idempotency_key) DO NOTHING`,
-            [userId, routeKey, idempotencyKey, requestHash, status, JSON.stringify(body)],
-          )
-          .catch((err) => {
-            logger.warn({ err, routeKey }, 'Idempotency persist failed');
-          });
+        // 3.18: serialize defensively. A handler that returns an object
+        // with a circular ref (or a BigInt) would throw inside
+        // `JSON.stringify` here and break the response — but the actual
+        // response payload still goes out via `originalJson(body)` at
+        // the bottom of this function. The persist is a best-effort
+        // cache; a serialize failure logs + skips, the response stays
+        // intact.
+        let serialized: string | null = null;
+        try {
+          serialized = JSON.stringify(body);
+        } catch (err) {
+          logger.warn(
+            { err, routeKey },
+            'Idempotency serialize failed (circular ref or unsupported type); skipping persist',
+          );
+        }
+        if (serialized !== null) {
+          // S-HI-04: cap response body. Skip persisting if too large;
+          // the client can always refetch from the canonical list
+          // endpoint.
+          if (serialized.length > MAX_RESPONSE_BYTES) {
+            logger.warn(
+              { routeKey, bytes: serialized.length, cap: MAX_RESPONSE_BYTES },
+              'Idempotency response too large; skipping persist',
+            );
+          } else {
+            // Fire-and-forget; failures must not block the response.
+            pool
+              .query(
+                `INSERT INTO request_idempotency
+                    (user_id, route_key, idempotency_key, request_hash,
+                     response_status, response_json, expires_at)
+                  VALUES ($1, $2, $3, $4, $5, $6, NOW() + ($7::int * INTERVAL '1 second'))
+                  ON CONFLICT (user_id, route_key, idempotency_key) DO NOTHING`,
+                [userId, routeKey, idempotencyKey, requestHash, status, serialized, ttlSeconds],
+              )
+              .catch((err) => {
+                logger.warn({ err, routeKey }, 'Idempotency persist failed');
+              });
+          }
+        }
       }
       return originalJson(body);
     };
 
     next();
   };
+}
+
+/**
+ * S-HI-04: prune expired idempotency rows. Called from the daily cron.
+ * The `idx_request_idempotency_expires` index already exists so the
+ * delete is a quick range scan.
+ */
+export async function pruneExpiredIdempotencyRows(): Promise<number> {
+  const result = await pool.query(
+    `DELETE FROM request_idempotency WHERE expires_at < NOW()`,
+  );
+  return result.rowCount ?? 0;
 }

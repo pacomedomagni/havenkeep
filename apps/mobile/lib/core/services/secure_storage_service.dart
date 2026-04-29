@@ -15,12 +15,31 @@ import 'logging_service.dart';
 /// Store only truly sensitive data here (auth tokens, encryption keys).
 /// Use regular SharedPreferences for non-sensitive settings.
 class SecureStorageService {
+  // Default storage — backs up via iCloud Keychain on iOS. Used for items
+  // that the user expects to roam across devices (push token,
+  // biometric pref, active user id, device id).
   static const _storage = FlutterSecureStorage(
     aOptions: AndroidOptions(
       encryptedSharedPreferences: true,
     ),
     iOptions: IOSOptions(
       accessibility: KeychainAccessibility.first_unlock,
+    ),
+  );
+
+  // S-HI-06: device-bound storage for the DB encryption key. The
+  // `first_unlock_this_device` class is NOT iCloud-Keychain-eligible,
+  // so an attacker who compromises the user's Apple ID can't restore
+  // the encrypted SQLite file plus its key onto a fresh device. The
+  // key has to be regenerated on a brand-new device, which means the
+  // local DB cache is empty there until the user signs in and resyncs
+  // — a small UX cost for a real security gain.
+  static const _deviceBoundStorage = FlutterSecureStorage(
+    aOptions: AndroidOptions(
+      encryptedSharedPreferences: true,
+    ),
+    iOptions: IOSOptions(
+      accessibility: KeychainAccessibility.first_unlock_this_device,
     ),
   );
 
@@ -114,9 +133,14 @@ class SecureStorageService {
   /// Returns the persisted 256-bit DB encryption key, generating + storing
   /// one with a CSPRNG on first call. The key is base64-encoded for storage
   /// and decoded back to raw bytes on read.
+  ///
+  /// S-HI-06: stored in [_deviceBoundStorage] (KeychainAccessibility
+  /// .first_unlock_this_device) so the key never replicates via iCloud
+  /// Keychain. An attacker who compromises the user's Apple ID can't
+  /// restore the encrypted DB plus its key onto a fresh device.
   static Future<Uint8List> getOrCreateDbEncryptionKey() async {
     try {
-      final existing = await _storage.read(key: _keyDbEncryptionKey);
+      final existing = await _deviceBoundStorage.read(key: _keyDbEncryptionKey);
       if (existing != null && existing.isNotEmpty) {
         return base64Decode(existing);
       }
@@ -125,7 +149,7 @@ class SecureStorageService {
       for (var i = 0; i < bytes.length; i++) {
         bytes[i] = rng.nextInt(256);
       }
-      await _storage.write(
+      await _deviceBoundStorage.write(
         key: _keyDbEncryptionKey,
         value: base64Encode(bytes),
       );
@@ -140,7 +164,7 @@ class SecureStorageService {
   /// Wipe the DB encryption key (e.g. on sign-out, after the file is deleted).
   static Future<void> deleteDbEncryptionKey() async {
     try {
-      await _storage.delete(key: _keyDbEncryptionKey);
+      await _deviceBoundStorage.delete(key: _keyDbEncryptionKey);
     } catch (e, stack) {
       LoggingService.error('Failed to delete DB encryption key', e, stack);
     }
@@ -206,10 +230,13 @@ class SecureStorageService {
 
   /// Clear all secure storage.
   ///
-  /// Called on sign out to remove all sensitive data.
+  /// Called on sign out to remove all sensitive data. S-HI-06: also clears
+  /// the device-bound store so the DB encryption key isn't left behind
+  /// when the user signs out.
   static Future<void> clearAll() async {
     try {
       await _storage.deleteAll();
+      await _deviceBoundStorage.deleteAll();
       LoggingService.info('Secure storage cleared');
     } catch (e, stack) {
       LoggingService.error('Failed to clear secure storage', e, stack);

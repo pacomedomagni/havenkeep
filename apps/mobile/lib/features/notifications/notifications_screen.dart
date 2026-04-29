@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -5,6 +7,7 @@ import 'package:shared_models/shared_models.dart';
 import 'package:shared_ui/shared_ui.dart';
 
 import '../../core/providers/notifications_provider.dart';
+import '../../core/utils/error_handler.dart';
 import '../../core/widgets/error_state_widget.dart';
 import '../../core/widgets/haven_illustration.dart';
 import '../../core/widgets/haven_loader.dart';
@@ -38,83 +41,15 @@ class NotificationsScreen extends ConsumerWidget {
           if (notifications.isEmpty) {
             return _buildEmptyState();
           }
-          final notifier = ref.read(notificationsProvider.notifier);
-          final hasMore = notifier.hasMore;
-
-          // Group notifications by date bucket so long lists read well.
-          final entries = _groupByBucket(notifications);
-
-          return RefreshIndicator(
-            color: HavenColors.primary,
-            onRefresh: () async {
-              ref.read(notificationsProvider.notifier).refresh();
-            },
-            child: ListView.builder(
-              padding: const EdgeInsets.symmetric(vertical: HavenSpacing.sm),
-              itemCount: entries.length + (hasMore ? 1 : 0),
-              itemBuilder: (context, index) {
-                if (index == entries.length) {
-                  try {
-                    notifier.loadMore();
-                  } catch (e) {
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Failed to load more: $e')),
-                      );
-                    }
-                  }
-                  return const Padding(
-                    padding: EdgeInsets.all(HavenSpacing.lg),
-                    child: Center(
-                      child: SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: HavenLoader(color: HavenColors.primary),
-                      ),
-                    ),
-                  );
-                }
-
-                final entry = entries[index];
-                if (entry is _BucketHeader) {
-                  return Padding(
-                    padding: const EdgeInsets.fromLTRB(
-                      HavenSpacing.md,
-                      HavenSpacing.md,
-                      HavenSpacing.md,
-                      HavenSpacing.xs,
-                    ),
-                    child: Text(
-                      entry.label,
-                      style: HavenText.badge.copyWith(
-                        color: HavenColors.textTertiary,
-                        letterSpacing: 1.2,
-                      ),
-                    ),
-                  );
-                }
-                final n = (entry as _BucketItem).notification;
-                return Dismissible(
-                  key: ValueKey('notif-${n.id}'),
-                  direction: DismissDirection.endToStart,
-                  background: Container(
-                    color: HavenColors.expired.withValues(alpha: 0.9),
-                    alignment: Alignment.centerRight,
-                    padding:
-                        const EdgeInsets.only(right: HavenSpacing.lg),
-                    child: const Icon(Icons.archive_outlined,
-                        color: HavenColors.textPrimary),
-                  ),
-                  onDismissed: (_) async {
-                    await ref
-                        .read(notificationsProvider.notifier)
-                        .dismiss(n.id);
-                  },
-                  child: _NotificationCard(notification: n),
-                );
-              },
-            ),
-          );
+          // 3.3: scroll-end driven load-more. The previous shape called
+          // `notifier.loadMore()` from inside `itemBuilder` for the last
+          // index — itemBuilder runs synchronously during paint, so a
+          // throw bubbled up into the framework and the snackbar
+          // ScaffoldMessenger.of(context) reached for a non-existent
+          // ancestor. The notification listener pattern fires once, off
+          // the paint phase, with `unawaited(...)` so the failure is
+          // surfaced via state-bound `lastLoadMoreError` instead.
+          return _NotificationsList(notifications: notifications);
         },
         loading: () => ListView(
           padding: const EdgeInsets.all(HavenSpacing.md),
@@ -154,6 +89,146 @@ class NotificationsScreen extends ConsumerWidget {
             style: HavenText.bodySecondary,
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// 3.3: scroll-end driven pagination. Watches the inner list's scroll
+/// notifications and triggers `loadMore()` exactly once per arrival at
+/// the bottom. Holds `_lastError` locally so a failed page surfaces a
+/// retry chip without re-entering the build path that lost the snackbar
+/// before.
+class _NotificationsList extends ConsumerStatefulWidget {
+  final List<AppNotification> notifications;
+  const _NotificationsList({required this.notifications});
+
+  @override
+  ConsumerState<_NotificationsList> createState() => _NotificationsListState();
+}
+
+class _NotificationsListState extends ConsumerState<_NotificationsList> {
+  /// Near-bottom threshold that fires `loadMore`. Picked so a slow
+  /// network has roughly one screen of runway before the loader spins.
+  static const _loadMoreThresholdPx = 240.0;
+
+  bool _loadingMore = false;
+  String? _lastError;
+
+  Future<void> _maybeLoadMore() async {
+    final notifier = ref.read(notificationsProvider.notifier);
+    if (!notifier.hasMore || _loadingMore) return;
+    setState(() {
+      _loadingMore = true;
+      _lastError = null;
+    });
+    try {
+      await notifier.loadMore();
+    } catch (e) {
+      if (mounted) {
+        setState(() => _lastError = ErrorHandler.getUserMessage(e));
+      }
+    } finally {
+      if (mounted) setState(() => _loadingMore = false);
+    }
+  }
+
+  bool _onScroll(ScrollNotification n) {
+    if (n is ScrollEndNotification || n is UserScrollNotification) {
+      final pos = n.metrics;
+      if (pos.axis == Axis.vertical &&
+          pos.pixels >= pos.maxScrollExtent - _loadMoreThresholdPx) {
+        unawaited(_maybeLoadMore());
+      }
+    }
+    return false;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final notifier = ref.watch(notificationsProvider.notifier);
+    final hasMore = notifier.hasMore;
+    final entries = _groupByBucket(widget.notifications);
+
+    return RefreshIndicator(
+      color: HavenColors.primary,
+      onRefresh: () async {
+        await ref.read(notificationsProvider.notifier).refresh();
+      },
+      child: NotificationListener<ScrollNotification>(
+        onNotification: _onScroll,
+        child: ListView.builder(
+          padding: const EdgeInsets.symmetric(vertical: HavenSpacing.sm),
+          // +1 footer slot reserved for the loader / error chip when
+          // there are more pages to fetch.
+          itemCount: entries.length + (hasMore ? 1 : 0),
+          itemBuilder: (context, index) {
+            if (index == entries.length) {
+              if (_lastError != null) {
+                return Padding(
+                  padding: const EdgeInsets.all(HavenSpacing.lg),
+                  child: Center(
+                    child: TextButton.icon(
+                      onPressed: _maybeLoadMore,
+                      icon: const Icon(Icons.refresh, size: 16),
+                      label: Text('Retry • $_lastError'),
+                      style: TextButton.styleFrom(
+                        foregroundColor: HavenColors.expired,
+                      ),
+                    ),
+                  ),
+                );
+              }
+              return const Padding(
+                padding: EdgeInsets.all(HavenSpacing.lg),
+                child: Center(
+                  child: SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: HavenLoader(color: HavenColors.primary),
+                  ),
+                ),
+              );
+            }
+
+            final entry = entries[index];
+            if (entry is _BucketHeader) {
+              return Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  HavenSpacing.md,
+                  HavenSpacing.md,
+                  HavenSpacing.md,
+                  HavenSpacing.xs,
+                ),
+                child: Text(
+                  entry.label,
+                  style: HavenText.badge.copyWith(
+                    color: HavenColors.textTertiary,
+                    letterSpacing: 1.2,
+                  ),
+                ),
+              );
+            }
+            final n = (entry as _BucketItem).notification;
+            return Dismissible(
+              key: ValueKey('notif-${n.id}'),
+              direction: DismissDirection.endToStart,
+              background: Container(
+                color: HavenColors.expired.withValues(alpha: 0.9),
+                alignment: Alignment.centerRight,
+                padding: const EdgeInsets.only(right: HavenSpacing.lg),
+                child: const Icon(Icons.archive_outlined,
+                    color: HavenColors.textPrimary),
+              ),
+              onDismissed: (_) async {
+                await ref
+                    .read(notificationsProvider.notifier)
+                    .dismiss(n.id);
+              },
+              child: _NotificationCard(notification: n),
+            );
+          },
+        ),
       ),
     );
   }

@@ -127,9 +127,13 @@ export class MaintenanceService {
   }
 
   /**
-   * Get all due maintenance across all user items
+   * Get all due maintenance across all user items.
+   *
+   * 2.13: optional [homeId] scopes the result to a single home so the
+   * mobile home-switcher actually filters maintenance instead of leaking
+   * tasks from other homes onto the dashboard.
    */
-  static async getUserMaintenanceSummary(userId: string): Promise<{
+  static async getUserMaintenanceSummary(userId: string, homeId?: string): Promise<{
     total_due: number;
     total_overdue: number;
     // F026: surface whether a user has zero items, no schedules, or just
@@ -157,13 +161,14 @@ export class MaintenanceService {
     }>;
   }> {
     try {
-      // Get all non-archived items for the user
+      // Get all non-archived items for the user (optionally home-scoped).
       const itemsResult = await pool.query(
         `SELECT id, name, category, purchase_date, installation_date, created_at
-         FROM items
-         WHERE user_id = $1 AND is_archived = FALSE
-         ORDER BY name ASC`,
-        [userId]
+           FROM items
+          WHERE user_id = $1 AND is_archived = FALSE
+            AND ($2::uuid IS NULL OR home_id = $2::uuid)
+          ORDER BY name ASC`,
+        [userId, homeId ?? null]
       );
 
       if (itemsResult.rows.length === 0) {
@@ -387,7 +392,10 @@ export class MaintenanceService {
   }
 
   /**
-   * Get maintenance history with pagination and optional itemId filter
+   * Get maintenance history with pagination and optional itemId / homeId filter.
+   *
+   * 2.13: when [homeId] is supplied, the JOIN restricts to items in that
+   * home so the count and rows agree with the home-switcher state.
    */
   static async getMaintenanceHistory(
     userId: string,
@@ -395,9 +403,10 @@ export class MaintenanceService {
       limit?: number;
       offset?: number;
       itemId?: string;
+      homeId?: string;
     } = {}
   ): Promise<{ history: MaintenanceHistory[]; total: number }> {
-    const { limit = 50, offset = 0, itemId } = options;
+    const { limit = 50, offset = 0, itemId, homeId } = options;
 
     try {
       let query = `
@@ -418,6 +427,10 @@ export class MaintenanceService {
         query += ` AND mh.item_id = $${params.length + 1}`;
         params.push(itemId);
       }
+      if (homeId) {
+        query += ` AND i.home_id = $${params.length + 1}`;
+        params.push(homeId);
+      }
 
       query += ` ORDER BY mh.completed_date DESC, mh.created_at DESC`;
       query += ` LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
@@ -425,11 +438,23 @@ export class MaintenanceService {
 
       const result = await pool.query(query, params);
 
-      // Get total count
-      const countQuery = itemId
-        ? 'SELECT COUNT(*) FROM maintenance_history WHERE user_id = $1 AND item_id = $2'
-        : 'SELECT COUNT(*) FROM maintenance_history WHERE user_id = $1';
-      const countParams = itemId ? [userId, itemId] : [userId];
+      // Total count must mirror the JOIN + filters above so pagination.total
+      // doesn't drift after the home-switcher narrows the result set.
+      let countQuery = `
+        SELECT COUNT(*)
+          FROM maintenance_history mh
+          JOIN items i ON i.id = mh.item_id
+         WHERE mh.user_id = $1
+      `;
+      const countParams: any[] = [userId];
+      if (itemId) {
+        countQuery += ` AND mh.item_id = $${countParams.length + 1}`;
+        countParams.push(itemId);
+      }
+      if (homeId) {
+        countQuery += ` AND i.home_id = $${countParams.length + 1}`;
+        countParams.push(homeId);
+      }
       const countResult = await pool.query(countQuery, countParams);
 
       return {

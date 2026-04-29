@@ -41,8 +41,14 @@ class Home {
           ? HomeType.fromJson(json['home_type'] as String)
           : HomeType.house,
       moveInDate: _parseDate(json['move_in_date']),
-      createdAt: _parseDate(json['created_at'])!,
-      updatedAt: _parseDate(json['updated_at'])!,
+      // 4.1: server-stamped timestamps fall back to `now` instead of
+      // crashing the UI when the response omits them. The API
+      // generates both columns NOT NULL so we should never see null in
+      // practice — but a null from a partial PUT response (RETURNING *
+      // on a stale connection, or a future `unknown(false)` strip)
+      // would otherwise bring down the screen.
+      createdAt: _parseDate(json['created_at']) ?? DateTime.now(),
+      updatedAt: _parseDate(json['updated_at']) ?? DateTime.now(),
     );
   }
 

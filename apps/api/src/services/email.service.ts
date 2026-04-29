@@ -501,7 +501,7 @@ This gift expires in ${premium_months} month${premium_months === 1 ? '' : 's'}. 
         html: htmlContent,
       };
 
-      await sgMail.send(msg);
+      await sendGridSendWithRetry(msg);
 
       logger.info({ to, partner_name }, 'Partner welcome email sent successfully');
     } catch (error) {
@@ -654,7 +654,7 @@ To stop receiving these emails, visit: ${unsubscribeUrl}
         },
       };
 
-      await sgMail.send(msg);
+      await sendGridSendWithRetry(msg);
 
       logger.info({ to, item_name, expiry_date, days_remaining }, 'Warranty expiration email sent');
     } catch (error) {
@@ -802,7 +802,7 @@ To stop receiving these emails, visit: ${unsubscribeUrl}
         },
       };
 
-      await sgMail.send(msg);
+      await sendGridSendWithRetry(msg);
 
       logger.info({ to, item_name, task_name }, 'Maintenance due email sent');
     } catch (error) {
@@ -915,7 +915,7 @@ HavenKeep — Your Warranties. Protected.
         html: htmlContent,
       };
 
-      await sgMail.send(msg);
+      await sendGridSendWithRetry(msg);
 
       logger.info({ to }, 'Verification email sent');
     } catch (error) {
@@ -1036,7 +1036,7 @@ HavenKeep — Your Warranties. Protected.
         html: htmlContent,
       };
 
-      await sgMail.send(msg);
+      await sendGridSendWithRetry(msg);
 
       logger.info({ to, new_email }, 'Email change verification email sent');
     } catch (error) {
@@ -1172,7 +1172,7 @@ HavenKeep — Your Warranties. Protected.
         html: htmlContent,
       };
 
-      await sgMail.send(msg);
+      await sendGridSendWithRetry(msg);
 
       logger.info({ to }, 'Account deletion confirmation email sent');
     } catch (error) {
@@ -1291,7 +1291,7 @@ HavenKeep — Your Warranties. Protected.
         html: htmlContent,
       };
 
-      await sgMail.send(msg);
+      await sendGridSendWithRetry(msg);
 
       logger.info({ to }, 'Password reset email sent');
     } catch (error) {
@@ -1450,7 +1450,7 @@ HavenKeep — Your Warranties. Protected.
     const text = `Confirm your subscription to the HavenKeep newsletter:\n\n${confirmUrl}\n\nIf you didn't request this, ignore this email.`;
 
     try {
-      await sgMail.send({
+      await sendGridSendWithRetry({
         to,
         from: { email: config.sendgrid.fromEmail, name: 'HavenKeep' },
         subject: 'Confirm your HavenKeep newsletter subscription',

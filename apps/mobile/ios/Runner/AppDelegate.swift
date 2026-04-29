@@ -3,11 +3,35 @@ import UIKit
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
+  // S-HI-06: blur overlay shown during applicationWillResignActive so the
+  // iOS app-switcher / recents thumbnail doesn't capture sensitive screen
+  // contents (item names, addresses, gift codes, receipts). Removed when
+  // the app returns to the foreground. Equivalent to FLAG_SECURE on Android.
+  private var privacyBlurView: UIVisualEffectView?
+
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  }
+
+  override func applicationWillResignActive(_ application: UIApplication) {
+    super.applicationWillResignActive(application)
+    if let window = self.window, privacyBlurView == nil {
+      let blur = UIVisualEffectView(effect: UIBlurEffect(style: .systemMaterial))
+      blur.frame = window.bounds
+      blur.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+      blur.tag = 999
+      window.addSubview(blur)
+      privacyBlurView = blur
+    }
+  }
+
+  override func applicationDidBecomeActive(_ application: UIApplication) {
+    super.applicationDidBecomeActive(application)
+    privacyBlurView?.removeFromSuperview()
+    privacyBlurView = nil
   }
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {

@@ -187,13 +187,17 @@ class AuthRepository {
   }
 
   /// Update the current user's profile.
+  ///
+  /// 1.7: avatar URL is no longer settable here. Avatars are uploaded
+  /// via POST /uploads/avatar which writes the MinIO object key
+  /// directly; the /me response mints a fresh presigned URL on every
+  /// fetch. To change the avatar, use [ImageUploadService.uploadProfilePhoto]
+  /// then `ref.invalidate(currentUserProvider)`.
   Future<models.User> updateProfile({
     String? fullName,
-    String? avatarUrl,
   }) async {
     final updates = <String, dynamic>{};
     if (fullName != null) updates['fullName'] = fullName;
-    if (avatarUrl != null) updates['avatarUrl'] = avatarUrl;
 
     final data = await _client.put(
       pathSegments: const ['api', 'v1', 'users', 'me'],

@@ -260,10 +260,13 @@ services:
     user: "0"
     volumes:
       - ./monitoring/loki-config.yml:/etc/loki/local-config.yaml
-      - loki_data:/tmp/loki
+      # 2.1: mount path matches `path_prefix: /loki` in loki-config.yml.
+      - loki_data:/loki
+      # 3.13: ship alert rules to the ruler.
+      - ./monitoring/loki-alerts.yml:/loki/rules/havenkeep/alerts.yml:ro
     command: -config.file=/etc/loki/local-config.yaml
     healthcheck:
-      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3100/ready || exit 1"]
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3100/ready && [ -d /loki/chunks ]"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -286,6 +289,8 @@ services:
       - ./monitoring/promtail-config.yml:/etc/promtail/config.yml
       - /var/log:/var/log:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      # 2.1: positions persisted (see monitoring/promtail-config.yml).
+      - promtail_data:/var/lib/promtail
     command: -config.file=/etc/promtail/config.yml
     depends_on:
       - loki
@@ -307,28 +312,36 @@ services:
     container_name: havenkeep-stg-backup
     restart: unless-stopped
     environment:
-      PGHOST: havenkeep-stg-postgres
-      PGPORT: 5432
-      PGUSER: ${POSTGRES_USER}
+      DB_HOST: havenkeep-stg-postgres
+      DB_PORT: 5432
+      DB_USER: ${POSTGRES_USER}
+      DB_NAME: ${POSTGRES_DB}
       PGPASSWORD: ${POSTGRES_PASSWORD}
-      PGDATABASE: ${POSTGRES_DB}
+      BACKUP_DIR: /backups
+      # Staging skips offsite by default — leave BACKUP_S3_BUCKET unset to
+      # match the production wiring without paying for object storage in
+      # staging.
+      BACKUP_S3_BUCKET: ${BACKUP_S3_BUCKET:-}
+      BACKUP_S3_ENDPOINT: ${BACKUP_S3_ENDPOINT:-}
+      AWS_ACCESS_KEY_ID: ${BACKUP_S3_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${BACKUP_S3_SECRET_ACCESS_KEY:-}
+      AWS_DEFAULT_REGION: ${BACKUP_S3_REGION:-us-east-1}
     volumes:
       - backup_data:/backups
+      - ./scripts/backup-database.sh:/usr/local/bin/backup-database.sh:ro
     entrypoint: |
-      /bin/sh -c 'apk add --no-cache gzip && \
-      while true; do \
-        NEXT=$$(date -d "02:00" +%s 2>/dev/null || date -j -f "%H:%M" "02:00" +%s 2>/dev/null || echo 0); \
-        NOW=$$(date +%s); \
-        if [ $$NEXT -le $$NOW ]; then NEXT=$$((NEXT + 86400)); fi; \
-        SLEEP=$$((NEXT - NOW)); \
-        echo "Next backup in $${SLEEP}s..."; \
-        sleep $$SLEEP; \
-        STAMP=$$(date +%Y%m%d_%H%M%S); \
-        echo "Running backup $${STAMP}..."; \
-        pg_dump | gzip > /backups/havenkeep_backup_$${STAMP}.sql.gz && \
-        echo "Backup complete: $${STAMP}" || echo "Backup FAILED"; \
-        ls -t /backups/havenkeep_backup_*.sql.gz 2>/dev/null | tail -n +31 | xargs -r rm; \
-      done'
+      /bin/sh -c '
+        apk add --no-cache aws-cli >/dev/null 2>&1 || true;
+        while true; do
+          NOW=$$(date -u +%s);
+          NEXT=$$(date -u -d "tomorrow 02:00" +%s 2>/dev/null || date -ju -v+1d -f "%H:%M" "02:00" +%s);
+          SLEEP=$$((NEXT - NOW));
+          if [ $$SLEEP -lt 0 ]; then SLEEP=86400; fi;
+          echo "[backup] next run in $${SLEEP}s";
+          sleep $$SLEEP;
+          /usr/local/bin/backup-database.sh || echo "[backup] run failed";
+        done
+      '
     depends_on:
       postgres:
         condition: service_healthy
@@ -358,4 +371,5 @@ volumes:
   redis_data:
   minio_data:
   loki_data:
+  promtail_data:
   backup_data:

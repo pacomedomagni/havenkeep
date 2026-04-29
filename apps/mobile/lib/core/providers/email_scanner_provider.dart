@@ -23,17 +23,29 @@ class EmailScansNotifier extends AsyncNotifier<List<EmailScan>> {
   static const _pollInterval = Duration(seconds: 4);
   static const _pollTimeout = Duration(minutes: 6);
 
-  @override
-  Future<List<EmailScan>> build() async {
-    // Ensure polling timers are cancelled when the provider is disposed
-    // (sign-out, hot reload, etc.). AsyncNotifier does not call a
-    // lifecycle dispose() by itself — onDispose on the ref does.
+  // 4.6: `build()` runs on every dependency change (sign-in/out, hot
+  // reload). Registering an `onDispose` callback per build cycle would
+  // pile identical closures onto the dispose stack — they all run on
+  // teardown, which is correct but wasteful and was misreported in
+  // local testing as "callbacks accumulate". Guard the registration
+  // with a one-shot flag so we register exactly once per Notifier
+  // instance lifetime.
+  bool _disposerRegistered = false;
+
+  void _registerDisposerOnce() {
+    if (_disposerRegistered) return;
+    _disposerRegistered = true;
     ref.onDispose(() {
       for (final timer in _pollingTimers.values) {
         timer.cancel();
       }
       _pollingTimers.clear();
     });
+  }
+
+  @override
+  Future<List<EmailScan>> build() async {
+    _registerDisposerOnce();
 
     final userAsync = ref.watch(currentUserProvider);
     if (userAsync.valueOrNull == null) return [];

@@ -23,6 +23,7 @@ import '../premium/premium_teaser_card.dart';
 import 'milestone_banner.dart';
 import 'recent_activity_card.dart';
 import '../../core/utils/haven_haptics.dart';
+import '../settings/settings_screen.dart' show failedSyncCountProvider;
 
 /// Home dashboard — the main screen (Screen 3.1).
 ///
@@ -192,6 +193,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 ),
               ),
               const SizedBox(height: HavenSpacing.lg),
+
+              // 3.14: failed-offline-sync banner (auto-hides at count=0).
+              const _FailedSyncBanner(),
 
               // Maturity milestone banner (auto-hides when none applies)
               const MilestoneBanner(),
@@ -972,6 +976,73 @@ class _NotificationBell extends ConsumerWidget {
         ],
       ),
       onPressed: () => context.push(AppRoutes.notifications),
+    );
+  }
+}
+
+/// 3.14: dashboard banner that surfaces N>0 failed offline-queue
+/// entries. Tapping the banner routes to the settings → sync conflicts
+/// screen which already supports per-row retry / discard. Watching the
+/// FutureProvider keeps it in sync with the offline-sync service —
+/// every time the service marks a row failed (or the user retries one)
+/// the count refreshes on the next dashboard render.
+class _FailedSyncBanner extends ConsumerWidget {
+  const _FailedSyncBanner();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final count = ref.watch(failedSyncCountProvider).valueOrNull ?? 0;
+    if (count == 0) return const SizedBox.shrink();
+
+    final label = count == 1
+        ? '1 change failed to sync'
+        : '$count changes failed to sync';
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: HavenSpacing.md),
+      child: Material(
+        color: HavenColors.expired.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(HavenRadius.card),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(HavenRadius.card),
+          onTap: () => context.push(AppRoutes.conflicts),
+          child: Padding(
+            padding: const EdgeInsets.all(HavenSpacing.md),
+            child: Row(
+              children: [
+                const Icon(Icons.cloud_off,
+                    size: 20, color: HavenColors.expired),
+                const SizedBox(width: HavenSpacing.sm),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        label,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: HavenColors.expired,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      const Text(
+                        'Tap to review and retry or discard',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: HavenColors.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.chevron_right,
+                    size: 18, color: HavenColors.textTertiary),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

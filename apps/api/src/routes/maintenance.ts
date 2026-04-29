@@ -8,6 +8,7 @@ import {
   getItemDueParamsSchema,
   logMaintenanceSchema,
   getHistoryQuerySchema,
+  getDueQuerySchema,
 } from '../validators/maintenance.validator';
 import { asyncHandler } from '../utils/async-handler';
 import { writeRateLimiter } from '../middleware/rateLimiter';
@@ -42,9 +43,11 @@ router.get(
  */
 router.get(
   '/due',
+  validate(getDueQuerySchema, 'query'),
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
-    const summary = await MaintenanceService.getUserMaintenanceSummary(userId);
+    const homeId = req.query.homeId as string | undefined;
+    const summary = await MaintenanceService.getUserMaintenanceSummary(userId, homeId);
 
     sendSuccess(res, summary);
   })
@@ -96,7 +99,7 @@ router.get(
   validate(getHistoryQuerySchema, 'query'),
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
-    const { itemId } = req.query;
+    const { itemId, homeId } = req.query;
 
     const page = Math.max(1, parseInt(req.query.page as string, 10) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string, 10) || 50));
@@ -106,6 +109,7 @@ router.get(
       limit,
       offset,
       itemId: itemId as string,
+      homeId: homeId as string | undefined,
     });
 
     sendSuccess(res, result.history, {

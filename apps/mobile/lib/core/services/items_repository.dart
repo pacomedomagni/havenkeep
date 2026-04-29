@@ -13,6 +13,13 @@ class ItemsRepository {
   // ============================================
 
   /// Get all items for the current user.
+  ///
+  /// 3.20: cursor-mode pagination via `meta.pagination.next_cursor` +
+  /// `has_more`. The page-mode loop the previous shape used would
+  /// happily walk forever if the server ever stopped honouring `page`
+  /// (which the keyset cursor migration in Ch02-F008 deprecated). The
+  /// server keeps returning rows in `data` and we keep calling until
+  /// `has_more === false` or we get an empty page back as a safety net.
   Future<List<Item>> getItems({
     String? homeId,
     ItemCategory? category,
@@ -21,16 +28,15 @@ class ItemsRepository {
   }) async {
     try {
       final allItems = <Item>[];
-      var page = 1;
+      String? cursor;
       const limit = 100;
       while (true) {
         final params = <String, String>{
-          'page': page.toString(),
           'limit': limit.toString(),
         };
-
         if (homeId != null) params['home_id'] = homeId;
         if (!includeArchived) params['archived'] = 'false';
+        if (cursor != null) params['cursor'] = cursor;
 
         final data = await _client.get(
           pathSegments: const ['api', 'v1', 'items'],
@@ -40,8 +46,14 @@ class ItemsRepository {
             .map((json) => Item.fromJson(json as Map<String, dynamic>))
             .toList();
         allItems.addAll(items);
-        if (items.length < limit) break; // Last page
-        page++;
+
+        final pagination = (data['meta'] as Map<String, dynamic>?)
+                ?['pagination'] as Map<String, dynamic>?;
+        final nextCursor = pagination?['next_cursor'] as String?;
+        final hasMore = pagination?['has_more'] as bool? ??
+            (nextCursor != null && items.length >= limit);
+        if (!hasMore || nextCursor == null || items.isEmpty) break;
+        cursor = nextCursor;
       }
 
       // Client-side filtering for category and room
@@ -75,18 +87,20 @@ class ItemsRepository {
 
   /// Get items with computed warranty status.
   /// The Express API returns raw items; status is computed client-side.
+  ///
+  /// 3.20: same cursor-mode loop as [getItems].
   Future<List<Item>> getItemsWithStatus({String? homeId}) async {
     try {
       final allItems = <Item>[];
-      var page = 1;
+      String? cursor;
       const limit = 100;
       while (true) {
         final params = <String, String>{
-          'page': page.toString(),
           'limit': limit.toString(),
           'archived': 'false',
         };
         if (homeId != null) params['home_id'] = homeId;
+        if (cursor != null) params['cursor'] = cursor;
 
         final data = await _client.get(
           pathSegments: const ['api', 'v1', 'items'],
@@ -96,8 +110,14 @@ class ItemsRepository {
             .map((json) => Item.fromJson(json as Map<String, dynamic>))
             .toList();
         allItems.addAll(items);
-        if (items.length < limit) break; // Last page
-        page++;
+
+        final pagination = (data['meta'] as Map<String, dynamic>?)
+                ?['pagination'] as Map<String, dynamic>?;
+        final nextCursor = pagination?['next_cursor'] as String?;
+        final hasMore = pagination?['has_more'] as bool? ??
+            (nextCursor != null && items.length >= limit);
+        if (!hasMore || nextCursor == null || items.isEmpty) break;
+        cursor = nextCursor;
       }
       return allItems;
     } catch (e) {

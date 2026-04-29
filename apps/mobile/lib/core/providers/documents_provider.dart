@@ -39,14 +39,12 @@ Future<Document> uploadDocument(
   required String filePath,
   required String fileName,
   required DocumentType type,
-  String? mimeType,
 }) async {
   final doc = await ref.read(documentsRepositoryProvider).uploadDocument(
         itemId: itemId,
         filePath: filePath,
         fileName: fileName,
         type: type,
-        mimeType: mimeType,
       );
 
   // Refresh the item's documents

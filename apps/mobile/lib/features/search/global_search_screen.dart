@@ -31,8 +31,14 @@ class _GlobalSearchScreenState extends ConsumerState<GlobalSearchScreen> {
   // 300ms debounce so we don't filter every keystroke at 60fps (F104).
   static const _debounceDuration = Duration(milliseconds: 300);
 
-  // Cache haystack strings keyed on item id so we don't rejoin & lowercase
-  // 7 fields per item on every search rebuild (F105).
+  // Cache haystack strings so we don't rejoin & lowercase 7 fields per
+  // item on every search rebuild (F105).
+  //
+  // 4.14 / M-MED-04: key on `(id, updatedAt.millisecondsSinceEpoch)`
+  // so an edit (which bumps `updated_at` server-side and re-emits via
+  // `itemsProvider`) misses the cache and rebuilds the haystack with
+  // the new values. Keying on id alone surfaced as "I renamed this
+  // item but search still finds the old name until I sign out".
   final Map<String, String> _haystackCache = {};
 
   @override
@@ -58,7 +64,8 @@ class _GlobalSearchScreenState extends ConsumerState<GlobalSearchScreen> {
   }
 
   String _haystackFor(Item item) {
-    return _haystackCache.putIfAbsent(item.id, () {
+    final key = '${item.id}@${item.updatedAt.millisecondsSinceEpoch}';
+    return _haystackCache.putIfAbsent(key, () {
       return [
         item.name,
         item.brand ?? '',

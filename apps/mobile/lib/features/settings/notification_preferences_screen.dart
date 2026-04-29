@@ -125,6 +125,28 @@ class _NotificationPreferencesScreenState
     }
   }
 
+  // 4.14 / M-MED-06: when an external write (e.g. an admin tool, a
+  // sync from another device, or a save-then-pop-and-return-to-screen
+  // flow) replaces the server-side prefs, the screen should pick up
+  // the new values — but ONLY if the user hasn't edited the form
+  // since opening it. Stomping local edits with whatever the server
+  // last said would surprise the user mid-form. The `_isDirty` guard
+  // gives us a "live-update when idle, otherwise hold" semantic.
+  void _onExternalPrefsUpdate(NotificationPreferences? prefs) {
+    if (!_isInitialized) return;
+    if (_isDirty) return;
+    if (prefs == null) return;
+    setState(() {
+      _remindersEnabled = prefs.remindersEnabled;
+      _firstReminderDays = prefs.firstReminderDays;
+      _reminderTime = prefs.reminderTime;
+      _warrantyOffersEnabled = prefs.warrantyOffersEnabled;
+      _tipsEnabled = prefs.tipsEnabled;
+      _pushEnabled = prefs.pushEnabled;
+      _emailEnabled = prefs.emailEnabled;
+    });
+  }
+
   void _markDirty() {
     if (!_isDirty) setState(() => _isDirty = true);
   }
@@ -237,6 +259,16 @@ class _NotificationPreferencesScreenState
 
     // Initialize form from loaded prefs
     prefsAsync.whenData((prefs) => _initFromPrefs(prefs));
+
+    // 4.14 / M-MED-06: live-update when the upstream provider
+    // emits new prefs and the user has nothing to lose. Guarded by
+    // `_isDirty` inside `_onExternalPrefsUpdate`.
+    ref.listen<AsyncValue<NotificationPreferences?>>(
+      notificationPreferencesProvider,
+      (previous, next) {
+        next.whenData(_onExternalPrefsUpdate);
+      },
+    );
 
     return Scaffold(
       backgroundColor: HavenColors.background,

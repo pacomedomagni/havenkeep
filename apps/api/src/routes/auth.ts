@@ -7,7 +7,7 @@ import Joi from 'joi';
 import { config } from '../config';
 import { AppError } from '../utils/errors';
 import { authRateLimiter, refreshRateLimiter, passwordResetRateLimiter } from '../middleware/rateLimiter';
-import { authenticate } from '../middleware/auth';
+import { authenticate, invalidateUserCache } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { registerSchema, loginSchema, refreshTokenSchema } from '../validators';
 import { forgotPasswordSchema, resetPasswordSchema, verifyEmailSchema } from '../validators/auth.validator';
@@ -19,6 +19,14 @@ import { generateUniqueReferralCode } from '../utils/referral-code';
 import { isDisposableEmail } from '../utils/disposable-emails';
 import { preHashForBcrypt } from '../utils/password';
 import { getRedisClient } from '../utils/redis';
+import { presignedUrlForKey } from '../config/minio';
+import { rotateCsrfToken } from '../middleware/csrf';
+
+// S-CR-02: avatar_url is a MinIO object key. Mint a presigned URL on
+// response so a leaked URL is useless within PRESIGNED_URL_TTL_SECONDS.
+async function presignAvatarUrl(key: string | null | undefined): Promise<string | null> {
+  return presignedUrlForKey(key);
+}
 
 const router = Router();
 
@@ -26,11 +34,23 @@ const router = Router();
 let googleOAuth2Client: any = null;
 let appleJwksClientInstance: any = null;
 
-// Parse JWT expiry string (e.g. '7d', '24h') to milliseconds
+// Parse JWT expiry string (e.g. '7d', '24h') to milliseconds.
+//
+// 4.4: throw on unrecognized input rather than silently falling back
+// to 7 days. The fallback would mask a typo in `REFRESH_TOKEN_EXPIRES_IN`
+// (`'7days'` instead of `'7d'`) and produce a refresh-token TTL that
+// silently disagrees with the value the operator thought they
+// configured. The constant is computed at module load so a bad value
+// crashes the API on boot — exactly what we want.
 function parseExpiryToMs(expiry: string | number): number {
   if (typeof expiry === 'number') return expiry * 1000;
   const match = String(expiry).match(/^(\d+)(s|m|h|d)$/);
-  if (!match) return 7 * 24 * 60 * 60 * 1000; // fallback 7 days
+  if (!match) {
+    throw new Error(
+      `parseExpiryToMs: unrecognized expiry '${expiry}'. ` +
+      `Expected one of: NNs / NNm / NNh / NNd or a number of seconds.`,
+    );
+  }
   const value = parseInt(match[1], 10);
   const unit = match[2];
   const multipliers: Record<string, number> = { s: 1000, m: 60000, h: 3600000, d: 86400000 };
@@ -181,16 +201,18 @@ async function createAuthSession(
   isAdmin: boolean,
   isPartner: boolean
 ): Promise<{ accessToken: string; refreshToken: string }> {
+  // S-HI-02: pin algorithm explicitly so a JWT secret swap to RSA-public-
+  // key material can't introduce an HS256 forgery primitive.
   const accessToken = jwt.sign(
     { userId, email, isAdmin, isPartner },
     config.jwt.secret,
-    { expiresIn: config.jwt.expiresIn }
+    { expiresIn: config.jwt.expiresIn, algorithm: 'HS256' }
   );
 
   const refreshToken = jwt.sign(
     { userId },
     config.jwt.refreshSecret,
-    { expiresIn: config.jwt.refreshExpiresIn }
+    { expiresIn: config.jwt.refreshExpiresIn, algorithm: 'HS256' }
   );
 
   const expiresAt = new Date(Date.now() + REFRESH_TOKEN_EXPIRY_MS);
@@ -262,17 +284,18 @@ router.post('/register', authRateLimiter, validate(registerSchema), async (req, 
     );
 
     // Store refresh token inside the transaction (we generate both tokens here
-    // so that the refresh token is committed atomically with the user row)
+    // so that the refresh token is committed atomically with the user row).
+    // S-HI-02: pin algorithm explicitly.
     const accessToken = jwt.sign(
       { userId: user.id, email: user.email, isAdmin: user.is_admin || false, isPartner: false },
       config.jwt.secret,
-      { expiresIn: config.jwt.expiresIn }
+      { expiresIn: config.jwt.expiresIn, algorithm: 'HS256' }
     );
 
     const refreshToken = jwt.sign(
       { userId: user.id },
       config.jwt.refreshSecret,
-      { expiresIn: config.jwt.refreshExpiresIn }
+      { expiresIn: config.jwt.refreshExpiresIn, algorithm: 'HS256' }
     );
 
     const refreshExpiresAt = new Date(Date.now() + REFRESH_TOKEN_EXPIRY_MS);
@@ -315,6 +338,8 @@ router.post('/register', authRateLimiter, validate(registerSchema), async (req, 
       logger.error({ error: err, userId: user.id }, 'Failed to send verification email');
     });
 
+    // S-ME-02: rotate CSRF token on auth state change to defang fixation.
+    rotateCsrfToken(res);
     res.status(201).json({
       success: true,
       data: {
@@ -322,7 +347,7 @@ router.post('/register', authRateLimiter, validate(registerSchema), async (req, 
           id: user.id,
           email: user.email,
           full_name: user.full_name,
-          avatar_url: user.avatar_url || null,
+          avatar_url: await presignAvatarUrl(user.avatar_url),
           auth_provider: user.auth_provider || 'email',
           plan: user.plan,
           plan_expires_at: user.plan_expires_at || null,
@@ -416,6 +441,8 @@ router.post('/login', authRateLimiter, validate(loginSchema), async (req, res, n
       success: true,
     });
 
+    // S-ME-02: rotate CSRF token on auth state change to defang fixation.
+    rotateCsrfToken(res);
     res.json({
       success: true,
       data: {
@@ -423,7 +450,7 @@ router.post('/login', authRateLimiter, validate(loginSchema), async (req, res, n
           id: user.id,
           email: user.email,
           full_name: user.full_name,
-          avatar_url: user.avatar_url || null,
+          avatar_url: await presignAvatarUrl(user.avatar_url),
           auth_provider: user.auth_provider || 'email',
           plan: user.plan,
           plan_expires_at: user.plan_expires_at || null,
@@ -462,8 +489,8 @@ router.post('/refresh', refreshRateLimiter, validate(refreshTokenSchema), async 
     // Verify the JWT signature first; the user_id we trust is whatever the
     // refresh_tokens row carries, not whatever the decoded JWT body claims
     // (audit Ch01-F020). The decoded body is only used to short-circuit
-    // before doing the DB hit.
-    jwt.verify(refreshToken, config.jwt.refreshSecret);
+    // before doing the DB hit. S-HI-02: pin algorithm.
+    jwt.verify(refreshToken, config.jwt.refreshSecret, { algorithms: ['HS256'] });
 
     // Atomically consume the refresh token (prevents race conditions).
     // DELETE...RETURNING guarantees only one concurrent request succeeds and
@@ -525,6 +552,8 @@ router.post('/refresh', refreshRateLimiter, validate(refreshTokenSchema), async 
       user.id, user.email, user.is_admin || false, user.is_partner || false
     );
 
+    // S-ME-02: rotate CSRF token on auth state change to defang fixation.
+    rotateCsrfToken(res);
     res.json({ success: true, data: { accessToken, refreshToken: newRefreshToken } });
   } catch (error) {
     next(error);
@@ -582,12 +611,7 @@ router.post('/logout', authenticate, refreshRateLimiter, validate(logoutSchema),
 
     // Drop the cached user row so the next request after re-login isn't
     // served the stale 10s cache entry (Ch01-F048).
-    try {
-      const redis = await getRedisClient();
-      await redis.del(`user:${userId}`);
-    } catch (err) {
-      logger.warn({ err, userId }, 'Failed to invalidate user cache on logout');
-    }
+    await invalidateUserCache(userId);
 
     await AuditService.logAuth({
       action: 'auth.logout',
@@ -834,6 +858,10 @@ router.post('/verify-email', authRateLimiter, validate(verifyEmailSchema), async
       ),
     ]);
 
+    // 2.3: cached row holds email_verified=false; invalidate so authenticated
+    // routes reading req.user.emailVerified see the new value.
+    await invalidateUserCache(userId);
+
     // Audit log: email verified
     await AuditService.logAuth({
       action: 'auth.email_verify',
@@ -872,10 +900,22 @@ router.post('/google', authRateLimiter, validate(googleOAuthSchema), async (req,
 
     const { idToken, referralCode } = req.body;
 
-    // Verify the Google ID token (lazy-init singleton)
+    // Verify the Google ID token (lazy-init singleton).
+    //
+    // 2.6: cap the upstream HTTPS call at 5s. google-auth-library has no
+    // timeout by default — if oauth2.googleapis.com / token verification
+    // slows, every concurrent sign-in pins a DB pool client until the
+    // socket closes. Pool=20 + a 25s upstream stall = pool exhaustion +
+    // 503s on every authenticated route.
     if (!googleOAuth2Client) {
       const { OAuth2Client } = await import('google-auth-library');
-      googleOAuth2Client = new OAuth2Client(allowedGoogleAudiences[0]);
+      googleOAuth2Client = new OAuth2Client({
+        clientId: allowedGoogleAudiences[0],
+      });
+      googleOAuth2Client.transporter.defaults = {
+        ...googleOAuth2Client.transporter.defaults,
+        timeout: 5000,
+      };
     }
     const oauthClient = googleOAuth2Client;
 
@@ -896,7 +936,10 @@ router.post('/google', authRateLimiter, validate(googleOAuthSchema), async (req,
 
     const email = payload.email.toLowerCase();
     const fullName = payload.name || 'User';
-    const avatarUrl = payload.picture || null;
+    // S-CR-02: avatar_url column holds a MinIO object key, not a URL.
+    // We can't store the Google `picture` URL there directly. The user
+    // can upload an avatar via /uploads/avatar after signing in; we
+    // intentionally do not auto-mirror the Google avatar to MinIO.
 
     // Find or create user
     let userResult = await query(
@@ -935,11 +978,11 @@ router.post('/google', authRateLimiter, validate(googleOAuthSchema), async (req,
       try {
         await txClient.query('BEGIN');
         const createResult = await txClient.query(
-          `INSERT INTO users (email, full_name, avatar_url, auth_provider, email_verified, referral_code, referred_by)
-           VALUES ($1, $2, $3, 'google', TRUE, $4, $5)
+          `INSERT INTO users (email, full_name, auth_provider, email_verified, referral_code, referred_by)
+           VALUES ($1, $2, 'google', TRUE, $3, $4)
            RETURNING id, email, full_name, avatar_url, auth_provider, plan, plan_expires_at,
                      referred_by, referral_code, is_admin, created_at, updated_at`,
-          [email, fullName, avatarUrl, userReferralCode, referredBy]
+          [email, fullName, userReferralCode, referredBy]
         );
         user = createResult.rows[0];
         isNewUser = true;
@@ -979,6 +1022,8 @@ router.post('/google', authRateLimiter, validate(googleOAuthSchema), async (req,
       },
     });
 
+    // S-ME-02: rotate CSRF token on auth state change to defang fixation.
+    rotateCsrfToken(res);
     res.json({
       success: true,
       data: {
@@ -986,7 +1031,7 @@ router.post('/google', authRateLimiter, validate(googleOAuthSchema), async (req,
           id: user.id,
           email: user.email,
           full_name: user.full_name,
-          avatar_url: user.avatar_url || null,
+          avatar_url: await presignAvatarUrl(user.avatar_url),
           auth_provider: user.auth_provider || 'google',
           plan: user.plan,
           plan_expires_at: user.plan_expires_at || null,
@@ -1041,13 +1086,17 @@ router.post('/apple', authRateLimiter, validate(appleOAuthSchema), async (req, r
     // input and bakes the *same* hex into the resulting ID token's claims.
     const nonceHash = crypto.createHash('sha256').update(nonce, 'utf8').digest('hex');
 
-    // Verify Apple ID token against Apple's public keys (JWKS, lazy-init singleton)
+    // Verify Apple ID token against Apple's public keys (JWKS, lazy-init
+    // singleton). 2.6: jwks-rsa defaults to a 30s socket timeout — if
+    // Apple's keys endpoint slows under load, every concurrent Apple
+    // sign-in parks a DB pool client. Cap at 5s.
     if (!appleJwksClientInstance) {
       const jwksClient = await import('jwks-rsa');
       appleJwksClientInstance = jwksClient.default({
         jwksUri: 'https://appleid.apple.com/auth/keys',
         cache: true,
         cacheMaxAge: 86400000, // 24 hours
+        timeout: 5000,
       });
     }
     const appleJwksClient = appleJwksClientInstance;
@@ -1082,6 +1131,14 @@ router.post('/apple', authRateLimiter, validate(appleOAuthSchema), async (req, r
       throw new AppError('Invalid Apple token', 401);
     }
 
+    // S-ME-05: Apple's docs say `email_verified` is always true (Apple
+    // validates email ownership at Apple-ID-creation time). Defensive
+    // check — if Apple ever lies / changes that contract, fail closed
+    // rather than silently accepting an unverified email.
+    if (decoded.email_verified === false) {
+      throw new AppError('Apple email is not verified', 401);
+    }
+
     // S1-H: verify the SHA-256 of the client-supplied nonce matches the
     // `nonce` claim Apple baked into the token, then record the hash so the
     // same id-token+nonce pair can never be replayed.
@@ -1102,7 +1159,7 @@ router.post('/apple', authRateLimiter, validate(appleOAuthSchema), async (req, r
     if (email) {
       userResult = await query(
         `SELECT id, email, full_name, avatar_url, auth_provider, plan, plan_expires_at,
-                referred_by, referral_code, is_admin, created_at, updated_at,
+                referred_by, referral_code, is_admin, email_verified, apple_user_id, created_at, updated_at,
                 (EXISTS(SELECT 1 FROM partners p WHERE p.user_id = users.id AND p.is_active = TRUE)) as is_partner
          FROM users WHERE email = $1`,
         [email]
@@ -1114,7 +1171,7 @@ router.post('/apple', authRateLimiter, validate(appleOAuthSchema), async (req, r
     if ((!email || !userResult || userResult.rows.length === 0)) {
       const appleIdResult = await query(
         `SELECT id, email, full_name, avatar_url, auth_provider, plan, plan_expires_at,
-                referred_by, referral_code, is_admin, created_at, updated_at,
+                referred_by, referral_code, is_admin, email_verified, apple_user_id, created_at, updated_at,
                 (EXISTS(SELECT 1 FROM partners p WHERE p.user_id = users.id AND p.is_active = TRUE)) as is_partner
          FROM users WHERE apple_user_id = $1`,
         [appleUserId]
@@ -1123,6 +1180,27 @@ router.post('/apple', authRateLimiter, validate(appleOAuthSchema), async (req, r
         userResult = appleIdResult;
         email = appleIdResult.rows[0].email;
       }
+    }
+
+    // S-CR-01: refuse to merge an Apple sign-in into an existing
+    // email/password account by email match alone. The Google handler
+    // has the symmetric guard at line ~915. Without this, an attacker
+    // who controls an Apple ID with the same email as a HavenKeep
+    // email/password user takes over the account on first Apple sign-in
+    // and the apple_user_id binding below permanently locks the victim
+    // out. The only safe merges: (a) the existing row's auth_provider
+    // is already 'apple', or (b) the row already has the same
+    // apple_user_id (subsequent sign-in for an already-linked user).
+    if (
+      userResult &&
+      userResult.rows.length > 0 &&
+      userResult.rows[0].auth_provider === 'email' &&
+      userResult.rows[0].apple_user_id == null
+    ) {
+      throw new AppError(
+        'An account with this email already exists. Please sign in with your password first to link Apple Sign-In to your account.',
+        409,
+      );
     }
 
     // Apple only returns the email on the first sign-in to a given Service
@@ -1204,6 +1282,8 @@ router.post('/apple', authRateLimiter, validate(appleOAuthSchema), async (req, r
       },
     });
 
+    // S-ME-02: rotate CSRF token on auth state change to defang fixation.
+    rotateCsrfToken(res);
     res.json({
       success: true,
       data: {
@@ -1211,7 +1291,7 @@ router.post('/apple', authRateLimiter, validate(appleOAuthSchema), async (req, r
           id: user.id,
           email: user.email,
           full_name: user.full_name,
-          avatar_url: user.avatar_url || null,
+          avatar_url: await presignAvatarUrl(user.avatar_url),
           auth_provider: user.auth_provider || 'apple',
           plan: user.plan,
           plan_expires_at: user.plan_expires_at || null,

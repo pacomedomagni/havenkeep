@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import Joi from 'joi';
 import { ValidationError } from '../utils/errors';
+import { logger } from '../utils/logger';
 
 export type ValidateTarget = 'body' | 'query' | 'params';
 
@@ -53,6 +54,23 @@ export function validate(
         }));
         return next(new ValidationError(`Validation failed for ${prop}`, details));
       }
+
+      // S-LO-01: in production we strip unknown keys silently so a forward-
+      // compat client doesn't 400. But silent drops mask client typos
+      // (`fullname` vs `fullName`) that surface as weird UX bugs. Log the
+      // dropped keys at warn so the misspell is at least observable.
+      if (isProd && req[prop] && typeof req[prop] === 'object' && value && typeof value === 'object') {
+        const inputKeys = Object.keys(req[prop] as object);
+        const validatedKeys = new Set(Object.keys(value as object));
+        const dropped = inputKeys.filter((k) => !validatedKeys.has(k));
+        if (dropped.length > 0) {
+          logger.warn(
+            { prop, dropped, route: req.originalUrl, method: req.method },
+            'Validator stripped unknown keys',
+          );
+        }
+      }
+
       // Replace request property with validated value
       (req as any)[prop] = value;
     }

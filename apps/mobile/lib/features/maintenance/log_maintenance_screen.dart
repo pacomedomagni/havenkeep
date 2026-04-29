@@ -28,10 +28,21 @@ class LogMaintenanceScreen extends ConsumerStatefulWidget {
   /// mounted in a modal bottom sheet without doubling chrome.
   final bool embeddedInSheet;
 
+  /// Optional controller to attach to the form's scroll view.
+  ///
+  /// 4.14 / M-MED-05: when mounted inside a `DraggableScrollableSheet`,
+  /// the inner ScrollView MUST attach to the controller the sheet
+  /// builder hands us — otherwise drag-to-resize stops working at the
+  /// top of the form (the sheet thinks the form has nothing to scroll
+  /// and won't expand it). The full-screen mount path still passes
+  /// `null`, which falls back to PrimaryScrollController.
+  final ScrollController? scrollController;
+
   const LogMaintenanceScreen({
     super.key,
     this.initialItemId,
     this.embeddedInSheet = false,
+    this.scrollController,
   });
 
   /// Show the form in a modal bottom sheet pre-populated with [itemId].
@@ -56,6 +67,7 @@ class LogMaintenanceScreen extends ConsumerStatefulWidget {
           builder: (_, scrollController) => LogMaintenanceScreen(
             initialItemId: itemId,
             embeddedInSheet: true,
+            scrollController: scrollController,
           ),
         );
       },
@@ -190,6 +202,7 @@ class _LogMaintenanceScreenState extends ConsumerState<LogMaintenanceScreen> {
     final form = Form(
       key: _formKey,
       child: ListView(
+        controller: widget.scrollController,
         padding: const EdgeInsets.all(HavenSpacing.md),
         children: [
           if (widget.embeddedInSheet) ...[

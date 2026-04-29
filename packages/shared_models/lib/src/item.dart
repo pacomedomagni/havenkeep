@@ -148,12 +148,22 @@ class Item {
       isArchived: json['is_archived'] as bool? ?? false,
       addedVia: ItemAddedVia.fromJson(json['added_via'] as String? ?? 'manual'),
       archivedAt: _parseDate(json['archived_at']),
-      createdAt: _parseDate(json['created_at'])!,
-      updatedAt: _parseDate(json['updated_at'])!,
+      // 4.1: server-stamped timestamps fall back instead of crashing.
+      // `purchaseDate` + `warrantyEndDate` keep `!` because they're
+      // required-by-contract user input the API rejects when null.
+      createdAt: _parseDate(json['created_at']) ?? DateTime.now(),
+      updatedAt: _parseDate(json['updated_at']) ?? DateTime.now(),
     );
   }
 
   /// Full JSON for reads / updates.
+  ///
+  /// 1.8: `product_image_url` is server-managed (set via
+  /// POST /uploads/item-image, mirrored back as a presigned URL by the
+  /// /items GET response). It's deliberately NOT emitted here — the
+  /// server's update validator rejects it, and re-sending the
+  /// presigned URL we just received back would be meaningless. Use
+  /// [productImageUrl] for display only.
   Map<String, dynamic> toJson() {
     return {
       'id': id,
@@ -165,7 +175,6 @@ class Item {
       'serial_number': serialNumber,
       'category': category.toJson(),
       'room': room?.toJson(),
-      'product_image_url': productImageUrl,
       'barcode': barcode,
       'purchase_date': purchaseDate.toIso8601String().split('T').first,
       'store': store,
@@ -267,8 +276,6 @@ class Item {
     ItemCategory? category,
     ItemRoom? room,
     bool clearRoom = false,
-    String? productImageUrl,
-    bool clearProductImageUrl = false,
     String? barcode,
     bool clearBarcode = false,
     DateTime? purchaseDate,
@@ -316,9 +323,7 @@ class Item {
           clearSerialNumber ? null : (serialNumber ?? this.serialNumber),
       category: category ?? this.category,
       room: clearRoom ? null : (room ?? this.room),
-      productImageUrl: clearProductImageUrl
-          ? null
-          : (productImageUrl ?? this.productImageUrl),
+      productImageUrl: this.productImageUrl,
       barcode: clearBarcode ? null : (barcode ?? this.barcode),
       purchaseDate: purchaseDate ?? this.purchaseDate,
       store: clearStore ? null : (store ?? this.store),

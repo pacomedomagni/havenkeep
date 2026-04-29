@@ -4,6 +4,11 @@ import { config } from '../config';
 import { logger } from '../utils/logger';
 import { getRedisClient as getSharedRedisClient } from '../utils/redis';
 
+// 4.12: exact-path set of probe routes the rate limiter must NEVER
+// throttle. Mirrors `QUIET_PATHS` in requestLogger.ts. Add new probes
+// here only — `startsWith` would over-match a future `/healthcheck`.
+const PROBE_PATHS = new Set(['/health', '/live', '/ready']);
+
 // Reuse the shared Redis client (Ch11-I060). The rate limiter used to open
 // its own connection that diverged from token-blacklist + the user cache;
 // every Redis hiccup hit one client and not the others, producing
@@ -98,7 +103,19 @@ const initializeRateLimiter = async () => {
         });
       },
       skip: (req) => {
-        return req.path.startsWith('/health') || req.path.startsWith('/live') || req.path.startsWith('/ready');
+        // 3.9: webhook routes (Stripe, RevenueCat) are mounted before this
+        // limiter today, so they don't currently hit it — but a future
+        // re-order would silently start dropping webhook deliveries to
+        // 429 (Stripe retries for 3 days). Belt-and-braces skip so the
+        // limiter is order-independent.
+        if (req.path.startsWith('/api/v1/webhooks/')) return true;
+        // 4.12: exact match on the health probes. The previous
+        // `startsWith` also bypassed e.g. `/healthcheck` or
+        // `/ready-set-go` if a future route ever shipped under those
+        // prefixes. The /health and /ready details routes are
+        // mounted under the same router but are explicitly listed
+        // here when introduced.
+        return PROBE_PATHS.has(req.path);
       },
       store: store as any,
     });
@@ -122,7 +139,9 @@ function createMemoryRateLimiter() {
     standardHeaders: true,
     legacyHeaders: false,
     skip: (req) => {
-      return req.path.startsWith('/health') || req.path.startsWith('/live') || req.path.startsWith('/ready');
+      if (req.path.startsWith('/api/v1/webhooks/')) return true;
+      // 4.12: exact-path match (see Redis variant above).
+      return PROBE_PATHS.has(req.path);
     },
   });
 }
@@ -130,28 +149,65 @@ function createMemoryRateLimiter() {
 // Export the initializer — must be awaited in index.ts
 export { initializeRateLimiter };
 
-// Shared Redis store reference, populated after initializeRateLimiter runs.
-// Endpoint-specific limiters lazily pick this up so they benefit from
-// distributed rate limiting in production without requiring async init.
+// S-CR-03: per-endpoint rate limiters previously read `sharedRedisClient`
+// once at module-load time and bound the resulting `store` permanently.
+// Because module load happens BEFORE `initializeEndpointRedis()` resolves,
+// every "specific" limiter ran against express-rate-limit's default
+// in-memory store — i.e. per-instance, not distributed. In a multi-replica
+// deploy a 10/15min auth limit becomes 10*N/15min.
+//
+// Fix: lazy-build each limiter on first request. By then Redis is up
+// (initializeRateLimiter() runs at app boot before any route is mounted)
+// and we get a Redis-backed store. Single-flight per limiter so we don't
+// build N stores under burst.
 let sharedRedisClient: ReturnType<typeof createClient> | null = null;
 
 function createEndpointRateLimiter(options: {
+  bucket: string; // 1.5: explicit Redis-key namespace, NOT derived from
+                  // a free-text message. Pre-1.5 the prefix was the
+                  // first 10 chars of `message`, which collided distinct
+                  // limiters: `auth` + `activation` shared "Too many a";
+                  // `passwordReset/Change/verifyPremium` shared "Too
+                  // many p". Sharing meant the strictest cap governed
+                  // all + an attacker could exhaust password-reset for
+                  // a victim by spamming verify-premium.
   windowMs: number;
   max: number;
   message: string;
   skipSuccessfulRequests?: boolean;
-}) {
-  // If Redis is available, create a RedisStore for this limiter
-  const store = sharedRedisClient
-    ? new RedisStore(sharedRedisClient, options.windowMs, `rl:${options.message.slice(0, 10)}:`)
-    : undefined;
+}): import('express').RequestHandler {
+  // Resolved on the first request after Redis is available. Cached
+  // forever after that — express-rate-limit's RedisStore is safe to
+  // reuse across requests.
+  let resolved: import('express').RequestHandler | null = null;
 
-  return rateLimit({
-    ...options,
-    standardHeaders: true,
-    legacyHeaders: false,
-    ...(store ? { store: store as any } : {}),
-  });
+  const build = (): import('express').RequestHandler => {
+    const store = sharedRedisClient
+      ? new RedisStore(sharedRedisClient, options.windowMs, `rl:${options.bucket}:`)
+      : undefined;
+    return rateLimit({
+      windowMs: options.windowMs,
+      max: options.max,
+      message: options.message,
+      ...(options.skipSuccessfulRequests !== undefined
+        ? { skipSuccessfulRequests: options.skipSuccessfulRequests }
+        : {}),
+      standardHeaders: true,
+      legacyHeaders: false,
+      ...(store ? { store: store as any } : {}),
+    });
+  };
+
+  return (req, res, next) => {
+    // Build the real limiter on first call. If Redis is up by then
+    // (the normal case in production after initializeEndpointRedis
+    // resolves), we get a Redis-backed store. If not, we fall back to
+    // in-memory and the warning was already logged at boot.
+    if (!resolved) {
+      resolved = build();
+    }
+    return resolved(req, res, next);
+  };
 }
 
 // Initialize the shared Redis client for endpoint-specific limiters.
@@ -160,6 +216,7 @@ async function initializeEndpointRedis() {
   if (config.env !== 'development' && config.env !== 'test') {
     try {
       sharedRedisClient = await getRedisClient();
+      logger.info('Endpoint rate limiters bound to shared Redis');
     } catch (error) {
       logger.error('Failed to initialize Redis for endpoint rate limiters, using in-memory store', error);
     }
@@ -167,7 +224,9 @@ async function initializeEndpointRedis() {
 }
 
 // Eagerly attempt to connect (non-blocking).
-// The limiters will use in-memory until this resolves.
+// The limiters will use in-memory until this resolves — and because the
+// real limiter object is built on first request (not at module load),
+// once Redis is up every limiter gets a Redis-backed store.
 initializeEndpointRedis().catch((err) => {
   logger.error('Failed to initialize endpoint Redis (non-fatal):', err);
 });
@@ -183,6 +242,7 @@ export async function closeRateLimiterRedis(): Promise<void> {
 
 // Specific rate limiters for sensitive endpoints
 export const authRateLimiter = createEndpointRateLimiter({
+  bucket: 'auth',
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 10,
   message: 'Too many attempts, please try again later.',
@@ -192,6 +252,7 @@ export const authRateLimiter = createEndpointRateLimiter({
 // This is intentionally generous since mobile apps may refresh tokens frequently.
 // Consider reducing if abuse is detected.
 export const refreshRateLimiter = createEndpointRateLimiter({
+  bucket: 'refresh',
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 10,
   message: 'Too many token refresh attempts, please try again later.',
@@ -199,18 +260,21 @@ export const refreshRateLimiter = createEndpointRateLimiter({
 });
 
 export const uploadRateLimiter = createEndpointRateLimiter({
+  bucket: 'upload',
   windowMs: 60 * 1000, // 1 minute
   max: 10,
   message: 'Too many uploads, please try again later.',
 });
 
 export const passwordResetRateLimiter = createEndpointRateLimiter({
+  bucket: 'pwReset',
   windowMs: 60 * 60 * 1000, // 1 hour
   max: 3,
   message: 'Too many password reset attempts, please try again later.',
 });
 
 export const activationCodeRateLimiter = createEndpointRateLimiter({
+  bucket: 'activation',
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 10,
   message: 'Too many activation code attempts, please try again later.',
@@ -219,6 +283,7 @@ export const activationCodeRateLimiter = createEndpointRateLimiter({
 // BE-12: Rate limiter for premium verification endpoint
 // Limits to 5 requests per 15 minutes to prevent abuse of RevenueCat API calls
 export const verifyPremiumRateLimiter = createEndpointRateLimiter({
+  bucket: 'verifyPremium',
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 5,
   message: 'Too many premium verification attempts, please try again later.',
@@ -227,6 +292,7 @@ export const verifyPremiumRateLimiter = createEndpointRateLimiter({
 // Rate limiter for password change endpoint
 // 5 attempts per hour to prevent brute-force current password guessing
 export const passwordChangeRateLimiter = createEndpointRateLimiter({
+  bucket: 'pwChange',
   windowMs: 60 * 60 * 1000, // 1 hour
   max: 5,
   message: 'Too many password change attempts, please try again later.',
@@ -235,6 +301,7 @@ export const passwordChangeRateLimiter = createEndpointRateLimiter({
 // Rate limiter for write endpoints (POST, PUT, DELETE)
 // 30 requests per 15 minutes to prevent abuse of data-mutating operations
 export const writeRateLimiter = createEndpointRateLimiter({
+  bucket: 'write',
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 30,
   message: 'Too many write requests, please try again later.',
@@ -242,6 +309,7 @@ export const writeRateLimiter = createEndpointRateLimiter({
 
 // Gift email resend limiter: 3 resends per hour per IP
 export const giftResendRateLimiter = createEndpointRateLimiter({
+  bucket: 'giftResend',
   windowMs: 60 * 60 * 1000, // 1 hour
   max: 3,
   message: 'Too many gift email resend attempts, please try again later.',
@@ -249,6 +317,7 @@ export const giftResendRateLimiter = createEndpointRateLimiter({
 
 // Receipt scan limiter: 10 per minute per IP
 export const receiptScanRateLimiter = createEndpointRateLimiter({
+  bucket: 'receiptScan',
   windowMs: 60 * 1000, // 1 minute
   max: 10,
   message: 'Too many receipt scan requests, please try again later.',
@@ -258,6 +327,7 @@ export const receiptScanRateLimiter = createEndpointRateLimiter({
 // at 60 reads/minute per IP. Burst-friendly for normal app use, blocks
 // scrapers.
 export const itemsListRateLimiter = createEndpointRateLimiter({
+  bucket: 'itemsList',
   windowMs: 60 * 1000, // 1 minute
   max: 60,
   message: 'Too many list requests, please try again later.',
@@ -266,6 +336,7 @@ export const itemsListRateLimiter = createEndpointRateLimiter({
 // CSV export limiter (Ch02-F066): exports stream the entire item table; cap
 // to 5 per hour per IP to prevent unbounded server work.
 export const csvExportRateLimiter = createEndpointRateLimiter({
+  bucket: 'csvExport',
   windowMs: 60 * 60 * 1000, // 1 hour
   max: 5,
   message: 'Too many CSV exports, please try again later.',
@@ -273,6 +344,7 @@ export const csvExportRateLimiter = createEndpointRateLimiter({
 
 // Newsletter subscription limiter: 5 per hour per IP
 export const newsletterRateLimiter = createEndpointRateLimiter({
+  bucket: 'newsletter',
   windowMs: 60 * 60 * 1000, // 1 hour
   max: 5,
   message: 'Too many subscription attempts, please try again later.',
@@ -280,6 +352,7 @@ export const newsletterRateLimiter = createEndpointRateLimiter({
 
 // Contact form limiter: 3 per hour per IP
 export const contactRateLimiter = createEndpointRateLimiter({
+  bucket: 'contact',
   windowMs: 60 * 60 * 1000, // 1 hour
   max: 3,
   message: 'Too many contact submissions, please try again later.',
@@ -289,6 +362,7 @@ export const contactRateLimiter = createEndpointRateLimiter({
 // that fan out big joins (warranty-claims list, audit/logs, etc.). 120/min
 // matches the busy mobile-app scrolling pattern; anything above is scraping.
 export const readRateLimiter = createEndpointRateLimiter({
+  bucket: 'read',
   windowMs: 60 * 1000, // 1 minute
   max: 120,
   message: 'Too many read requests, please slow down.',

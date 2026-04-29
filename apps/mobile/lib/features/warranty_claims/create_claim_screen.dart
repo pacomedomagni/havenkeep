@@ -1,6 +1,3 @@
-import 'dart:io';
-
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -41,24 +38,11 @@ class _CreateClaimScreenState extends ConsumerState<CreateClaimScreen> {
   DateTime _claimDate = DateTime.now();
   ClaimStatus _status = ClaimStatus.filed;
   bool _saving = false;
-  final List<File> _attachments = [];
 
   /// Hard cap on long-text fields so a paste accident can't ship a 1MB
   /// description. The server has its own validators — this is the UX
   /// guard so users get an inline error instead of a 400.
   static const int _maxFreeTextLength = 1500;
-
-  /// MIME types the backend will accept for claim attachments. Mirrors
-  /// the documents pipeline whitelist (image/* + application/pdf).
-  static const _allowedFileExtensions = <String>[
-    'jpg',
-    'jpeg',
-    'png',
-    'webp',
-    'heic',
-    'heif',
-    'pdf',
-  ];
 
   @override
   void dispose() {
@@ -71,53 +55,6 @@ class _CreateClaimScreenState extends ConsumerState<CreateClaimScreen> {
     _claimNumberController.dispose();
     _notesController.dispose();
     super.dispose();
-  }
-
-  /// Open the platform file picker, restricted to image/PDF. Anything
-  /// else is rejected with a clear inline error rather than a generic
-  /// "upload failed" later in the pipeline (Ch05-F122).
-  Future<void> _pickAttachment() async {
-    try {
-      final result = await FilePicker.platform.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: _allowedFileExtensions,
-        withData: false,
-      );
-      if (result == null || result.files.isEmpty) return;
-      final picked = result.files.first;
-      final path = picked.path;
-      if (path == null) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Could not read the selected file')),
-          );
-        }
-        return;
-      }
-      // Defensive double-check: file_picker on some Android OEMs lets
-      // through MIME types outside `allowedExtensions` when the user
-      // chooses "Show all files".
-      final ext = picked.extension?.toLowerCase();
-      if (ext == null || !_allowedFileExtensions.contains(ext)) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Only images (JPG/PNG/HEIC) and PDFs are allowed',
-              ),
-            ),
-          );
-        }
-        return;
-      }
-      setState(() => _attachments.add(File(path)));
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(ErrorHandler.getUserMessage(e))),
-        );
-      }
-    }
   }
 
   Future<void> _pickDate() async {
@@ -368,6 +305,18 @@ class _CreateClaimScreenState extends ConsumerState<CreateClaimScreen> {
                 controller: _outOfPocketController,
                 label: 'Out of Pocket (optional)',
               ),
+              // 3.5: USD-only commitment, surfaced near the input so a
+              // non-US user knows what currency to enter. Localised
+              // formatting will land when we accept multi-currency
+              // billing — until then this is honest.
+              const SizedBox(height: HavenSpacing.xs),
+              const Text(
+                'All amounts in USD',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: HavenColors.textTertiary,
+                ),
+              ),
               const SizedBox(height: HavenSpacing.lg),
 
               // Filed with & claim number
@@ -394,56 +343,6 @@ class _CreateClaimScreenState extends ConsumerState<CreateClaimScreen> {
                 maxLength: _maxFreeTextLength,
               ),
               const SizedBox(height: HavenSpacing.lg),
-
-              // Attachments
-              const _SectionLabel('Attachments'),
-              const SizedBox(height: HavenSpacing.sm),
-              ..._attachments.map(
-                (file) => Padding(
-                  padding: const EdgeInsets.only(bottom: HavenSpacing.xs),
-                  child: Container(
-                    padding: const EdgeInsets.all(HavenSpacing.sm),
-                    decoration: BoxDecoration(
-                      color: HavenColors.surface,
-                      borderRadius: BorderRadius.circular(HavenRadius.card),
-                      border: Border.all(color: HavenColors.border),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.attach_file,
-                            size: 18, color: HavenColors.textSecondary),
-                        const SizedBox(width: HavenSpacing.sm),
-                        Expanded(
-                          child: Text(
-                            file.path.split(Platform.pathSeparator).last,
-                            style: HavenText.meta,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.close, size: 18),
-                          color: HavenColors.textTertiary,
-                          onPressed: () =>
-                              setState(() => _attachments.remove(file)),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: _saving ? null : _pickAttachment,
-                  icon: const Icon(Icons.attach_file, size: 18),
-                  label: const Text('Add receipt or photo'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: HavenColors.primary,
-                    side: const BorderSide(color: HavenColors.primary),
-                  ),
-                ),
-              ),
-              const SizedBox(height: HavenSpacing.xl),
 
               // Submit button
               SizedBox(
@@ -533,7 +432,15 @@ class _CreateClaimScreenState extends ConsumerState<CreateClaimScreen> {
       ),
       validator: (v) {
         if (required && (v == null || v.trim().isEmpty)) return 'Required';
-        if (v != null && v.trim().isNotEmpty && double.tryParse(v) == null) {
+        // 3.2: validator must agree with the submit-time parser. The submit
+        // path uses [Money.parseToDouble] which accepts "$1,234.50" while
+        // `double.tryParse` rejects it — so the form passed validation but
+        // the value silently coerced to 0 (and the row landed with no
+        // repair cost). Validate via the same parser to keep the two in
+        // lockstep.
+        if (v != null &&
+            v.trim().isNotEmpty &&
+            Money.parseToDouble(v) == null) {
           return 'Invalid number';
         }
         return null;

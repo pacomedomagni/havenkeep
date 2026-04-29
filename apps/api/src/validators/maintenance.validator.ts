@@ -55,5 +55,15 @@ export const getHistoryQuerySchema = Joi.object({
   limit: Joi.number().integer().min(1).max(100).optional().default(50),
   offset: Joi.number().integer().min(0).optional().default(0),
   itemId: Joi.string().uuid().optional(),
+  homeId: Joi.string().uuid().optional(),
+  page: Joi.number().integer().min(1).optional(),
 })
-  .rename('item_id', 'itemId', { ignoreUndefined: true, override: false });
+  .rename('item_id', 'itemId', { ignoreUndefined: true, override: false })
+  .rename('home_id', 'homeId', { ignoreUndefined: true, override: false });
+
+// 2.13: GET /due accepts an optional home_id query so the dashboard
+// summary scopes to the user's currently-selected home.
+export const getDueQuerySchema = Joi.object({
+  homeId: Joi.string().uuid().optional(),
+})
+  .rename('home_id', 'homeId', { ignoreUndefined: true, override: false });

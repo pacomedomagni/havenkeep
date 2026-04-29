@@ -53,12 +53,18 @@ class DocumentsRepository {
   // ============================================
 
   /// Upload a document file and create a DB record.
+  ///
+  /// 2.12: `mime_type` is no longer sent. The server's
+  /// `uploadDocumentSchema` is `.unknown(false)` and only declares
+  /// `itemId` + `type`; the multer-detected mimetype + magic-byte check
+  /// is what the server actually trusts. Sending it would either 400 in
+  /// dev/staging or be silently stripped with a "Validator stripped
+  /// unknown keys" log entry in prod.
   Future<Document> uploadDocument({
     required String itemId,
     required String filePath,
     required String fileName,
     required DocumentType type,
-    String? mimeType,
     String? idempotencyKey,
   }) async {
     try {
@@ -71,7 +77,6 @@ class DocumentsRepository {
         fields: {
           'item_id': itemId,
           'type': type.toJson(),
-          if (mimeType != null) 'mime_type': mimeType,
         },
         idempotencyKey: idempotencyKey,
       );

@@ -41,7 +41,6 @@ class _EditItemScreenState extends ConsumerState<EditItemScreen> {
   late TextEditingController _warrantyProviderController;
   late TextEditingController _notesController;
   late TextEditingController _barcodeController;
-  late TextEditingController _productImageUrlController;
 
   String _brand = '';
   ItemCategory _category = ItemCategory.other;
@@ -63,7 +62,6 @@ class _EditItemScreenState extends ConsumerState<EditItemScreen> {
     _warrantyProviderController = TextEditingController();
     _notesController = TextEditingController();
     _barcodeController = TextEditingController();
-    _productImageUrlController = TextEditingController();
   }
 
   @override
@@ -76,7 +74,6 @@ class _EditItemScreenState extends ConsumerState<EditItemScreen> {
     _warrantyProviderController.dispose();
     _notesController.dispose();
     _barcodeController.dispose();
-    _productImageUrlController.dispose();
     super.dispose();
   }
 
@@ -101,7 +98,6 @@ class _EditItemScreenState extends ConsumerState<EditItemScreen> {
     _warrantyProviderController.text = item.warrantyProvider ?? '';
     _notesController.text = item.notes ?? '';
     _barcodeController.text = item.barcode ?? '';
-    _productImageUrlController.text = item.productImageUrl ?? '';
   }
 
   /// Returns true if any form value differs from the original item.
@@ -123,8 +119,7 @@ class _EditItemScreenState extends ConsumerState<EditItemScreen> {
         _warrantyType != orig.warrantyType ||
         _warrantyProviderController.text != (orig.warrantyProvider ?? '') ||
         _notesController.text != (orig.notes ?? '') ||
-        _barcodeController.text != (orig.barcode ?? '') ||
-        _productImageUrlController.text != (orig.productImageUrl ?? '');
+        _barcodeController.text != (orig.barcode ?? '');
   }
 
   Future<void> _handleCancel() async {
@@ -199,12 +194,6 @@ class _EditItemScreenState extends ConsumerState<EditItemScreen> {
             : null,
         clearBarcode:
             _barcodeController.text.trim().isEmpty && orig.barcode != null,
-        productImageUrl: _productImageUrlController.text.trim().isNotEmpty
-            ? _productImageUrlController.text.trim()
-            : null,
-        clearProductImageUrl:
-            _productImageUrlController.text.trim().isEmpty &&
-                orig.productImageUrl != null,
         updatedAt: DateTime.now(),
       );
 
@@ -516,31 +505,6 @@ class _EditItemScreenState extends ConsumerState<EditItemScreen> {
                       return null;
                     },
                   ),
-                  const SizedBox(height: HavenSpacing.md),
-
-                  // Product Image URL
-                  TextFormField(
-                    controller: _productImageUrlController,
-                    decoration: const InputDecoration(
-                      labelText: 'Product Image URL',
-                      prefixIcon: Icon(Icons.image_outlined, size: 20),
-                    ),
-                    keyboardType: TextInputType.url,
-                    textInputAction: TextInputAction.done,
-                    onChanged: (_) => setState(() {}),
-                    validator: (value) {
-                      if (value == null || value.isEmpty) return null;
-                      final uri = Uri.tryParse(value);
-                      // Only http/https are safe to embed in an Image.network
-                      // call (F055). javascript:/file: URIs would otherwise pass.
-                      if (uri == null ||
-                          (uri.scheme != 'http' && uri.scheme != 'https')) {
-                        return 'Enter a valid http(s) URL';
-                      }
-                      return null;
-                    },
-                  ),
-
                   // Bottom spacing
                   const SizedBox(height: HavenSpacing.xxl),
                 ],

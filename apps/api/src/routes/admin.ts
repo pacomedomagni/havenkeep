@@ -1,10 +1,11 @@
 import { Router } from 'express';
 import Joi from 'joi';
-import { query } from '../db';
-import { authenticate, requireAdmin } from '../middleware/auth';
+import { query, getClient } from '../db';
+import { harvestUserKeys, flattenHarvest, removeKeysBestEffort } from '../utils/storage-cleanup';
+import { authenticate, requireAdmin, invalidateUserCache } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { paginationSchema } from '../validators';
-import { userIdParamSchema, dateRangeQuerySchema } from '../validators/admin.validator';
+import { userIdParamSchema, dateRangeQuerySchema, rejectPartnerBodySchema } from '../validators/admin.validator';
 import { writeRateLimiter } from '../middleware/rateLimiter';
 import { AppError } from '../utils/errors';
 import { AuditService } from '../services/audit.service';
@@ -313,6 +314,12 @@ router.put('/users/:id/suspend',
     // Invalidate all refresh tokens so the suspended user gets signed out
     await query(`DELETE FROM refresh_tokens WHERE user_id = $1`, [id]);
 
+    // 2.3: drop the user-row cache so other replicas don't keep a fresh
+    // 'plan' value live for the next 10s. A short window where a hostile
+    // session keeps authenticating as premium is exactly what audit-P-HI-03
+    // flagged.
+    await invalidateUserCache(id);
+
     const reason = sanitizeAuditText((req.body as any)?.reason);
     await AuditService.logFromRequest(req, 'admin.settings_change', {
       severity: 'warning',
@@ -328,21 +335,48 @@ router.put('/users/:id/suspend',
   }
 });
 
-// Unsuspend user (restore to free plan, user can verify premium separately)
+// Unsuspend user (restore to prior plan).
+//
+// 3.16: previously this also cleared `deleted_at` + `deletion_scheduled_for`,
+// which silently overrode a soft-delete the user had initiated themselves.
+// That's the wrong shape — recovering a soft-deleted account is the user's
+// decision (via /me/recover), not an admin side-effect. Two changes:
+//
+//   1. Refuse to unsuspend a soft-deleted row. The admin sees a 409 and
+//      learns the user has a deletion in flight; if the admin wants to
+//      reverse it they have to cancel the deletion explicitly via a
+//      separate path (currently /me/recover from the user's session, or
+//      a future admin "cancel deletion" route).
+//   2. The plan restore prefers `plan_before_suspend`, then
+//      `plan_before_delete` (in case the user was suspended *while*
+//      soft-deleted at some prior point), then 'free'.
 router.put('/users/:id/unsuspend', validate(userIdParamSchema, 'params'), async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    // Restore the plan captured at suspend time + clear any soft-delete
-    // markers (Ch01-F056). Defaults to 'free' only when no prior plan was
-    // captured (suspend predated the plan_before_suspend column, or user
-    // was never paid).
+    const targetUser = await query(
+      `SELECT id, deleted_at FROM users WHERE id = $1 AND plan = 'suspended'`,
+      [id],
+    );
+    if (targetUser.rows.length === 0) {
+      // Either the user doesn't exist or they aren't suspended — disambiguate.
+      const userExists = await query(`SELECT id, plan FROM users WHERE id = $1`, [id]);
+      if (userExists.rows.length === 0) {
+        throw new AppError('User not found', 404);
+      }
+      throw new AppError(`User is not suspended (current plan: ${userExists.rows[0].plan})`, 400);
+    }
+    if (targetUser.rows[0].deleted_at) {
+      throw new AppError(
+        'Cannot unsuspend a soft-deleted account; the user must recover it first via /me/recover',
+        409,
+      );
+    }
+
     const result = await query(
       `UPDATE users
-          SET plan = COALESCE(plan_before_suspend, 'free'),
+          SET plan = COALESCE(plan_before_suspend, plan_before_delete, 'free'),
               plan_before_suspend = NULL,
-              deleted_at = NULL,
-              deletion_scheduled_for = NULL,
               updated_at = NOW()
         WHERE id = $1 AND plan = 'suspended'
         RETURNING id, email, plan`,
@@ -350,13 +384,13 @@ router.put('/users/:id/unsuspend', validate(userIdParamSchema, 'params'), async 
     );
 
     if (result.rows.length === 0) {
-      // Check if user exists at all
-      const userExists = await query(`SELECT id, plan FROM users WHERE id = $1`, [id]);
-      if (userExists.rows.length === 0) {
-        throw new AppError('User not found', 404);
-      }
-      throw new AppError(`User is not suspended (current plan: ${userExists.rows[0].plan})`, 400);
+      // Defensive: a concurrent delete or unsuspend won the race.
+      throw new AppError('User state changed during unsuspend; retry', 409);
     }
+
+    // 2.3: same reason as suspend — the cached row still has plan='suspended'
+    // until the 10s TTL expires; drop it now.
+    await invalidateUserCache(id);
 
     await AuditService.logFromRequest(req, 'admin.settings_change', {
       severity: 'info',
@@ -394,15 +428,35 @@ router.delete(
         throw new AppError('Cannot delete your own account', 400);
       }
 
-      await query(`DELETE FROM refresh_tokens WHERE user_id = $1`, [id]);
+      // 1.1: harvest every MinIO key the user owns BEFORE the SQL
+      // DELETE cascades. Without this, every avatar / item image /
+      // document / thumbnail leaks permanently into the bucket.
+      const client = await getClient();
+      let harvest: Awaited<ReturnType<typeof harvestUserKeys>> | null = null;
+      let result;
+      try {
+        await client.query('BEGIN');
+        harvest = await harvestUserKeys(client, id);
+        await client.query(`DELETE FROM refresh_tokens WHERE user_id = $1`, [id]);
+        result = await client.query(
+          `DELETE FROM users WHERE id = $1 RETURNING id, email`,
+          [id],
+        );
+        if (result.rows.length === 0) {
+          await client.query('ROLLBACK');
+          throw new AppError('User not found', 404);
+        }
+        await client.query('COMMIT');
+      } catch (err) {
+        await client.query('ROLLBACK').catch(() => {});
+        throw err;
+      } finally {
+        client.release();
+      }
 
-      const result = await query(
-        `DELETE FROM users WHERE id = $1 RETURNING id, email`,
-        [id],
-      );
-
-      if (result.rows.length === 0) {
-        throw new AppError('User not found', 404);
+      // Post-commit cleanup. Best-effort.
+      if (harvest) {
+        await removeKeysBestEffort(flattenHarvest(harvest));
       }
 
       await AuditService.logFromRequest(req, 'admin.user_delete', {
@@ -472,7 +526,7 @@ router.put('/partners/:id/approve', validate(userIdParamSchema, 'params'), async
 // Reject a partner (status = 'rejected'). Optional reason is captured in the
 // audit log so an admin can answer "why was this partner rejected?" later
 // (audit Ch10-W041). Stored as a string up to 1KB.
-router.put('/partners/:id/reject', validate(userIdParamSchema, 'params'), async (req, res, next) => {
+router.put('/partners/:id/reject', validate(userIdParamSchema, 'params'), validate(rejectPartnerBodySchema), async (req, res, next) => {
   try {
     const { id } = req.params;
     const reasonRaw = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';

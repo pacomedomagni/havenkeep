@@ -1,5 +1,4 @@
 import Joi from 'joi';
-import { config } from '../config';
 import { passwordSchema, emailSchema } from './auth.validator';
 
 // Auth Validators — share the anchored password rule with auth.validator
@@ -81,7 +80,8 @@ export const createItemSchema = Joi.object({
   warrantyType: Joi.string().valid('manufacturer', 'extended', 'store', 'home_warranty').default('manufacturer'),
   warrantyProvider: Joi.string().max(100).allow(null, ''),
   notes: Joi.string().max(5000).allow(null, ''),
-  productImageUrl: Joi.string().uri().max(500).allow(null, ''),
+  // S-CR-02: product_image_url is set via POST /uploads/item-image, never
+  // by the create/update body. The column holds a MinIO object key.
   barcode: Joi.string().max(100).allow(null, ''),
   addedVia: Joi.string()
     .valid('manual', 'email', 'barcode', 'barcode_scan', 'receipt_scan', 'quick_add', 'bulk_setup')
@@ -99,7 +99,6 @@ export const createItemSchema = Joi.object({
   .rename('warranty_months', 'warrantyMonths', { ignoreUndefined: true, override: false })
   .rename('warranty_type', 'warrantyType', { ignoreUndefined: true, override: false })
   .rename('warranty_provider', 'warrantyProvider', { ignoreUndefined: true, override: false })
-  .rename('product_image_url', 'productImageUrl', { ignoreUndefined: true, override: false })
   .rename('added_via', 'addedVia', { ignoreUndefined: true, override: false })
   .rename('installation_date', 'installationDate', { ignoreUndefined: true, override: false })
   .rename('last_maintenance_date', 'lastMaintenanceDate', { ignoreUndefined: true, override: false })
@@ -140,7 +139,8 @@ export const updateItemSchema = Joi.object({
   warrantyProvider: Joi.string().max(100).allow(null, ''),
   notes: Joi.string().max(5000).allow(null, ''),
   isArchived: Joi.boolean(),
-  productImageUrl: Joi.string().uri().max(500).allow(null, ''),
+  // S-CR-02: product_image_url is set via POST /uploads/item-image, never
+  // by the create/update body. The column holds a MinIO object key.
   barcode: Joi.string().max(100).allow(null, ''),
   // addedVia intentionally excluded — it is a write-once audit field set at creation
   installationDate: Joi.date().min('1970-01-01').max('now').allow(null),
@@ -157,7 +157,6 @@ export const updateItemSchema = Joi.object({
   .rename('warranty_type', 'warrantyType', { ignoreUndefined: true, override: false })
   .rename('warranty_provider', 'warrantyProvider', { ignoreUndefined: true, override: false })
   .rename('is_archived', 'isArchived', { ignoreUndefined: true, override: false })
-  .rename('product_image_url', 'productImageUrl', { ignoreUndefined: true, override: false })
   .rename('installation_date', 'installationDate', { ignoreUndefined: true, override: false })
   .rename('last_maintenance_date', 'lastMaintenanceDate', { ignoreUndefined: true, override: false })
   .rename('next_maintenance_due', 'nextMaintenanceDue', { ignoreUndefined: true, override: false });
@@ -191,52 +190,17 @@ export const updateHomeSchema = Joi.object({
   .rename('home_type', 'homeType', { ignoreUndefined: true, override: false })
   .rename('move_in_date', 'moveInDate', { ignoreUndefined: true, override: false });
 
-// Audit Ch01-F073: hostname `.includes(endpoint)` accepted any domain that
-// has the endpoint as a substring (e.g. `minio.evil.com` if endpoint is
-// `minio`). Compare exact host or pre-approved suffix. Trailing port is
-// stripped before compare. ALLOWED_AVATAR_HOSTS is the explicit allowlist.
-const ALLOWED_AVATAR_HOSTS = new Set<string>([
-  config.minio.endpoint.toLowerCase(),
-  // Public OAuth provider avatar CDNs that we accept verbatim.
-  'lh3.googleusercontent.com',
-  'lh4.googleusercontent.com',
-  'lh5.googleusercontent.com',
-  'lh6.googleusercontent.com',
-  'avatars.slack-edge.com',
-  'gravatar.com',
-  'www.gravatar.com',
-]);
-
-function avatarHostAllowed(host: string): boolean {
-  const h = host.toLowerCase();
-  if (ALLOWED_AVATAR_HOSTS.has(h)) return true;
-  // Allow direct match against MINIO_PUBLIC_URL host if configured.
-  const publicUrl = process.env.MINIO_PUBLIC_URL;
-  if (publicUrl) {
-    try { if (new URL(publicUrl).host.toLowerCase() === h) return true; } catch { /* ignore */ }
-  }
-  return false;
-}
-
 // User Validators
+//
+// S-CR-02: avatarUrl is no longer a user-settable field on PUT /me. Avatars
+// are uploaded via POST /api/v1/uploads/avatar which writes the MinIO
+// object KEY directly. The /me response always mints a presigned URL from
+// the stored key at response time, so a leaked URL is useless within
+// PRESIGNED_URL_TTL_SECONDS.
 export const updateUserSchema = Joi.object({
   fullName: Joi.string().trim().min(1).max(255),
-  avatarUrl: Joi.string().uri({ scheme: ['http', 'https'] }).max(500).allow(null, '')
-    .custom((value, helpers) => {
-      if (!value) return value;
-      try {
-        const url = new URL(value);
-        if (!avatarHostAllowed(url.hostname)) {
-          return helpers.error('any.invalid');
-        }
-      } catch {
-        return helpers.error('any.invalid');
-      }
-      return value;
-    }, 'avatar URL host allowlist'),
 }).min(1)
-  .rename('full_name', 'fullName', { ignoreUndefined: true, override: false })
-  .rename('avatar_url', 'avatarUrl', { ignoreUndefined: true, override: false });
+  .rename('full_name', 'fullName', { ignoreUndefined: true, override: false });
 
 // Document Validators
 //

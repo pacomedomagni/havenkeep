@@ -5,6 +5,7 @@ import 'package:shared_models/shared_models.dart';
 import 'package:api_client/api_client.dart';
 import '../services/notifications_repository.dart';
 import 'auth_provider.dart';
+import 'homes_provider.dart';
 
 /// Provides the notifications repository instance.
 final notificationsRepositoryProvider = Provider<NotificationsRepository>((ref) {
@@ -36,11 +37,19 @@ class NotificationsNotifier extends AsyncNotifier<List<AppNotification>> {
     final user = ref.read(currentUserProvider).valueOrNull;
     if (user == null) return [];
 
+    // 2.13: re-fetch when the user switches homes. Item-bound notifications
+    // scope; account-level ones (no item_id) always show.
+    final currentHome = ref.watch(currentHomeProvider);
+
     _hasMore = true;
     _currentPage = 1;
     final page = await ref
         .read(notificationsRepositoryProvider)
-        .getNotifications(limit: _pageSize, page: _currentPage);
+        .getNotifications(
+          limit: _pageSize,
+          page: _currentPage,
+          homeId: currentHome?.id,
+        );
     _currentPage++;
     _hasMore = page.length == _pageSize;
     return page;
@@ -52,10 +61,15 @@ class NotificationsNotifier extends AsyncNotifier<List<AppNotification>> {
     _isLoadingMore = true;
 
     try {
+      final currentHome = ref.read(currentHomeProvider);
       final current = state.value ?? [];
       final page = await ref
           .read(notificationsRepositoryProvider)
-          .getNotifications(limit: _pageSize, page: _currentPage);
+          .getNotifications(
+            limit: _pageSize,
+            page: _currentPage,
+            homeId: currentHome?.id,
+          );
       _currentPage++;
       _hasMore = page.length == _pageSize;
       state = AsyncValue.data([...current, ...page]);
@@ -71,9 +85,14 @@ class NotificationsNotifier extends AsyncNotifier<List<AppNotification>> {
     _isLoadingMore = false;
     state = const AsyncValue.loading();
     state = await AsyncValue.guard(() async {
+      final currentHome = ref.read(currentHomeProvider);
       final page = await ref
           .read(notificationsRepositoryProvider)
-          .getNotifications(limit: _pageSize, page: _currentPage);
+          .getNotifications(
+            limit: _pageSize,
+            page: _currentPage,
+            homeId: currentHome?.id,
+          );
       _currentPage++;
       _hasMore = page.length == _pageSize;
       return page;

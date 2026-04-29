@@ -67,6 +67,10 @@ Three sign-in paths, all terminating at the Express API:
 - **Google Sign-In** — mobile uses the native SDK with `serverClientId`. Backend `/auth/google` accepts an array of audiences via `config.google.clientId` + `GOOGLE_AUDIENCES` env.
 - **Apple Sign-In** — iOS uses the native SDK; Android (and any web/desktop client) uses `WebAuthenticationOptions` with an Apple Developer Services ID. The backend `/auth/apple` endpoint accepts both audiences via `config.apple.bundleId` (single) + `config.apple.servicesIds` (comma-sep array).
 
+### Email scanner OAuth
+- **Gmail** — mobile opens `accounts.google.com/o/oauth2/v2/auth`, captures `code`, forwards `code + redirect_uri` to `/api/v1/email-scanner/scan`. The API exchanges them server-side using `client_secret`.
+- **Outlook** — same shape. The Azure AD app **must** be registered as a confidential / web client (not "public client"), because the API redeems the code with `client_secret`. The mobile flow intentionally does NOT send PKCE (`code_challenge`); the API never sees a verifier and Microsoft would reject a half-completed PKCE handshake.
+
 Per-environment Services IDs follow the convention:
 - `app.havenkeep.mobile.signin.staging`
 - `app.havenkeep.mobile.signin`
@@ -78,7 +82,7 @@ Per-environment Services IDs follow the convention:
 
 ### Telemetry
 - Server: pino → Loki. Redact paths cover bearer tokens, refresh tokens, OAuth access tokens, base64 image bodies, password hashes, Stripe webhook secrets.
-- Mobile: `dart:developer.log` is the always-on transport. `registerUnknownEnumReporter` in `shared_models` lets the bootstrap plug in a custom transport (e.g. Firebase Crashlytics breadcrumb) without coupling the model layer to any specific SDK.
+- Mobile: `dart:developer.log` is the always-on transport. **Firebase Crashlytics is wired** in [main.dart](apps/mobile/lib/main.dart) — release builds enable collection, debug builds skip it. `FlutterError.onError` forwards fatal framework errors via `recordFlutterFatalError`; `PlatformDispatcher.instance.onError` records platform errors as fatal; the outer `runZonedGuarded` catch records anything else as non-fatal. `registerUnknownEnumReporter` in `shared_models` writes a Crashlytics breadcrumb (`enum_drift: …`) for every unknown server enum — useful for "we shipped a server change, then it crashed five seconds later" forensics. All Crashlytics calls are gated on a `_crashlyticsReady` flag so a developer build with no Firebase API key still works.
 - Webhook events table tracks delivery + retries with dead-letter at attempt 8.
 
 ### DB migrations
@@ -94,7 +98,7 @@ Every gate is currently green: api tsc, dashboard tsc + build, marketing build, 
 
 - **`apps/api npm test` execution.** Tests typecheck and the helpers + setup + 30+ new test files all wire up correctly, but the suite needs a `havenkeep_test` Postgres on `:5432`. The `fortify-postgres-1` container holds that port locally. Either free the port + `createdb havenkeep_test && cd apps/api && npm run db:migrate && npm test`, or update `__tests__/setup.ts` to read `TEST_DB_PORT` and run a sidecar Postgres on a free port. The TRUNCATE guard refuses to run unless `DB_NAME` contains "test".
 - **Production CSP report-uri / CSP enforcement headers** (W078 / W111). Marketing site is static Astro — the headers must be set by Caddy in front of it. `astro.config.mjs` documents which headers Caddy needs.
-- **Firebase Crashlytics DSN** (optional). The Dart enum-drift funnel (`registerUnknownEnumReporter`) is wired and ready for a custom transport.
+- **Firebase Crashlytics DSN** (optional). The runtime is wired (see Telemetry above) but reports stop at the device when `firebase_options.dart` has the placeholder API key — drop a real `GoogleService-Info.plist` / `google-services.json` in to start receiving reports.
 
 ### B. Mobile feature gaps
 
@@ -103,6 +107,8 @@ All audit-flagged mobile gaps have been closed in this branch. The list previous
 ### C. App Store / Play Store submission
 
 Code-side everything is ready: bundle ID `app.havenkeep.mobile`, Apple Team ID `N3RF2GHS99` wired into AASA + Xcode signing, upload-key SHA-256 wired into `assetlinks.json`, iOS PrivacyInfo.xcprivacy with required-reasons APIs + data collection categories, APNs entitlement, Apple Sign-In + Associated Domains entitlements, complete Info.plist permission strings + `ITSAppUsesNonExemptEncryption=false`, all marketing legal pages (`/legal/privacy`, `/legal/terms`, `/legal/delete-account`, `/cookies`, `/security`), a `/support` page (App Store Support URL), Caddy AASA MIME-type + CSP headers, and an adaptive Android launcher icon. Universal Links + App Links manifest files at `apps/marketing/public/.well-known/`.
+
+**AASA scope** (4.8): `/gift/*` and `/referral/*` are the only paths that universal-link into the app. `/verify-email`, `/reset-password`, `/verify-email-change` are intentionally web-only — the user may click those links on a laptop / work phone / family member's phone, so opening the HavenKeep app on a different device is the wrong UX. Those endpoints land on the marketing site's auth UI. Adding in-app screens for them later means: (a) extend the `components:` array in `apps/marketing/public/.well-known/apple-app-site-association`, (b) extend `apps/marketing/public/.well-known/assetlinks.json` similarly for Android, and (c) wire the route in `apps/mobile/lib/core/services/deep_link_service.dart`.
 
 The remaining work is **off-platform configuration only** — no code blocks shipping:
 

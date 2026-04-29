@@ -35,7 +35,8 @@ class ContactSubmission {
       subject: json['subject'] as String? ?? '',
       message: json['message'] as String? ?? '',
       ipAddress: json['ip_address'] as String?,
-      createdAt: _parseDate(json['created_at'])!,
+      // 4.1: server-stamped timestamp falls back instead of crashing.
+      createdAt: _parseDate(json['created_at']) ?? DateTime.now(),
     );
   }
 

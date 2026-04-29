@@ -93,8 +93,11 @@ class WarrantyPurchase {
       ),
       cancelledAt: _parseDate(json['cancelled_at']),
       cancellationReason: json['cancellation_reason'] as String?,
-      createdAt: _parseDate(json['created_at'])!,
-      updatedAt: _parseDate(json['updated_at'])!,
+      // 4.1: server-stamped timestamps fall back instead of crashing.
+      // starts_at / expires_at / purchase_date keep `!` (D028 above —
+      // required-by-contract).
+      createdAt: _parseDate(json['created_at']) ?? DateTime.now(),
+      updatedAt: _parseDate(json['updated_at']) ?? DateTime.now(),
       itemName: json['item_name'] as String?,
       itemCategory: json['item_category'] as String?,
       itemBrand: json['item_brand'] as String?,

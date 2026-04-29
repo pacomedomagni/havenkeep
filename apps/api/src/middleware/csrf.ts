@@ -8,23 +8,49 @@ function generateCsrfToken(): string {
   return crypto.randomBytes(32).toString('hex');
 }
 
+function csrfCookieOptions() {
+  return {
+    httpOnly: false,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax' as const,
+    maxAge: 86400000, // 24 hours
+  };
+}
+
 /**
- * Issue the CSRF cookie on first contact. The cookie is non-httpOnly because
- * the browser-side JS reads it to set the X-CSRF-Token header (double-submit
- * cookie pattern). SameSite=Lax (not Strict — Ch11-I029) so the cookie is
- * sent on top-level navigations the OAuth callback relies on.
+ * Issue the CSRF cookie when the request already carries a session-class
+ * cookie (i.e. the dashboard's hk_access_token / hk_refresh_token, or the
+ * cookie-bound CSRF cookie itself rolling forward). Pre-S-ME-02, this
+ * minted a cookie on every anonymous request, which both (a) created
+ * useless tokens for traffic with no session, and (b) opened a token-
+ * fixation vector: an attacker could drop a known token into a victim's
+ * browser pre-login, and that token would persist across login.
+ *
+ * Auth handlers (login, refresh, OAuth, signup) call [rotateCsrfToken]
+ * to issue a fresh token bound to the new session. This middleware only
+ * keeps an existing token rolling when the session is already established.
+ *
+ * SameSite=Lax (not Strict — Ch11-I029) so the cookie is sent on
+ * top-level navigations the OAuth callback relies on.
  */
 export function setCsrfToken(req: Request, res: Response, next: NextFunction) {
-  if (!req.cookies?.[CSRF_COOKIE]) {
-    const token = generateCsrfToken();
-    res.cookie(CSRF_COOKIE, token, {
-      httpOnly: false,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 86400000, // 24 hours
-    });
+  // Only refresh the cookie if it already exists. Do NOT issue a fresh
+  // token to anonymous traffic — auth handlers are responsible for
+  // minting on auth-state change.
+  if (req.cookies?.[CSRF_COOKIE]) {
+    res.cookie(CSRF_COOKIE, req.cookies[CSRF_COOKIE], csrfCookieOptions());
   }
   next();
+}
+
+/**
+ * Rotate the CSRF cookie. Called from auth handlers (login, refresh,
+ * OAuth-google, OAuth-apple, signup) so a fresh token binds to each new
+ * session. Mitigates token-fixation: a token planted pre-login can't
+ * survive into the post-login session.
+ */
+export function rotateCsrfToken(res: Response): void {
+  res.cookie(CSRF_COOKIE, generateCsrfToken(), csrfCookieOptions());
 }
 
 function constantTimeEquals(a: string, b: string): boolean {
@@ -49,6 +75,15 @@ function constantTimeEquals(a: string, b: string): boolean {
  * The previous gate also required a Bearer token to bypass, which made
  * `/auth/login` unreachable from mobile (no Bearer yet on first sign-in,
  * no cookies because mobile clients don't store them).
+ *
+ * 4.2: cross-app invariant — the partner-dashboard proxy at
+ * `apps/partner-dashboard/src/app/api/v1/[...path]/route.ts` strips
+ * cookies on every forward and runs its OWN double-submit CSRF check at
+ * the proxy layer. Removing the no-cookie bypass below would 403 every
+ * dashboard mutation. If you ever need cookie-bearing requests through
+ * the proxy, add a shared-secret `x-internal-proxy` header bypass here
+ * AND restore cookie pass-through there — see that file's header for
+ * the matching note.
  */
 export function validateCsrfToken(req: Request, res: Response, next: NextFunction) {
   const safeMethods = ['GET', 'HEAD', 'OPTIONS'];

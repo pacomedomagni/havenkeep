@@ -3,28 +3,32 @@ import 'package:api_client/api_client.dart';
 import 'package:shared_models/shared_models.dart';
 import '../services/maintenance_repository.dart';
 import 'auth_provider.dart';
+import 'homes_provider.dart';
 
 /// Provides the maintenance repository instance.
 final maintenanceRepositoryProvider = Provider<MaintenanceRepository>((ref) {
   return MaintenanceRepository(ref.read(apiClientProvider));
 });
 
-/// Due/overdue maintenance summary across all items.
+/// Due/overdue maintenance summary scoped to the active home (2.13).
+/// Watching `currentHomeProvider` re-fetches when the user switches homes.
 final maintenanceDueProvider = FutureProvider<MaintenanceDueSummary>((ref) async {
   final userAsync = ref.watch(currentUserProvider);
   if (userAsync.valueOrNull == null) {
     return const MaintenanceDueSummary(totalDue: 0, totalOverdue: 0, items: []);
   }
 
-  return ref.read(maintenanceRepositoryProvider).getDueTasks();
+  final currentHome = ref.watch(currentHomeProvider);
+  return ref.read(maintenanceRepositoryProvider).getDueTasks(homeId: currentHome?.id);
 });
 
-/// Maintenance history for the current user.
+/// Maintenance history scoped to the active home (2.13).
 final maintenanceHistoryProvider = FutureProvider<List<MaintenanceHistory>>((ref) async {
   final userAsync = ref.watch(currentUserProvider);
   if (userAsync.valueOrNull == null) return [];
 
-  return ref.read(maintenanceRepositoryProvider).getHistory();
+  final currentHome = ref.watch(currentHomeProvider);
+  return ref.read(maintenanceRepositoryProvider).getHistory(homeId: currentHome?.id);
 });
 
 /// Maintenance history filtered to a specific item.

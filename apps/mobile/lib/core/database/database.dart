@@ -13,8 +13,6 @@ import 'package:sqlcipher_flutter_libs/sqlcipher_flutter_libs.dart';
 import 'package:sqlite3/open.dart';
 
 import '../services/secure_storage_service.dart';
-import 'tables/local_items.dart';
-import 'tables/local_homes.dart';
 import 'tables/offline_queue.dart';
 import 'tables/sync_conflicts.dart';
 
@@ -22,21 +20,21 @@ part 'database.g.dart';
 
 /// HavenKeep local SQLite database powered by Drift on top of SQLCipher.
 ///
-/// Caches items and homes locally for offline support and maintains
-/// a queue of mutations to sync when connectivity is restored. The
-/// database file is encrypted at rest with a 256-bit key persisted in
-/// platform secure storage and is scoped per signed-in user (so two
-/// accounts on the same device cannot read each other's cache).
+/// Persists the offline-mutation queue and any sync conflicts that need
+/// manual user resolution. The database file is encrypted at rest with a
+/// 256-bit key persisted in platform secure storage and is scoped per
+/// signed-in user (so two accounts on the same device cannot read each
+/// other's data).
 ///
 /// Run `dart run build_runner build` inside `apps/mobile/` to regenerate
 /// the `database.g.dart` file after modifying table definitions.
-@DriftDatabase(tables: [LocalItems, LocalHomes, OfflineQueue, SyncConflicts])
+@DriftDatabase(tables: [OfflineQueue, SyncConflicts])
 class HavenDatabase extends _$HavenDatabase {
   HavenDatabase({String? userId})
       : super(_openConnection(userId: userId));
 
   @override
-  int get schemaVersion => 4;
+  int get schemaVersion => 5;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -58,6 +56,15 @@ class HavenDatabase extends _$HavenDatabase {
                 // re-sent in-flight action can't duplicate writes.
                 await m.addColumn(offlineQueue, offlineQueue.idempotencyKey);
                 break;
+              case 5:
+                // 1.10: drop the never-populated offline-read cache.
+                // `local_items` / `local_homes` were never written to; the
+                // sign-out wipe and the conflicts-screen "drop cached row"
+                // were no-ops. Drop the tables so the encrypted DB file
+                // stops carrying dead schema.
+                await customStatement('DROP TABLE IF EXISTS local_items');
+                await customStatement('DROP TABLE IF EXISTS local_homes');
+                break;
             }
           }
         },
@@ -65,57 +72,8 @@ class HavenDatabase extends _$HavenDatabase {
 
   Future<void> _createIndexes() async {
     await customStatement(
-        'CREATE INDEX IF NOT EXISTS idx_local_items_warranty_end_date ON local_items (warranty_end_date)');
-    await customStatement(
-        'CREATE INDEX IF NOT EXISTS idx_local_items_home_id ON local_items (home_id)');
-    await customStatement(
-        'CREATE INDEX IF NOT EXISTS idx_local_items_is_archived ON local_items (is_archived)');
-    await customStatement(
-        'CREATE INDEX IF NOT EXISTS idx_local_items_home_archived ON local_items (home_id, is_archived)');
-    await customStatement(
         'CREATE INDEX IF NOT EXISTS idx_offline_queue_status_created ON offline_queue (status, created_at)');
   }
-
-  // ---------------------------------------------------------------------------
-  // LOCAL ITEMS
-  // ---------------------------------------------------------------------------
-
-  /// Fetch all locally cached items.
-  Future<List<LocalItem>> getAllItems() => select(localItems).get();
-
-  /// Fetch all non-archived items.
-  Future<List<LocalItem>> getActiveItems() =>
-      (select(localItems)..where((t) => t.isArchived.equals(false))).get();
-
-  /// Fetch a single item by ID.
-  Future<LocalItem?> getItemById(String itemId) =>
-      (select(localItems)..where((t) => t.id.equals(itemId))).getSingleOrNull();
-
-  /// Insert or update an item (upsert).
-  Future<void> upsertItem(LocalItemsCompanion entry) =>
-      into(localItems).insertOnConflictUpdate(entry);
-
-  /// Delete an item by ID.
-  Future<int> removeItem(String itemId) =>
-      (delete(localItems)..where((t) => t.id.equals(itemId))).go();
-
-  /// Remove all locally cached items.
-  Future<void> clearAllItems() => delete(localItems).go();
-
-  // ---------------------------------------------------------------------------
-  // LOCAL HOMES
-  // ---------------------------------------------------------------------------
-
-  /// Fetch all locally cached homes.
-  Future<List<LocalHome>> getAllHomes() => select(localHomes).get();
-
-  /// Insert or update a home (upsert).
-  Future<void> upsertHome(LocalHomesCompanion entry) =>
-      into(localHomes).insertOnConflictUpdate(entry);
-
-  /// Delete a home by ID.
-  Future<int> removeHome(String homeId) =>
-      (delete(localHomes)..where((t) => t.id.equals(homeId))).go();
 
   // ---------------------------------------------------------------------------
   // OFFLINE QUEUE

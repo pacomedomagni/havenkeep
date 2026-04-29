@@ -81,7 +81,11 @@ router.get(
   '/items-needing-attention',
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
-    const items = await StatsService.getItemsNeedingAttention(userId);
+    // 3.19: honour the caller-supplied `limit`. The service already
+    // clamps to ≤100, so an unparseable / oversized value falls back
+    // to the same default (20) instead of being silently ignored.
+    const limit = parseInt(String(req.query.limit ?? '20'), 10) || 20;
+    const items = await StatsService.getItemsNeedingAttention(userId, limit);
 
     sendSuccess(res, items);
   })

@@ -48,6 +48,31 @@ function buildUpstreamUrl(pathParts: string[], search: string): string | null {
   return `${API_URL}/api/v1/${pathParts.join('/')}${search}`;
 }
 
+// 4.2: CSRF cross-app invariant — read this before changing the proxy.
+//
+// The upstream Express API's `validateCsrfToken` middleware bypasses CSRF
+// when the request carries no cookies (the protection model is "cookies
+// in flight = browser session; no cookies = pure API client"). The
+// dashboard's proxy DELIBERATELY strips every cookie before forwarding
+// upstream, then performs its OWN double-submit CSRF check at the proxy
+// layer (see `csrfTokenOk`). Two consequences:
+//
+//   1. Adding `cookie` to FORWARDABLE_REQUEST_HEADERS would route the
+//      browser's CSRF cookie to the upstream API and DOUBLE-validate
+//      CSRF — once at the proxy and once at the API. That'd be fine
+//      semantically but every existing dashboard mutation would break
+//      because the API would expect an `x-csrf-token` matching the
+//      forwarded cookie, and the dashboard sends a DIFFERENT
+//      double-submit token (its own). Don't do that.
+//
+//   2. Removing the cookie strip — or removing the API's "no cookies =
+//      bypass" branch — would silently turn proxy-mediated mutations
+//      into 403s. Both halves rely on each other staying as-is.
+//
+// If a future change requires forwarding cookies (e.g. session-cookie
+// pass-through), introduce an `x-internal-proxy: <shared-secret>`
+// header that the API trusts to skip its CSRF check entirely, then
+// drop the cookie strip + restore the upstream path. Don't piecemeal.
 function buildForwardedHeaders(request: NextRequest, accessToken: string | undefined): Headers {
   const out = new Headers();
   request.headers.forEach((value, key) => {

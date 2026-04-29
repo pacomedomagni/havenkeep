@@ -36,6 +36,22 @@ function noteRedisSuccess(): void {
   }
 }
 
+/// 2.3: drops the cached `user:<id>` row used by `authenticate()`. Call
+/// from any event that mutates fields the cache stores
+/// (`plan`, `is_admin`, `deleted_at`, `email_verified`, `plan_expires_at`,
+/// or the partner-status JOIN) so other replicas don't keep authorising
+/// the user under the previous state for the next 10s. Failures are
+/// logged but not thrown — the worst case is the cache TTL still expires
+/// in <=10s.
+export async function invalidateUserCache(userId: string): Promise<void> {
+  try {
+    const redis = await getRedisClient();
+    await redis.del(`user:${userId}`);
+  } catch (err) {
+    logger.warn({ err, userId }, 'invalidateUserCache failed');
+  }
+}
+
 export async function authenticate(
   req: Request,
   res: Response,
@@ -54,7 +70,11 @@ export async function authenticate(
       throw new AppError('Token has been revoked', 401);
     }
 
-    const decoded = jwt.verify(token, config.jwt.secret) as {
+    // S-HI-02: pin algorithms. The Apple JWT verification at auth.ts:1079
+    // already pins ['RS256']; do the same for our HS256 access tokens so a
+    // future JWT_SECRET swap to RSA-public-key material can't be exploited
+    // via HS256 forgery.
+    const decoded = jwt.verify(token, config.jwt.secret, { algorithms: ['HS256'] }) as {
       userId: string;
       email: string;
     };
@@ -109,6 +129,13 @@ export async function authenticate(
 
     // Audit Ch01-F042: prefer the DB email over the JWT claim — it survives
     // a /me/change-email between token issue and use.
+    //
+    // 3.17: isPartner now reflects the literal `partners` row only.
+    // Admins are no longer auto-elevated to partner; routes that should
+    // accept either need to use `requireAdminOrPartner` explicitly.
+    // This stops admin tooling from accidentally exercising partner
+    // payout / earnings code paths that have no `partners` row backing
+    // them.
     const role: 'admin' | 'partner' | 'user' =
       userRow.is_admin ? 'admin' : userRow.is_partner ? 'partner' : 'user';
     req.user = {
@@ -117,7 +144,7 @@ export async function authenticate(
       plan: userRow.plan,
       role,
       isAdmin: role === 'admin',
-      isPartner: role === 'partner' || role === 'admin',
+      isPartner: userRow.is_partner === true,
       planExpiresAt: userRow.plan_expires_at ? new Date(userRow.plan_expires_at) : null,
       emailVerified: userRow.email_verified ?? false,
     };
@@ -166,21 +193,29 @@ export async function requireAdmin(req: Request, res: Response, next: NextFuncti
   }
 }
 
+/// 3.17: explicit "either admin or actual partner" gate. After 3.17,
+/// `isPartner` is true ONLY when the user has a row in `partners` —
+/// admins are no longer transparently elevated. Routes that legitimately
+/// accept either (admin tooling that operates on partner-owned data)
+/// must use this middleware rather than `requirePartner`.
+export function requireAdminOrPartner(req: Request, res: Response, next: NextFunction) {
+  if (!req.user?.isAdmin && !req.user?.isPartner) {
+    return next(new AppError('Admin or partner access required', 403));
+  }
+  next();
+}
+
 export function requirePremium(req: Request, res: Response, next: NextFunction) {
   if (req.user?.plan !== 'premium') {
     return next(new AppError('Premium plan required', 403));
   }
 
-  // Default-deny: a premium row with no expiry is a data bug (every paid
-  // path should set plan_expires_at). Treat it as expired rather than
-  // grant indefinite premium — the user only loses access for one
-  // request, while the underlying bug surfaces in logs and can be fixed.
-  if (!req.user.planExpiresAt) {
-    logger.warn(
-      { userId: req.user.id },
-      'requirePremium: user has plan=premium but plan_expires_at is NULL — treating as expired',
-    );
-    return next(new AppError('Premium plan has expired', 403));
+  // 1.11: `plan_expires_at IS NULL` on a premium row is a non-expiring
+  // entitlement (RevenueCat lifetime purchases / admin-granted lifetime).
+  // The /me/verify-premium handler in users.ts mints exactly this shape,
+  // so the middleware must accept it instead of treating NULL as expired.
+  if (req.user.planExpiresAt === null || req.user.planExpiresAt === undefined) {
+    return next();
   }
 
   const expiresAtUtc = new Date(req.user.planExpiresAt).getTime();

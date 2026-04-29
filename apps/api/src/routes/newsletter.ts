@@ -159,8 +159,19 @@ router.post(
   newsletterRateLimiter,
   validate(unsubscribeNewsletterBodySchema),
   asyncHandler(async (req, res) => {
-    const { email } = req.body as { email: string };
+    const { email, t } = req.body as { email: string; t: string };
     const trimmedEmail = email; // already lowercased by Joi
+
+    // S-ME-09: require the same HMAC token the email-embedded GET path
+    // requires. Without this, anyone who scrapes user emails can
+    // unsubscribe arbitrary users in bulk.
+    const expected = unsubscribeToken(trimmedEmail);
+    const tokenBuf = Buffer.from(t, 'utf8');
+    const expectedBuf = Buffer.from(expected, 'utf8');
+    if (tokenBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(tokenBuf, expectedBuf)) {
+      logger.warn({ email: trimmedEmail }, 'Newsletter unsubscribe POST: invalid token');
+      return res.status(400).json({ success: false, error: 'Invalid unsubscribe token' });
+    }
 
     try {
       await pool.query(

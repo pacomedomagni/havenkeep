@@ -57,5 +57,7 @@ export const getClaimsQuerySchema = Joi.object({
   page: Joi.number().integer().min(1).optional().default(1),
   limit: Joi.number().integer().min(1).max(100).optional().default(50),
   itemId: Joi.string().uuid().optional(),
+  homeId: Joi.string().uuid().optional(),
 })
-  .rename('item_id', 'itemId', { ignoreUndefined: true, override: false });
+  .rename('item_id', 'itemId', { ignoreUndefined: true, override: false })
+  .rename('home_id', 'homeId', { ignoreUndefined: true, override: false });

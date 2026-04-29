@@ -14,20 +14,6 @@ import '../../core/widgets/haven_loader.dart';
 /// Maximum file size for document uploads (10 MB).
 const _kMaxFileSizeBytes = 10 * 1024 * 1024;
 
-/// Detect MIME type from file name extension.
-String _detectMimeType(String fileName) {
-  final lower = fileName.toLowerCase();
-  if (lower.endsWith('.pdf')) return 'application/pdf';
-  if (lower.endsWith('.doc')) return 'application/msword';
-  if (lower.endsWith('.docx')) {
-    return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-  }
-  if (lower.endsWith('.png')) return 'image/png';
-  if (lower.endsWith('.heic') || lower.endsWith('.heif')) return 'image/heic';
-  if (lower.endsWith('.webp')) return 'image/webp';
-  return 'image/jpeg';
-}
-
 /// Bottom sheet for uploading a document (photo) to an item.
 class DocumentUploadSheet extends ConsumerStatefulWidget {
   final String itemId;
@@ -137,7 +123,6 @@ class _DocumentUploadSheetState extends ConsumerState<DocumentUploadSheet> {
         filePath: _selectedImage!.path,
         fileName: _selectedImage!.name,
         type: _selectedType,
-        mimeType: _detectMimeType(_selectedImage!.name),
       );
 
       if (mounted) {

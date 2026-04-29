@@ -1,7 +1,7 @@
 import { Router } from 'express';
-import Stripe from 'stripe';
 import { pool } from '../db';
 import { config } from '../config';
+import { createStripeClient } from '../utils/stripe-client';
 import { authenticate, requireAdmin } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { PartnersService } from '../services/partners.service';
@@ -65,9 +65,7 @@ async function clearCodeAttempts(code: string): Promise<void> {
   }
 }
 
-const stripe = new Stripe(config.stripe.secretKey, {
-  apiVersion: '2023-10-16',
-});
+const stripe = createStripeClient();
 
 function requirePartner(req: any, res: any, next: any) {
   if (!req.user?.isPartner) {

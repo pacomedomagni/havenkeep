@@ -1,11 +1,7 @@
 import type { PoolClient } from 'pg';
 import { pool } from '../db';
 import { Request } from 'express';
-
-// F091: only trust X-Forwarded-For when the request actually traversed our
-// known proxy count. Anything beyond `trustProxyHops` is upstream we don't
-// control, so we fall back to the socket address.
-const TRUST_PROXY_HOPS = Math.max(0, Number(process.env.TRUST_PROXY_HOPS ?? '1'));
+import { getIpAddress as resolveIpAddress } from '../utils/ip-address';
 
 // F092: deep OFFSET pagination scans the entire table; cap so an attacker
 // can't DoS us with /audit/logs?offset=1000000.
@@ -33,6 +29,11 @@ export type AuditAction =
   | 'user.delete'
   | 'user.plan_upgrade'
   | 'user.plan_downgrade'
+  // 4.5: a suspended account that re-verifies premium isn't an
+  // "upgrade" (the user wasn't on free → went to paid; they were
+  // *blocked* and got their access restored). Different label so
+  // forensics can tell the difference.
+  | 'user.plan_reactivate'
   | 'user.email_change_requested'
   // Item actions
   | 'item.create'
@@ -171,11 +172,22 @@ export class AuditService {
       errorMessage || null,
     ];
 
-    // Retry a few times on transient failure so a fire-and-forget audit
-    // call from auth/registration doesn't silently drop the trail when
-    // Postgres is briefly unreachable.
+    // Retry on transient failure so a fire-and-forget audit call from
+    // auth / registration doesn't silently drop the trail when Postgres
+    // is briefly unreachable.
+    //
+    // 4.9: tighten the retry budget. The previous shape ran 3 attempts
+    // with 50/100/200ms backoff = up to 350ms blocking the request
+    // path. Under a sustained PG flap that holds an HTTP request open
+    // for 350ms PER mutation, including login / refresh / item-create
+    // — high-traffic endpoints stack to the pool cap quickly. Drop to
+    // 2 attempts with 30ms backoff (worst case ~30ms added latency on
+    // a single retry) and rely on the request handler itself to either
+    // surface or swallow the second failure. A proper async-queue
+    // backed audit pipe is bigger work and is parked.
     let lastErr: unknown;
-    for (let attempt = 0; attempt < 3; attempt++) {
+    const maxAttempts = 2;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
         const result = await pool.query<AuditLogEntry>(
           `INSERT INTO audit_logs (
@@ -190,7 +202,9 @@ export class AuditService {
         return result.rows[0];
       } catch (err) {
         lastErr = err;
-        await new Promise((r) => setTimeout(r, 50 * Math.pow(2, attempt)));
+        if (attempt + 1 < maxAttempts) {
+          await new Promise((r) => setTimeout(r, 30));
+        }
       }
     }
     throw lastErr;
@@ -622,17 +636,6 @@ export class AuditService {
    * the socket address if XFF is absent / fully consumed.
    */
   private static getIpAddress(req: Request): string {
-    const raw = req.headers['x-forwarded-for'];
-    if (typeof raw === 'string' && raw.length > 0) {
-      // XFF order is "client, proxy1, proxy2, ..., closestProxy". Strip the
-      // configured proxy count from the right; whatever sits at that index
-      // is the closest hop we'll trust as the client.
-      const parts = raw.split(',').map((s) => s.trim()).filter(Boolean);
-      const idx = parts.length - 1 - TRUST_PROXY_HOPS;
-      if (idx >= 0 && parts[idx]) {
-        return parts[idx];
-      }
-    }
-    return req.socket.remoteAddress || 'unknown';
+    return resolveIpAddress(req);
   }
 }

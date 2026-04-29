@@ -126,7 +126,10 @@ interface NotificationHistoryRow {
 
 export class NotificationsService {
   /**
-   * Get notifications for a user with pagination and optional filters
+   * Get notifications for a user with pagination and optional filters.
+   *
+   * 2.13: optional [homeId] scopes item-bound notifications to a single
+   * home. Account-level alerts (no item_id) are always shown.
    */
   static async getUserNotifications(
     userId: string,
@@ -135,9 +138,10 @@ export class NotificationsService {
       offset?: number;
       type?: NotificationType;
       unread?: boolean;
+      homeId?: string;
     } = {}
   ): Promise<{ notifications: NotificationHistoryRow[]; total: number }> {
-    const { limit = 50, offset = 0, type, unread } = options;
+    const { limit = 50, offset = 0, type, unread, homeId } = options;
 
     try {
       // F038: hide rows that FCM/email rejected — the user should never see
@@ -172,28 +176,46 @@ export class NotificationsService {
         query += ` AND nh.opened_at IS NOT NULL`;
       }
 
+      if (homeId) {
+        // Account-level alerts (no item_id) bypass the home filter.
+        query += ` AND (nh.item_id IS NULL OR i.home_id = $${params.length + 1})`;
+        params.push(homeId);
+      }
+
       query += ` ORDER BY nh.sent_at DESC, nh.created_at DESC`;
       query += ` LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
       params.push(limit, offset);
 
       const result = await pool.query(query, params);
 
-      // Get total count with same filters
+      // 2.10: total count must mirror the LEFT JOIN + archived filter
+      // applied above — otherwise pagination.total stays inflated when a
+      // user archives an item, the mobile total_pages overshoots, and
+      // the user navigates onto empty tail pages.
       let countQuery = `
-        SELECT COUNT(*) FROM notification_history
-        WHERE user_id = $1 AND delivery_status IN ('pending', 'delivered')
+        SELECT COUNT(*)
+          FROM notification_history nh
+          LEFT JOIN items i ON i.id = nh.item_id
+         WHERE nh.user_id = $1
+           AND nh.delivery_status IN ('pending', 'delivered')
+           AND (nh.item_id IS NULL OR i.is_archived = FALSE)
       `;
       const countParams: any[] = [userId];
 
       if (type) {
-        countQuery += ` AND type = $${countParams.length + 1}`;
+        countQuery += ` AND nh.type = $${countParams.length + 1}`;
         countParams.push(type);
       }
 
       if (unread === true) {
-        countQuery += ` AND opened_at IS NULL`;
+        countQuery += ` AND nh.opened_at IS NULL`;
       } else if (unread === false) {
-        countQuery += ` AND opened_at IS NOT NULL`;
+        countQuery += ` AND nh.opened_at IS NOT NULL`;
+      }
+
+      if (homeId) {
+        countQuery += ` AND (nh.item_id IS NULL OR i.home_id = $${countParams.length + 1})`;
+        countParams.push(homeId);
       }
 
       const countResult = await pool.query(countQuery, countParams);
@@ -288,15 +310,30 @@ export class NotificationsService {
   }
 
   /**
-   * Mark all notifications as read for a user
+   * Mark all notifications as read for a user.
+   *
+   * 2.8: bounded to the most-recent MARK_ALL_LIMIT unread rows per call.
+   * An unbounded `UPDATE … WHERE user_id = $1 AND opened_at IS NULL`
+   * over a 100k-row notification history hangs the route long enough to
+   * stall every other write under contention. The mobile UI calls this
+   * after a list refresh, so capping at 5k still clears the visible
+   * inbox; older rows fall under the 90-day retention sweep anyway.
    */
   static async markAllAsRead(userId: string): Promise<number> {
+    const MARK_ALL_LIMIT = 5_000;
     try {
       const result = await pool.query(
-        `UPDATE notification_history
-         SET opened_at = NOW()
-         WHERE user_id = $1 AND opened_at IS NULL`,
-        [userId]
+        `WITH targets AS (
+           SELECT id FROM notification_history
+            WHERE user_id = $1 AND opened_at IS NULL
+            ORDER BY created_at DESC
+            LIMIT $2
+         )
+         UPDATE notification_history nh
+            SET opened_at = NOW()
+           FROM targets
+          WHERE nh.id = targets.id`,
+        [userId, MARK_ALL_LIMIT],
       );
 
       const count = result.rowCount || 0;

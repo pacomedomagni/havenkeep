@@ -97,7 +97,17 @@ export const config = {
   },
 
   stripe: {
-    secretKey: readSecret('STRIPE_SECRET_KEY') || '',
+    // S-ME-10: required-in-prod. Pre-fix this defaulted to '' silently;
+    // a misconfigured prod deploy passed health-checks and broke on
+    // first paid action with a generic 500 ("Stripe.accounts.create:
+    // Invalid API Key"). Fail-fast at startup instead.
+    get secretKey(): string {
+      const secret = readSecret('STRIPE_SECRET_KEY');
+      if (process.env.NODE_ENV === 'production' && !secret) {
+        throw new Error('STRIPE_SECRET_KEY (or _FILE) must be set in production');
+      }
+      return secret || '';
+    },
     // STRIPE_WEBHOOK_SECRET is required in production. The Stripe handler
     // refuses to start if it's empty so a misconfigured prod deploy fails
     // loudly instead of silently accepting unsigned webhooks.
@@ -108,7 +118,13 @@ export const config = {
       }
       return secret || '';
     },
-    premiumPriceId: process.env.STRIPE_PRICE_ID_PREMIUM || '',
+    get premiumPriceId(): string {
+      const v = process.env.STRIPE_PRICE_ID_PREMIUM;
+      if (process.env.NODE_ENV === 'production' && !v) {
+        throw new Error('STRIPE_PRICE_ID_PREMIUM must be set in production');
+      }
+      return v || '';
+    },
     // OAuth-style server-side env to allow sandbox webhooks during local
     // dev/test. Production never honors this flag.
     allowSandboxWebhooks: process.env.NODE_ENV !== 'production'
@@ -150,7 +166,15 @@ export const config = {
   },
 
   openai: {
-    apiKey: readSecret('OPENAI_API_KEY') || '',
+    // S-ME-10: required-in-prod so receipt scan / email scanner don't
+    // 500 on the first request after a misconfigured deploy.
+    get apiKey(): string {
+      const key = readSecret('OPENAI_API_KEY');
+      if (process.env.NODE_ENV === 'production' && !key) {
+        throw new Error('OPENAI_API_KEY (or _FILE) must be set in production');
+      }
+      return key || '';
+    },
   },
 
   revenuecat: {

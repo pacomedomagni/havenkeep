@@ -4,6 +4,8 @@ import crypto from 'crypto';
 import { config } from '../config';
 import { pool, query, getClient } from '../db';
 import { logger } from '../utils/logger';
+import { invalidateUserCache } from '../middleware/auth';
+import { createStripeClient } from '../utils/stripe-client';
 
 /**
  * `charge.refunded` may fire on a charge that funded a partner gift whose
@@ -218,9 +220,7 @@ function sha256(input: string | Buffer): string {
 export const stripeWebhookRouter = Router();
 export const revenueCatWebhookRouter = Router();
 
-const stripe = new Stripe(config.stripe.secretKey, {
-  apiVersion: '2023-10-16',
-});
+const stripe = createStripeClient();
 
 /**
  * POST /  (mounted at /api/v1/webhooks/stripe)
@@ -504,6 +504,9 @@ async function handleChargeRefunded(charge: Stripe.Charge): Promise<void> {
           `UPDATE users SET plan = 'free', plan_expires_at = NULL, updated_at = NOW() WHERE id = $1`,
           [gift.activated_user_id]
         );
+        // 2.3: revoke cache so the user's next call sees plan='free'
+        // immediately instead of premium-for-up-to-10s.
+        await invalidateUserCache(gift.activated_user_id);
       } else {
         logger.info(
           { userId: gift.activated_user_id, otherActiveGifts: otherGifts.rows.length },
@@ -633,6 +636,7 @@ async function handleChargeDispute(dispute: Stripe.Dispute): Promise<void> {
               WHERE id = $1`,
             [gift.activated_user_id],
           );
+          await invalidateUserCache(gift.activated_user_id);
         }
       }
 
@@ -763,9 +767,14 @@ interface RevenueCatWebhookPayload {
 function validateRevenueCatWebhookAuth(req: Request, res: Response, next: NextFunction) {
   const webhookSecret = config.revenuecat.webhookSecret;
 
+  // S-ME-04: don't differentiate "secret not configured" from "auth failed"
+  // via response code — both are unauthenticated states from the caller's
+  // perspective. Returning 503 for one and 401 for the other lets a probe
+  // discover whether the webhook is configured. Log the distinction
+  // server-side; respond 401 either way.
   if (!webhookSecret) {
     logger.error('REVENUECAT_WEBHOOK_SECRET not configured');
-    return res.status(503).json({ error: 'Webhook not configured' });
+    return res.status(401).json({ error: 'Unauthorized' });
   }
 
   const authHeader = req.headers.authorization;
@@ -988,6 +997,8 @@ revenueCatWebhookRouter.post('/', validateRevenueCatWebhookAuth, async (req: Req
            WHERE id = $2`,
           [expiresAt, userId]
         );
+        // 2.3: drop cache so all replicas reflect the new premium status now.
+        await invalidateUserCache(userId);
         logger.info(
           {
             userId,
@@ -1041,6 +1052,7 @@ revenueCatWebhookRouter.post('/', validateRevenueCatWebhookAuth, async (req: Req
              WHERE id = $1`,
             [userId]
           );
+          await invalidateUserCache(userId);
           logger.info(
             { userId, eventType: event.type },
             'User plan downgraded to free (subscription expired)'
@@ -1078,6 +1090,7 @@ revenueCatWebhookRouter.post('/', validateRevenueCatWebhookAuth, async (req: Req
            WHERE id = $2`,
           [expiresAt, userId]
         );
+        await invalidateUserCache(userId);
         logger.info(
           { userId, productId: event.product_id, expiresAt, eventType: event.type },
           'User subscription product changed'
@@ -1115,6 +1128,10 @@ revenueCatWebhookRouter.post('/', validateRevenueCatWebhookAuth, async (req: Req
                 WHERE id = $1`,
               [originalId],
             );
+            // 2.3: cache the source still has plan='premium' until the
+            // 10s TTL expires; invalidate so the original owner is
+            // demoted on every replica immediately.
+            await invalidateUserCache(originalId);
           }
         }
         if (grantsPremium) {
@@ -1123,6 +1140,7 @@ revenueCatWebhookRouter.post('/', validateRevenueCatWebhookAuth, async (req: Req
               WHERE id = $2`,
             [expiresAt, userId],
           );
+          await invalidateUserCache(userId);
         }
         logger.info(
           { newOwnerAppUserId: event.app_user_id, originalAppUserId: originalId },

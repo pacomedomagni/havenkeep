@@ -29,6 +29,12 @@ apps/partner-dashboard/tsconfig.tsbuildinfo
 apps/marketing/dist/
 
 # --- Environment ---
+# 4.10: backend / dashboard env files MUST stay out of git. The repo
+# root `.env.staging.example` + `.env.example` are the only env files
+# that should be tracked here. The mobile app intentionally tracks its
+# own `apps/mobile/.env.{development,staging,production}` — those carry
+# only public build-time config (API URL, public Firebase IDs that ship
+# with every signed binary) and no secrets.
 .env
 .env.local
 .env.*.local

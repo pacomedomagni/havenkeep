@@ -22,6 +22,8 @@ import {
 import { idempotency } from '../middleware/idempotency';
 import { asyncHandler } from '../utils/async-handler';
 import { sendSuccess, sendMessage } from '../utils/response';
+import { presignedUrlForKey } from '../config/minio';
+import { harvestItemKeys, flattenHarvest, removeKeysBestEffort } from '../utils/storage-cleanup';
 
 const router = Router();
 
@@ -88,7 +90,11 @@ function computeLifespanPercentage(item: any): number | null {
 
 // Audit Ch02-F062/F063: dates leave the API at second precision (toISOString
 // strips microseconds; archived_at and updated_at follow the same shape).
-function normalizeItemRow(row: any): any {
+//
+// S-CR-02: product_image_url is a MinIO object key; mint a presigned URL
+// at response time so a leaked URL is useless within
+// PRESIGNED_URL_TTL_SECONDS. Async because the MinIO presigner is async.
+async function normalizeItemRow(row: any): Promise<any> {
   if (!row) return row;
   const out = { ...row };
   for (const k of ['created_at', 'updated_at', 'archived_at'] as const) {
@@ -98,6 +104,9 @@ function normalizeItemRow(row: any): any {
         out[k] = d.toISOString().replace(/\.\d{3}Z$/, 'Z');
       }
     }
+  }
+  if (out.product_image_url) {
+    out.product_image_url = await presignedUrlForKey(out.product_image_url);
   }
   return out;
 }
@@ -341,11 +350,13 @@ router.get(
 
   // Audit Ch02-F064: emit lifespan_percentage on every list row so callers
   // don't have to round-trip per-item GETs to render progress bars.
-  const enriched = pageRows.map((row: any) =>
-    normalizeItemRow({
-      ...row,
-      lifespan_percentage: computeLifespanPercentage(row),
-    }),
+  const enriched = await Promise.all(
+    pageRows.map((row: any) =>
+      normalizeItemRow({
+        ...row,
+        lifespan_percentage: computeLifespanPercentage(row),
+      }),
+    ),
   );
 
   // Build next cursor from the tail of the page when there's more.
@@ -386,7 +397,7 @@ router.get('/:id', validate(uuidParamSchema, 'params'), asyncHandler(async (req:
     CATEGORY_DEFAULT_LIFESPAN[item.category] ??
     null;
 
-  sendSuccess(res, normalizeItemRow({
+  sendSuccess(res, await normalizeItemRow({
     ...item,
     expected_lifespan_years: expectedLifespan,
     lifespan_percentage: computeLifespanPercentage(item),
@@ -412,7 +423,6 @@ router.post('/', writeRateLimiter, validate(createItemSchema), idempotency('item
       warrantyType,
       warrantyProvider,
       notes,
-      productImageUrl,
       barcode,
       addedVia,
       installationDate,
@@ -474,21 +484,24 @@ router.post('/', writeRateLimiter, validate(createItemSchema), idempotency('item
     }
     const estimatedRepairCost = req.body.estimatedRepairCost ?? seededRepairCost;
 
+    // S-CR-02: product_image_url intentionally NOT populated here. The user
+    // adds an item first, then uploads an image via POST /uploads/item-image
+    // which writes the MinIO object key directly.
     const result = await client.query(
       `INSERT INTO items (
         user_id, home_id, name, brand, model_number, serial_number,
         category, room, purchase_date, store, price,
         warranty_months, warranty_end_date, warranty_type, warranty_provider, notes,
-        product_image_url, barcode, added_via,
+        barcode, added_via,
         installation_date, last_maintenance_date, next_maintenance_due,
         estimated_repair_cost
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
       RETURNING ${ITEM_LIST_COLUMNS}`,
       [
         req.user!.id, homeId, name, brand, modelNumber, serialNumber,
         category, room, purchaseDate, store, price,
         warrantyMonths, warrantyEndDate, warrantyType,
-        warrantyProvider, notes, productImageUrl, barcode, addedVia || 'manual',
+        warrantyProvider, notes, barcode, addedVia || 'manual',
         installationDate || null, lastMaintenanceDate || null, nextMaintenanceDue || null,
         estimatedRepairCost,
       ]
@@ -517,7 +530,7 @@ router.post('/', writeRateLimiter, validate(createItemSchema), idempotency('item
       },
     });
 
-    sendSuccess(res, normalizeItemRow(item), { status: 201 });
+    sendSuccess(res, await normalizeItemRow(item), { status: 201 });
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;
@@ -550,7 +563,8 @@ router.put('/:id', writeRateLimiter, validate(uuidParamSchema, 'params'), valida
     warrantyProvider: 'warranty_provider',
     notes: 'notes',
     isArchived: 'is_archived',
-    productImageUrl: 'product_image_url',
+    // S-CR-02: product_image_url is intentionally NOT in the user-update
+    // allowlist. POST /uploads/item-image is the only path that writes it.
     barcode: 'barcode',
     installationDate: 'installation_date',
     lastMaintenanceDate: 'last_maintenance_date',
@@ -666,7 +680,7 @@ router.put('/:id', writeRateLimiter, validate(uuidParamSchema, 'params'), valida
       },
     });
 
-    sendSuccess(res, normalizeItemRow(item));
+    sendSuccess(res, await normalizeItemRow(item));
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;
@@ -675,9 +689,17 @@ router.put('/:id', writeRateLimiter, validate(uuidParamSchema, 'params'), valida
   }
 }));
 
-// Delete item
+// Delete item.
+//
+// 1.1: harvests every MinIO key the item owns (its product image, plus
+// every attached document's main + thumbnail key) BEFORE the cascading
+// SQL DELETE wipes the rows. Storage cleanup runs post-COMMIT and is
+// best-effort — orphan recovery is a periodic GC sweep, not the
+// request path.
 router.delete('/:id', writeRateLimiter, validate(uuidParamSchema, 'params'), idempotency('items:delete'), asyncHandler(async (req: AuthRequest, res) => {
   const client = await getClient();
+  let harvest: Awaited<ReturnType<typeof harvestItemKeys>> | null = null;
+  let item: { id: string; name: string; category: string } | null = null;
   try {
     await client.query('BEGIN');
 
@@ -691,14 +713,17 @@ router.delete('/:id', writeRateLimiter, validate(uuidParamSchema, 'params'), ide
       throw new AppError('Item not found', 404);
     }
 
-    const item = itemResult.rows[0];
+    item = itemResult.rows[0];
+
+    // Harvest every storage key while we still have rows to look at.
+    harvest = await harvestItemKeys(client, item!.id);
 
     // Delete related records first (child tables)
-    await client.query(`DELETE FROM documents WHERE item_id = $1 AND user_id = $2`, [item.id, req.user!.id]);
-    await client.query(`DELETE FROM maintenance_history WHERE item_id = $1 AND user_id = $2`, [item.id, req.user!.id]);
-    await client.query(`DELETE FROM warranty_claims WHERE item_id = $1 AND user_id = $2`, [item.id, req.user!.id]);
-    await client.query(`DELETE FROM warranty_purchases WHERE item_id = $1 AND user_id = $2`, [item.id, req.user!.id]);
-    await client.query(`DELETE FROM notification_history WHERE item_id = $1 AND user_id = $2`, [item.id, req.user!.id]);
+    await client.query(`DELETE FROM documents WHERE item_id = $1 AND user_id = $2`, [item!.id, req.user!.id]);
+    await client.query(`DELETE FROM maintenance_history WHERE item_id = $1 AND user_id = $2`, [item!.id, req.user!.id]);
+    await client.query(`DELETE FROM warranty_claims WHERE item_id = $1 AND user_id = $2`, [item!.id, req.user!.id]);
+    await client.query(`DELETE FROM warranty_purchases WHERE item_id = $1 AND user_id = $2`, [item!.id, req.user!.id]);
+    await client.query(`DELETE FROM notification_history WHERE item_id = $1 AND user_id = $2`, [item!.id, req.user!.id]);
 
     // Delete the item itself
     await client.query(
@@ -707,8 +732,21 @@ router.delete('/:id', writeRateLimiter, validate(uuidParamSchema, 'params'), ide
     );
 
     await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
 
-    // Audit log: item deleted (fire-and-forget, outside transaction)
+  // Post-commit cleanup. Storage failures are logged but don't fail
+  // the request — the SQL DELETE already succeeded.
+  if (harvest) {
+    await removeKeysBestEffort(flattenHarvest(harvest));
+  }
+
+  // Audit log: item deleted (fire-and-forget, outside transaction)
+  if (item) {
     AuditService.logFromRequest(req, 'item.delete', {
       resourceType: 'item',
       resourceId: item.id,
@@ -717,14 +755,9 @@ router.delete('/:id', writeRateLimiter, validate(uuidParamSchema, 'params'), ide
     }).catch((err) => {
       logger.error({ err }, 'Failed to log item.delete audit event');
     });
-
-    sendMessage(res, 'Item deleted successfully');
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  } finally {
-    client.release();
   }
+
+  sendMessage(res, 'Item deleted successfully');
 }));
 
 export default router;

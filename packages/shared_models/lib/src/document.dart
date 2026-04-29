@@ -48,8 +48,9 @@ class Document {
       mimeType: json['mime_type'] as String? ?? 'application/octet-stream',
       thumbnailUrl: json['thumbnail_url'] as String?,
       deletedAt: _parseDate(json['deleted_at']),
-      createdAt: _parseDate(json['created_at'])!,
-      updatedAt: _parseDate(json['updated_at'])!,
+      // 4.1: server-stamped timestamps fall back instead of crashing.
+      createdAt: _parseDate(json['created_at']) ?? DateTime.now(),
+      updatedAt: _parseDate(json['updated_at']) ?? DateTime.now(),
     );
   }
 

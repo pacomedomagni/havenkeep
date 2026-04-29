@@ -101,8 +101,9 @@ class MaintenanceSchedule {
           : null,
       isRequiredForWarranty:
           json['is_required_for_warranty'] as bool? ?? false,
-      createdAt: _parseDate(json['created_at'])!,
-      updatedAt: _parseDate(json['updated_at'])!,
+      // 4.1: server-stamped timestamps fall back instead of crashing.
+      createdAt: _parseDate(json['created_at']) ?? DateTime.now(),
+      updatedAt: _parseDate(json['updated_at']) ?? DateTime.now(),
     );
   }
 
@@ -179,7 +180,8 @@ class MaintenanceHistory {
       notes: json['notes'] as String?,
       durationMinutes: (json['duration_minutes'] as num?)?.toInt(),
       cost: json['cost'] != null ? (json['cost'] as num).toDouble() : null,
-      createdAt: _parseDate(json['created_at'])!,
+      // 4.1: server-stamped timestamp falls back instead of crashing.
+      createdAt: _parseDate(json['created_at']) ?? DateTime.now(),
       itemName: json['item_name'] as String?,
       itemBrand: json['item_brand'] as String?,
     );

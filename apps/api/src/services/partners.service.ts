@@ -3,13 +3,14 @@ import { pool, query } from '../db';
 import { logger } from '../utils/logger';
 import { AppError } from '../utils/errors';
 import { Partner, PartnerGift, PartnerCommission } from '../types/database.types';
-import Stripe from 'stripe';
 import { config } from '../config';
+import { createStripeClient } from '../utils/stripe-client';
 import { EmailService } from './email.service';
 import { generateUniqueReferralCode } from '../utils/referral-code';
 import { getRedisClient } from '../utils/redis';
 import { addMonthsSafe } from '../utils/dates';
 import { commissionCents, dollarsToCents, centsToDecimalString, decimalToCents } from '../utils/money';
+import { invalidateUserCache } from '../middleware/auth';
 
 /**
  * Activation codes are 64 bits of entropy, formatted XXXX-XXXX-XXXX-XXXX
@@ -31,9 +32,7 @@ export function hashActivationCode(code: string): string {
   return crypto.createHash('sha256').update(normalized).digest('hex');
 }
 
-const stripe = new Stripe(config.stripe.secretKey, {
-  apiVersion: '2023-10-16',
-});
+const stripe = createStripeClient();
 
 // Tier pricing in dollars — configurable via env or DB in the future
 const TIER_PRICING: Record<string, number> = JSON.parse(
@@ -979,6 +978,10 @@ export class PartnersService {
       );
 
       await client.query('COMMIT');
+
+      // 2.3: drop the user-row cache so any in-flight session sees the
+      // newly granted premium plan without waiting for the 10s TTL.
+      await invalidateUserCache(newUserId);
 
       // Clear rate-limit tracking on successful activation
       await this.clearActivationAttempts(giftId);

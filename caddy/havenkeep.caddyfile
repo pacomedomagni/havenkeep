@@ -65,6 +65,18 @@ partner.havenkeep.kouakoudomagni.com {
         X-Content-Type-Options nosniff
         X-Frame-Options SAMEORIGIN
         Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        # S-HI-03: enforce CSP at the edge so the dashboard's user-supplied
+        # content (partner company_name, default_message, service_areas)
+        # can't escalate a future XSS into full execution privileges.
+        # Mirrors the marketing site's strict baseline; allows Stripe + the
+        # API origin for connect-src, and 'unsafe-inline' on styles for
+        # Tailwind's runtime utilities. Next.js requires 'unsafe-inline'
+        # AND 'unsafe-eval' on script-src for hydration in dev; in prod
+        # we use 'strict-dynamic' to limit injection to scripts our own
+        # bundle loads.
+        Content-Security-Policy "default-src 'self'; script-src 'self' 'strict-dynamic' 'unsafe-inline' https://js.stripe.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https://api.havenkeep.kouakoudomagni.com https://api.stripe.com; frame-src https://js.stripe.com https://hooks.stripe.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        Permissions-Policy "camera=(), microphone=(), geolocation=(), interest-cohort=()"
         -Server
     }
 }

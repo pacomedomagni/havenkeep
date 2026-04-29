@@ -121,11 +121,13 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       final user = ref.read(currentUserProvider).valueOrNull;
       if (user == null) return;
 
-      final url = await ref.read(imageUploadServiceProvider).uploadProfilePhoto(
+      // 1.7: server writes users.avatar_url from the upload directly;
+      // we just invalidate so /me re-fetches with a fresh presigned URL.
+      await ref.read(imageUploadServiceProvider).uploadProfilePhoto(
             userId: user.id,
             imageFile: imageFile,
           );
-      await ref.read(currentUserProvider.notifier).updateProfile(avatarUrl: url);
+      ref.invalidate(currentUserProvider);
 
       if (mounted) {
         showHavenSnackBar(context, message: 'Photo updated', isSuccess: true);

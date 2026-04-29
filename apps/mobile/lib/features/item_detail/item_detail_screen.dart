@@ -46,9 +46,19 @@ class ItemDetailScreen extends ConsumerWidget {
           onPressed: () => context.pop(),
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.edit_outlined),
-            onPressed: () => context.push('/items/$itemId/edit'),
+          // 3.1: edit is hidden for archived items — the user must
+          // unarchive first. Mirrors the body's gated maintenance log.
+          itemAsync.maybeWhen(
+            data: (item) => item.isArchived
+                ? const SizedBox.shrink()
+                : IconButton(
+                    icon: const Icon(Icons.edit_outlined),
+                    onPressed: () => context.push('/items/$itemId/edit'),
+                  ),
+            orElse: () => IconButton(
+              icon: const Icon(Icons.edit_outlined),
+              onPressed: () => context.push('/items/$itemId/edit'),
+            ),
           ),
           // Share intent — only meaningful once we have an item loaded.
           itemAsync.maybeWhen(
@@ -59,7 +69,11 @@ class ItemDetailScreen extends ConsumerWidget {
             ),
             orElse: () => const SizedBox.shrink(),
           ),
-          _OverflowMenu(itemId: itemId),
+          itemAsync.maybeWhen(
+            data: (item) =>
+                _OverflowMenu(itemId: itemId, isArchived: item.isArchived),
+            orElse: () => _OverflowMenu(itemId: itemId, isArchived: false),
+          ),
         ],
       ),
       body: itemAsync.when(
@@ -126,8 +140,12 @@ class ItemDetailScreen extends ConsumerWidget {
 
 class _OverflowMenu extends ConsumerWidget {
   final String itemId;
+  // 3.1: archived items get an "Unarchive" entry; active ones get "Archive".
+  // Showing both would be confusing — and "Archive" on an already-archived
+  // row is a server-side no-op anyway.
+  final bool isArchived;
 
-  const _OverflowMenu({required this.itemId});
+  const _OverflowMenu({required this.itemId, required this.isArchived});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -169,6 +187,19 @@ class _OverflowMenu extends ConsumerWidget {
               }
             }
             break;
+          case 'unarchive':
+            try {
+              await ref.read(itemsProvider.notifier).unarchiveItem(itemId);
+              ref.invalidate(itemDetailProvider(itemId));
+              messenger.showSnackBar(
+                const SnackBar(content: Text('Warranty restored')),
+              );
+            } catch (e) {
+              messenger.showSnackBar(
+                SnackBar(content: Text(ErrorHandler.getUserMessage(e))),
+              );
+            }
+            break;
           case 'delete':
             final confirmed = await showHavenConfirmDialog(
               context,
@@ -200,16 +231,29 @@ class _OverflowMenu extends ConsumerWidget {
         }
       },
       itemBuilder: (context) => [
-        const PopupMenuItem(
-          value: 'archive',
-          child: Row(
-            children: [
-              Icon(Icons.archive_outlined, size: 20, color: HavenColors.textSecondary),
-              SizedBox(width: HavenSpacing.sm),
-              Text('Archive'),
-            ],
+        if (isArchived)
+          const PopupMenuItem(
+            value: 'unarchive',
+            child: Row(
+              children: [
+                Icon(Icons.unarchive_outlined,
+                    size: 20, color: HavenColors.textSecondary),
+                SizedBox(width: HavenSpacing.sm),
+                Text('Unarchive'),
+              ],
+            ),
+          )
+        else
+          const PopupMenuItem(
+            value: 'archive',
+            child: Row(
+              children: [
+                Icon(Icons.archive_outlined, size: 20, color: HavenColors.textSecondary),
+                SizedBox(width: HavenSpacing.sm),
+                Text('Archive'),
+              ],
+            ),
           ),
-        ),
         const PopupMenuItem(
           value: 'delete',
           child: Row(
@@ -324,6 +368,43 @@ class _ItemDetailBody extends ConsumerWidget {
                   ),
                 ),
 
+                // 3.1: archived pill — make the state visually obvious so
+                // the user knows why edit/maintenance/claim controls are
+                // disabled. The pill comes after the warranty row so the
+                // most important info (warranty status) is still on top.
+                if (item.isArchived) ...[
+                  const SizedBox(height: HavenSpacing.sm),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: HavenSpacing.md,
+                      vertical: HavenSpacing.xs,
+                    ),
+                    decoration: BoxDecoration(
+                      color: HavenColors.textTertiary.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(HavenRadius.chip),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.archive_outlined,
+                          size: 14,
+                          color: HavenColors.textTertiary,
+                        ),
+                        SizedBox(width: HavenSpacing.xs),
+                        Text(
+                          'Archived',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: HavenColors.textTertiary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+
                 const SizedBox(height: HavenSpacing.lg),
               ],
             ),
@@ -351,23 +432,54 @@ class _ItemDetailBody extends ConsumerWidget {
 
           const SizedBox(height: HavenSpacing.md),
 
-          // Claim button — opens the Claim Help accordion with guidance
+          // 3.1: archived items can't have new claims filed (the server
+          // rejects with 400), so swap the primary action for "Restore item".
+          // After unarchive the item flips to active and the standard claim
+          // flow becomes available again.
           Padding(
             padding: const EdgeInsets.only(bottom: HavenSpacing.md),
             child: SizedBox(
               width: double.infinity,
               height: 48,
-              child: OutlinedButton.icon(
-                onPressed: () {
-                  context.push('/warranty-claims/create/$itemId');
-                },
-                icon: const Icon(Icons.support_agent, size: 20),
-                label: const Text('Start a Warranty Claim'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: HavenColors.primary,
-                  side: const BorderSide(color: HavenColors.primary),
-                ),
-              ),
+              child: item.isArchived
+                  ? OutlinedButton.icon(
+                      onPressed: () async {
+                        final messenger = ScaffoldMessenger.of(context);
+                        try {
+                          await ref
+                              .read(itemsProvider.notifier)
+                              .unarchiveItem(itemId);
+                          ref.invalidate(itemDetailProvider(itemId));
+                          messenger.showSnackBar(
+                            const SnackBar(content: Text('Warranty restored')),
+                          );
+                        } catch (e) {
+                          messenger.showSnackBar(
+                            SnackBar(
+                              content:
+                                  Text(ErrorHandler.getUserMessage(e)),
+                            ),
+                          );
+                        }
+                      },
+                      icon: const Icon(Icons.unarchive_outlined, size: 20),
+                      label: const Text('Restore item'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: HavenColors.primary,
+                        side: const BorderSide(color: HavenColors.primary),
+                      ),
+                    )
+                  : OutlinedButton.icon(
+                      onPressed: () {
+                        context.push('/warranty-claims/create/$itemId');
+                      },
+                      icon: const Icon(Icons.support_agent, size: 20),
+                      label: const Text('Start a Warranty Claim'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: HavenColors.primary,
+                        side: const BorderSide(color: HavenColors.primary),
+                      ),
+                    ),
             ),
           ),
 
@@ -504,7 +616,7 @@ class _ItemDetailBody extends ConsumerWidget {
           // RECENT MAINTENANCE — last 3 entries for this item
           // ----------------------------------------------------------------
 
-          RecentMaintenanceCard(itemId: itemId),
+          RecentMaintenanceCard(itemId: itemId, isArchived: item.isArchived),
 
           const SizedBox(height: HavenSpacing.sm),
 
@@ -895,8 +1007,15 @@ class _DocumentBucket extends StatelessWidget {
 
 class RecentMaintenanceCard extends ConsumerWidget {
   final String itemId;
+  // 3.1: archived items don't show the "Log maintenance" CTA — the
+  // server's create-history route would 400 because the item is archived.
+  final bool isArchived;
 
-  const RecentMaintenanceCard({super.key, required this.itemId});
+  const RecentMaintenanceCard({
+    super.key,
+    required this.itemId,
+    this.isArchived = false,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -967,28 +1086,32 @@ class RecentMaintenanceCard extends ConsumerWidget {
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const Padding(
-                      padding: EdgeInsets.symmetric(
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
                         vertical: HavenSpacing.sm,
                       ),
                       child: Text(
-                        'No maintenance logged yet',
-                        style: TextStyle(color: HavenColors.textTertiary),
+                        isArchived
+                            ? 'No maintenance logged for this archived item'
+                            : 'No maintenance logged yet',
+                        style: const TextStyle(color: HavenColors.textTertiary),
                       ),
                     ),
-                    const SizedBox(height: HavenSpacing.sm),
-                    OutlinedButton.icon(
-                      onPressed: () => LogMaintenanceScreen.showAsSheet(
-                        context,
-                        itemId: itemId,
+                    if (!isArchived) ...[
+                      const SizedBox(height: HavenSpacing.sm),
+                      OutlinedButton.icon(
+                        onPressed: () => LogMaintenanceScreen.showAsSheet(
+                          context,
+                          itemId: itemId,
+                        ),
+                        icon: const Icon(Icons.add_task, size: 18),
+                        label: const Text('Log maintenance'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: HavenColors.secondary,
+                          side: const BorderSide(color: HavenColors.border),
+                        ),
                       ),
-                      icon: const Icon(Icons.add_task, size: 18),
-                      label: const Text('Log maintenance'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: HavenColors.secondary,
-                        side: const BorderSide(color: HavenColors.border),
-                      ),
-                    ),
+                    ],
                   ],
                 );
               }

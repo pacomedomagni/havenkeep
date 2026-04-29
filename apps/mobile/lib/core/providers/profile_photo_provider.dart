@@ -33,14 +33,16 @@ Future<String?> pickAndUploadProfilePhoto(Ref ref) async {
 
   final imageFile = File(image.path);
 
-  // Upload via the Express API
+  // 1.7: the upload route writes the MinIO object key directly into
+  // users.avatar_url; we don't PUT /me/avatarUrl any more (the
+  // validator no longer accepts that field). Just invalidate the
+  // current-user provider so /me re-fetches with a fresh presigned URL.
   final url = await ref.read(imageUploadServiceProvider).uploadProfilePhoto(
         userId: user.id,
         imageFile: imageFile,
       );
 
-  // Update user profile with the new avatar URL
-  await ref.read(currentUserProvider.notifier).updateProfile(avatarUrl: url);
+  ref.invalidate(currentUserProvider);
 
   return url;
 }

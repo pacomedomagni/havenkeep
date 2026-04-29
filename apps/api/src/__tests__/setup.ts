@@ -8,6 +8,12 @@ dotenv.config({ path: path.join(__dirname, '../../../../.env') });
 process.env.NODE_ENV = 'test';
 // Point to Docker postgres on localhost (not internal 'postgres' hostname)
 process.env.DB_HOST = 'localhost';
+// 4.3: honour TEST_DB_PORT so the harness can run against a sidecar
+// Postgres on a free port when :5432 is held (e.g. another project's
+// container is already bound to it). Falls back to DB_PORT, then 5432.
+// CLAUDE.md 'A' bullet calls this out explicitly.
+process.env.DB_PORT =
+  process.env.TEST_DB_PORT || process.env.DB_PORT || '5432';
 // Force the test DB to a *_test name regardless of what .env carries. The
 // dev DB shipped in docker-compose.yml is `havenkeep`, but the test harness
 // destroys the schema between suites so we never run against the dev DB.
@@ -15,8 +21,8 @@ process.env.DB_HOST = 'localhost';
 // `npm run test:db:setup` (or the README) for the one-off creation.
 process.env.DB_NAME = process.env.TEST_DB_NAME || 'havenkeep_test';
 process.env.DATABASE_URL = `postgresql://${process.env.DB_USER}:${process.env.DB_PASSWORD}@localhost:${process.env.DB_PORT}/${process.env.DB_NAME}`;
-// Point to Docker redis on localhost
-process.env.REDIS_URL = 'redis://localhost:6379';
+// 4.3: honour TEST_REDIS_URL when the harness needs a sidecar Redis.
+process.env.REDIS_URL = process.env.TEST_REDIS_URL || 'redis://localhost:6379';
 // Point to Docker minio on localhost
 process.env.MINIO_ENDPOINT = 'localhost';
 // Default test secrets for the email-scanner OAuth + OpenAI flows. The

@@ -9,10 +9,14 @@ class MaintenanceRepository {
   MaintenanceRepository(this._client);
 
   /// Get due/overdue maintenance tasks across all user items.
-  Future<MaintenanceDueSummary> getDueTasks() async {
+  ///
+  /// 2.13: when [homeId] is supplied, the API scopes the summary to a
+  /// single home so the dashboard agrees with the home-switcher.
+  Future<MaintenanceDueSummary> getDueTasks({String? homeId}) async {
     try {
       final data = await _client.get(
         pathSegments: const ['api', 'v1', 'maintenance', 'due'],
+        queryParams: homeId != null ? {'home_id': homeId} : null,
       );
       return MaintenanceDueSummary.fromJson(data['data'] as Map<String, dynamic>);
     } catch (e) {
@@ -50,14 +54,15 @@ class MaintenanceRepository {
     }
   }
 
-  /// Get maintenance history with optional item filter.
-  Future<List<MaintenanceHistory>> getHistory({String? itemId}) async {
+  /// Get maintenance history with optional item / home filter.
+  Future<List<MaintenanceHistory>> getHistory({String? itemId, String? homeId}) async {
     try {
       final params = <String, String>{
         'limit': '100',
         'page': '1',
       };
       if (itemId != null) params['item_id'] = itemId;
+      if (homeId != null) params['home_id'] = homeId;
 
       final data = await _client.get(
         pathSegments: const ['api', 'v1', 'maintenance', 'history'],

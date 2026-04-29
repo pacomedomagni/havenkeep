@@ -31,10 +31,19 @@ export const subscribeNewsletterSchema = Joi.object({
     .default('blog'),
 });
 
+// S-ME-09: bare-email POST /unsubscribe was an unauthenticated bulk
+// harassment vector — anyone who guessed/scraped a user's email could
+// silently unsubscribe them. Require the same HMAC token the GET path
+// requires (sent in unsubscribe-list email links). RFC 8058 one-click
+// unsubscribe still works because the email's `List-Unsubscribe-Post`
+// header carries the token.
 export const unsubscribeNewsletterBodySchema = Joi.object({
   email: Joi.string().trim().email().lowercase().max(255).required().messages({
     'string.email': 'Please provide a valid email address',
     'any.required': 'Email is required',
+  }),
+  t: Joi.string().length(64).hex().required().messages({
+    'any.required': 'Unsubscribe token is required',
   }),
 });
 

@@ -45,7 +45,7 @@ import '../../features/gifts/gift_activation_screen.dart';
 import '../../features/gifts/gift_activation_success_screen.dart';
 import '../../features/gifts/recent_gifts_screen.dart';
 import '../../features/warranty_claims/claims_list_screen.dart';
-import '../../features/warranty_claims/claim_wizard_screen.dart';
+import '../../features/warranty_claims/create_claim_screen.dart';
 import '../../features/maintenance/maintenance_screen.dart';
 import '../../features/maintenance/log_maintenance_screen.dart';
 import '../../features/maintenance/maintenance_history_screen.dart';
@@ -563,7 +563,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) {
           final itemId = state.pathParameters['itemId'] ?? '';
           if (itemId.isEmpty) return const Scaffold(body: Center(child: Text('Item not found')));
-          return ClaimWizardScreen(itemId: itemId);
+          return CreateClaimScreen(itemId: itemId);
         },
       ),
 

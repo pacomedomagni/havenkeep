@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_ui/shared_ui.dart';
@@ -23,18 +25,29 @@ class DemoDashboardWrapper extends ConsumerStatefulWidget {
 
 class _DemoDashboardWrapperState extends ConsumerState<DemoDashboardWrapper> {
   bool _showHint = true;
+  // 4.14 / M-MED-03: a `Future.delayed` does not honour widget
+  // disposal — the callback fires regardless and only the
+  // `mounted` guard prevents a setState-after-dispose. Replace with
+  // a Timer we can cancel in `dispose`, so the hint dismissal does
+  // not race with navigation.
+  Timer? _hintDismissTimer;
 
   @override
   void initState() {
     super.initState();
-    // Auto-dismiss hint after 5 seconds
-    Future.delayed(const Duration(seconds: 5), () {
+    _hintDismissTimer = Timer(const Duration(seconds: 5), () {
       if (mounted) {
         setState(() {
           _showHint = false;
         });
       }
     });
+  }
+
+  @override
+  void dispose() {
+    _hintDismissTimer?.cancel();
+    super.dispose();
   }
 
   @override

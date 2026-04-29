@@ -55,7 +55,19 @@ export function createApp(options: CreateAppOptions = {}) {
         defaultSrc: ["'self'"],
         styleSrc: ["'self'", "'unsafe-inline'"],
         scriptSrc: ["'self'"],
-        imgSrc: ["'self'", 'data:', 'https:'],
+        // S-LO-06: tightened from `https:` (any HTTPS host) to the actual
+        // sources we render images from. The API doesn't render HTML so
+        // this is mostly belt-and-braces, but keeping the directive
+        // narrow ensures a future error-page template can't quietly load
+        // images from arbitrary hosts.
+        imgSrc: [
+          "'self'",
+          'data:',
+          'https://lh3.googleusercontent.com',
+          'https://lh4.googleusercontent.com',
+          'https://lh5.googleusercontent.com',
+          'https://lh6.googleusercontent.com',
+        ],
         connectSrc: [
           "'self'",
           'https://api.stripe.com',
@@ -106,9 +118,22 @@ export function createApp(options: CreateAppOptions = {}) {
   // exact path (with a dedicated router that only declares POST /) means
   // express.json() below never sees this request, regardless of any future
   // middleware re-order.
+  //
+  // 1.3: explicit `limit: '1mb'`. Without this, body-parser's default 100kb
+  // applies. Real Stripe webhook bodies (line-item-heavy invoices,
+  // account.updated capabilities) exceed 100kb, get rejected with
+  // PayloadTooLargeError before signature verification, and Stripe retries
+  // for 3 days while our dead-letter logic eats real events.
+  //
+  // 3.9: webhooks must NEVER hit the global rate limiter — Stripe will
+  // retry a 429 for 3 days and our dead-letter logic eats the events
+  // until the window clears. Mounting raw() / json() *before* the
+  // rate-limiter line below is the primary safeguard; the limiter's
+  // `skip:` pattern (in middleware/rateLimiter.ts) is the secondary one
+  // so a future re-order is order-independent.
   app.use(
     '/api/v1/webhooks/stripe',
-    express.raw({ type: 'application/json' }),
+    express.raw({ type: 'application/json', limit: '1mb' }),
     stripeWebhookRouter,
   );
 

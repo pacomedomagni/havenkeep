@@ -86,7 +86,15 @@ export function errorHandler(
 
   // ── JWT errors ────────────────────────────────────────────────────────
   if (err instanceof JsonWebTokenError || err instanceof TokenExpiredError || err instanceof NotBeforeError) {
-    logger.warn({ err: err.message, path: req.path, method: req.method }, 'JWT auth error');
+    // 4.7: pass the Error itself so pino's err serializer captures
+    // stack + name + cause. The previous shape (`err: err.message`)
+    // flattened to a string, so a "JsonWebTokenError: jwt malformed"
+    // landed in Loki with no name — making it impossible to tell
+    // signature failures from malformed tokens at a glance.
+    logger.warn(
+      { err, message: err.message, path: req.path, method: req.method },
+      'JWT auth error',
+    );
     const expired = err instanceof TokenExpiredError;
     return res.status(401).json({
       success: false,

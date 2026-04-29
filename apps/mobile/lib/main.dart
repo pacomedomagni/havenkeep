@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -82,16 +83,21 @@ Future<void> main() async {
         'apiBaseUrl': config.apiBaseUrl,
       });
 
-      // S3-D: forward unknown-enum drift through the same logging service
-      // we already configured. `dart:developer.log` stays on as the
-      // always-on transport; this gives us a Loki-shipped signal too via
-      // LoggingService's pino-side wiring (and Crashlytics if/when wired).
+      // S3-D / 2.11: forward unknown-enum drift through LoggingService AND
+      // Crashlytics breadcrumbs (when wired). The breadcrumb survives a
+      // subsequent crash and gives us "we shipped a server change that
+      // produced an enum the client didn't know about, then it crashed
+      // five seconds later."
       registerUnknownEnumReporter((enumName, value, fallback) {
         LoggingService.warn('enum_drift', {
           'enum': enumName,
           'value': value,
           'fallback': fallback,
         });
+        if (_crashlyticsReady) {
+          FirebaseCrashlytics.instance
+              .log('enum_drift: $enumName=$value (fallback=$fallback)');
+        }
       });
 
       // Initialize API client
@@ -126,10 +132,19 @@ Future<void> main() async {
         await SecureStorageService.setActiveUserId(apiClient.currentUserId);
       }
 
+      // 4.14 / M-MED-07: warm the persisted theme + locale cache before
+      // the first widget builds so cold-start paints the user's chosen
+      // values, not the defaults.
+      try {
+        await AppPrefsService.prewarm();
+      } catch (e) {
+        LoggingService.warn('Prefs prewarm failed', {'error': e.toString()});
+      }
+
       LoggingService.info('API client initialized');
 
-      // Initialize Firebase for push notifications and analytics
-      // Skip if using placeholder keys (causes native crash in FirebaseInstallations)
+      // Initialize Firebase for push notifications, Crashlytics, and analytics.
+      // Skip if using placeholder keys (causes native crash in FirebaseInstallations).
       final firebaseOptions = DefaultFirebaseOptions.currentPlatform;
       if (firebaseOptions.apiKey.isEmpty) {
         LoggingService.warn('Firebase skipped — no API key configured in .env', {});
@@ -137,6 +152,12 @@ Future<void> main() async {
         try {
           await Firebase.initializeApp(options: firebaseOptions);
           debugPrint('[Main] Firebase initialized successfully');
+          // 2.11: enable Crashlytics only in release builds. Debug crashes
+          // are noisy + already shown in the IDE. The flag is persisted by
+          // the SDK so a single setCollectionEnabled call sticks.
+          await FirebaseCrashlytics.instance
+              .setCrashlyticsCollectionEnabled(!kDebugMode);
+          _crashlyticsReady = true;
         } catch (e) {
           LoggingService.warn('Firebase initialization failed', {'error': e.toString()});
         }
@@ -151,7 +172,12 @@ Future<void> main() async {
           details.stack,
           {'library': details.library ?? 'unknown'},
         );
-        // Still show the red error screen in debug mode
+        // 2.11: forward fatal framework errors to Crashlytics. The SDK
+        // attaches the active Zone + breadcrumbs to the report. In debug
+        // we still call `presentError` so the red screen shows.
+        if (_crashlyticsReady) {
+          FirebaseCrashlytics.instance.recordFlutterFatalError(details);
+        }
         if (kDebugMode) {
           FlutterError.presentError(details);
         }
@@ -160,6 +186,9 @@ Future<void> main() async {
       // Catch platform errors (native crashes, unhandled async errors)
       PlatformDispatcher.instance.onError = (error, stack) {
         LoggingService.error('Platform error', error, stack);
+        if (_crashlyticsReady) {
+          FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+        }
         return true; // Prevent app termination
       };
 
@@ -178,9 +207,21 @@ Future<void> main() async {
     },
     (error, stack) {
       LoggingService.error('Unhandled zone error', error, stack);
+      // 2.11: catch-all for anything that escapes the Flutter / Platform
+      // hooks above. Marked non-fatal so the report shows up in the
+      // "non-fatals" pane and doesn't roll up into the crash-free metric
+      // (the framework hook already handled the genuine crash).
+      if (_crashlyticsReady) {
+        FirebaseCrashlytics.instance.recordError(error, stack, fatal: false);
+      }
     },
   );
 }
+
+/// 2.11: set after FirebaseCrashlytics has been initialised. Guards every
+/// call site so the app still works on a developer build with no Firebase
+/// API key configured (else the SDK throws on first call).
+bool _crashlyticsReady = false;
 
 /// Global provider for environment configuration.
 final environmentConfigProvider = Provider<EnvironmentConfig>((ref) {

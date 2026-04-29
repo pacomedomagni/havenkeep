@@ -43,3 +43,17 @@ export const deleteAccountSchema = Joi.object({
 export const providerParamSchema = Joi.object({
   provider: Joi.string().valid('email', 'google', 'apple').required(),
 });
+
+/**
+ * Verify-premium body schema (S-HI-01 / S-ME-01).
+ *
+ * The handler only consumes `revenueCatAppUserId` and only as a sanity
+ * guard against passing someone else's UUID. Tightening the schema with
+ * `.unknown(false)` rejects any future field a refactor accidentally
+ * introduces without a validator update — defense in depth.
+ */
+export const verifyPremiumSchema = Joi.object({
+  revenueCatAppUserId: Joi.string().uuid().optional(),
+})
+  .rename('revenue_cat_app_user_id', 'revenueCatAppUserId', { ignoreUndefined: true, override: false })
+  .unknown(false);

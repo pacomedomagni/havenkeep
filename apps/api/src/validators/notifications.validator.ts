@@ -20,9 +20,12 @@ const notificationTypes = [
 export const getNotificationsQuerySchema = Joi.object({
   limit: Joi.number().integer().min(1).max(100).optional().default(50),
   offset: Joi.number().integer().min(0).optional().default(0),
+  page: Joi.number().integer().min(1).optional(),
   type: Joi.string().valid(...notificationTypes).optional(),
   unread: Joi.boolean().optional(),
-});
+  homeId: Joi.string().uuid().optional(),
+})
+  .rename('home_id', 'homeId', { ignoreUndefined: true, override: false });
 
 export const recordActionSchema = Joi.object({
   action: Joi.string().max(100).required(),

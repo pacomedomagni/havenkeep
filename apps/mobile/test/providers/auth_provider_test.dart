@@ -279,7 +279,6 @@ void main() {
             .thenAnswer((_) async => originalUser);
         when(mockAuthRepo.updateProfile(
           fullName: anyNamed('fullName'),
-          avatarUrl: anyNamed('avatarUrl'),
         )).thenAnswer((_) async => updatedUser);
 
         container = createContainer();

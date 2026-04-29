@@ -14,11 +14,13 @@ import { NotificationsService } from './services/notifications.service';
 import { WarrantyPurchasesService } from './services/warranty-purchases.service';
 import { ReconciliationService } from './services/reconciliation.service';
 import { AuditService } from './services/audit.service';
+import { pruneExpiredIdempotencyRows } from './middleware/idempotency';
+import { purgeExpiredSoftDeletedAccounts } from './services/account-purge.service';
 import { pool, isDatabaseReady } from './db';
 import { createApp } from './app';
+import { isShuttingDown, markShuttingDown } from './utils/lifecycle';
 
 let server: Server | undefined;
-let isShuttingDown = false;
 const PORT = config.port;
 const NOTIFICATION_JOB_LOCK = 93422874;
 const MAINTENANCE_JOB_LOCK = 93422875;
@@ -163,15 +165,70 @@ function scheduleExpirationNotifications() {
         },
         (err) => logger.error({ err }, 'Audit hash chain verification failed'),
       ),
+      // S-HI-04: prune expired idempotency rows so the table doesn't grow
+      // unbounded. The TTL on each row is set per-route (default 24h);
+      // this delete just sweeps anything past its expiry.
+      pruneExpiredIdempotencyRows().then(
+        (deleted) => {
+          if (deleted > 0) {
+            logger.info({ deleted }, 'Pruned expired idempotency rows');
+          }
+        },
+        (err) => logger.error({ err }, 'Idempotency prune failed'),
+      ),
+      // 1.4: hard-delete users whose 30-day cooling-off window has
+      // expired. The DELETE /me handler stamps deletion_scheduled_for =
+      // NOW() + 30 days and tells the user the account will be deleted
+      // at that time; this is the job that honors the promise.
+      purgeExpiredSoftDeletedAccounts().then(
+        (result) => {
+          if (result.candidates > 0 || result.purged > 0 || result.failed > 0) {
+            logger.info(result, 'Soft-delete purge completed');
+          }
+        },
+        (err) => logger.error({ err }, 'Soft-delete purge failed'),
+      ),
     ]);
+
+    // 3.12: audit log retention runs daily, not weekly. The
+    // `cleanup_old_audit_logs()` Postgres function handles the actual
+    // retention window — reading once a week was enough for sanity but
+    // gave us 7 days of growth between sweeps on a busy table.
+    try {
+      await pool.query('SELECT cleanup_old_audit_logs()');
+    } catch (err) {
+      logger.error({ err }, 'Daily audit log cleanup failed');
+    }
+
+    // 3.10: bound notification_history + openai_usage growth. Both
+    // tables are append-only on every notification send / OpenAI call;
+    // without retention they balloon to multi-million-row scans on
+    // common reads (notifications-list count query, OpenAI cost stats).
+    // 90 days is enough for "did we email you about this last quarter?"
+    // forensics and aligns with audit log + Loki retention.
+    try {
+      const result = await pool.query(
+        `DELETE FROM notification_history WHERE created_at < NOW() - INTERVAL '90 days'`,
+      );
+      if (result.rowCount && result.rowCount > 0) {
+        logger.info({ deleted: result.rowCount }, 'notification_history retention sweep');
+      }
+    } catch (err) {
+      logger.error({ err }, 'notification_history retention sweep failed');
+    }
+    try {
+      const result = await pool.query(
+        `DELETE FROM openai_usage WHERE created_at < NOW() - INTERVAL '90 days'`,
+      );
+      if (result.rowCount && result.rowCount > 0) {
+        logger.info({ deleted: result.rowCount }, 'openai_usage retention sweep');
+      }
+    } catch (err) {
+      logger.error({ err }, 'openai_usage retention sweep failed');
+    }
 
     // Sunday weekly sweep — `getUTCDay()` so the boundary is consistent.
     if (new Date().getUTCDay() === 0) {
-      try {
-        await pool.query('SELECT cleanup_old_audit_logs()');
-      } catch (err) {
-        logger.error({ err }, 'Weekly audit log cleanup failed');
-      }
       try {
         await ReconciliationService.reconcileUserAnalytics();
       } catch (err) {
@@ -220,17 +277,51 @@ function scheduleExpirationNotifications() {
 // ── Notification digest tick (Ch04-F034) ─────────────────────────────────
 // Outbox rows enqueued by `NotificationsService.createNotification` are due
 // when `flush_at <= NOW()`; we tick every minute so the worst-case latency
-// past a user's `digest_minutes` window is one minute. The interval is
-// `unref()`'d so it doesn't hold the process alive on shutdown, and the
-// flush is guarded by an advisory lock so multi-instance deploys converge
-// on a single coalescer.
+// past a user's `digest_minutes` window is one minute. The flush is
+// guarded by an advisory lock so multi-instance deploys converge on a
+// single coalescer.
+//
+// 4.13: chain `setTimeout` from inside the handler instead of using
+// `setInterval` so a long-running flush can't pile up overlapping
+// invocations (V8's setInterval queues fixed slots; if a tick takes
+// 90s the next one fires immediately, then again after 60s, etc.). The
+// next deadline is computed off wall-clock at the start of each handler
+// so a paused process catching up doesn't drift further than the
+// flush itself takes. The timer is `unref()`'d so it doesn't hold the
+// process alive on shutdown.
 const DIGEST_TICK_INTERVAL_MS = 60_000;
 const DIGEST_FLUSH_LOCK = 93422878;
 function startDigestTick(): void {
-  const timer = setInterval(() => {
-    runWithAdvisoryLock(DIGEST_FLUSH_LOCK, 'notification-digest-flush', async () => {
-      await NotificationsService.flushDigestOutbox();
-    }).catch((err) => logger.error({ err }, 'Digest flush tick failed'));
+  let timer: NodeJS.Timeout | undefined;
+  const tick = async () => {
+    const startedAt = Date.now();
+    try {
+      await runWithAdvisoryLock(
+        DIGEST_FLUSH_LOCK,
+        'notification-digest-flush',
+        async () => {
+          await NotificationsService.flushDigestOutbox();
+        },
+      );
+    } catch (err) {
+      logger.error({ err }, 'Digest flush tick failed');
+    }
+    // Schedule the next run relative to *when this run was supposed to
+    // start*. If the flush ran 5s long, the next deadline is 55s out
+    // — not 60s. Long-tail flushes converge instead of diverging.
+    const delay = Math.max(
+      0,
+      DIGEST_TICK_INTERVAL_MS - (Date.now() - startedAt),
+    );
+    timer = setTimeout(() => {
+      tick().catch(() => {});
+    }, delay);
+    timer.unref();
+  };
+  // Kick off the first tick after the standard interval. Process boot
+  // already runs the daily cron once, which covers the first window.
+  timer = setTimeout(() => {
+    tick().catch(() => {});
   }, DIGEST_TICK_INTERVAL_MS);
   timer.unref();
 }
@@ -284,11 +375,11 @@ start().catch((err) => {
 //   in start()). Guard the close path so we don't dereference undefined.
 
 async function shutdown(signal: string, exitCode = 0): Promise<void> {
-  if (isShuttingDown) {
+  if (isShuttingDown()) {
     logger.warn({ signal }, 'Shutdown already in progress, ignoring duplicate signal');
     return;
   }
-  isShuttingDown = true;
+  markShuttingDown();
   logger.info({ signal }, 'Shutdown initiated');
 
   const closeServer = (): Promise<void> =>
@@ -307,6 +398,13 @@ async function shutdown(signal: string, exitCode = 0): Promise<void> {
     process.exit(exitCode === 0 ? 1 : exitCode);
   }, 30_000);
   killTimer.unref();
+
+  // 2.7: hold for 5s after flipping `isShuttingDown` so the LB has time
+  // to deregister this pod (its /ready now returns 503) before we close
+  // the socket. Without this, server.close() races the LB health-check
+  // poll and fresh requests get routed onto a dying pod.
+  logger.info('Draining: /ready flipped to 503, waiting 5s for LB to deregister');
+  await new Promise((r) => setTimeout(r, 5_000));
 
   await closeServer();
   logger.info('HTTP server closed');

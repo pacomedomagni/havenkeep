@@ -1,0 +1,101 @@
+# 3.13: Loki ruler alert rules.
+#
+# These fire on log-line patterns the API emits at error / fatal level.
+# Mounted into the loki container at `/loki/rules/havenkeep/alerts.yml`
+# and picked up by the `ruler` block in `loki-config.yml`. Alertmanager
+# dispatches them — wire up a Slack / PagerDuty receiver in the
+# Alertmanager config for the team's chosen channel.
+#
+# Each rule waits ~2 minutes before paging so a single transient burst
+# (e.g. one cron retry) doesn't wake anyone, but a sustained failure is
+# surfaced before the user notices.
+
+groups:
+  - name: havenkeep-critical
+    interval: 1m
+    rules:
+      # Audit hash chain integrity break = potential tampering. Page
+      # immediately because an attacker who's already in is worse with
+      # every minute we don't notice.
+      - alert: AuditHashChainIntegrityFailure
+        expr: |
+          sum(count_over_time({service="api"} |= "Audit log hash chain INTEGRITY FAILURE" [5m])) > 0
+        for: 0m
+        labels:
+          severity: critical
+          team: security
+        annotations:
+          summary: "Audit log hash chain integrity check failed"
+          description: "Hash chain verification reported >0 broken rows in the last 5m. Possible tampering."
+          runbook: "Run /api/v1/admin/audit/verify and inspect rows newer than the broken_at timestamp."
+
+      # Cron failures — the daily jobs (warranty / maintenance /
+      # gift-expiry / soft-delete-purge / audit-chain) all log this on
+      # error.
+      - alert: CronJobFailed
+        expr: |
+          sum by (service) (count_over_time({service="api"} |~ "(Cron job failed|job failed)" [10m])) > 0
+        for: 2m
+        labels:
+          severity: high
+          team: ops
+        annotations:
+          summary: "Cron job failure on {{ $labels.service }}"
+          description: "A scheduled job logged failure in the last 10m."
+
+      # uncaughtException / unhandledRejection should never happen — all
+      # async paths use asyncHandler. If we see them, something escaped.
+      - alert: UnhandledExceptionOrRejection
+        expr: |
+          sum(count_over_time({service="api"} |~ "(unhandledRejection|uncaughtException)" [5m])) > 0
+        for: 0m
+        labels:
+          severity: critical
+          team: ops
+        annotations:
+          summary: "Unhandled exception or promise rejection"
+          description: "An async error escaped the top-level guards — investigate the next stack-traced log line."
+
+      # Email scanner cancelled mid-run because of an OpenAI / Gmail
+      # error. The scanner self-recovers on the next user-initiated
+      # scan, but a sustained run of these means a vendor incident.
+      - alert: EmailScanAborted
+        expr: |
+          sum(count_over_time({service="api"} |= "Email scan aborted" [15m])) > 5
+        for: 5m
+        labels:
+          severity: high
+          team: ops
+        annotations:
+          summary: "Email scanner is aborting runs"
+          description: "More than 5 abort events in the last 15m — check OpenAI / Gmail integrations."
+
+  - name: havenkeep-warn
+    interval: 1m
+    rules:
+      # Slow-request bucket from the request logger. Sustained >5s
+      # responses usually indicate DB pool exhaustion, an upstream
+      # outage, or a runaway query.
+      - alert: SlowRequestBurst
+        expr: |
+          sum(count_over_time({service="api"} |= "Slow request (>5s)" [5m])) > 20
+        for: 5m
+        labels:
+          severity: warn
+          team: ops
+        annotations:
+          summary: "Slow-request burst on havenkeep-api"
+          description: "More than 20 requests > 5s in the last 5 minutes."
+
+      # SendGrid / Stripe / Apple JWKS / Google verifyIdToken — the
+      # underlying calls all log at warn or error level on failure.
+      - alert: ExternalIntegrationFlap
+        expr: |
+          sum(count_over_time({service="api"} |~ "(SendGrid|Stripe|jwks|verifyIdToken).*(error|failed|timeout)" [10m])) > 10
+        for: 5m
+        labels:
+          severity: warn
+          team: ops
+        annotations:
+          summary: "External integration is flapping"
+          description: "More than 10 SendGrid/Stripe/Apple JWKS/Google failures in the last 10 minutes."

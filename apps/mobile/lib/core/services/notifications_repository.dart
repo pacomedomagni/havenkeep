@@ -16,6 +16,7 @@ class NotificationsRepository {
     int limit = 30,
     int page = 1,
     bool unreadOnly = false,
+    String? homeId,
   }) async {
     final params = <String, String>{
       'limit': '$limit',
@@ -24,6 +25,9 @@ class NotificationsRepository {
 
     if (unreadOnly) {
       params['unread'] = 'true';
+    }
+    if (homeId != null) {
+      params['home_id'] = homeId;
     }
 
     final data = await _client.get(

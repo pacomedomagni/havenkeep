@@ -29,7 +29,7 @@ router.get(
   validate(getNotificationsQuerySchema, 'query'),
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
-    const { type, unread } = req.query;
+    const { type, unread, homeId } = req.query;
     const unreadFilter =
       typeof unread === 'boolean'
         ? unread
@@ -46,6 +46,7 @@ router.get(
       offset,
       type: type as any,
       unread: unreadFilter,
+      homeId: homeId as string | undefined,
     });
 
     const notifications = result.notifications.map((notification) => {
@@ -203,9 +204,14 @@ router.get(
  * @route   PUT /api/v1/notifications/read-all
  * @desc    Mark all notifications as read
  * @access  Private
+ *
+ * 2.8: rate-limited and bounded to MARK_ALL_LIMIT to cap the UPDATE plan
+ * cost — without this a user with 100k unread rows hitting the endpoint
+ * in a tight loop would loop the API.
  */
 router.put(
   '/read-all',
+  writeRateLimiter,
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
     const count = await NotificationsService.markAllAsRead(userId);
@@ -221,6 +227,7 @@ router.put(
  */
 router.put(
   '/:id/read',
+  writeRateLimiter,
   validate(notificationParamsSchema, 'params'),
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
@@ -237,6 +244,7 @@ router.put(
  */
 router.post(
   '/:id/action',
+  writeRateLimiter,
   validate(notificationParamsSchema, 'params'),
   validate(recordActionSchema),
   asyncHandler(async (req, res) => {
@@ -289,6 +297,7 @@ router.put(
  */
 router.delete(
   '/:id',
+  writeRateLimiter,
   validate(notificationParamsSchema, 'params'),
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;

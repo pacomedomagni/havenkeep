@@ -1,13 +1,12 @@
-import Stripe from 'stripe';
 import { pool } from '../db';
 import { logger } from '../utils/logger';
 import { WarrantyPurchase } from '../types/database.types';
 import { AppError } from '../utils/errors';
 import { addMonthsSafe } from '../utils/dates';
-import { config } from '../config';
 import { decimalToCents, dollarsToCents, commissionCents } from '../utils/money';
+import { createStripeClient } from '../utils/stripe-client';
 
-const stripe = new Stripe(config.stripe.secretKey, { apiVersion: '2023-10-16' });
+const stripe = createStripeClient();
 
 /**
  * Compute prorated refund (cents) for a cancelled active warranty.
@@ -46,7 +45,10 @@ interface CreateWarrantyPurchaseData {
 
 export class WarrantyPurchasesService {
   /**
-   * Get all warranty purchases for a user with pagination and optional filters
+   * Get all warranty purchases for a user with pagination and optional filters.
+   *
+   * 2.13: optional [homeId] scopes the rows + count to items in that home
+   * so the mobile coverage tab agrees with the home-switcher.
    */
   static async getUserPurchases(
     userId: string,
@@ -54,10 +56,11 @@ export class WarrantyPurchasesService {
       limit?: number;
       offset?: number;
       itemId?: string;
+      homeId?: string;
       status?: string;
     } = {}
   ): Promise<{ purchases: WarrantyPurchase[]; total: number }> {
-    const { itemId, status } = options;
+    const { itemId, homeId, status } = options;
     // MED-2: Clamp pagination params to safe bounds
     const limit = Math.min(options.limit || 50, 100);
     const offset = Math.max(options.offset || 0, 0);
@@ -79,7 +82,10 @@ export class WarrantyPurchasesService {
         query += ` AND wp.item_id = $${params.length + 1}`;
         params.push(itemId);
       }
-
+      if (homeId) {
+        query += ` AND i.home_id = $${params.length + 1}`;
+        params.push(homeId);
+      }
       if (status) {
         query += ` AND wp.status = $${params.length + 1}`;
         params.push(status);
@@ -91,17 +97,26 @@ export class WarrantyPurchasesService {
 
       const result = await pool.query(query, params);
 
-      // Get total count
-      let countQuery = 'SELECT COUNT(*) FROM warranty_purchases WHERE user_id = $1';
+      // Mirror the JOIN + filters in the count query so pagination.total
+      // doesn't drift when the home filter narrows results.
+      let countQuery = `
+        SELECT COUNT(*)
+          FROM warranty_purchases wp
+          JOIN items i ON i.id = wp.item_id
+         WHERE wp.user_id = $1
+      `;
       const countParams: any[] = [userId];
 
       if (itemId) {
-        countQuery += ` AND item_id = $${countParams.length + 1}`;
+        countQuery += ` AND wp.item_id = $${countParams.length + 1}`;
         countParams.push(itemId);
       }
-
+      if (homeId) {
+        countQuery += ` AND i.home_id = $${countParams.length + 1}`;
+        countParams.push(homeId);
+      }
       if (status) {
-        countQuery += ` AND status = $${countParams.length + 1}`;
+        countQuery += ` AND wp.status = $${countParams.length + 1}`;
         countParams.push(status);
       }
 

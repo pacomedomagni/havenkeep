@@ -4,6 +4,7 @@ import { config } from '../config';
 import { minioClient, BUCKET_NAME } from '../config/minio';
 import { authenticate, requireAdmin } from '../middleware/auth';
 import { getRedisClient } from '../utils/redis';
+import { isShuttingDown } from '../utils/lifecycle';
 
 const router = Router();
 
@@ -94,6 +95,12 @@ router.get('/health/detailed', authenticate, requireAdmin, async (req, res, next
 // storage outage shouldn't take the whole pod out of rotation; uploads
 // degrade independently).
 router.get('/ready', async (req, res) => {
+  // 2.7: once shutdown begins we deregister from the LB IMMEDIATELY by
+  // returning 503. The 5s drain in index.ts gives the LB a window to
+  // notice and stop routing new traffic before server.close() runs.
+  if (isShuttingDown()) {
+    return res.status(503).json({ ready: false, reason: 'shutting-down' });
+  }
   try {
     await pool.query('SELECT 1');
     try {

@@ -15,8 +15,8 @@ class WarrantyClaimsRepository {
   /// today, so a single 100-row page is enough — but [getClaimsPage]
   /// surfaces the cursor and `hasMore` flag so a future paginated UI
   /// doesn't have to re-thread the contract.
-  Future<List<WarrantyClaim>> getClaims({String? itemId}) async {
-    final page = await getClaimsPage(itemId: itemId);
+  Future<List<WarrantyClaim>> getClaims({String? itemId, String? homeId}) async {
+    final page = await getClaimsPage(itemId: itemId, homeId: homeId);
     return page.items;
   }
 
@@ -24,6 +24,7 @@ class WarrantyClaimsRepository {
   /// page when one exists. Pass [cursor] to fetch subsequent pages.
   Future<ClaimsPage> getClaimsPage({
     String? itemId,
+    String? homeId,
     String? cursor,
     int limit = 100,
   }) async {
@@ -32,6 +33,7 @@ class WarrantyClaimsRepository {
         'limit': limit.toString(),
       };
       if (itemId != null) params['item_id'] = itemId;
+      if (homeId != null) params['home_id'] = homeId;
       if (cursor != null) {
         params['cursor'] = cursor;
       } else {

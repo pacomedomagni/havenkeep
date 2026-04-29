@@ -23,6 +23,44 @@ class AppPrefsService {
     Locale('fr'),
   ];
 
+  // 4.14 / M-MED-07: theme + locale are pre-warmed in `main()` BEFORE
+  // `runApp()`, so the first frame already paints in the user's chosen
+  // theme + locale. The previous shape constructed the notifiers with
+  // a default state and async-loaded the persisted value, producing a
+  // visible flicker on every cold start.
+  static Locale? _cachedLocale;
+  static ThemeMode _cachedThemeMode = ThemeMode.dark;
+  static bool _prewarmed = false;
+
+  static Future<void> prewarm() async {
+    final prefs = await SharedPreferences.getInstance();
+    final localeRaw = prefs.getString(_keyLocale);
+    _cachedLocale =
+        (localeRaw == null || localeRaw.isEmpty) ? null : Locale(localeRaw);
+    final themeRaw = prefs.getString(_keyTheme);
+    _cachedThemeMode = switch (themeRaw) {
+      'light' => ThemeMode.light,
+      'dark' => ThemeMode.dark,
+      'system' => ThemeMode.system,
+      _ => ThemeMode.dark,
+    };
+    _prewarmed = true;
+  }
+
+  /// Sync accessor for the cached locale. Returns null pre-prewarm OR
+  /// when the user hasn't picked one. Used to seed the LocaleNotifier
+  /// state on construction so the first frame paints correctly.
+  static Locale? cachedLocale() => _cachedLocale;
+
+  /// Sync accessor for the cached theme mode. Defaults to dark
+  /// pre-prewarm or when none has been persisted.
+  static ThemeMode cachedThemeMode() => _cachedThemeMode;
+
+  /// True after `prewarm()` has run successfully. The notifiers can
+  /// fall back to async load when this is false (e.g. tests that
+  /// bypass `main()`).
+  static bool get isPrewarmed => _prewarmed;
+
   /// Read the persisted locale, or null if the user has never picked one
   /// (in which case we follow the system locale).
   static Future<Locale?> getLocale() async {
@@ -96,8 +134,13 @@ class AppPrefsService {
 
 /// Notifier that persists locale changes and re-emits to listeners.
 class LocaleNotifier extends StateNotifier<Locale?> {
-  LocaleNotifier() : super(null) {
-    _load();
+  // 4.14 / M-MED-07: seed from the prewarmed cache so the first frame
+  // already paints in the right locale. If `prewarm()` didn't run
+  // (e.g. tests bypass main()), fall back to the async load path.
+  LocaleNotifier() : super(AppPrefsService.cachedLocale()) {
+    if (!AppPrefsService.isPrewarmed) {
+      _load();
+    }
   }
 
   Future<void> _load() async {
@@ -116,8 +159,11 @@ final localeProvider = StateNotifierProvider<LocaleNotifier, Locale?>(
 
 /// Notifier that persists theme-mode changes.
 class ThemeModeNotifier extends StateNotifier<ThemeMode> {
-  ThemeModeNotifier() : super(ThemeMode.dark) {
-    _load();
+  // 4.14 / M-MED-07: see LocaleNotifier comment.
+  ThemeModeNotifier() : super(AppPrefsService.cachedThemeMode()) {
+    if (!AppPrefsService.isPrewarmed) {
+      _load();
+    }
   }
 
   Future<void> _load() async {

@@ -39,8 +39,9 @@ class NotificationPreferences {
       tipsEnabled: json['tips_enabled'] as bool? ?? true,
       pushEnabled: json['push_enabled'] as bool? ?? true,
       emailEnabled: json['email_enabled'] as bool? ?? false,
-      createdAt: _parseDate(json['created_at'])!,
-      updatedAt: _parseDate(json['updated_at'])!,
+      // 4.1: server-stamped timestamps fall back instead of crashing.
+      createdAt: _parseDate(json['created_at']) ?? DateTime.now(),
+      updatedAt: _parseDate(json['updated_at']) ?? DateTime.now(),
     );
   }
 

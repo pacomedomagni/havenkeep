@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  S-HI-07: Android 12+ data extraction rules. Both backup paths
+  (cloud + device-to-device transfer) are explicitly opted out.
+  Pre-Android 12 falls back to the legacy `android:allowBackup="false"`
+  attribute on <application>, which we set in AndroidManifest.xml.
+
+  Rationale: HavenKeep stores receipts, item photos, warranty serial
+  numbers, gift codes, and a SQLCipher-encrypted local database in
+  app-private storage. Even though the DB is encrypted, including it
+  in a Google Drive backup widens the threat model — a compromised
+  Google account would expose the encrypted blob, and pairing it with
+  a separately-leaked DB key would deanonymize everything.
+-->
+<data-extraction-rules>
+  <cloud-backup>
+    <exclude domain="root" />
+    <exclude domain="file" />
+    <exclude domain="database" />
+    <exclude domain="sharedpref" />
+    <exclude domain="external" />
+  </cloud-backup>
+  <device-transfer>
+    <exclude domain="root" />
+    <exclude domain="file" />
+    <exclude domain="database" />
+    <exclude domain="sharedpref" />
+    <exclude domain="external" />
+  </device-transfer>
+</data-extraction-rules>

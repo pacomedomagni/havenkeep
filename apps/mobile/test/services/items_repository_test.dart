@@ -45,44 +45,62 @@ void main() {
 
   group('ItemsRepository', () {
     group('getItems', () {
-      test('sends page and limit parameters', () async {
+      test('sends limit (cursor mode) on first page', () async {
         when(mockClient.get(pathSegments: const ['api', 'v1', 'items'], queryParams: anyNamed('queryParams')))
             .thenAnswer((_) async => {
                   'data': [itemJson()],
+                  'meta': {
+                    'pagination': {'has_more': false, 'next_cursor': null},
+                  },
                 });
 
         final items = await repository.getItems();
 
         expect(items, hasLength(1));
 
-        // Verify pagination parameters were sent
+        // 3.20: cursor mode replaced page-based pagination. The first
+        // call sends `limit` + `archived` (no `cursor` yet); subsequent
+        // pages would carry `cursor` from `meta.pagination.next_cursor`.
         final captured = verify(mockClient.get(pathSegments: const ['api', 'v1', 'items'],
           queryParams: captureAnyNamed('queryParams'),
         )).captured.single as Map<String, String>;
-        expect(captured['page'], '1');
         expect(captured['limit'], '100');
         expect(captured['archived'], 'false');
+        expect(captured.containsKey('cursor'), isFalse);
       });
 
-      test('paginates through multiple pages', () async {
-        // First page: 100 items (full page)
+      test('paginates by cursor across multiple pages', () async {
+        // First page: 100 items + a next_cursor pointer.
         final page1Items = List.generate(100, (i) => itemJson(id: 'item-$i'));
-        // Second page: fewer than limit (last page)
+        // Second page: 1 item, no more pages.
         final page2Items = [itemJson(id: 'item-100')];
 
         var callCount = 0;
         when(mockClient.get(pathSegments: const ['api', 'v1', 'items'], queryParams: anyNamed('queryParams')))
             .thenAnswer((_) async {
           callCount++;
+          if (callCount == 1) {
+            return {
+              'data': page1Items,
+              'meta': {
+                'pagination': {
+                  'has_more': true,
+                  'next_cursor': 'CURSOR_PAGE_2',
+                },
+              },
+            };
+          }
           return {
-            'data': callCount == 1 ? page1Items : page2Items,
+            'data': page2Items,
+            'meta': {
+              'pagination': {'has_more': false, 'next_cursor': null},
+            },
           };
         });
 
         final items = await repository.getItems();
 
         expect(items, hasLength(101));
-        // Should have been called twice (page 1 and page 2)
         verify(mockClient.get(pathSegments: const ['api', 'v1', 'items'],
                 queryParams: anyNamed('queryParams')))
             .called(2);
@@ -130,13 +148,16 @@ void main() {
     });
 
     group('getItemsWithStatus', () {
-      test('fetches items with pagination and non-archived filter', () async {
+      test('fetches items with cursor-mode pagination and non-archived filter', () async {
         when(mockClient.get(pathSegments: const ['api', 'v1', 'items'], queryParams: anyNamed('queryParams')))
             .thenAnswer((_) async => {
                   'data': [
                     itemJson(id: 'item-1'),
                     itemJson(id: 'item-2'),
                   ],
+                  'meta': {
+                    'pagination': {'has_more': false, 'next_cursor': null},
+                  },
                 });
 
         final items = await repository.getItemsWithStatus();
@@ -147,8 +168,9 @@ void main() {
           queryParams: captureAnyNamed('queryParams'),
         )).captured.single as Map<String, String>;
         expect(captured['archived'], 'false');
-        expect(captured['page'], '1');
         expect(captured['limit'], '100');
+        // 3.20: page-based parameters are gone; first page has no cursor.
+        expect(captured.containsKey('cursor'), isFalse);
       });
 
       test('filters by homeId when provided', () async {

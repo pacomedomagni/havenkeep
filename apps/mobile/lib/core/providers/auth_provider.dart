@@ -274,12 +274,11 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
   /// flapping every consumer (dashboard / settings / claims) through an
   /// `AsyncLoading` state — see C117. On failure we rethrow so callers
   /// can show a snackbar without losing the previously rendered profile.
-  Future<void> updateProfile({String? fullName, String? avatarUrl}) async {
+  Future<void> updateProfile({String? fullName}) async {
     final previous = state.valueOrNull;
     try {
       final user = await ref.read(authRepositoryProvider).updateProfile(
             fullName: fullName,
-            avatarUrl: avatarUrl,
           );
       state = AsyncValue.data(user);
     } catch (e, st) {
@@ -383,7 +382,6 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
     // 1. Drop in-memory caches and close + delete the per-user DB file.
     try {
       final db = ref.read(localDatabaseProvider);
-      await db.clearAllItems();
       await db.clearAllQueueEntries();
       await db.clearAllConflicts();
       await db.close();

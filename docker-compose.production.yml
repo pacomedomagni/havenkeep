@@ -1,7 +1,32 @@
 version: '3.8'
 
-# Production Docker Compose
-# Uses environment variables and Docker secrets
+# HavenKeep — Production Docker Compose
+#
+# 3.15: this file describes a SINGLE-HOST production deploy (one VM
+# behind Caddy, all services co-located on the `havenkeep` bridge
+# network). It is the canonical production wiring — there is no k8s
+# repo. Implications worth keeping straight when reading this:
+#
+# - `container_name:` is set on every service so operator commands like
+#   `docker logs havenkeep-api-prod` are stable across restarts. That
+#   pins us to one replica per service. A horizontal scale-out
+#   (`deploy.replicas: 3`) needs the container_name pin removed AND a
+#   real upstream LB in front of the API. Don't change one without the
+#   other.
+# - The API mounts Postgres + Redis + MinIO + Loki + Promtail + a
+#   backup cron all in this file. Multi-host requires either splitting
+#   the file by tier (compose-postgres.yml, compose-api.yml, …) or
+#   moving to k8s.
+# - 3.21: with one API replica, `DB_POOL_MAX=20` (default) leaves
+#   plenty of headroom under Postgres' default `max_connections=100`.
+#   Bumping the API to multiple replicas without raising
+#   `max_connections` (or fronting Postgres with PgBouncer in
+#   transaction-pooling mode) WILL exhaust connections under load.
+#   When that day comes, set Postgres `max_connections=200` AND raise
+#   `shared_buffers` to ~25% of RAM, OR introduce PgBouncer as a
+#   sidecar.
+#
+# Uses environment variables (.env) + Docker secrets (./secrets/).
 
 services:
   # PostgreSQL Database
@@ -120,6 +145,53 @@ services:
       retries: 3
       start_period: 40s
 
+  # 2.2: Database Backup Cron — runs daily at 02:00 UTC, verifies the dump
+  # parses, optionally pushes to S3, prunes >30-day-old local copies. The
+  # script is mounted from scripts/backup-database.sh so production uses the
+  # same code path as `npm run db:backup`.
+  backup:
+    image: postgres:15-alpine
+    container_name: havenkeep-backup-prod
+    restart: unless-stopped
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${DB_USER}
+      DB_NAME: ${DB_NAME}
+      PGPASSWORD_FILE: /run/secrets/db_password
+      BACKUP_DIR: /backups
+      # Optional offsite copy. Leave BACKUP_S3_BUCKET unset to skip.
+      BACKUP_S3_BUCKET: ${BACKUP_S3_BUCKET:-}
+      BACKUP_S3_ENDPOINT: ${BACKUP_S3_ENDPOINT:-}
+      AWS_ACCESS_KEY_ID: ${BACKUP_S3_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${BACKUP_S3_SECRET_ACCESS_KEY:-}
+      AWS_DEFAULT_REGION: ${BACKUP_S3_REGION:-us-east-1}
+    volumes:
+      - backup_data:/backups
+      - ./scripts/backup-database.sh:/usr/local/bin/backup-database.sh:ro
+    secrets:
+      - db_password
+    entrypoint: |
+      /bin/sh -c '
+        apk add --no-cache aws-cli >/dev/null 2>&1 || true;
+        export PGPASSWORD=$$(cat /run/secrets/db_password);
+        # Daily-at-02:00-UTC loop. Sleeps to the next 02:00, runs, repeats.
+        while true; do
+          NOW=$$(date -u +%s);
+          NEXT=$$(date -u -d "tomorrow 02:00" +%s 2>/dev/null || date -ju -v+1d -f "%H:%M" "02:00" +%s);
+          SLEEP=$$((NEXT - NOW));
+          if [ $$SLEEP -lt 0 ]; then SLEEP=86400; fi;
+          echo "[backup] next run in $${SLEEP}s";
+          sleep $$SLEEP;
+          /usr/local/bin/backup-database.sh || echo "[backup] run failed";
+        done
+      '
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - havenkeep
+
   # Loki - Log Aggregation
   loki:
     image: grafana/loki:2.9.3
@@ -131,8 +203,22 @@ services:
       - "127.0.0.1:3100:3100"
     volumes:
       - ./monitoring/loki-config.yml:/etc/loki/local-config.yaml
+      # 3.13: ship alert rules so the ruler block in loki-config.yml can
+      # actually fire alerts. The ruler reads from
+      # `<rules_directory>/<tenant>/*.yml`; tenant is `fake` when
+      # auth_enabled=false, but mounting under `havenkeep` works because
+      # Loki globs the rules directory regardless.
+      - ./monitoring/loki-alerts.yml:/loki/rules/havenkeep/alerts.yml:ro
       - loki_data:/loki
     command: -config.file=/etc/loki/local-config.yaml
+    healthcheck:
+      # 2.1: assert /loki/chunks is reachable; a config regression that
+      # routes back to /tmp/loki would still expose /ready as healthy.
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:3100/ready | grep -q ready && [ -d /loki/chunks ]"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     networks:
       - havenkeep
     restart: unless-stopped
@@ -145,6 +231,8 @@ services:
       - ./monitoring/promtail-config.yml:/etc/promtail/config.yml
       - /var/log:/var/log:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      # 2.1: positions persisted across restarts (see monitoring/promtail-config.yml).
+      - promtail_data:/var/lib/promtail
     command: -config.file=/etc/promtail/config.yml
     depends_on:
       - loki
@@ -164,6 +252,10 @@ volumes:
   redis_data:
     driver: local
   loki_data:
+    driver: local
+  promtail_data:
+    driver: local
+  backup_data:
     driver: local
 
 secrets:

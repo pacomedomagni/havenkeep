@@ -49,10 +49,13 @@ export const cancelWarrantyPurchaseSchema = Joi.object({
 export const getPurchasesQuerySchema = Joi.object({
   limit: Joi.number().integer().min(1).max(100).optional().default(50),
   offset: Joi.number().integer().min(0).optional().default(0),
+  page: Joi.number().integer().min(1).optional(),
   itemId: Joi.string().uuid().optional(),
+  homeId: Joi.string().uuid().optional(),
   status: Joi.string().valid('active', 'expired', 'cancelled', 'pending', 'claimed').optional(),
 })
-  .rename('item_id', 'itemId', { ignoreUndefined: true, override: false });
+  .rename('item_id', 'itemId', { ignoreUndefined: true, override: false })
+  .rename('home_id', 'homeId', { ignoreUndefined: true, override: false });
 
 export const getExpiringQuerySchema = Joi.object({
   days: Joi.number().integer().min(1).max(365).optional().default(30),

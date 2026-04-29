@@ -65,8 +65,10 @@ class WarrantyClaim {
       filedWith: json['filed_with'] as String?,
       claimNumber: json['claim_number'] as String?,
       notes: json['notes'] as String?,
-      createdAt: _parseDate(json['created_at'])!,
-      updatedAt: _parseDate(json['updated_at'])!,
+      // 4.1: server-stamped timestamps fall back instead of crashing.
+      // claimDate above keeps `!` deliberately (D025 — required-by-contract).
+      createdAt: _parseDate(json['created_at']) ?? DateTime.now(),
+      updatedAt: _parseDate(json['updated_at']) ?? DateTime.now(),
       itemName: json['item_name'] as String?,
       itemBrand: json['item_brand'] as String?,
     );

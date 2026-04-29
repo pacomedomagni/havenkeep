@@ -53,7 +53,8 @@ class EmailScan {
       status: EmailScanStatus.fromJson(json['status'] as String? ?? 'pending'),
       errorMessage: json['error_message'] as String?,
       completedAt: _parseDate(json['completed_at']),
-      createdAt: _parseDate(json['created_at'])!,
+      // 4.1: server-stamped timestamp falls back instead of crashing.
+      createdAt: _parseDate(json['created_at']) ?? DateTime.now(),
     );
   }
 

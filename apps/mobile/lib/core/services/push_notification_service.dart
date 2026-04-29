@@ -12,13 +12,32 @@ import 'notification_display_service.dart';
 /// notifications. S2-H: matching on first path segment (not `startsWith`)
 /// blocks `/items/../settings/delete-account` style traversals that the
 /// previous prefix check would have accepted.
+///
+/// 3.4: list refreshed to mirror the actual top-level routes declared in
+/// `core/router/router.dart` (AppRoutes). The previous list referenced
+/// `homes` and `warranties` (neither exists) and was missing every
+/// claim/maintenance/coverage/premium/gift/referral/conflict/search/
+/// dashboard route a server-side push could legitimately link to.
+/// Path-traversal protection is unchanged — `Uri.parse` already
+/// normalises `..` so segment matching can't be bypassed.
 const _kAllowedRouteSegments = {
   'items',
-  'homes',
-  'warranties',
-  'notifications',
   'settings',
   'profile',
+  'notifications',
+  'maintenance',
+  'warranty-claims',
+  'warranty-coverage',
+  'premium',
+  'gift',
+  'referral',
+  'conflicts',
+  'search',
+  'dashboard',
+  // Add-item flow uses /add-item subpaths — included so a server push
+  // that links into "scan receipt" / "scan barcode" works without an
+  // additional segment exception.
+  'add-item',
 };
 
 /// Handles Firebase Cloud Messaging for push notifications.

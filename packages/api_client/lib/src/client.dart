@@ -1,11 +1,26 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:developer' as developer;
 import 'dart:io';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
+
+/// 3.8: per-request id used to correlate a mobile call with the server log
+/// line. The server's request-logger accepts incoming `x-request-id`
+/// values matching `^[A-Za-z0-9._-]{1,64}$`, so we generate 32 hex
+/// characters (128 bits) which fits comfortably. Random.secure is
+/// sufficient for correlation; this is not a security identifier.
+final _Random_requestIds = Random.secure();
+String _generateRequestId() {
+  final bytes = List<int>.generate(16, (_) => _Random_requestIds.nextInt(256));
+  return bytes
+      .map((b) => b.toRadixString(16).padLeft(2, '0'))
+      .join();
+}
 
 /// Base type for every error the API client surfaces.
 ///
@@ -453,6 +468,12 @@ class ApiClient {
   // ============================================
 
   /// Build headers with auth token.
+  ///
+  /// 3.8: every call generates a fresh `x-request-id` and logs it via
+  /// `dart:developer.log` so the mobile-side console + Crashlytics
+  /// breadcrumbs carry the same id the server's pino-Loki line carries.
+  /// On a "report this issue" path the user can copy a single id that
+  /// resolves both halves of the trace.
   Map<String, String> _headers({
     bool isJson = true,
     String? idempotencyKey,
@@ -467,6 +488,13 @@ class ApiClient {
     if (idempotencyKey != null && idempotencyKey.isNotEmpty) {
       headers['Idempotency-Key'] = idempotencyKey;
     }
+    final requestId = _generateRequestId();
+    headers['x-request-id'] = requestId;
+    developer.log(
+      'request_id=$requestId',
+      name: 'ApiClient',
+      level: 500, // INFO
+    );
     return headers;
   }
 
@@ -486,14 +514,30 @@ class ApiClient {
     }
 
     if (response.statusCode == 401 && _accessToken != null) {
+      // 2.14: distinguish refresh failure from retry failure. Wrapping
+      // both in one try/catch (the previous shape) treated a transient
+      // network blip during the retry as if the refresh had failed —
+      // tokens got cleared and the user was signed out. Now: only clear
+      // tokens on a *refresh* failure; rethrow transport errors raised
+      // during the retry so the caller sees the real cause.
       try {
         await refreshAccessToken();
-        // Retry with new token
-        response = await request();
       } catch (e) {
-        // Refresh failed — clear tokens so the user isn't stuck half-authenticated
         _log('[ApiClient] Token refresh failed, signing out: $e');
         await clearTokens();
+        return response;
+      }
+      // Refresh succeeded — retry the original request. Map transport
+      // errors here to the same typed exceptions the first call uses so
+      // upstream catch-blocks behave consistently.
+      try {
+        response = await request();
+      } on TimeoutException {
+        throw const ApiTimeoutException(
+          'Request timed out. Please check your connection.',
+        );
+      } on SocketException catch (e) {
+        throw ApiNetworkException('Network error: ${e.message}');
       }
     }
 

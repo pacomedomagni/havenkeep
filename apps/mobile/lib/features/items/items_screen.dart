@@ -674,15 +674,67 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
             ],
           ),
         ),
-        child: GestureDetector(
+        // 3.6: a11y pass.
+        // - The outer `Semantics(button: true, label: ...)` aggregates
+        //   brand + name + warranty status + days remaining into a single
+        //   announcement so VoiceOver/TalkBack reads one row's worth of
+        //   information per swipe instead of every nested Text node.
+        // - Material+InkWell replaces the bare GestureDetector so
+        //   keyboard / D-Pad focus draws a focus ring AND the user gets
+        //   the standard tap ripple. The `Material` parent matches the
+        //   row's surface color so the ink isn't visible against a
+        //   contrasting background.
+        // - The hit-test region is at least 56px tall (icon + padding)
+        //   which clears the 48px Material guideline. We also pass
+        //   `borderRadius` to InkWell so the ripple is clipped to the
+        //   card's rounded corners.
+        child: _ItemCardTapTarget(item: item),
+      ),
+    );
+  }
+}
+
+class _ItemCardTapTarget extends StatelessWidget {
+  final Item item;
+
+  const _ItemCardTapTarget({required this.item});
+
+  String _semanticStatus(Item item) {
+    final status = item.computedWarrantyStatus;
+    final days = item.computedDaysRemaining;
+    return switch (status) {
+      WarrantyStatus.active => 'warranty active, $days days remaining',
+      WarrantyStatus.expiring => 'warranty expiring in $days days',
+      WarrantyStatus.expired =>
+        'warranty expired ${days.abs()} days ago',
+    };
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final displayName = '${item.brand ?? ''} ${item.name}'.trim();
+    final semanticLabel = '$displayName, ${_semanticStatus(item)}';
+
+    return Semantics(
+      button: true,
+      label: semanticLabel,
+      // Children are decorative for SR purposes once the rolled-up label
+      // exists — flatten the subtree so VoiceOver doesn't repeat each
+      // line.
+      excludeSemantics: true,
+      child: Material(
+        color: HavenColors.surface,
+        borderRadius: BorderRadius.circular(HavenRadius.button),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(HavenRadius.button),
           onTap: () {
             HavenHaptics.tap();
             context.push('/items/${item.id}');
           },
           child: Container(
             padding: const EdgeInsets.all(HavenSpacing.md),
+            constraints: const BoxConstraints(minHeight: 56),
             decoration: BoxDecoration(
-              color: HavenColors.surface,
               borderRadius: BorderRadius.circular(HavenRadius.button),
               border: Border.all(color: HavenColors.border),
             ),
@@ -697,19 +749,16 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Builder(builder: (_) {
-                        final displayName = '${item.brand ?? ''} ${item.name}'.trim();
-                        return Text(
-                          displayName,
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            color: HavenColors.textPrimary,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        );
-                      }),
+                      Text(
+                        displayName,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: HavenColors.textPrimary,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                       if (item.modelNumber != null &&
                           item.modelNumber!.isNotEmpty) ...[
                         const SizedBox(height: 2),
@@ -780,45 +829,64 @@ class _FilterChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () {
-        HavenHaptics.tap();
-        onTap();
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(
-          horizontal: HavenSpacing.md,
-          vertical: HavenSpacing.sm,
-        ),
-        decoration: BoxDecoration(
-          color: isActive ? HavenColors.primary : HavenColors.surface,
+    // 3.6: a11y pass for filter chips.
+    // - `Semantics.selected` flips the SR announcement between
+    //   "$label, selected" and "$label" so users can hear which filter
+    //   is currently active.
+    // - Material+InkWell replaces GestureDetector for the focus ring +
+    //   tap ripple.
+    // - `minHeight: 48` (the Material guideline) is enforced via
+    //   ConstrainedBox; vertical padding alone was 32px which is too
+    //   small for users with motor impairments.
+    return Semantics(
+      button: true,
+      selected: isActive,
+      label: label,
+      excludeSemantics: true,
+      child: Material(
+        color: isActive ? HavenColors.primary : HavenColors.surface,
+        borderRadius: BorderRadius.circular(HavenRadius.chip),
+        child: InkWell(
           borderRadius: BorderRadius.circular(HavenRadius.chip),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (dotColor != null) ...[
-              Container(
-                width: 8,
-                height: 8,
-                decoration: BoxDecoration(
-                  color: isActive ? Colors.white : dotColor,
-                  shape: BoxShape.circle,
-                ),
+          onTap: () {
+            HavenHaptics.tap();
+            onTap();
+          },
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 48),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: HavenSpacing.md,
+                vertical: HavenSpacing.sm,
               ),
-              const SizedBox(width: HavenSpacing.sm),
-            ],
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-                color: isActive
-                    ? Colors.white
-                    : HavenColors.textSecondary,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (dotColor != null) ...[
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: isActive ? Colors.white : dotColor,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: HavenSpacing.sm),
+                  ],
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: isActive
+                          ? Colors.white
+                          : HavenColors.textSecondary,
+                    ),
+                  ),
+                ],
               ),
             ),
-          ],
+          ),
         ),
       ),
     );

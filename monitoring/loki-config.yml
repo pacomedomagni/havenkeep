@@ -6,11 +6,13 @@ server:
 
 common:
   instance_addr: 127.0.0.1
-  path_prefix: /tmp/loki
+  # 2.1: persistent volume mount is at /loki — `path_prefix: /tmp/loki` would
+  # write chunks to a tmpfs that disappears on every container restart.
+  path_prefix: /loki
   storage:
     filesystem:
-      chunks_directory: /tmp/loki/chunks
-      rules_directory: /tmp/loki/rules
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
   replication_factor: 1
   ring:
     kvstore:

@@ -3,6 +3,7 @@ import 'package:api_client/api_client.dart';
 import 'package:shared_models/shared_models.dart';
 import '../services/warranty_claims_repository.dart';
 import 'auth_provider.dart';
+import 'homes_provider.dart';
 
 /// Provides the warranty claims repository instance.
 final claimsRepositoryProvider = Provider<WarrantyClaimsRepository>((ref) {
@@ -22,7 +23,9 @@ class ClaimsNotifier extends AsyncNotifier<List<WarrantyClaim>> {
     final user = userAsync.valueOrNull;
     if (user == null) return [];
 
-    return ref.read(claimsRepositoryProvider).getClaims();
+    // 2.13: re-fetch when the user switches homes.
+    final currentHome = ref.watch(currentHomeProvider);
+    return ref.read(claimsRepositoryProvider).getClaims(homeId: currentHome?.id);
   }
 
   /// Add a new claim.

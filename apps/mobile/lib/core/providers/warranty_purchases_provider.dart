@@ -4,6 +4,7 @@ import 'package:shared_models/shared_models.dart';
 
 import '../services/warranty_purchases_repository.dart';
 import 'auth_provider.dart';
+import 'homes_provider.dart';
 
 final warrantyPurchasesRepositoryProvider = Provider<WarrantyPurchasesRepository>((ref) {
   return WarrantyPurchasesRepository(ref.read(apiClientProvider));
@@ -19,13 +20,21 @@ class WarrantyPurchasesNotifier extends AsyncNotifier<List<WarrantyPurchase>> {
   Future<List<WarrantyPurchase>> build() async {
     final userAsync = ref.watch(currentUserProvider);
     if (userAsync.valueOrNull == null) return [];
-    return ref.read(warrantyPurchasesRepositoryProvider).getPurchases();
+    // 2.13: scope purchases to the active home so the coverage tab matches
+    // the home-switcher state.
+    final currentHome = ref.watch(currentHomeProvider);
+    return ref
+        .read(warrantyPurchasesRepositoryProvider)
+        .getPurchases(homeId: currentHome?.id);
   }
 
   Future<void> refresh() async {
     state = const AsyncValue.loading();
     state = await AsyncValue.guard(() async {
-      return ref.read(warrantyPurchasesRepositoryProvider).getPurchases();
+      final currentHome = ref.read(currentHomeProvider);
+      return ref
+          .read(warrantyPurchasesRepositoryProvider)
+          .getPurchases(homeId: currentHome?.id);
     });
   }
 

@@ -34,7 +34,8 @@ class Tip {
       triggerCondition: json['trigger_condition'] as String?,
       content: json['content'] as String? ?? '',
       isActive: json['is_active'] as bool? ?? true,
-      createdAt: _parseDate(json['created_at'])!,
+      // 4.1: server-stamped timestamp falls back instead of crashing.
+      createdAt: _parseDate(json['created_at']) ?? DateTime.now(),
     );
   }
 

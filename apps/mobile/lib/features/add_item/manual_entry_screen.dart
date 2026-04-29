@@ -42,7 +42,6 @@ class _ManualEntryScreenState extends ConsumerState<ManualEntryScreen> {
   final _warrantyProviderController = TextEditingController();
   final _notesController = TextEditingController();
   final _barcodeController = TextEditingController();
-  final _productImageUrlController = TextEditingController();
 
   bool _isSaving = false;
 
@@ -56,7 +55,6 @@ class _ManualEntryScreenState extends ConsumerState<ManualEntryScreen> {
     _warrantyProviderController.dispose();
     _notesController.dispose();
     _barcodeController.dispose();
-    _productImageUrlController.dispose();
     super.dispose();
   }
 
@@ -161,9 +159,9 @@ class _ManualEntryScreenState extends ConsumerState<ManualEntryScreen> {
         barcode: _barcodeController.text.isNotEmpty
             ? _barcodeController.text.trim()
             : null,
-        productImageUrl: _productImageUrlController.text.isNotEmpty
-            ? _productImageUrlController.text.trim()
-            : null,
+        // 1.8: product image is set via POST /uploads/item-image, never
+        // by the create body. The user can add a photo from the item
+        // detail screen after the item exists.
         addedVia: ItemAddedVia.manual,
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),
@@ -416,11 +414,18 @@ class _ManualEntryScreenState extends ConsumerState<ManualEntryScreen> {
                 const SizedBox(height: HavenSpacing.md),
 
                 // Price Paid (Ch05 NaN guard).
+                // 3.5: helperText calls out USD so a non-US user knows
+                // what currency the form expects.
                 TextFormField(
                   controller: _priceController,
                   decoration: const InputDecoration(
                     labelText: 'Price Paid',
                     prefixText: '\$ ',
+                    helperText: 'In USD',
+                    helperStyle: TextStyle(
+                      fontSize: 11,
+                      color: HavenColors.textTertiary,
+                    ),
                   ),
                   keyboardType: const TextInputType.numberWithOptions(
                       decimal: true),
@@ -563,35 +568,9 @@ class _ManualEntryScreenState extends ConsumerState<ManualEntryScreen> {
                     return null;
                   },
                 ),
-                const SizedBox(height: HavenSpacing.md),
-
-                // Product Image URL — Ch05-F014: only http/https, no
-                // javascript:/file: schemes that could pop in a webview.
-                TextFormField(
-                  controller: _productImageUrlController,
-                  decoration: const InputDecoration(
-                    labelText: 'Product Image URL',
-                    prefixIcon: Icon(Icons.image_outlined, size: 20),
-                  ),
-                  keyboardType: TextInputType.url,
-                  maxLength: 500,
-                  maxLengthEnforcement: MaxLengthEnforcement.enforced,
-                  buildCounter: _hideCounter,
-                  validator: (value) {
-                    if (value == null || value.isEmpty) return null;
-                    final uri = Uri.tryParse(value.trim());
-                    if (uri == null || !uri.hasScheme) {
-                      return 'Enter a valid URL';
-                    }
-                    if (uri.scheme != 'http' && uri.scheme != 'https') {
-                      return 'Only http(s) URLs are allowed';
-                    }
-                    if (uri.host.isEmpty) {
-                      return 'Enter a valid URL';
-                    }
-                    return null;
-                  },
-                ),
+                // 1.8: product image URL field removed — image upload
+                // is via POST /uploads/item-image after the item exists,
+                // not a user-pasted URL on create.
                 const SizedBox(height: HavenSpacing.xl),
 
                 // Save button

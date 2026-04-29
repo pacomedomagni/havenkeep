@@ -186,7 +186,6 @@ class _BarcodeScanScreenState extends ConsumerState<BarcodeScanScreen>
         brand: _lookupResult!.brand,
         barcode: _lookupResult!.barcode,
         category: category,
-        productImageUrl: _lookupResult!.imageUrl,
         purchaseDate: purchaseDate,
         warrantyMonths: warrantyMonths,
         // The server overwrites this from `purchase_date + warranty_months`,

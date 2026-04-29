@@ -69,6 +69,10 @@ interface ExtractedReceipt {
   senderDomain?: string;
   // Confidence score (0..1) returned by OpenAI; defaults to 0 when missing.
   confidence?: number;
+  // S-ME-07: did the source-mail's Authentication-Results header report
+  // dkim=pass? Used to gate auto-import — without DKIM=pass we route to
+  // the review queue regardless of trusted-domain match.
+  dkimPassed?: boolean;
 }
 
 export type EmailScannerProvider = 'gmail' | 'outlook';
@@ -761,7 +765,13 @@ export class EmailScannerService {
         const domain = receipt.senderDomain || '';
         const trusted = TRUSTED_RETAILER_DOMAINS.has(domain);
         const confidence = typeof receipt.confidence === 'number' ? receipt.confidence : 0;
-        const autoCreate = trusted && confidence >= AUTO_CREATE_CONFIDENCE_THRESHOLD;
+        // S-ME-07: a trusted-domain match is necessary but not sufficient
+        // for auto-import. The source mail must have DKIM=pass; otherwise
+        // a spoofed `From: receipts@amazon.com` would slip through. Mail
+        // that fails DKIM (or has no Authentication-Results header) goes
+        // to the review queue where the user confirms each item.
+        const autoCreate =
+          trusted && confidence >= AUTO_CREATE_CONFIDENCE_THRESHOLD && receipt.dkimPassed === true;
 
         if (!autoCreate) {
           await this.enqueueReview(userId, scanId, receipt, confidence);
@@ -920,6 +930,8 @@ export class EmailScannerService {
             const extracted = await this.extractReceiptData(emailData, signal, userId);
 
             if (extracted) {
+              // S-ME-07: surface DKIM result so the import gate can read it.
+              extracted.dkimPassed = this.dkimPassed(emailData.authResults);
               receipts.push(extracted);
             }
           } catch (error) {
@@ -1023,18 +1035,27 @@ export class EmailScannerService {
   }
 
   /**
-   * Parse Gmail message to extract relevant data
+   * Parse Gmail message to extract relevant data.
+   *
+   * S-ME-07: read the `Authentication-Results` header so the caller can
+   * gate trusted-retailer auto-import on DKIM=pass. Without this check a
+   * spoofed `From: receipts@amazon.com` lands on the trusted list and
+   * auto-creates items. Gmail attaches its own Authentication-Results
+   * header at receipt time; we just surface it.
    */
   private static parseGmailMessage(message: any): {
     subject: string;
     from: string;
     date: string;
     body: string;
+    authResults: string;
   } {
     const headers = message.payload?.headers || [];
     const subject = headers.find((h: any) => h.name === 'Subject')?.value || '';
     const from = headers.find((h: any) => h.name === 'From')?.value || '';
     const date = headers.find((h: any) => h.name === 'Date')?.value || '';
+    const authResults =
+      headers.find((h: any) => h.name === 'Authentication-Results')?.value || '';
 
     // Extract body
     let body = '';
@@ -1049,7 +1070,21 @@ export class EmailScannerService {
       }
     }
 
-    return { subject, from, date, body };
+    return { subject, from, date, body, authResults };
+  }
+
+  /**
+   * S-ME-07: parse the Authentication-Results header and return whether
+   * DKIM passed. Examples of the header (RFC 8601):
+   *   Authentication-Results: mx.google.com; dkim=pass header.i=@amazon.com; spf=pass smtp.mailfrom=...
+   *   Authentication-Results: mx.google.com; dkim=fail (bad signature) header.i=@amazon.com
+   * Treat anything other than `dkim=pass` as a failure (including
+   * absent header — providers without DKIM aren't trusted-retailer
+   * candidates).
+   */
+  private static dkimPassed(authResults: string | undefined | null): boolean {
+    if (!authResults) return false;
+    return /\bdkim=pass\b/i.test(authResults);
   }
 
   /**

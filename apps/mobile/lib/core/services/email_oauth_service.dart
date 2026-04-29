@@ -1,7 +1,3 @@
-import 'dart:convert';
-import 'dart:math';
-
-import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_web_auth_2/flutter_web_auth_2.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -64,16 +60,18 @@ class EmailOAuthService {
     }
   }
 
-  /// Get an Outlook OAuth `code` via PKCE. Mobile no longer exchanges the
-  /// code for an access token — it forwards code + redirect URI to the API.
+  /// Get an Outlook OAuth `code` via the system browser. Mobile forwards
+  /// `code` + `redirectUri` to the API, which performs the token exchange
+  /// using its server-side `client_secret`. The Azure AD app must therefore
+  /// be configured as a confidential/web client (NOT public). PKCE is
+  /// intentionally NOT sent — the API never sees a `code_verifier`, and
+  /// Microsoft would reject the redemption if PKCE was advertised here but
+  /// not completed at the token endpoint.
   Future<EmailOAuthCode> getOutlookAuthorizationCode() async {
     final config = _ref.read(environmentConfigProvider);
     if (config.outlookClientId.isEmpty || config.outlookRedirectUri.isEmpty) {
       throw StateError('Outlook OAuth is not configured');
     }
-
-    final codeVerifier = _generateCodeVerifier();
-    final codeChallenge = _createCodeChallenge(codeVerifier);
 
     final tenant = config.outlookTenant.isNotEmpty ? config.outlookTenant : 'common';
     final authUri = Uri.https(
@@ -85,8 +83,6 @@ class EmailOAuthService {
         'redirect_uri': config.outlookRedirectUri,
         'response_mode': 'query',
         'scope': 'offline_access https://graph.microsoft.com/Mail.Read',
-        'code_challenge': codeChallenge,
-        'code_challenge_method': 'S256',
       },
     );
 
@@ -106,18 +102,6 @@ class EmailOAuthService {
       debugPrint('[EmailOAuth] Outlook authorize failed: $e');
       rethrow;
     }
-  }
-
-  String _generateCodeVerifier() {
-    final random = Random.secure();
-    final bytes = List<int>.generate(64, (_) => random.nextInt(256));
-    return base64UrlEncode(bytes).replaceAll('=', '');
-  }
-
-  String _createCodeChallenge(String verifier) {
-    final bytes = utf8.encode(verifier);
-    final digest = sha256.convert(bytes);
-    return base64UrlEncode(digest.bytes).replaceAll('=', '');
   }
 }
 
