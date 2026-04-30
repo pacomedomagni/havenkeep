@@ -1,7 +1,17 @@
-import { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg';
+import { Pool, PoolClient, QueryResult, QueryResultRow, types } from 'pg';
 import { readFileSync } from 'fs';
 import { config } from '../config';
 import { logger } from '../utils/logger';
+
+// C9: parse NUMERIC/DECIMAL (OID 1700) as JS number. node-postgres returns
+// these as strings by default to preserve precision; mobile models cast
+// `as num?` and crash on hydration (partner gifts, warranty purchases /
+// claims, partner commissions, maintenance history). Every money column
+// in this codebase is DECIMAL(10,2) where float64 is exact for two-
+// decimal-place values up to ~9 trillion. If a future column needs more
+// precision than float64 (loss-of-precision around 2^53 ≈ 9e15), pin
+// that column's parser separately to a Decimal lib.
+types.setTypeParser(1700, (val) => (val === null ? null : parseFloat(val)));
 
 // ── Knobs (tunable via env, NaN-guarded) ──────────────────────────────────
 function intFromEnv(name: string, fallback: number): number {
