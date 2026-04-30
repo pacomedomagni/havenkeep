@@ -44,7 +44,7 @@ final maintenanceHistoryProvider = FutureProvider<List<MaintenanceHistory>>((ref
 /// invalidated alongside [maintenanceHistoryProvider] whenever a new
 /// task is logged so the per-item view stays in sync.
 final maintenanceHistoryByItemProvider =
-    FutureProvider.family<List<MaintenanceHistory>, String>((ref, itemId) async {
+    FutureProvider.family.autoDispose<List<MaintenanceHistory>, String>((ref, itemId) async {
   final userAsync = ref.watch(currentUserProvider);
   if (userAsync.valueOrNull == null) return [];
 
@@ -53,6 +53,6 @@ final maintenanceHistoryByItemProvider =
 
 /// Maintenance schedules for a specific category.
 final maintenanceSchedulesProvider =
-    FutureProvider.family<List<MaintenanceSchedule>, String>((ref, category) async {
+    FutureProvider.family.autoDispose<List<MaintenanceSchedule>, String>((ref, category) async {
   return ref.read(maintenanceRepositoryProvider).getSchedules(category);
 });

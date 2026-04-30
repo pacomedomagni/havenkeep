@@ -413,8 +413,12 @@ final categoryDefaultsProvider =
 });
 
 /// Brand suggestions for a specific category.
+///
+/// H-B8: autoDispose so a user who browses many categories doesn't
+/// accumulate one cached future per category for the lifetime of the
+/// ProviderScope. Same hygiene as itemDetailProvider above.
 final brandSuggestionsProvider =
-    FutureProvider.family<List<String>, ItemCategory>((ref, category) async {
+    FutureProvider.family.autoDispose<List<String>, ItemCategory>((ref, category) async {
   return ref.read(categoryRepositoryProvider).getBrandNames(category);
 });
 

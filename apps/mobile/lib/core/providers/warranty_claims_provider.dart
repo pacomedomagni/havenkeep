@@ -52,7 +52,7 @@ class ClaimsNotifier extends AsyncNotifier<List<WarrantyClaim>> {
 
 /// Claims for a specific item.
 final claimsByItemProvider =
-    FutureProvider.family<List<WarrantyClaim>, String>((ref, itemId) async {
+    FutureProvider.family.autoDispose<List<WarrantyClaim>, String>((ref, itemId) async {
   final userAsync = ref.watch(currentUserProvider);
   if (userAsync.valueOrNull == null) return [];
 

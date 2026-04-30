@@ -13,7 +13,7 @@ final documentsRepositoryProvider = Provider<DocumentsRepository>((ref) {
 
 /// Documents for a specific item.
 final documentsForItemProvider =
-    FutureProvider.family<List<Document>, String>((ref, itemId) async {
+    FutureProvider.family.autoDispose<List<Document>, String>((ref, itemId) async {
   ref.watch(currentUserProvider);
 
   final user = ref.read(currentUserProvider).value;
