@@ -493,10 +493,69 @@ router.get('/partners/pending', async (req, res, next) => {
   }
 });
 
+// H-A9 (audit): partner status state-machine guards.
+//
+// The prior approve / reject routes flipped status unconditionally with
+// no prior-state check, no audit-metadata capture of the transition,
+// and no session/cache invalidation on revoke. Three problems:
+//   1. A previously rejected partner could be silently re-approved via
+//      `rejected -> active` with no two-admin gate or re-review. The
+//      audit row said "Admin approved" with no prior-status context.
+//   2. A revoked partner kept in-flight refresh tokens and a 10s-cached
+//      user-row claiming is_partner=true. Combined with H-A8's prior
+//      shape, the dashboard middleware also kept routing them to the
+//      partner shell for up to JWT_EXPIRES_IN.
+//   3. No prior_status in the audit log meant "how did this partner
+//      end up active?" had to be reconstructed from updated_at scans.
+//
+// Allowed transitions:
+//   pending  -> active    via /approve  (no-op if already active)
+//   pending  -> rejected  via /reject
+//   active   -> rejected  via /reject   (revoke — burns sessions)
+//   rejected -> *         REFUSED. A separate /reinstate route can be
+//                         added later with stricter gating; for now an
+//                         operator can manually flip via SQL with full
+//                         forensic context.
+async function loadPartnerForStateChange(
+  id: string,
+): Promise<{ id: string; user_id: string; status: string; company_name: string | null }> {
+  const lookup = await query<{
+    id: string;
+    user_id: string;
+    status: string;
+    company_name: string | null;
+  }>(
+    `SELECT id, user_id, status, company_name FROM partners WHERE id = $1`,
+    [id],
+  );
+  if (lookup.rows.length === 0) {
+    throw new AppError('Partner not found', 404);
+  }
+  return lookup.rows[0];
+}
+
 // Approve a partner (status = 'active')
 router.put('/partners/:id/approve', validate(userIdParamSchema, 'params'), async (req, res, next) => {
   try {
     const { id } = req.params;
+    const partner = await loadPartnerForStateChange(id);
+    const priorStatus = partner.status;
+
+    if (priorStatus === 'active') {
+      // Idempotent — surface the current row but skip the audit /
+      // session-invalidation churn. The dashboard's "approve" button
+      // can race a concurrent admin click; both should not produce
+      // two audit rows.
+      sendSuccess(res, partner, { message: 'Partner already active' });
+      return;
+    }
+    if (priorStatus !== 'pending') {
+      throw new AppError(
+        `Cannot transition partner from '${priorStatus}' to 'active'. Use a dedicated reinstate flow for previously-rejected partners.`,
+        409,
+        'CONFLICT',
+      );
+    }
 
     const result = await query(
       `UPDATE partners
@@ -506,16 +565,18 @@ router.put('/partners/:id/approve', validate(userIdParamSchema, 'params'), async
       [id]
     );
 
-    if (result.rows.length === 0) {
-      throw new AppError('Partner not found', 404);
-    }
-
     await AuditService.logFromRequest(req, 'admin.settings_change', {
       severity: 'info',
       resourceType: 'partner',
       resourceId: id,
       description: `Admin approved partner: ${result.rows[0].company_name || id}`,
+      metadata: { from: priorStatus, to: 'active' },
     });
+
+    // Drop the cached user row so the next call sees is_partner=true
+    // immediately (otherwise the partner waits up to 10s for the cache
+    // to expire before they can use partner endpoints).
+    await invalidateUserCache(partner.user_id);
 
     sendSuccess(res, result.rows[0], { message: 'Partner approved' });
   } catch (error) {
@@ -532,6 +593,21 @@ router.put('/partners/:id/reject', validate(userIdParamSchema, 'params'), valida
     const reasonRaw = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
     const reason = reasonRaw.slice(0, 1024);
 
+    const partner = await loadPartnerForStateChange(id);
+    const priorStatus = partner.status;
+
+    if (priorStatus === 'rejected') {
+      sendSuccess(res, partner, { message: 'Partner already rejected' });
+      return;
+    }
+    if (priorStatus !== 'pending' && priorStatus !== 'active') {
+      throw new AppError(
+        `Cannot transition partner from '${priorStatus}' to 'rejected'.`,
+        409,
+        'CONFLICT',
+      );
+    }
+
     const result = await query(
       `UPDATE partners
          SET status = 'rejected', is_active = FALSE, updated_at = NOW()
@@ -539,10 +615,6 @@ router.put('/partners/:id/reject', validate(userIdParamSchema, 'params'), valida
          RETURNING *`,
       [id]
     );
-
-    if (result.rows.length === 0) {
-      throw new AppError('Partner not found', 404);
-    }
 
     await AuditService.logFromRequest(req, 'admin.settings_change', {
       severity: 'warning',
@@ -552,8 +624,18 @@ router.put('/partners/:id/reject', validate(userIdParamSchema, 'params'), valida
         reason.length > 0
           ? `Admin rejected partner ${result.rows[0].company_name || id}: ${reason}`
           : `Admin rejected partner: ${result.rows[0].company_name || id}`,
-      metadata: reason ? { reason } : undefined,
+      metadata: { from: priorStatus, to: 'rejected', ...(reason ? { reason } : {}) },
     });
+
+    // active -> rejected is a session-revocation event, mirroring
+    // /admin/users/:id/suspend. Burn every refresh token + invalidate
+    // the user-row cache so an in-flight bearer token can't keep
+    // exercising partner endpoints (the API's per-call requireAdmin/
+    // requirePartner re-derives anyway, but this closes the race).
+    if (priorStatus === 'active') {
+      await query(`DELETE FROM refresh_tokens WHERE user_id = $1`, [partner.user_id]);
+    }
+    await invalidateUserCache(partner.user_id);
 
     sendSuccess(res, result.rows[0], { message: 'Partner rejected' });
   } catch (error) {
