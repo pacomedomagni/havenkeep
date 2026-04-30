@@ -583,30 +583,58 @@ router.post(
 
 // ========== PARTNER TIERS ==========
 
+// H-P4 (audit): the actual revenue model is per-gift, not subscription.
+// price_monthly was misleading — the dashboard advertised a recurring
+// fee that doesn't exist (no Stripe Subscription is created at signup;
+// no dunning). Every tier's price_per_gift now mirrors the canonical
+// TIER_PRICE_PER_GIFT_USD from partners.service.ts so the two values
+// can't drift. price_monthly stays at 0 to make the no-subscription
+// truth explicit; the field is retained for the dashboard which
+// already renders it.
+import { TIER_PRICE_PER_GIFT_USD } from '../services/partners.service';
+
 const PARTNER_TIERS = [
   {
     id: 'basic',
     name: 'Basic',
     price_monthly: 0,
+    price_per_gift: TIER_PRICE_PER_GIFT_USD.basic,
     max_gifts_per_month: 10,
     commission_rate: 0.10,
-    features: ['10 gifts/month', '10% commission'],
+    features: [
+      `$${TIER_PRICE_PER_GIFT_USD.basic} per gift`,
+      '10 gifts/month',
+      '10% commission',
+    ],
   },
   {
     id: 'premium',
     name: 'Premium',
-    price_monthly: 49,
+    price_monthly: 0,
+    price_per_gift: TIER_PRICE_PER_GIFT_USD.premium,
     max_gifts_per_month: 50,
     commission_rate: 0.15,
-    features: ['50 gifts/month', '15% commission', 'Priority support'],
+    features: [
+      `$${TIER_PRICE_PER_GIFT_USD.premium} per gift`,
+      '50 gifts/month',
+      '15% commission',
+      'Priority support',
+    ],
   },
   {
     id: 'platinum',
     name: 'Platinum',
-    price_monthly: 149,
+    price_monthly: 0,
+    price_per_gift: TIER_PRICE_PER_GIFT_USD.platinum,
     max_gifts_per_month: -1,
     commission_rate: 0.20,
-    features: ['Unlimited gifts', '20% commission', 'Dedicated account manager', 'Custom branding'],
+    features: [
+      `$${TIER_PRICE_PER_GIFT_USD.platinum} per gift`,
+      'Unlimited gifts',
+      '20% commission',
+      'Dedicated account manager',
+      'Custom branding',
+    ],
   },
 ];
 
