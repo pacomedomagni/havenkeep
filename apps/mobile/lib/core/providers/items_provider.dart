@@ -336,9 +336,16 @@ class ItemsNotifier extends AsyncNotifier<List<Item>> {
           rethrow;
         }
       }
-      // Rollback to previous state on non-offline failure
+      // Rollback to previous state on non-offline failure.
+      // L4-archive (audit): re-invalidate archivedItemsProvider so the
+      // archive screen doesn't render the row in BOTH lists if the user
+      // had it open between optimism and failure. Without this, the
+      // optimistic state.value mutation we did above is reverted but
+      // the archived-list provider may have been speculatively re-read
+      // by the UI and is now stale in the wrong direction.
       debugPrint('[ItemsNotifier] archiveItem failed, rolling back: $e');
       state = previousState;
+      ref.invalidate(archivedItemsProvider);
       rethrow;
     }
   }
