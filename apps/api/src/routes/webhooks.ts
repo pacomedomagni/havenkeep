@@ -8,6 +8,19 @@ import { invalidateUserCache } from '../middleware/auth';
 import { createStripeClient } from '../utils/stripe-client';
 
 /**
+ * C7: partner_gifts.stripe_charge_id stores PaymentIntent IDs (pi_*), not
+ * Charge IDs (ch_*). Stripe `charge.*` event objects expose the underlying
+ * intent via `charge.payment_intent` which can be either a string id or a
+ * pre-expanded PaymentIntent object — normalise to the id string.
+ */
+function getChargePaymentIntentId(charge: Stripe.Charge): string | null {
+  const pi = charge.payment_intent;
+  if (typeof pi === 'string') return pi;
+  if (pi && typeof pi === 'object' && 'id' in pi) return pi.id;
+  return null;
+}
+
+/**
  * `charge.refunded` may fire on a charge that funded a partner gift whose
  * commission has already been marked `paid` and a Stripe transfer has fired
  * to the partner connected account. Cancelling the commission row in that
@@ -16,10 +29,15 @@ import { createStripeClient } from '../utils/stripe-client';
  * partner_commissions row with status='reversed', a negative amount, and a
  * `reversal_of_commission_id` pointing back at the original. Pending or
  * approved commissions (not yet paid out) get cancelled in place.
+ *
+ * C8: takes an optional `proportion` (0..1] for partial refunds. Defaults to
+ * 1.0 (full reversal). Partial refunds reverse a proportional slice of the
+ * commission and don't expire the gift; full refunds use the original logic.
  */
 async function clawbackCommissionForGift(
   client: import('pg').PoolClient,
   giftId: string,
+  proportion = 1,
 ): Promise<void> {
   const original = await client.query(
     `SELECT id, partner_id, amount, status, stripe_transfer_id
@@ -30,6 +48,18 @@ async function clawbackCommissionForGift(
     [giftId],
   );
   for (const row of original.rows) {
+    // For partial refunds the reversal is proportional; round to two decimals
+    // so it stays inside DECIMAL(10,2) precision and matches the commission
+    // column shape. Math.round avoids fractional-cent drift on odd splits.
+    const reversalAmount =
+      proportion >= 1
+        ? -Number(row.amount)
+        : -Math.round(Number(row.amount) * proportion * 100) / 100;
+    const description =
+      proportion >= 1
+        ? 'Refund clawback for refunded gift'
+        : `Partial refund clawback (${Math.round(proportion * 100)}%) for partially-refunded gift`;
+
     if (row.status === 'paid' && row.stripe_transfer_id) {
       // Money already left the platform balance — record a reversal so the
       // ledger sums to zero. The actual Stripe transfer reversal is initiated
@@ -39,13 +69,28 @@ async function clawbackCommissionForGift(
         `INSERT INTO partner_commissions (
            partner_id, type, amount, commission_rate, status,
            reference_id, reference_type, reversal_of_commission_id, description
-         ) VALUES ($1, 'gift', $2, 0, 'reversed', $3, 'partner_gift', $4,
-                   'Refund clawback for refunded gift')`,
-        [row.partner_id, -Number(row.amount), giftId, row.id],
+         ) VALUES ($1, 'gift', $2, 0, 'reversed', $3, 'partner_gift', $4, $5)`,
+        [row.partner_id, reversalAmount, giftId, row.id, description],
       );
       logger.warn(
-        { commissionId: row.id, giftId, amount: row.amount },
+        { commissionId: row.id, giftId, amount: reversalAmount, proportion },
         'Recorded refund clawback against PAID commission — partner already paid; manual transfer reversal required',
+      );
+    } else if (proportion < 1) {
+      // Partial refund against an unpaid commission: keep the original row
+      // and add a partial reversal row alongside it. Don't cancel the
+      // original — it represents the post-refund residual the partner is
+      // still owed.
+      await client.query(
+        `INSERT INTO partner_commissions (
+           partner_id, type, amount, commission_rate, status,
+           reference_id, reference_type, reversal_of_commission_id, description
+         ) VALUES ($1, 'gift', $2, 0, 'reversed', $3, 'partner_gift', $4, $5)`,
+        [row.partner_id, reversalAmount, giftId, row.id, description],
+      );
+      logger.info(
+        { commissionId: row.id, giftId, amount: reversalAmount, proportion },
+        'Recorded partial refund clawback against unpaid commission',
       );
     } else {
       await client.query(
@@ -366,23 +411,30 @@ stripeWebhookRouter.post(
 );
 
 /**
- * Handle charge.succeeded — mark partner gift as sent (if still created)
+ * Handle charge.succeeded — mark partner gift as sent (if still created).
+ * C7: match on payment_intent (partner_gifts.stripe_charge_id stores pi_*).
  */
 async function handleChargeSucceeded(charge: Stripe.Charge): Promise<void> {
   const chargeId = charge.id;
+  const paymentIntentId = getChargePaymentIntentId(charge);
   const partnerId = charge.metadata?.partner_id;
+
+  if (!paymentIntentId) {
+    logger.warn({ chargeId, partnerId }, 'charge.succeeded: event has no payment_intent — skipping');
+    return;
+  }
 
   const result = await pool.query(
     `UPDATE partner_gifts
      SET status = 'sent', updated_at = NOW()
      WHERE stripe_charge_id = $1 AND status = 'created'
      RETURNING id, partner_id, homebuyer_email`,
-    [chargeId]
+    [paymentIntentId]
   );
 
   if (result.rows.length === 0) {
     logger.warn(
-      { chargeId, partnerId },
+      { chargeId, paymentIntentId, partnerId },
       'charge.succeeded: no matching partner_gift found with status "created"'
     );
     return;
@@ -393,30 +445,37 @@ async function handleChargeSucceeded(charge: Stripe.Charge): Promise<void> {
   // No commission status change needed here; stays pending until payout
 
   logger.info(
-    { chargeId, giftId: gift.id, partnerId: gift.partner_id, homebuyer: gift.homebuyer_email },
+    { chargeId, paymentIntentId, giftId: gift.id, partnerId: gift.partner_id, homebuyer: gift.homebuyer_email },
     'charge.succeeded: partner gift payment confirmed'
   );
 }
 
 /**
- * Handle charge.failed — cancel partner gift
+ * Handle charge.failed — cancel partner gift.
+ * C7: match on payment_intent (partner_gifts.stripe_charge_id stores pi_*).
  */
 async function handleChargeFailed(charge: Stripe.Charge): Promise<void> {
   const chargeId = charge.id;
+  const paymentIntentId = getChargePaymentIntentId(charge);
   const failureMessage = charge.failure_message || 'Unknown failure';
   const partnerId = charge.metadata?.partner_id;
+
+  if (!paymentIntentId) {
+    logger.warn({ chargeId, partnerId }, 'charge.failed: event has no payment_intent — skipping');
+    return;
+  }
 
   const result = await pool.query(
     `UPDATE partner_gifts
      SET status = 'expired', updated_at = NOW()
      WHERE stripe_charge_id = $1 AND status = 'created'
      RETURNING id, partner_id, homebuyer_email`,
-    [chargeId]
+    [paymentIntentId]
   );
 
   if (result.rows.length === 0) {
     logger.warn(
-      { chargeId, partnerId },
+      { chargeId, paymentIntentId, partnerId },
       'charge.failed: no matching partner_gift found with status "created"'
     );
     return;
@@ -435,6 +494,7 @@ async function handleChargeFailed(charge: Stripe.Charge): Promise<void> {
   logger.info(
     {
       chargeId,
+      paymentIntentId,
       giftId: gift.id,
       partnerId: gift.partner_id,
       homebuyer: gift.homebuyer_email,
@@ -447,20 +507,78 @@ async function handleChargeFailed(charge: Stripe.Charge): Promise<void> {
 /**
  * Handle charge.refunded — cancel partner gift and commission.
  *
- * Replay-safe: the WHERE excludes gifts whose status is already 'expired'
- * AND is_activated is already FALSE so a re-delivered refund event can't
- * undo a follow-up state transition (Ch03-F042). Clawback rows on the
- * commission side are de-duped by the `reference_id + status NOT IN
- * ('reversed','cancelled')` filter inside clawbackCommissionForGift.
+ * C7: match on charge.payment_intent (partner_gifts.stripe_charge_id stores
+ * pi_*, not ch_*).
+ *
+ * C8: distinguish full vs partial refunds via charge.amount_refunded vs
+ * charge.amount. Partial refunds pro-rate the commission clawback and DO
+ * NOT expire the gift or revoke premium — Stripe sends `charge.refunded`
+ * for every partial too, and treating a $5 refund of a $99 gift as a full
+ * reversal would silently destroy customer-friendly partial refunds.
+ *
+ * Replay-safe (full-refund path): the gift WHERE excludes rows already in
+ * terminal refund state. Replay-safe (partial-refund path): the
+ * partner_commissions WHERE inside clawbackCommissionForGift de-dupes via
+ * `status NOT IN ('reversed','cancelled')` so a re-delivered partial
+ * refund won't double-reverse — but a *different* partial after a previous
+ * partial WILL produce another reversal row. That's correct: each partial
+ * gets its own ledger entry.
  */
 async function handleChargeRefunded(charge: Stripe.Charge): Promise<void> {
   const chargeId = charge.id;
+  const paymentIntentId = getChargePaymentIntentId(charge);
   const partnerId = charge.metadata?.partner_id;
+
+  if (!paymentIntentId) {
+    logger.warn({ chargeId, partnerId }, 'charge.refunded: event has no payment_intent — skipping');
+    return;
+  }
+
+  const amount = charge.amount;
+  const amountRefunded = charge.amount_refunded;
+  const fullyRefunded = amount > 0 && amountRefunded >= amount;
 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
+    if (!fullyRefunded) {
+      // Partial refund: pro-rate commission clawback, leave gift status alone.
+      const giftLookup = await client.query(
+        `SELECT id, partner_id, homebuyer_email
+           FROM partner_gifts
+          WHERE stripe_charge_id = $1
+          FOR UPDATE`,
+        [paymentIntentId],
+      );
+      if (giftLookup.rows.length === 0) {
+        await client.query('ROLLBACK');
+        logger.warn(
+          { chargeId, paymentIntentId, partnerId },
+          'charge.refunded (partial): no matching gift',
+        );
+        return;
+      }
+      const gift = giftLookup.rows[0];
+      const proportion = amountRefunded / amount;
+      await clawbackCommissionForGift(client, gift.id, proportion);
+      await client.query('COMMIT');
+      logger.info(
+        {
+          chargeId,
+          paymentIntentId,
+          giftId: gift.id,
+          partnerId: gift.partner_id,
+          amount,
+          amountRefunded,
+          proportion,
+        },
+        'charge.refunded (partial): pro-rated commission clawback recorded; gift not expired',
+      );
+      return;
+    }
+
+    // Full refund: expire the gift, clawback fully, revoke premium if last.
     const result = await client.query(
       `WITH old AS (
          SELECT id, partner_id, homebuyer_email, is_activated AS was_activated,
@@ -475,13 +593,13 @@ async function handleChargeRefunded(charge: Stripe.Charge): Promise<void> {
        WHERE pg.id = old.id
        RETURNING old.id, old.partner_id, old.homebuyer_email,
                  old.was_activated, old.activated_user_id, old.old_status`,
-      [chargeId]
+      [paymentIntentId]
     );
 
     if (result.rows.length === 0) {
       await client.query('ROLLBACK');
       logger.info(
-        { chargeId, partnerId },
+        { chargeId, paymentIntentId, partnerId },
         'charge.refunded: gift already in terminal refund state (replay) or no matching gift',
       );
       return;
@@ -522,11 +640,11 @@ async function handleChargeRefunded(charge: Stripe.Charge): Promise<void> {
     await client.query('COMMIT');
 
     logger.info(
-      { chargeId, giftId: gift.id, partnerId: gift.partner_id, homebuyer: gift.homebuyer_email },
+      { chargeId, paymentIntentId, giftId: gift.id, partnerId: gift.partner_id, homebuyer: gift.homebuyer_email },
       'charge.refunded: partner gift payment refunded'
     );
   } catch (error) {
-    await client.query('ROLLBACK');
+    await client.query('ROLLBACK').catch(() => {});
     throw error;
   } finally {
     client.release();
@@ -584,8 +702,17 @@ async function handlePaymentIntentCanceled(intent: Stripe.PaymentIntent): Promis
  */
 async function handleChargeDispute(dispute: Stripe.Dispute): Promise<void> {
   const chargeId = typeof dispute.charge === 'string' ? dispute.charge : dispute.charge?.id;
-  if (!chargeId) {
-    logger.warn({ disputeId: dispute.id }, 'dispute event missing charge id — ignoring');
+  // C7: partner_gifts.stripe_charge_id holds PaymentIntent IDs; the dispute
+  // object exposes payment_intent directly (string id or expanded PI object).
+  const paymentIntentId =
+    typeof dispute.payment_intent === 'string'
+      ? dispute.payment_intent
+      : dispute.payment_intent?.id ?? null;
+  if (!paymentIntentId) {
+    logger.warn(
+      { disputeId: dispute.id, chargeId },
+      'dispute event missing payment_intent — ignoring',
+    );
     return;
   }
   const status: string = dispute.status;
@@ -605,12 +732,15 @@ async function handleChargeDispute(dispute: Stripe.Dispute): Promise<void> {
               updated_at = NOW()
         WHERE stripe_charge_id = $1
         RETURNING id, partner_id, is_activated, activated_user_id`,
-      [chargeId, status],
+      [paymentIntentId, status],
     );
 
     if (giftRes.rows.length === 0) {
       await client.query('ROLLBACK');
-      logger.warn({ chargeId, disputeId: dispute.id, status }, 'dispute: no matching partner gift');
+      logger.warn(
+        { chargeId, paymentIntentId, disputeId: dispute.id, status },
+        'dispute: no matching partner gift',
+      );
       return;
     }
 
