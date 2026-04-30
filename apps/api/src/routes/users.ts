@@ -20,6 +20,7 @@ import { sendSuccess, sendMessage } from '../utils/response';
 import { preHashForBcrypt } from '../utils/password';
 import { presignedUrlForKey } from '../config/minio';
 import { getRedisClient } from '../utils/redis';
+import { hashToken } from '../utils/token-hash';
 
 // S-CR-02: avatar_url is now a MinIO object key, not a URL. Mint a fresh
 // presigned URL on every response so a leaked URL is useless within
@@ -418,9 +419,11 @@ router.post('/me/change-email', changeEmailRateLimiter, validate(changeEmailSche
     return sendMessage(res, 'Verification email sent to your new address. Please check your inbox.');
   }
 
-  // Generate a verification token
+  // Generate a verification token. S-M9: keyed HMAC (audit Ch01-F019)
+  // for storage so a DB-only leak doesn't allow offline rainbow lookup.
+  // The /verify-email-change consume route (auth.ts) uses the same helper.
   const token = crypto.randomBytes(32).toString('hex');
-  const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+  const hashedToken = hashToken(token);
 
   // Delete any existing change-email tokens for this user
   await query(

@@ -1,0 +1,129 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Navigation from '../components/Navigation.astro';
+import Footer from '../components/Footer.astro';
+---
+
+<Layout
+  title="Confirm Email Change"
+  description="Confirm a new email address for your HavenKeep account."
+>
+  <Navigation />
+  <main>
+    <section class="pt-32 pb-20 bg-gradient-to-b from-gray-900 to-gray-800 min-h-[60vh]">
+      <div class="container">
+        <div class="max-w-2xl mx-auto text-center">
+          <h1 class="text-4xl md:text-5xl font-bold text-white mb-6">
+            Confirm Email Change
+          </h1>
+
+          <div id="status-confirming" class="text-xl text-gray-300">
+            Confirming your new email address...
+          </div>
+
+          <div id="status-success" class="hidden">
+            <div class="bg-green-500/10 border border-green-500/30 rounded-lg p-6 text-left">
+              <h2 class="text-2xl font-semibold text-green-300 mb-2">
+                Email confirmed
+              </h2>
+              <p class="text-gray-300">
+                Your account email has been updated. For security, every device
+                signed into HavenKeep has been signed out — please open the app
+                and sign in again with your new email.
+              </p>
+            </div>
+          </div>
+
+          <div id="status-error" class="hidden">
+            <div class="bg-red-500/10 border border-red-500/30 rounded-lg p-6 text-left">
+              <h2 class="text-2xl font-semibold text-red-300 mb-2">
+                We couldn't confirm this email
+              </h2>
+              <p id="status-error-message" class="text-gray-300">
+                The verification link is invalid or has expired.
+              </p>
+              <p class="text-gray-400 mt-4 text-sm">
+                Open the HavenKeep app and request a new email-change verification
+                from Settings &rarr; Account.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+  <Footer />
+</Layout>
+
+<script>
+  // C13: consume the change-email token via the API. The link the user
+  // clicked was minted by POST /api/v1/users/me/change-email and lives in
+  // email_verification_tokens with metadata.type='change_email'. The
+  // consume endpoint atomically swaps users.email and invalidates every
+  // refresh token; on success the user is logged out everywhere and must
+  // sign in with the new address.
+  (async () => {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('token');
+    const confirming = document.getElementById('status-confirming');
+    const success = document.getElementById('status-success');
+    const error = document.getElementById('status-error');
+    const errorMessage = document.getElementById('status-error-message');
+
+    function showError(message: string) {
+      confirming?.classList.add('hidden');
+      success?.classList.add('hidden');
+      if (errorMessage) errorMessage.textContent = message;
+      error?.classList.remove('hidden');
+    }
+    function showSuccess() {
+      confirming?.classList.add('hidden');
+      error?.classList.add('hidden');
+      success?.classList.remove('hidden');
+    }
+
+    if (!token || token.length < 32) {
+      showError('The verification link is missing or malformed.');
+      return;
+    }
+
+    const apiUrl = (import.meta.env.PUBLIC_API_URL as string | undefined) ?? '';
+    if (!apiUrl) {
+      showError('Service unavailable. Please try again later.');
+      return;
+    }
+
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/auth/verify-email-change`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+      });
+
+      if (response.ok) {
+        showSuccess();
+        return;
+      }
+
+      // 400 invalid/expired, 409 email-taken, 429 rate-limit, 5xx server.
+      let serverMessage: string | undefined;
+      try {
+        const body = await response.json();
+        serverMessage = body?.error?.message ?? body?.message;
+      } catch {
+        // ignore — generic message below
+      }
+      if (response.status === 409) {
+        showError('That email is no longer available. Please request a new email change.');
+      } else if (response.status === 429) {
+        showError('Too many attempts. Please try again in a few minutes.');
+      } else if (response.status >= 500) {
+        showError('Service temporarily unavailable. Please try again later.');
+      } else {
+        showError(serverMessage ?? 'The verification link is invalid or has expired.');
+      }
+    } catch {
+      showError('Could not reach the server. Please check your connection and try again.');
+    }
+  })();
+</script>

@@ -10,7 +10,7 @@ import { authRateLimiter, refreshRateLimiter, passwordResetRateLimiter } from '.
 import { authenticate, invalidateUserCache } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { registerSchema, loginSchema, refreshTokenSchema } from '../validators';
-import { forgotPasswordSchema, resetPasswordSchema, verifyEmailSchema } from '../validators/auth.validator';
+import { forgotPasswordSchema, resetPasswordSchema, verifyEmailSchema, verifyEmailChangeSchema } from '../validators/auth.validator';
 import { logger } from '../utils/logger';
 import { AuditService } from '../services/audit.service';
 import { EmailService } from '../services/email.service';
@@ -22,6 +22,7 @@ import { getRedisClient } from '../utils/redis';
 import { presignedUrlForKey } from '../config/minio';
 import { rotateCsrfToken } from '../middleware/csrf';
 import { asyncHandler } from '../utils/async-handler';
+import { hashToken, hashRefreshToken } from '../utils/token-hash';
 
 // C10: best-effort audit-log writer. The error-path catch arms in this file
 // previously did `await AuditService.logAuth(...)` before `next(error)` —
@@ -78,13 +79,9 @@ const REFRESH_TOKEN_EXPIRY_MS = parseExpiryToMs(config.jwt.refreshExpiresIn as s
 // tokens, email verification tokens, and password reset tokens — all are
 // server-generated single-purpose opaque strings.
 //
-// Audit Ch01-F019: keyed hash so a DB-only leak of token hashes doesn't
-// allow offline lookup against a stolen Redis or backup. The HMAC key is
-// the refresh-token JWT secret — already required-in-prod.
-function hashToken(token: string): string {
-  return crypto.createHmac('sha256', config.jwt.refreshSecret).update(token).digest('hex');
-}
-const hashRefreshToken = hashToken;
+// Audit Ch01-F019: keyed-HMAC token storage lives in utils/token-hash.ts so
+// users.ts (change-email — S-M9) can use the same key + algorithm without
+// duplicating the function or exporting cross-module from a route file.
 
 /**
  * Sanitize a free-form string for inclusion in audit-log descriptions
@@ -867,6 +864,116 @@ router.post('/verify-email', authRateLimiter, validate(verifyEmailSchema), async
 
   res.json({ success: true, message: 'Email verified successfully' });
 }));
+
+// C13: consume a change-email verification token. /me/change-email mints
+// a token, stores SHA-256(token) (S-M9 fix below moves to keyed HMAC) in
+// email_verification_tokens with metadata.type='change_email' + new_email,
+// and emails the new address a link of the form
+//   ${frontendUrl}/verify-email-change?token=...
+// The marketing site's /verify-email-change page POSTs the token here.
+//
+// Atomic: DELETE..RETURNING the token, lock the new email's uniqueness
+// inside a tx, swap users.email, drop every refresh token for the user
+// (force re-login on every device — the email is an authentication
+// identifier in /forgot-password and /login), invalidate the user cache.
+router.post(
+  '/verify-email-change',
+  authRateLimiter,
+  validate(verifyEmailChangeSchema),
+  asyncHandler(async (req, res) => {
+    const { token } = req.body;
+    const tokenHash = hashToken(token);
+
+    const client = await getClient();
+    let userId: string;
+    let newEmail: string;
+    try {
+      await client.query('BEGIN');
+
+      // Atomically consume the token. Restrict to type='change_email' so
+      // a token of a different shape can't be redeemed here (the type
+      // distinction is the same defense /verify-email uses in reverse —
+      // see auth.ts:830).
+      const consumed = await client.query(
+        `DELETE FROM email_verification_tokens
+          WHERE token = $1
+            AND expires_at > NOW()
+            AND metadata->>'type' = 'change_email'
+          RETURNING user_id, metadata->>'new_email' AS new_email`,
+        [tokenHash],
+      );
+
+      if (consumed.rows.length === 0) {
+        await client.query('ROLLBACK');
+        throw new AppError('Invalid or expired verification link', 400);
+      }
+
+      userId = consumed.rows[0].user_id;
+      newEmail = String(consumed.rows[0].new_email).toLowerCase();
+
+      // Translate uniqueness violation to 409. Race between two users
+      // both consuming change-email tokens to the same address: one wins,
+      // the other gets a clean 409 with their token already consumed.
+      try {
+        await client.query(
+          `UPDATE users
+              SET email = $2,
+                  email_verified = TRUE,
+                  email_change_pending = NULL,
+                  email_change_target = NULL,
+                  updated_at = NOW()
+            WHERE id = $1`,
+          [userId, newEmail],
+        );
+      } catch (err: any) {
+        if (err?.code === '23505') {
+          await client.query('ROLLBACK');
+          throw new AppError('That email is no longer available', 409);
+        }
+        throw err;
+      }
+
+      // Force re-login on every device. The new email is an
+      // authentication identifier; any in-flight refresh token bound to
+      // the old email must die. (Mirrors /reset-password.)
+      await client.query(`DELETE FROM refresh_tokens WHERE user_id = $1`, [userId]);
+
+      // Drop every other change-email token for this user so the email
+      // doesn't sit pending after the swap.
+      await client.query(
+        `DELETE FROM email_verification_tokens
+          WHERE user_id = $1 AND metadata->>'type' = 'change_email'`,
+        [userId],
+      );
+
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw err;
+    } finally {
+      client.release();
+    }
+
+    // Drop the cached user row so the next request after re-login sees
+    // the new email + verified=true rather than the stale cache.
+    await invalidateUserCache(userId);
+
+    logAuthBestEffort({
+      action: 'auth.email_verify',
+      userId,
+      email: newEmail,
+      ipAddress: getIpAddress(req),
+      userAgent: req.get('user-agent'),
+      success: true,
+      errorMessage: 'change_email completed',
+    });
+
+    res.json({
+      success: true,
+      message: 'Email change confirmed. Please sign in with your new email.',
+    });
+  }),
+);
 
 // Google OAuth — accept ID token from mobile, verify, create/find user, return JWT
 const googleOAuthSchema = Joi.object({
