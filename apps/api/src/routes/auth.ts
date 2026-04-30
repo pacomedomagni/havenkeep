@@ -909,6 +909,58 @@ router.post('/forgot-password', passwordResetRateLimiter, validate(forgotPasswor
     return respondGeneric();
   }
 
+  // H-A4 (audit): per-target-email rate limit on top of the per-IP
+  // passwordResetRateLimiter. The IP-keyed limiter is defeated by a
+  // botnet rotating residential proxies — without this guard a victim
+  // gets:
+  //   (a) their inbox bombed with HavenKeep-branded reset emails
+  //       (SendGrid budget + sender-reputation hit), and
+  //   (b) their legitimate in-flight reset token continually
+  //       invalidated by the UPDATE ... SET used = TRUE below, so the
+  //       legitimate user can never complete the flow until the
+  //       attacker stops.
+  //
+  // 3 sends per email per hour, hashed key so a DB-leaked Redis dump
+  // doesn't enumerate target emails. Fail-open: if Redis is down we'd
+  // rather over-send than refuse legitimate resets.
+  const recipientHash = crypto
+    .createHash('sha256')
+    .update(user.email.toLowerCase())
+    .digest('hex');
+  const recipientKey = `pwReset:recipient:${recipientHash}`;
+  let recipientRateLimited = false;
+  try {
+    const redis = await getRedisClient();
+    const count = await redis.incr(recipientKey);
+    if (count === 1) {
+      await redis.expire(recipientKey, 60 * 60);
+    }
+    if (count > 3) {
+      recipientRateLimited = true;
+    }
+  } catch (err) {
+    logger.warn({ err }, 'forgot-password recipient rate-limit Redis check failed; proceeding');
+  }
+
+  if (recipientRateLimited) {
+    // Generic shape-identical response — same as the no-account path —
+    // so an attacker can't probe whether their target is rate-limited.
+    // Critically: skip the UPDATE ... SET used = TRUE that follows.
+    // That update is the legitimate-user-DOS vector this guard exists
+    // to close; running it on every attacker call would still let the
+    // attacker burn the user's working token.
+    logAuthBestEffort({
+      action: 'auth.password_reset_request',
+      userId: user.id,
+      email: user.email,
+      ipAddress: getIpAddress(req),
+      userAgent: req.get('user-agent'),
+      success: false,
+      errorMessage: 'recipient_rate_limited',
+    });
+    return respondGeneric();
+  }
+
   // Invalidate any existing reset tokens (single-use semantics).
   await query(
     `UPDATE password_reset_tokens SET used = TRUE WHERE user_id = $1 AND used = FALSE`,
