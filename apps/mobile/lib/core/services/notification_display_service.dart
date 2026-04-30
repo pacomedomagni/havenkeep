@@ -13,6 +13,25 @@ class NotificationDisplayService {
   /// Callback invoked when the user taps a displayed notification.
   void Function(String? payload)? onNotificationTap;
 
+  /// H-B11 (audit): monotonic counter for notification IDs.
+  ///
+  /// The prior shape used `DateTime.now().millisecondsSinceEpoch ~/ 1000`
+  /// which had two problems:
+  ///   1. `~/ 1000` truncates to seconds — two foreground pushes in the
+  ///      same second collide. The plugin silently replaces the first
+  ///      with the second.
+  ///   2. flutter_local_notifications uses int32 on Android. The
+  ///      epoch-seconds value is currently ~1.78 × 10⁹; it overflows
+  ///      int32 max on 2038-01-19 (Y2K38) and the plugin rejects
+  ///      negative IDs.
+  ///
+  /// A monotonic counter wraps cleanly at int32 max and never collides
+  /// within the process. Cross-process collisions don't matter — these
+  /// IDs are only meaningful for the local plugin's "replace this
+  /// existing notification" semantics.
+  int _nextNotificationId = 0;
+  static const int _kInt32Max = 2147483647;
+
   /// Initialize the local notification plugin with platform-specific settings.
   Future<void> initialize({
     void Function(String? payload)? onTap,
@@ -73,13 +92,11 @@ class NotificationDisplayService {
       iOS: iosDetails,
     );
 
-    await _plugin.show(
-      DateTime.now().millisecondsSinceEpoch ~/ 1000, // Unique ID
-      title,
-      body,
-      details,
-      payload: payload,
-    );
+    final id = _nextNotificationId++;
+    if (_nextNotificationId > _kInt32Max) {
+      _nextNotificationId = 0;
+    }
+    await _plugin.show(id, title, body, details, payload: payload);
   }
 
   /// Create the default Android notification channel.
