@@ -54,7 +54,10 @@ export async function signUp(formData: FormData) {
     return { error: 'We could not create your account. Please review your details and try again.' };
   }
 
-  const data = await response.json().catch(() => null);
+  // H-A7: API wraps responses in { success, data: { ... } }; unwrap before
+  // reading the tokens.
+  const body = await response.json().catch(() => null);
+  const data = body?.data;
   if (!data?.accessToken || !data?.refreshToken) {
     return { error: 'We could not create your account. Please try again.' };
   }

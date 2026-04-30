@@ -299,7 +299,10 @@ describe('middleware', () => {
       });
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ accessToken: freshToken, refreshToken: newRefreshToken }),
+        json: async () => ({
+          success: true,
+          data: { accessToken: freshToken, refreshToken: newRefreshToken },
+        }),
       });
 
       const req = createNextRequest('http://localhost:3001/dashboard', {

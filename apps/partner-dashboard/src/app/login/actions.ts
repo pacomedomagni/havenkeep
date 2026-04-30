@@ -55,7 +55,12 @@ export async function signIn(
     return { error: GENERIC_LOGIN_ERROR };
   }
 
-  const data = await response.json().catch(() => null);
+  // H-A7: API wraps every success in { success, data: { accessToken, ... } }
+  // (apps/api/src/utils/response.ts sendSuccess). Reading data.accessToken
+  // off the parsed body landed on body.accessToken (undefined), so every
+  // login collapsed into GENERIC_LOGIN_ERROR. Unwrap body.data first.
+  const body = await response.json().catch(() => null);
+  const data = body?.data;
   if (!data || typeof data.accessToken !== 'string' || !looksLikeJwt(data.accessToken)) {
     return { error: GENERIC_LOGIN_ERROR };
   }

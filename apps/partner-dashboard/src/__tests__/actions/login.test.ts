@@ -106,9 +106,12 @@ describe('signIn', () => {
     const accessToken = createFakeJwt({ isAdmin: false });
     mockFetch.mockResolvedValueOnce(
       makeResponse(200, {
-        accessToken,
-        refreshToken: 'rt',
-        user: { is_admin: false, is_partner: false },
+        success: true,
+        data: {
+          accessToken,
+          refreshToken: 'rt',
+          user: { is_admin: false, is_partner: false },
+        },
       })
     );
     const fd = makeFormData({ email: 'user@example.com', password: 'Secret1!' });
@@ -120,9 +123,12 @@ describe('signIn', () => {
     const accessToken = createFakeJwt({ isAdmin: false, isPartner: true });
     mockFetch.mockResolvedValueOnce(
       makeResponse(200, {
-        accessToken,
-        refreshToken: 'rt',
-        user: { is_admin: false, is_partner: true },
+        success: true,
+        data: {
+          accessToken,
+          refreshToken: 'rt',
+          user: { is_admin: false, is_partner: true },
+        },
       })
     );
     const fd = makeFormData({ email: 'partner@example.com', password: 'Secret1!' });
@@ -137,9 +143,12 @@ describe('signIn', () => {
     const accessToken = createFakeJwt({ isAdmin: false });
     mockFetch.mockResolvedValueOnce(
       makeResponse(200, {
-        accessToken,
-        refreshToken: 'rt',
-        user: { is_admin: false, is_partner: true },
+        success: true,
+        data: {
+          accessToken,
+          refreshToken: 'rt',
+          user: { is_admin: false, is_partner: true },
+        },
       })
     );
     const fd = makeFormData({ email: 'partner@example.com', password: 'Secret1!' });
@@ -152,9 +161,12 @@ describe('signIn', () => {
     const accessToken = createFakeJwt({ isAdmin: true });
     mockFetch.mockResolvedValueOnce(
       makeResponse(200, {
-        accessToken,
-        refreshToken: 'rt',
-        user: { is_admin: true, is_partner: false },
+        success: true,
+        data: {
+          accessToken,
+          refreshToken: 'rt',
+          user: { is_admin: true, is_partner: false },
+        },
       })
     );
     const fd = makeFormData({ email: 'admin@example.com', password: 'Secret1!' });

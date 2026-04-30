@@ -131,7 +131,7 @@ describe('signUp', () => {
 
   it('calls setAuthCookies and redirects to /onboarding on success', async () => {
     mockFetch.mockResolvedValueOnce(
-      makeResponse(201, { accessToken: 'at', refreshToken: 'rt' })
+      makeResponse(201, { success: true, data: { accessToken: 'at', refreshToken: 'rt' } })
     );
     const fd = makeFormData(VALID_FIELDS);
 

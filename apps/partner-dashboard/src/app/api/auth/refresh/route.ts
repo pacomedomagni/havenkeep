@@ -49,7 +49,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Session expired' }, { status: 401 });
   }
 
-  const data = await response.json().catch(() => ({}));
+  // H-A7: API wraps responses in { success, data: { ... } }; unwrap before
+  // reading the rotated tokens.
+  const body = await response.json().catch(() => ({}));
+  const data = body?.data ?? {};
 
   if (typeof data.accessToken !== 'string' || !looksLikeJwt(data.accessToken)) {
     return NextResponse.json({ error: 'Session expired' }, { status: 401 });

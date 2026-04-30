@@ -118,7 +118,7 @@ describe('middleware refresh path', () => {
   it('rejects a refresh response whose accessToken is not a JWT', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ accessToken: 'not.a.jwt!!', refreshToken: 'rt' }),
+      json: async () => ({ success: true, data: { accessToken: 'not.a.jwt!!', refreshToken: 'rt' } }),
     });
 
     const req = createNextRequest('http://localhost:3001/dashboard', {

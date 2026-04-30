@@ -147,7 +147,10 @@ export async function middleware(request: NextRequest) {
         }).finally(() => clearTimeout(timeoutId))
 
         if (refreshResponse.ok) {
-          const data = await refreshResponse.json().catch(() => ({}))
+          // H-A7: API wraps responses in { success, data: { ... } }; unwrap
+          // before validating shape.
+          const body = await refreshResponse.json().catch(() => ({}))
+          const data = body?.data ?? {}
           // Validate the refresh response before persisting (audit Ch10-W009).
           // Anything that doesn't look like a JWT goes back to the login page;
           // we'd rather force a re-login than store junk in a cookie.
