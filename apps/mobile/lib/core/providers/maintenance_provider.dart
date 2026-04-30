@@ -15,7 +15,14 @@ final maintenanceRepositoryProvider = Provider<MaintenanceRepository>((ref) {
 final maintenanceDueProvider = FutureProvider<MaintenanceDueSummary>((ref) async {
   final userAsync = ref.watch(currentUserProvider);
   if (userAsync.valueOrNull == null) {
-    return const MaintenanceDueSummary(totalDue: 0, totalOverdue: 0, items: []);
+    // H-C3: signed-out fallback gets the noItems state — same shape
+    // the API would emit for a user with zero items.
+    return const MaintenanceDueSummary(
+      totalDue: 0,
+      totalOverdue: 0,
+      items: [],
+      summaryState: MaintenanceSummaryState.noItems,
+    );
   }
 
   final currentHome = ref.watch(currentHomeProvider);

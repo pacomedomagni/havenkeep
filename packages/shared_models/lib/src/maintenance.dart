@@ -289,16 +289,53 @@ class MaintenanceDueItem {
   }
 }
 
+/// H-C3 (audit): the four states the dashboard distinguishes:
+///   - noItems: user has zero items in this home
+///   - noSchedules: user has items but no maintenance schedules attached
+///   - caughtUp: schedules exist but nothing is currently due
+///   - hasDue: at least one task is due/overdue
+///
+/// The server emits `summary_state` (snake_case) on the maintenance
+/// due-summary endpoint per F026; the prior model dropped the field
+/// silently, so the dashboard couldn't tell empty-states apart and
+/// rendered all four as "0 due, 0 overdue" with an empty list.
+enum MaintenanceSummaryState {
+  noItems,
+  noSchedules,
+  caughtUp,
+  hasDue;
+
+  static MaintenanceSummaryState fromJson(Object? value) {
+    switch (value) {
+      case 'no_items':
+        return MaintenanceSummaryState.noItems;
+      case 'no_schedules':
+        return MaintenanceSummaryState.noSchedules;
+      case 'caught_up':
+        return MaintenanceSummaryState.caughtUp;
+      case 'has_due':
+        return MaintenanceSummaryState.hasDue;
+      default:
+        // Unknown / missing — fall back to the most-conservative state
+        // so the UI shows the empty path rather than a misleading
+        // "you're all caught up" banner.
+        return MaintenanceSummaryState.noItems;
+    }
+  }
+}
+
 /// Summary of due maintenance across all items.
 class MaintenanceDueSummary {
   final int totalDue;
   final int totalOverdue;
   final List<MaintenanceDueItem> items;
+  final MaintenanceSummaryState summaryState;
 
   const MaintenanceDueSummary({
     required this.totalDue,
     required this.totalOverdue,
     required this.items,
+    required this.summaryState,
   });
 
   factory MaintenanceDueSummary.fromJson(Map<String, dynamic> json) {
@@ -310,6 +347,7 @@ class MaintenanceDueSummary {
               .map((i) => MaintenanceDueItem.fromJson(i as Map<String, dynamic>))
               .toList()
           : [],
+      summaryState: MaintenanceSummaryState.fromJson(json['summary_state']),
     );
   }
 }

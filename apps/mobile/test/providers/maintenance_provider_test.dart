@@ -98,6 +98,7 @@ void main() {
       final dueSummary = MaintenanceDueSummary(
         totalDue: 3,
         totalOverdue: 1,
+        summaryState: MaintenanceSummaryState.hasDue,
         items: [
           MaintenanceDueItem(
             itemId: 'item-1',

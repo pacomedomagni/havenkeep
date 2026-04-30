@@ -39,7 +39,8 @@ export 'src/maintenance.dart'
         MaintenanceDifficulty,
         MaintenanceDueTask,
         MaintenanceDueItem,
-        MaintenanceDueSummary;
+        MaintenanceDueSummary,
+        MaintenanceSummaryState;
 export 'src/warranty_purchase.dart' show WarrantyPurchase, WarrantyPurchaseStatus;
 export 'src/email_scan.dart' show EmailScan, EmailScanStatus;
 export 'src/partner_gift.dart' show PartnerGift, PartnerGiftStatus;
