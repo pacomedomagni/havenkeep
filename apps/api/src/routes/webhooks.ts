@@ -6,6 +6,50 @@ import { pool, query, getClient } from '../db';
 import { logger } from '../utils/logger';
 import { invalidateUserCache } from '../middleware/auth';
 import { createStripeClient } from '../utils/stripe-client';
+import { AuditService } from '../services/audit.service';
+
+/**
+ * H-P2 (audit): every webhook-driven plan transition writes an audit
+ * row tagged with the originating webhook source + event id. Without
+ * this the hash-chain forensic trail (mig 065/082) couldn't answer
+ * "why is this user on free tier?" — webhook handlers were updating
+ * users.plan directly and the only signal was a Loki line.
+ *
+ * Best-effort: a transient AuditService failure must not roll back
+ * the plan change. The plan UPDATE itself is the source of truth;
+ * the audit row is the forensic breadcrumb.
+ */
+function auditWebhookPlanTransition(input: {
+  userId: string;
+  fromPlan: string | null;
+  toPlan: string;
+  webhookSource: 'stripe' | 'revenuecat';
+  webhookEventId: string;
+  webhookEventType: string;
+  reason?: string;
+}): void {
+  const action: 'user.plan_upgrade' | 'user.plan_downgrade' =
+    input.toPlan === 'premium' ? 'user.plan_upgrade' : 'user.plan_downgrade';
+  AuditService.log({
+    action,
+    userId: input.userId,
+    success: true,
+    description: `Plan ${input.fromPlan ?? 'unknown'} → ${input.toPlan} via ${input.webhookSource} ${input.webhookEventType}${input.reason ? ` (${input.reason})` : ''}`,
+    metadata: {
+      previous_plan: input.fromPlan,
+      new_plan: input.toPlan,
+      webhook_source: input.webhookSource,
+      webhook_event_id: input.webhookEventId,
+      webhook_event_type: input.webhookEventType,
+      ...(input.reason ? { reason: input.reason } : {}),
+    },
+  }).catch((err) => {
+    logger.error(
+      { err, userId: input.userId, webhookEventId: input.webhookEventId },
+      'auditWebhookPlanTransition failed (best-effort)',
+    );
+  });
+}
 
 /**
  * C7: partner_gifts.stripe_charge_id stores PaymentIntent IDs (pi_*), not
@@ -368,7 +412,7 @@ stripeWebhookRouter.post(
           break;
 
         case 'charge.refunded':
-          await handleChargeRefunded(event.data.object as Stripe.Charge);
+          await handleChargeRefunded(event.data.object as Stripe.Charge, event.id);
           break;
 
         case 'payment_intent.canceled':
@@ -531,7 +575,7 @@ async function handleChargeFailed(charge: Stripe.Charge): Promise<void> {
  * partial WILL produce another reversal row. That's correct: each partial
  * gets its own ledger entry.
  */
-async function handleChargeRefunded(charge: Stripe.Charge): Promise<void> {
+async function handleChargeRefunded(charge: Stripe.Charge, eventId: string): Promise<void> {
   const chargeId = charge.id;
   const paymentIntentId = getChargePaymentIntentId(charge);
   const partnerId = charge.metadata?.partner_id;
@@ -632,6 +676,16 @@ async function handleChargeRefunded(charge: Stripe.Charge): Promise<void> {
         // 2.3: revoke cache so the user's next call sees plan='free'
         // immediately instead of premium-for-up-to-10s.
         await invalidateUserCache(gift.activated_user_id);
+        // H-P2: audit-log the webhook-driven plan downgrade.
+        auditWebhookPlanTransition({
+          userId: gift.activated_user_id,
+          fromPlan: 'premium',
+          toPlan: 'free',
+          webhookSource: 'stripe',
+          webhookEventId: eventId,
+          webhookEventType: 'charge.refunded',
+          reason: 'gift charge fully refunded',
+        });
       } else {
         logger.info(
           { userId: gift.activated_user_id, otherActiveGifts: otherGifts.rows.length },
@@ -795,6 +849,16 @@ async function handleChargeDispute(
             [gift.activated_user_id],
           );
           await invalidateUserCache(gift.activated_user_id);
+          // H-P2: audit-log the dispute-lost plan downgrade.
+          auditWebhookPlanTransition({
+            userId: gift.activated_user_id,
+            fromPlan: 'premium',
+            toPlan: 'free',
+            webhookSource: 'stripe',
+            webhookEventId: eventId,
+            webhookEventType: `charge.dispute.${status}`,
+            reason: 'dispute lost — gift reversed',
+          });
         }
       }
 
@@ -1136,6 +1200,14 @@ revenueCatWebhookRouter.post('/', validateRevenueCatWebhookAuth, async (req: Req
       Array.isArray(event.entitlement_ids) &&
       event.entitlement_ids.some((eid) => eid.toLowerCase() === 'premium');
 
+    // H-P2: capture the prior plan once so every plan-touching branch
+    // below can stamp accurate from→to metadata into its audit row.
+    const priorPlanResult = await query(
+      `SELECT plan FROM users WHERE id = $1`,
+      [userId],
+    );
+    const priorPlan: string | null = priorPlanResult.rows[0]?.plan ?? null;
+
     switch (event.type) {
       case 'INITIAL_PURCHASE':
       case 'RENEWAL':
@@ -1157,6 +1229,17 @@ revenueCatWebhookRouter.post('/', validateRevenueCatWebhookAuth, async (req: Req
         );
         // 2.3: drop cache so all replicas reflect the new premium status now.
         await invalidateUserCache(userId);
+        // H-P2: audit-log the upgrade with from→to + RC event id.
+        if (priorPlan !== 'premium') {
+          auditWebhookPlanTransition({
+            userId,
+            fromPlan: priorPlan,
+            toPlan: 'premium',
+            webhookSource: 'revenuecat',
+            webhookEventId: event.id,
+            webhookEventType: event.type,
+          });
+        }
         logger.info(
           {
             userId,
@@ -1211,6 +1294,18 @@ revenueCatWebhookRouter.post('/', validateRevenueCatWebhookAuth, async (req: Req
             [userId]
           );
           await invalidateUserCache(userId);
+          // H-P2: audit-log subscription-expired downgrade.
+          if (priorPlan === 'premium') {
+            auditWebhookPlanTransition({
+              userId,
+              fromPlan: priorPlan,
+              toPlan: 'free',
+              webhookSource: 'revenuecat',
+              webhookEventId: event.id,
+              webhookEventType: event.type,
+              reason: 'subscription expired',
+            });
+          }
           logger.info(
             { userId, eventType: event.type },
             'User plan downgraded to free (subscription expired)'
