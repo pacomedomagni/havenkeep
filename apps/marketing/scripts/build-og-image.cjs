@@ -80,6 +80,7 @@ const PAGES = [
   { slug: 'home',         tagline: 'Never lose money on forgotten warranties' },
   { slug: 'features',     tagline: 'Track warranties, scan receipts, file claims',         kicker: 'Features' },
   { slug: 'pricing',      tagline: 'Free for 5 items. $24/yr for everything.',             kicker: 'Pricing' },
+  { slug: 'partners',     tagline: 'Realtors, contractors, builders — earn on every warranty', kicker: 'Partners' },
   { slug: 'about',        tagline: 'Built for homeowners who hate losing money',           kicker: 'About' },
   { slug: 'security',     tagline: 'TLS pinning, encryption at rest, no Sentry',           kicker: 'Security' },
   { slug: 'careers',      tagline: 'Help homeowners stop losing $16B/yr',                  kicker: 'Careers' },
