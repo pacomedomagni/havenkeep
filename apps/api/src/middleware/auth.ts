@@ -108,7 +108,13 @@ export async function authenticate(
       );
 
       if (result.rows.length === 0) {
-        throw new AppError('Invalid token', 401);
+        // S-M1: same generic body as the deleted/suspended branches
+        // below so user existence isn't probable.
+        logger.warn(
+          { userId: decoded.userId, reason: 'user_not_found' },
+          'authenticate: user state-deny',
+        );
+        throw new AppError('Authentication failed', 401);
       }
 
       userRow = result.rows[0];
@@ -139,11 +145,26 @@ export async function authenticate(
       new Date(userRow.deletion_scheduled_for) > new Date();
     const recoverBypass = userRow.deleted_at && isRecoverEndpoint && withinGrace;
 
+    // S-M1 (audit): the prior shape returned three distinct strings —
+    // "Invalid token" (no user) / "Account is closed" (deleted_at) /
+    // "Account suspended" (plan='suspended') — so an attacker with a
+    // stolen token could probe user state by reading the response body.
+    // Collapse to one generic 401 "Authentication failed" with the
+    // actual reason logged server-side via pino. The attacker still
+    // sees the same body for all three cases.
     if (userRow.deleted_at && !recoverBypass) {
-      throw new AppError('Account is closed', 401);
+      logger.warn(
+        { userId: userRow.id, reason: 'deleted_at' },
+        'authenticate: user state-deny',
+      );
+      throw new AppError('Authentication failed', 401);
     }
     if (userRow.plan === 'suspended' && !recoverBypass) {
-      throw new AppError('Account suspended', 403);
+      logger.warn(
+        { userId: userRow.id, reason: 'plan_suspended' },
+        'authenticate: user state-deny',
+      );
+      throw new AppError('Authentication failed', 401);
     }
 
     // Audit Ch01-F042: prefer the DB email over the JWT claim — it survives
