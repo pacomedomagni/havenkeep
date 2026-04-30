@@ -10,6 +10,7 @@ import '../../core/providers/auth_provider.dart';
 import '../../core/providers/homes_provider.dart';
 import '../../core/router/router.dart';
 import '../../core/services/logging_service.dart';
+import '../../core/utils/error_handler.dart';
 import '../../core/widgets/havenkeep_logo.dart';
 import 'onboarding_intro_screen.dart';
 
@@ -324,8 +325,18 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
                 const SizedBox(height: HavenSpacing.xs),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: HavenSpacing.lg),
+                  // H-B6 (audit): the prior shape rendered
+                  // _bootstrapError.toString() directly to the user. In
+                  // release builds that surfaced strings like
+                  // "ApiServerException(500): Auth response missing data
+                  // envelope" or "SocketException: Failed host lookup:
+                  // 'api.havenkeep.io' (errno = 7)" — leaking implementation
+                  // detail (and OS-level network state) to a non-technical
+                  // audience. Route through ErrorHandler.getUserMessage so
+                  // the user sees the same translated copy as every other
+                  // error surface.
                   child: Text(
-                    _bootstrapError.toString(),
+                    ErrorHandler.getUserMessage(_bootstrapError),
                     textAlign: TextAlign.center,
                     style: const TextStyle(
                       fontSize: 12,
