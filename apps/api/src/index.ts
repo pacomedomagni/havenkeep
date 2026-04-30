@@ -16,6 +16,7 @@ import { ReconciliationService } from './services/reconciliation.service';
 import { AuditService } from './services/audit.service';
 import { pruneExpiredIdempotencyRows } from './middleware/idempotency';
 import { purgeExpiredSoftDeletedAccounts } from './services/account-purge.service';
+import { FcmService } from './services/fcm.service';
 import { pool, isDatabaseReady } from './db';
 import { createApp } from './app';
 import { isShuttingDown, markShuttingDown } from './utils/lifecycle';
@@ -241,6 +242,21 @@ function scheduleExpirationNotifications() {
       }
     } catch (err) {
       logger.error({ err }, 'webhook_events retention sweep failed');
+    }
+
+    // H-D6 (audit): prune FCM tokens whose last_seen_at hasn't been
+    // bumped in 60 days. The /users/me/push-token register path now
+    // updates last_seen_at on every cold-start re-register, so an
+    // active user's tokens stay fresh; only dead tokens (uninstalled
+    // app, revoked notification permission, expired Firebase token)
+    // get swept.
+    try {
+      const deleted = await FcmService.cleanupStaleTokens(60);
+      if (deleted > 0) {
+        logger.info({ deleted }, 'FCM stale-token cleanup');
+      }
+    } catch (err) {
+      logger.error({ err }, 'FCM stale-token cleanup failed');
     }
 
     // Sunday weekly sweep — `getUTCDay()` so the boundary is consistent.

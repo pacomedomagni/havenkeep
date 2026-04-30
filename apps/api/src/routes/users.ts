@@ -161,11 +161,16 @@ router.post('/push-token', writeRateLimiter, validate(pushTokenSchema), asyncHan
       `DELETE FROM user_push_tokens WHERE fcm_token = $1 AND user_id <> $2`,
       [fcmToken, userId],
     );
+    // H-D6 (audit): bump last_seen_at on every register call. Mobile
+    // re-registers on every cold start; without this update an active
+    // user's last_seen_at sits at the original register timestamp
+    // forever, and the cleanupStaleTokens cron (60-day cutoff) would
+    // delete real users' live tokens once it gets wired below.
     await client.query(
-      `INSERT INTO user_push_tokens (user_id, fcm_token, platform, updated_at)
-       VALUES ($1, $2, $3, NOW())
+      `INSERT INTO user_push_tokens (user_id, fcm_token, platform, updated_at, last_seen_at)
+       VALUES ($1, $2, $3, NOW(), NOW())
        ON CONFLICT (user_id, fcm_token)
-       DO UPDATE SET platform = $3, updated_at = NOW()`,
+       DO UPDATE SET platform = $3, updated_at = NOW(), last_seen_at = NOW()`,
       [userId, fcmToken, platformValue],
     );
     await client.query('COMMIT');
