@@ -416,6 +416,49 @@ export class PartnersService {
     }
   ): Promise<PartnerGift> {
     // --------------------------------------------------------------------
+    // Phase 0: pre-allocate a unique activation code BEFORE the transaction
+    // opens. C12 (audit): the prior implementation ran the retry loop
+    // INSIDE the open transaction. After a single 23505 on the
+    // activation_code_hash unique index, Postgres put the connection into
+    // 25P02 (in_failed_sql_transaction); every subsequent INSERT raised
+    // 25P02, NOT 23505, so the `if (insertErr.code === '23505')` retry
+    // guard never matched. The "5 retries" defense was actually 0 retries.
+    //
+    // Now we collision-check non-transactionally — cheap PK-style index
+    // lookup. The unique index inside the INSERT below still catches the
+    // rare race where two concurrent createGift calls both pass the
+    // pre-check with the same hash; one succeeds, the other gets a
+    // single 23505 and we surface 409 to the caller (no inner retry
+    // needed because the pre-check made collisions vanishingly rare).
+    // --------------------------------------------------------------------
+    const PRE_CHECK_ATTEMPTS = 5;
+    let activationCode = '';
+    let activationCodeHash = '';
+    for (let attempt = 0; attempt < PRE_CHECK_ATTEMPTS; attempt++) {
+      const generated = generateActivationCode();
+      const collision = await pool.query(
+        `SELECT 1 FROM partner_gifts WHERE activation_code_hash = $1 LIMIT 1`,
+        [generated.hash],
+      );
+      if (collision.rows.length === 0) {
+        activationCode = generated.plaintext;
+        activationCodeHash = generated.hash;
+        break;
+      }
+      logger.warn(
+        { attempt, partnerUserId: userId },
+        'Activation code pre-check collision; retrying',
+      );
+    }
+    if (!activationCodeHash) {
+      throw new AppError(
+        'Could not allocate a unique activation code — please retry the request',
+        409,
+      );
+    }
+    const activationUrl = `${config.app.frontendUrl}/gifts/activate?code=${encodeURIComponent(activationCode)}`;
+
+    // --------------------------------------------------------------------
     // Phase 1: reserve a gift row (pending_payment) in its own short tx.
     // Stripe calls MUST NOT run inside a DB transaction: a mid-tx Stripe
     // call that succeeds followed by a COMMIT failure leaves an orphan
@@ -480,66 +523,57 @@ export class PartnersService {
       // gift can't be activated 6 months in (audit Ch03-F040).
       const expiresAt = addMonthsSafe(new Date(), premiumMonths);
 
-      // Activation-code creation can collide on the unique hash index under
-      // birthday-paradox conditions (Ch03-F062, F105). Retry up to N times
-      // with a fresh code; surface 409 if we exhaust the budget so the
-      // caller can re-attempt instead of getting a raw 23505 500.
-      const MAX_CODE_ATTEMPTS = 5;
-      let giftResult: import('pg').QueryResult | null = null;
-      let activationCode = '';
-      let activationCodeHash = '';
-      for (let attempt = 0; attempt < MAX_CODE_ATTEMPTS; attempt++) {
-        const generated = generateActivationCode();
-        activationCode = generated.plaintext;
-        activationCodeHash = generated.hash;
-        const activationUrl = `${config.app.frontendUrl}/gifts/activate?code=${encodeURIComponent(activationCode)}`;
-        try {
-          giftResult = await reserveClient.query(
-            `INSERT INTO partner_gifts (
-              partner_id, homebuyer_email, homebuyer_name, homebuyer_phone,
-              home_address, closing_date, premium_months, custom_message,
-              amount_charged, stripe_charge_id, expires_at, status,
-              activation_code, activation_code_hash, activation_url
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL, $10, 'pending_payment', $11, $12, $13)
-            RETURNING *`,
-            [
-              partner.id,
-              data.homebuyerEmail.toLowerCase(),
-              data.homebuyerName,
-              data.homebuyerPhone,
-              data.homeAddress,
-              data.closingDate,
-              premiumMonths,
-              data.customMessage || partner.default_message,
-              amountCharged,
-              expiresAt,
-              activationCode,
-              activationCodeHash,
-              activationUrl,
-            ],
-          );
-          break;
-        } catch (insertErr: any) {
-          // 23505 = unique_violation. Retry on the activation-code unique only.
-          if (
-            insertErr?.code === '23505' &&
-            (insertErr?.constraint === 'idx_partner_gifts_activation_code_hash' ||
-              insertErr?.constraint === 'uq_partner_gifts_activation_code')
-          ) {
-            logger.warn(
-              { attempt, partnerId: partner.id },
-              'Activation code collision — retrying with a fresh code',
-            );
-            continue;
-          }
-          throw insertErr;
-        }
-      }
-      if (!giftResult) {
-        throw new AppError(
-          'Could not allocate a unique activation code — please retry the request',
-          409,
+      // C12: single INSERT with the pre-allocated code from Phase 0. The
+      // unique index on activation_code_hash still catches the rare
+      // concurrent-pre-check race; we map that 23505 to 409 so the caller
+      // can retry the whole request, but no in-tx retry loop (which was
+      // structurally broken under 25P02).
+      let giftResult: import('pg').QueryResult;
+      try {
+        giftResult = await reserveClient.query(
+          `INSERT INTO partner_gifts (
+            partner_id, homebuyer_email, homebuyer_name, homebuyer_phone,
+            home_address, closing_date, premium_months, custom_message,
+            amount_charged, stripe_charge_id, expires_at, status,
+            activation_code, activation_code_hash, activation_url
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL, $10, 'pending_payment', $11, $12, $13)
+          RETURNING *`,
+          [
+            partner.id,
+            data.homebuyerEmail.toLowerCase(),
+            data.homebuyerName,
+            data.homebuyerPhone,
+            data.homeAddress,
+            data.closingDate,
+            premiumMonths,
+            data.customMessage || partner.default_message,
+            amountCharged,
+            expiresAt,
+            activationCode,
+            activationCodeHash,
+            activationUrl,
+          ],
         );
+      } catch (insertErr: any) {
+        if (
+          insertErr?.code === '23505' &&
+          (insertErr?.constraint === 'idx_partner_gifts_activation_code_hash' ||
+            insertErr?.constraint === 'uq_partner_gifts_activation_code')
+        ) {
+          // Concurrent createGift call landed on the same hash between
+          // our pre-check and the INSERT. Vanishingly rare with 64-bit
+          // codes and a non-locking pre-check; surface 409 so the caller
+          // retries the whole request.
+          logger.warn(
+            { partnerId: partner.id },
+            'Activation code race after pre-check; surfacing 409',
+          );
+          throw new AppError(
+            'Could not allocate a unique activation code — please retry the request',
+            409,
+          );
+        }
+        throw insertErr;
       }
       gift = giftResult.rows[0];
       await reserveClient.query('COMMIT');
