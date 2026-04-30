@@ -56,25 +56,55 @@ const ITEM_LIST_COLUMNS = `
   expected_lifespan_years, estimated_repair_cost, created_at, updated_at
 `;
 
-// Default expected lifespan (in years) by category, used when the item has no explicit value
-const CATEGORY_DEFAULT_LIFESPAN: Record<string, number> = {
-  appliance: 12,
-  electronics: 5,
-  furniture: 15,
-  hvac: 15,
-  plumbing: 20,
-  roofing: 25,
-  flooring: 15,
-  outdoor: 10,
-  other: 10,
-};
+// H-C2 (audit): per-category default lifespan now lives in
+// category_defaults.lifespan_years (mig 090) instead of a hardcoded map
+// here. The hardcoded shape was a second source of truth: an admin
+// updating category_defaults via /admin/categories/:cat/defaults
+// couldn't change the lifespan without a code deploy.
+//
+// 60-second in-memory TTL because this is reference data that changes
+// rarely and is read on every items list / detail call. Cache miss
+// reads ALL rows into a Record so we don't issue per-category
+// queries. Empty cache on Redis-less dev → fall back to "no default"
+// (computeLifespanPercentage returns null), which is correct
+// degraded behavior.
+let lifespanCache: { map: Record<string, number>; loadedAt: number } | null = null;
+const LIFESPAN_CACHE_TTL_MS = 60_000;
+
+async function loadLifespanMap(): Promise<Record<string, number>> {
+  if (lifespanCache && Date.now() - lifespanCache.loadedAt < LIFESPAN_CACHE_TTL_MS) {
+    return lifespanCache.map;
+  }
+  try {
+    const result = await query<{ category: string; lifespan_years: number | null }>(
+      `SELECT category::text AS category, lifespan_years FROM category_defaults`,
+    );
+    const map: Record<string, number> = {};
+    for (const row of result.rows) {
+      if (row.lifespan_years != null) map[row.category] = row.lifespan_years;
+    }
+    lifespanCache = { map, loadedAt: Date.now() };
+    return map;
+  } catch (err) {
+    logger.warn({ err }, 'category_defaults lifespan lookup failed; degraded to no-default');
+    // Don't update the cache so we retry the SELECT on the next call.
+    return lifespanCache?.map ?? {};
+  }
+}
 
 // Audit Ch02-F020: switch from local-TZ ms division (which drifts at DST and
 // at year boundaries) to a UTC-aware day count and integer-month arithmetic.
-function computeLifespanPercentage(item: any): number | null {
+//
+// H-C2: takes a pre-loaded lifespanMap so callers in a list-render hot path
+// don't issue one DB call per row. List endpoints call loadLifespanMap()
+// once and pass the same map to every per-row computation.
+function computeLifespanPercentage(
+  item: any,
+  lifespanMap: Record<string, number>,
+): number | null {
   const expectedLifespan: number | null =
     item.expected_lifespan_years ??
-    CATEGORY_DEFAULT_LIFESPAN[item.category] ??
+    lifespanMap[item.category] ??
     null;
   if (!expectedLifespan || !item.purchase_date) return null;
   const purchaseDate = new Date(item.purchase_date);
@@ -356,11 +386,14 @@ router.get(
 
   // Audit Ch02-F064: emit lifespan_percentage on every list row so callers
   // don't have to round-trip per-item GETs to render progress bars.
+  // H-C2: load the category→lifespan map ONCE per request (60s cached
+  // in-memory) and pass it to each computation.
+  const lifespanMap = await loadLifespanMap();
   const enriched = await Promise.all(
     pageRows.map((row: any) =>
       normalizeItemRow({
         ...row,
-        lifespan_percentage: computeLifespanPercentage(row),
+        lifespan_percentage: computeLifespanPercentage(row, lifespanMap),
       }),
     ),
   );
@@ -398,15 +431,17 @@ router.get('/:id', validate(uuidParamSchema, 'params'), asyncHandler(async (req:
   }
 
   const item = result.rows[0];
+  // H-C2: read category→lifespan from the cached map.
+  const lifespanMap = await loadLifespanMap();
   const expectedLifespan: number | null =
     item.expected_lifespan_years ??
-    CATEGORY_DEFAULT_LIFESPAN[item.category] ??
+    lifespanMap[item.category] ??
     null;
 
   sendSuccess(res, await normalizeItemRow({
     ...item,
     expected_lifespan_years: expectedLifespan,
-    lifespan_percentage: computeLifespanPercentage(item),
+    lifespan_percentage: computeLifespanPercentage(item, lifespanMap),
   }));
 }));
 
