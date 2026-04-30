@@ -718,14 +718,26 @@ router.delete('/:id', writeRateLimiter, validate(uuidParamSchema, 'params'), ide
     // Harvest every storage key while we still have rows to look at.
     harvest = await harvestItemKeys(client, item!.id);
 
-    // Delete related records first (child tables)
+    // H-D2 (audit): mig 028 deliberately set warranty_purchases.item_id
+    // and warranty_claims.item_id to ON DELETE SET NULL so paid records
+    // SURVIVE an item delete (DB031 / DB032). The prior shape ignored
+    // that policy and explicitly DELETEd those rows — making tax / legal
+    // reconstruction after an item delete impossible.
+    //
+    // Now: keep the manual cascades only for tables that ARE supposed
+    // to die with the item (documents, maintenance_history,
+    // notification_history — that one is ON DELETE CASCADE per mig 002,
+    // so the explicit DELETE is functionally equivalent to letting the
+    // FK fire; we keep it explicit for intent + the user_id ownership
+    // re-check). Let the FK SET NULL handle warranty_purchases and
+    // warranty_claims — those rows persist with item_id=NULL and the
+    // user-facing item-scoped queries naturally exclude them.
     await client.query(`DELETE FROM documents WHERE item_id = $1 AND user_id = $2`, [item!.id, req.user!.id]);
     await client.query(`DELETE FROM maintenance_history WHERE item_id = $1 AND user_id = $2`, [item!.id, req.user!.id]);
-    await client.query(`DELETE FROM warranty_claims WHERE item_id = $1 AND user_id = $2`, [item!.id, req.user!.id]);
-    await client.query(`DELETE FROM warranty_purchases WHERE item_id = $1 AND user_id = $2`, [item!.id, req.user!.id]);
     await client.query(`DELETE FROM notification_history WHERE item_id = $1 AND user_id = $2`, [item!.id, req.user!.id]);
 
-    // Delete the item itself
+    // Delete the item itself. FK SET NULL on warranty_purchases.item_id
+    // and warranty_claims.item_id (mig 028) preserves paid records.
     await client.query(
       `DELETE FROM items WHERE id = $1 AND user_id = $2`,
       [req.params.id, req.user!.id]
