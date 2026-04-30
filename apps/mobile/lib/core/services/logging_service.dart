@@ -15,16 +15,32 @@ const _kSensitiveKeys = {
   'secret',
   'authorization',
   'cookie',
+  // M-mob-6 (audit): widen the structured-key allowlist so PII keys
+  // get redacted even when present in a context map, not just when
+  // they show up inside an error.toString() string.
+  'email',
+  'phone',
+  'fullname',
+  'full_name',
+  'address',
+  'apikey',
+  'api_key',
 };
 
 /// Patterns whose matches are masked to `[REDACTED]` before any string
-/// reaches the log sink. Covers the two highest-risk shapes we've seen
-/// leak through `error.toString()` and stack traces:
-///   - HTTP Authorization headers like `Bearer eyJ...`.
-///   - Raw JWTs (3 base64url segments separated by `.`).
+/// reaches the log sink. Covers the highest-risk shapes that leak
+/// through `error.toString()` and stack traces:
+///   - HTTP Authorization headers like `Bearer eyJ...`
+///   - Raw JWTs (3 base64url segments separated by `.`)
+///   - M-mob-6: email addresses (server-side pino redacts these; the
+///     mobile sink lagged). Pattern matches RFC 5322-ish addresses
+///     with no nested groups so it's ReDoS-safe.
+///   - M-mob-6: phone numbers (E.164 + common consumer formats).
 final _kRedactPatterns = <RegExp>[
   RegExp(r'Bearer\s+[^\s"]+', caseSensitive: false),
   RegExp(r'eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+'),
+  RegExp(r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'),
+  RegExp(r'\+?\d{1,3}[\s.-]?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}'),
 ];
 
 /// Replace any sensitive substrings in [s] with `[REDACTED]`.
