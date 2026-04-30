@@ -139,41 +139,80 @@ async function runAnalyzeAfterSeed(file: string): Promise<void> {
   }
 }
 
+// H-D1 (audit): session-scoped advisory lock so two replicas booting
+// simultaneously can't both try to apply the same migrations. Most
+// migrations aren't idempotent (ALTER TABLE ... ALTER COLUMN ... TYPE,
+// INSERT ... UPDATE) — the second replica's INSERT INTO
+// schema_migrations would 23505 only AFTER both had executed the DDL.
+// On a CONCURRENTLY index that fails mid-run, the second replica
+// crash-loops with `relation already exists`.
+//
+// Lock key: arbitrary 32-bit constant scoped to the migration runner.
+// Distinct from the audit-chain advisory lock (mig 080: 687638440097),
+// the account-purge lock (account-purge.service.ts: 0xa00d_4a13), and
+// the cap-refresh-tokens lock. Document new keys in a registry comment
+// when adding more.
+const MIGRATION_LOCK_KEY = 0x4d_47_52_4e; // 'MGRN' as bytes
+
+async function withMigrationLock<T>(fn: () => Promise<T>): Promise<T> {
+  const lockClient = await pool.connect();
+  try {
+    // Blocking lock — the second replica waits until the first finishes.
+    // We don't use try_advisory_lock here because we want the second
+    // replica to PROCEED (and skip already-applied migrations as no-ops)
+    // rather than exit and let k8s restart-loop it.
+    await lockClient.query(`SELECT pg_advisory_lock($1)`, [MIGRATION_LOCK_KEY]);
+    try {
+      return await fn();
+    } finally {
+      // Best-effort release; the session-scoped lock is also dropped
+      // automatically when the connection goes back to the pool.
+      await lockClient
+        .query(`SELECT pg_advisory_unlock($1)`, [MIGRATION_LOCK_KEY])
+        .catch(() => {});
+    }
+  } finally {
+    lockClient.release();
+  }
+}
+
 async function main() {
   try {
-    await ensureBaseSchema();
-    await ensureMigrationsTable();
-    const executed = await getExecutedMigrations();
+    await withMigrationLock(async () => {
+      await ensureBaseSchema();
+      await ensureMigrationsTable();
+      const executed = await getExecutedMigrations();
 
-    const files = readdirSync(__dirname)
-      .filter((f) => f.endsWith('.sql'))
-      .sort();
+      const files = readdirSync(__dirname)
+        .filter((f) => f.endsWith('.sql'))
+        .sort();
 
-    let ran = 0;
-    for (const file of files) {
-      if (executed.has(file)) {
-        // Drift detection: if the file's content has changed since it was
-        // recorded, surface a warning. We never re-run because that would
-        // double-apply (most migrations aren't idempotent).
-        const sha = createHash('sha256')
-          .update(readFileSync(join(__dirname, file), 'utf-8'))
-          .digest('hex');
-        const recordedSha = executed.get(file);
-        if (recordedSha && recordedSha !== sha) {
-          logger.warn(
-            { file, recorded: recordedSha.slice(0, 12), current: sha.slice(0, 12) },
-            'Migration file SHA differs from schema_migrations record — manual reconciliation may be needed',
-          );
+      let ran = 0;
+      for (const file of files) {
+        if (executed.has(file)) {
+          // Drift detection: if the file's content has changed since it was
+          // recorded, surface a warning. We never re-run because that would
+          // double-apply (most migrations aren't idempotent).
+          const sha = createHash('sha256')
+            .update(readFileSync(join(__dirname, file), 'utf-8'))
+            .digest('hex');
+          const recordedSha = executed.get(file);
+          if (recordedSha && recordedSha !== sha) {
+            logger.warn(
+              { file, recorded: recordedSha.slice(0, 12), current: sha.slice(0, 12) },
+              'Migration file SHA differs from schema_migrations record — manual reconciliation may be needed',
+            );
+          }
+          logger.info({ file }, 'Skipping already-executed migration');
+          continue;
         }
-        logger.info({ file }, 'Skipping already-executed migration');
-        continue;
+        await runMigration(file);
+        await runAnalyzeAfterSeed(file);
+        ran++;
       }
-      await runMigration(file);
-      await runAnalyzeAfterSeed(file);
-      ran++;
-    }
 
-    logger.info({ ran }, ran === 0 ? 'No pending migrations' : 'Migrations completed');
+      logger.info({ ran }, ran === 0 ? 'No pending migrations' : 'Migrations completed');
+    });
     process.exit(0);
   } catch (error) {
     logger.error({ error }, 'Migration failed');
