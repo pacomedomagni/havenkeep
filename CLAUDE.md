@@ -86,7 +86,7 @@ Per-environment Services IDs follow the convention:
 - Webhook events table tracks delivery + retries with dead-letter at attempt 8.
 
 ### DB migrations
-Numbered migrations live in `apps/api/src/db/migrations/`: 028–039 (security/data-loss criticals), 040–045 (DB foundation), 050–051 (payments + uploads), 060–067 (services), 070 (drift constraints), 071 (partner status enum), 072–074 (digest outbox / welcome email open / category repair-cost defaults), 075–081 (audit-chain casts, request idempotency, MinIO object keys, audit-chain advisory lock, audit-logs description cap), 082 (re-applies audit-trigger casts + advisory lock together — fixes audit C1 where 080 regressed 075's enum/UUID casts). Runner auto-detects `ALTER TYPE ADD VALUE` and `CREATE INDEX CONCURRENTLY` and runs those files outside transactions. `schema_version` table tracks bootstrap completion.
+Numbered migrations live in `apps/api/src/db/migrations/`: 028–039 (security/data-loss criticals), 040–045 (DB foundation), 050–051 (payments + uploads), 060–067 (services), 070 (drift constraints), 071 (partner status enum), 072–074 (digest outbox / welcome email open / category repair-cost defaults), 075–081 (audit-chain casts, request idempotency, MinIO object keys, audit-chain advisory lock, audit-logs description cap), 082 (re-applies audit-trigger casts + advisory lock together — fixes audit C1 where 080 regressed 075's enum/UUID casts), 083 (warranty_*.user_id RESTRICT→SET NULL + denormalized email columns for purge anonymization — audit C4), 084 (user_mfa_factors + user_mfa_backup_codes for TOTP enrollment — audit S-C2). Runner auto-detects `ALTER TYPE ADD VALUE` and `CREATE INDEX CONCURRENTLY` and runs those files outside transactions. `schema_version` table tracks bootstrap completion.
 
 ---
 
@@ -138,6 +138,18 @@ A 9-reviewer end-to-end audit on 2026-04-29 produced 145 findings (22 Critical, 
 - S-C5 + S-H2 — per-user 3/hour limiter on `/me/change-email` + per-recipient Redis dedupe + closed enumeration oracle
 - S-C6 — per-user rate limit on `/email-scanner/scan` (5/hour) + mutation actions (30/15min)
 
-**Phase 2** (next): C2/C3 (digest pushes), C4 (purge anonymization), C5/C6 (warranty cancel column + 3-phase Stripe), C11 (setTimeout leak), C12 (activation-code retry), C13 (verify-email-change endpoint — note that per Part 3.C-AASA, the consume route lives on the marketing side; the API endpoint exists today as a stub that was never wired), C14 (mobile offline queue), C15 (env-file leak), S-C2 (MFA), S-C4 (OAuth state).
+**Phase 2 — Critical security & integrity** (12 findings) shipped on branch `remediation/phase-2-criticals`:
+- C2+C3 — flushDigestOutbox now sends FCM (was inserting `'pending'` and never pushing); FOR UPDATE SKIP LOCKED prevents concurrent-replica duplicates
+- C4 (mig 083) — warranty_*.user_id RESTRICT→SET NULL + user_email_at_purchase / user_email_at_claim denormalized columns; account-purge anonymizes before DELETE so paying users hard-delete cleanly
+- C5+C6 — warranty cancel split into 3-phase (lock+claim 'cancelling' → Stripe refund outside tx → finalize) and partner_commissions joined via reference_id+reference_type='warranty_purchase' (column was hallucinated)
+- C11 — email-scan setTimeout handle captured + clearTimeout in .finally so 5-min closures don't leak per scan
+- C12 — activation-code generation moved BEFORE the BEGIN; collision pre-check via SELECT EXISTS, retry-loop-inside-aborted-tx pattern removed
+- C13 + S-M9 — POST /api/v1/auth/verify-email-change implemented (atomic DELETE-RETURNING token, swap email, drop refresh tokens, invalidate cache); marketing /verify-email-change.astro page consumes the link; users.ts switched from bare SHA-256 to keyed HMAC via new utils/token-hash.ts
+- C14 — ItemsNotifier mutations wire OfflineSyncService.enqueueChange on ApiNetworkException / ApiTimeoutException (was 0 callers); other ApiException variants still rollback
+- C15 — pubspec ships only .env.bundled; scripts/prepare-env.sh copies the active flavor file before `flutter build`; .gitignore the bundle
+- S-C2 (mig 084) — TOTP MFA: user_mfa_factors + user_mfa_backup_codes tables, /api/v1/mfa/totp/{enroll,verify,disable} + /status routes, /auth/mfa/challenge to exchange a short-lived (5min) mfa_token for real access+refresh; /auth/login routes through the gate when MfaService.getStatus returns hasVerifiedFactor
+- S-C4 — Gmail and Outlook OAuth flows now mint and verify a `state` parameter (32-byte CSPRNG, base64url) per RFC 6749 §10.12
 
-**To continue**: `git checkout remediation/phase-1-stop-the-bleeding` to inspect, or `git checkout main && git checkout -b remediation/phase-2-criticals` after Phase 1 PR merges. Read `/tmp/havenkeep-handoff.md` first.
+**Phase 3** (next): all H-A1..H-A9 (auth & sessions), H-D1..H-D8 (data integrity), H-C1..H-C3 (contract drift), H-P1..H-P6 (payments hardening) — see `/tmp/havenkeep-remediation-plan.md` Phase 3 for per-finding instructions, suggested PR boundaries, and ordering.
+
+**To continue**: `git checkout main && git checkout -b remediation/phase-3-correctness` after Phase 2 PR merges. Read `/tmp/havenkeep-handoff.md` first.
