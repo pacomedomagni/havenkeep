@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { authenticate } from '../middleware/auth';
+import { authenticate, requireAdmin, verifyAdminFresh } from '../middleware/auth';
 import { AuditService, AuditAction, AuditSeverity } from '../services/audit.service';
 import { AppError } from '../utils/errors';
 import { asyncHandler } from '../utils/async-handler';
@@ -36,8 +36,13 @@ router.get('/logs', asyncHandler(async (req: Request, res: Response) => {
     limit: limitRaw = '50',
   } = req.query;
 
+  // S-C1: re-derive admin from the DB instead of trusting the cached
+  // req.user.isAdmin (10s TTL). A demoted admin must lose cross-tenant
+  // read access immediately, not after the cache expires.
+  const isAdminFresh = await verifyAdminFresh(user.id);
+
   // Non-admins can only see their own logs
-  const userId = user.isAdmin ? (req.query.userId as string) : user.id;
+  const userId = isAdminFresh ? (req.query.userId as string) : user.id;
 
   const page = Math.max(1, parseInt(pageRaw as string, 10) || 1);
   const limit = Math.min(100, Math.max(1, parseInt(limitRaw as string, 10) || 50));
@@ -103,7 +108,10 @@ router.get('/logs/resource/:resourceType/:resourceId', asyncHandler(async (req: 
   const limit = Math.min(100, Math.max(1, parseInt(limitRaw as string, 10) || 50));
   const offset = (page - 1) * limit;
 
-  const result = user.isAdmin
+  // S-C1: fresh DB-derived admin check (see /logs comment).
+  const isAdminFresh = await verifyAdminFresh(user.id);
+
+  const result = isAdminFresh
     ? await AuditService.getResourceLogs(resourceType, resourceId, limit, offset)
     : await AuditService.query({
         userId: user.id,
@@ -127,13 +135,9 @@ router.get('/logs/resource/:resourceType/:resourceId', asyncHandler(async (req: 
  * GET /api/v1/audit/security
  * Get recent security events (admin only)
  */
-router.get('/security', asyncHandler(async (req: Request, res: Response) => {
-  const user = req.user!;
-
-  if (!user.isAdmin) {
-    throw new AppError('Unauthorized - Admin access required', 403);
-  }
-
+// S-C1: requireAdmin middleware does a fresh DB read on every call;
+// removes the 10s stale-cache window for demoted admins.
+router.get('/security', requireAdmin, asyncHandler(async (req: Request, res: Response) => {
   const { limit = '100' } = req.query;
 
   const events = await AuditService.getRecentSecurityEvents(
@@ -147,13 +151,7 @@ router.get('/security', asyncHandler(async (req: Request, res: Response) => {
  * GET /api/v1/audit/stats
  * Get audit log statistics
  */
-router.get('/stats', asyncHandler(async (req: Request, res: Response) => {
-  const user = req.user!;
-
-  if (!user.isAdmin) {
-    throw new AppError('Unauthorized - Admin access required', 403);
-  }
-
+router.get('/stats', requireAdmin, asyncHandler(async (req: Request, res: Response) => {
   const { startDate, endDate } = req.query;
 
   const stats = await AuditService.getStats(
@@ -168,13 +166,7 @@ router.get('/stats', asyncHandler(async (req: Request, res: Response) => {
  * GET /api/v1/audit/activity-summary
  * Get user activity summary (admin only)
  */
-router.get('/activity-summary', asyncHandler(async (req: Request, res: Response) => {
-  const user = req.user!;
-
-  if (!user.isAdmin) {
-    throw new AppError('Unauthorized - Admin access required', 403);
-  }
-
+router.get('/activity-summary', requireAdmin, asyncHandler(async (req: Request, res: Response) => {
   const { userId } = req.query;
 
   const summary = await AuditService.getUserActivitySummary(userId as string | undefined);
@@ -195,13 +187,7 @@ router.get('/activity-summary', asyncHandler(async (req: Request, res: Response)
  * the trail of *who triggered* survives even though the trigger removes
  * older info-level entries.
  */
-router.post('/cleanup', asyncHandler(async (req: Request, res: Response) => {
-  const user = req.user!;
-
-  if (!user.isAdmin) {
-    throw new AppError('Unauthorized - Admin access required', 403);
-  }
-
+router.post('/cleanup', requireAdmin, asyncHandler(async (req: Request, res: Response) => {
   const { confirm, confirmation_phrase } = req.body ?? {};
   if (confirm !== 'PURGE') {
     throw new AppError(

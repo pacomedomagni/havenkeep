@@ -212,6 +212,29 @@ export async function requireAdmin(req: Request, res: Response, next: NextFuncti
   }
 }
 
+/**
+ * Fresh per-call DB check of `users.is_admin` for routes that don't *require*
+ * admin but BRANCH on it (e.g. /audit/logs lets admins query any user, others
+ * see only their own). The cached `req.user.isAdmin` lives for up to 10s
+ * (Redis user-row TTL). Reading directly from the DB closes the
+ * "demoted admin retains cross-tenant access for ≤10s" oracle (S-C1).
+ *
+ * Returns false (and never throws) on lookup failure, so routes that branch
+ * on admin-ness fail-closed to "treat as non-admin".
+ */
+export async function verifyAdminFresh(userId: string): Promise<boolean> {
+  try {
+    const result = await query(
+      `SELECT is_admin FROM users WHERE id = $1 AND deleted_at IS NULL`,
+      [userId],
+    );
+    return result.rows.length > 0 && result.rows[0].is_admin === true;
+  } catch (err) {
+    logger.error({ err, userId }, 'verifyAdminFresh DB lookup failed; treating as non-admin');
+    return false;
+  }
+}
+
 /// 3.17: explicit "either admin or actual partner" gate. After 3.17,
 /// `isPartner` is true ONLY when the user has a row in `partners` —
 /// admins are no longer transparently elevated. Routes that legitimately
