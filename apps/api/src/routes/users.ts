@@ -53,7 +53,7 @@ router.get('/me', asyncHandler(async (req, res) => {
     `SELECT u.id, u.email, u.full_name, u.avatar_url, u.auth_provider, u.plan, u.plan_expires_at,
             u.referred_by, u.referral_code, u.email_verified, u.apple_user_id, u.is_admin,
             u.deleted_at, u.deletion_scheduled_for, u.created_at, u.updated_at,
-            (EXISTS(SELECT 1 FROM partners p WHERE p.user_id = u.id AND p.is_active = TRUE)) AS is_partner,
+            (EXISTS(SELECT 1 FROM partners p WHERE p.user_id = u.id AND p.status = 'active')) AS is_partner,
             (
               SELECT t.metadata->>'new_email'
                 FROM email_verification_tokens t
@@ -110,7 +110,7 @@ router.put('/me', writeRateLimiter, validate(updateUserSchema), asyncHandler(asy
      RETURNING id, email, full_name, avatar_url, auth_provider, plan, plan_expires_at,
                referred_by, referral_code, email_verified, apple_user_id, is_admin,
                deleted_at, deletion_scheduled_for, created_at, updated_at,
-               (EXISTS(SELECT 1 FROM partners p WHERE p.user_id = users.id AND p.is_active = TRUE)) AS is_partner,
+               (EXISTS(SELECT 1 FROM partners p WHERE p.user_id = users.id AND p.status = 'active')) AS is_partner,
                (
                  SELECT t.metadata->>'new_email'
                    FROM email_verification_tokens t

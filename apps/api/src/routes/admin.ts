@@ -70,7 +70,7 @@ router.get('/stats', async (req, res, next) => {
         (SELECT COUNT(*) FROM users WHERE plan = 'premium' AND deleted_at IS NULL) as premium_users,
         (SELECT COUNT(*) FROM items i JOIN users u ON u.id = i.user_id WHERE u.deleted_at IS NULL) as total_items,
         (SELECT COALESCE(SUM(i.price), 0) FROM items i JOIN users u ON u.id = i.user_id WHERE u.deleted_at IS NULL) as total_value,
-        (SELECT COUNT(*) FROM partners p JOIN users u ON u.id = p.user_id WHERE p.is_active = TRUE AND u.deleted_at IS NULL) as active_partners,
+        (SELECT COUNT(*) FROM partners p JOIN users u ON u.id = p.user_id WHERE p.status = 'active' AND u.deleted_at IS NULL) as active_partners,
         (SELECT COUNT(*) FROM partner_gifts) as total_gifts,
         (SELECT COUNT(*) FROM warranty_claims wc JOIN users u ON u.id = wc.user_id WHERE u.deleted_at IS NULL) as total_claims
     `);
