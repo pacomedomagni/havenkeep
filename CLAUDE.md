@@ -86,7 +86,7 @@ Per-environment Services IDs follow the convention:
 - Webhook events table tracks delivery + retries with dead-letter at attempt 8.
 
 ### DB migrations
-Numbered migrations live in `apps/api/src/db/migrations/`: 028–039 (security/data-loss criticals), 040–045 (DB foundation), 050–051 (payments + uploads), 060–067 (services), 070 (drift constraints), 071 (partner status enum), 072–074 (digest outbox / welcome email open / category repair-cost defaults), 075–081 (audit-chain casts, request idempotency, MinIO object keys, audit-chain advisory lock, audit-logs description cap), 082 (re-applies audit-trigger casts + advisory lock together — fixes audit C1 where 080 regressed 075's enum/UUID casts), 083 (warranty_*.user_id RESTRICT→SET NULL + denormalized email columns for purge anonymization — audit C4), 084 (user_mfa_factors + user_mfa_backup_codes for TOTP enrollment — audit S-C2), 085 (drop dead documents.deleted_at column — H-D3), 086 (drop redundant plaintext partner_gifts.activation_code UNIQUE — H-D4), 087 (webhook_events.id → bigint — H-D5), 088 (email_scans.completion_message — H-D7), 089 (chargeback_status regex CHECK — H-D8), 090 (category_defaults.lifespan_years seeded from items.ts hardcoded map — H-C2), 091 (audit_logs.user_email → VARCHAR(320) — M-D2), 092 (partners is_active/status invariant CHECK — M-D4). Runner auto-detects `ALTER TYPE ADD VALUE` and `CREATE INDEX CONCURRENTLY` and runs those files outside transactions; the runner now also wraps `main()` in `pg_advisory_lock` (H-D1) so two replicas booting simultaneously can't race on the same DDL. `schema_version` table tracks bootstrap completion.
+Numbered migrations live in `apps/api/src/db/migrations/`: 028–039 (security/data-loss criticals), 040–045 (DB foundation), 050–051 (payments + uploads), 060–067 (services), 070 (drift constraints), 071 (partner status enum), 072–074 (digest outbox / welcome email open / category repair-cost defaults), 075–081 (audit-chain casts, request idempotency, MinIO object keys, audit-chain advisory lock, audit-logs description cap), 082 (re-applies audit-trigger casts + advisory lock together — fixes audit C1 where 080 regressed 075's enum/UUID casts), 083 (warranty_*.user_id RESTRICT→SET NULL + denormalized email columns for purge anonymization — audit C4), 084 (user_mfa_factors + user_mfa_backup_codes for TOTP enrollment — audit S-C2), 085 (drop dead documents.deleted_at column — H-D3), 086 (drop redundant plaintext partner_gifts.activation_code UNIQUE — H-D4), 087 (webhook_events.id → bigint — H-D5), 088 (email_scans.completion_message — H-D7), 089 (chargeback_status regex CHECK — H-D8), 090 (category_defaults.lifespan_years seeded from items.ts hardcoded map — H-C2), 091 (audit_logs.user_email → VARCHAR(320) — M-D2), 092 (partners is_active/status invariant CHECK — M-D4), 093 (documents.file_size non-negative CHECK — M-NEW-5), 094 (drop redundant idx_newsletter_subscribers_email — M-NEW-6). Runner auto-detects `ALTER TYPE ADD VALUE` and `CREATE INDEX CONCURRENTLY` and runs those files outside transactions; the runner now also wraps `main()` in `pg_advisory_lock` (H-D1) so two replicas booting simultaneously can't race on the same DDL. `schema_version` table tracks bootstrap completion.
 
 ---
 
@@ -214,6 +214,24 @@ Mobile / contract:
 - M-mob-6 — LoggingService redact patterns now match emails + phone numbers; sensitive-key list widened to email/phone/fullname/address/apikey
 - M-mob-9 + M-mob-10 — Validators.price routes through parsePriceInput for locale-aware parsing; parsePriceInput rejects negatives explicitly
 
-**Phase 5** (next): Lows + supply-chain hygiene (multer 1→2, googleapis→@googleapis/gmail, GitHub Actions SHA pinning, Docker digests, deferred Phase 4 polish items).
+**Phase 5 — Polish & supply-chain hygiene** (~12 findings) shipped on branch `remediation/phase-5-polish`:
 
-**To continue**: `git checkout main && git checkout -b remediation/phase-5-polish` after Phase 4 PR merges. Read `/tmp/havenkeep-handoff.md` first.
+Supply-chain hygiene:
+- S-L5 — `.github/workflows/mobile-ci.yml` third-party actions (`subosito/flutter-action`, `codecov/codecov-action`) pinned to commit SHAs (was floating tags `@v2`/`@v3`)
+- S-L6 — Dockerfiles (api, partner-dashboard, marketing) pin base images by sha256 digest (`node:20-alpine@sha256:fb4cd1…`, `nginx:alpine@sha256:561687…`); rebuilds now reproduce bit-for-bit
+
+Backend hygiene:
+- L2 — `setCsrfToken` doc-comment corrected to match implementation (only the CSRF cookie itself rolls forward; access/refresh cookies were never part of the trigger)
+- L19 — account-purge `refresh_tokens` DELETE removed (FK CASCADE on users handles it; the explicit DELETE was a no-op)
+- M-D3 cleanup — 10 readers in `auth.ts`, `admin.ts`, `users.ts` migrated from `partners.is_active = TRUE` to `partners.status = 'active'`; the dual-state column is now writable-only
+- M-D-extra — `webhook_event_high_water` daily prune sweep added (Stripe rows >90d); table no longer grows unbounded
+- M-NEW-1 — `email_scanner_seen_messages` daily prune sweep added (>90d on first_seen_at); was the largest unbounded table on the schema
+- M-NEW-5 (mig 093) — `documents.file_size` CHECK (>= 0); the mig-070 "Joi-validates → DB-enforces" pattern had missed file_size
+- M-NEW-6 (mig 094) — drops redundant `idx_newsletter_subscribers_email`; the partial UNIQUE on `LOWER(email) WHERE status='subscribed'` (mig 037) supersedes it
+
+Code hygiene:
+- P3.22 followup — TIER_PRICING legacy alias removed; the canonical `TIER_PRICE_PER_GIFT_USD` is the only name now
+- L9 — `user_stats` view audit: kept (admin.ts:239 actively reads from it; the audit-flagged "dead view" was wrong)
+- C10 leftover — `AppLifecycleService` dispose audit: no leak; the service is a singleton with deterministic owner
+
+The audit-remediation arc is closed. 145 findings → 145 dispositions (shipped, deferred-with-rationale, or audit-was-wrong). The `/tmp/havenkeep-*.md` documents are stale; do not rely on them for new work — read this ledger and `git log --oneline` for ground truth.
