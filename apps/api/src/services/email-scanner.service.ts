@@ -263,7 +263,14 @@ export class EmailScannerService {
     }
 
     // Run the scan in the background using the freshly minted access token.
+    //
+    // C11: capture the timer handle so we can clearTimeout it on the
+    // success path. Without this, a 5-min closure (capturing the
+    // AbortController + scan id + reject callback) survives every
+    // successful scan for 5 minutes — on a busy deploy hundreds of
+    // these accumulate and hold the event loop open at shutdown.
     const abortController = new AbortController();
+    let timeoutHandle: NodeJS.Timeout | undefined;
     const scanPromise = this.performScan(
       scan.id,
       userId,
@@ -272,27 +279,31 @@ export class EmailScannerService {
       options,
       abortController.signal,
     );
-    const timeoutPromise = new Promise<void>((_, reject) =>
-      setTimeout(() => {
+    const timeoutPromise = new Promise<void>((_, reject) => {
+      timeoutHandle = setTimeout(() => {
         abortController.abort();
         reject(new Error('Email scan timed out after 5 minutes'));
-      }, 5 * 60 * 1000),
-    );
-
-    Promise.race([scanPromise, timeoutPromise]).catch(async (error) => {
-      logger.error(
-        { errorMessage: (error as Error).message, scanId: scan.id },
-        'Background email scan failed',
-      );
-      try {
-        await pool.query(
-          `UPDATE email_scans SET status = 'failed', error_message = $2, completed_at = NOW() WHERE id = $1 AND status != 'completed'`,
-          [scan.id, (error as Error).message || 'Unknown error'],
-        );
-      } catch (updateError) {
-        logger.error({ updateError, scanId: scan.id }, 'Failed to update scan status after error');
-      }
+      }, 5 * 60 * 1000);
     });
+
+    Promise.race([scanPromise, timeoutPromise])
+      .catch(async (error) => {
+        logger.error(
+          { errorMessage: (error as Error).message, scanId: scan.id },
+          'Background email scan failed',
+        );
+        try {
+          await pool.query(
+            `UPDATE email_scans SET status = 'failed', error_message = $2, completed_at = NOW() WHERE id = $1 AND status != 'completed'`,
+            [scan.id, (error as Error).message || 'Unknown error'],
+          );
+        } catch (updateError) {
+          logger.error({ updateError, scanId: scan.id }, 'Failed to update scan status after error');
+        }
+      })
+      .finally(() => {
+        if (timeoutHandle) clearTimeout(timeoutHandle);
+      });
 
     return scan;
   }
