@@ -259,6 +259,47 @@ function scheduleExpirationNotifications() {
       logger.error({ err }, 'FCM stale-token cleanup failed');
     }
 
+    // M-A10 (audit): the generic pruneExpiredIdempotencyRows above
+    // only sweeps `request_idempotency`. The feature-specific
+    // dedup tables — receipt_scan_idempotency (mig 051),
+    // apple_sign_in_nonces (mig 077), gift_verify_attempts (mig 032)
+    // — have their own expires_at / created_at fields and the
+    // audit flagged each as growing forever without a wired prune.
+    // All three are bounded by sensible TTLs in their schemas; the
+    // sweep below just enforces them.
+    try {
+      const r = await pool.query(
+        `DELETE FROM receipt_scan_idempotency
+          WHERE expires_at < NOW() - INTERVAL '7 days'`,
+      );
+      if (r.rowCount && r.rowCount > 0) {
+        logger.info({ deleted: r.rowCount }, 'receipt_scan_idempotency retention sweep');
+      }
+    } catch (err) {
+      logger.error({ err }, 'receipt_scan_idempotency retention sweep failed');
+    }
+    try {
+      const r = await pool.query(
+        `DELETE FROM apple_sign_in_nonces WHERE expires_at < NOW()`,
+      );
+      if (r.rowCount && r.rowCount > 0) {
+        logger.info({ deleted: r.rowCount }, 'apple_sign_in_nonces retention sweep');
+      }
+    } catch (err) {
+      logger.error({ err }, 'apple_sign_in_nonces retention sweep failed');
+    }
+    try {
+      const r = await pool.query(
+        `DELETE FROM gift_verify_attempts
+          WHERE bucket_minute < NOW() - INTERVAL '24 hours'`,
+      );
+      if (r.rowCount && r.rowCount > 0) {
+        logger.info({ deleted: r.rowCount }, 'gift_verify_attempts retention sweep');
+      }
+    } catch (err) {
+      logger.error({ err }, 'gift_verify_attempts retention sweep failed');
+    }
+
     // Sunday weekly sweep — `getUTCDay()` so the boundary is consistent.
     if (new Date().getUTCDay() === 0) {
       try {
