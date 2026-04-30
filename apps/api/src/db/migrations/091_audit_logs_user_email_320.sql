@@ -13,13 +13,34 @@
 -- row is self-consistent under verify_audit_chain) but the recorded
 -- identifier is wrong.
 --
--- ALTER COLUMN ... TYPE on a column under a CHECK constraint can be
--- expensive on a large table; PG can avoid the rewrite when the new
--- type is strictly larger. VARCHAR(320) ⊇ VARCHAR(255), so no rewrite
--- on a populated table.
+-- The recent_security_events view (mig 004) projects user_email and
+-- pins PG's column-type alter check; we drop and recreate the view
+-- around the ALTER. The view is a pure SELECT — no users, grants,
+-- materialized data — so the drop is safe. CREATE OR REPLACE is not
+-- usable because the column type changes.
+--
+-- ALTER COLUMN ... TYPE on a column with no rewrite is metadata-only;
+-- VARCHAR(320) ⊇ VARCHAR(255), so no table rewrite even with data.
+
+DROP VIEW IF EXISTS recent_security_events;
 
 ALTER TABLE audit_logs
   ALTER COLUMN user_email TYPE VARCHAR(320);
+
+CREATE VIEW recent_security_events AS
+SELECT
+  al.id,
+  al.user_id,
+  al.user_email,
+  al.action,
+  al.severity,
+  al.description,
+  al.ip_address,
+  al.created_at
+FROM audit_logs al
+WHERE al.action::text LIKE 'security.%'
+  AND al.created_at > NOW() - INTERVAL '30 days'
+ORDER BY al.created_at DESC;
 
 DO $$
 BEGIN
