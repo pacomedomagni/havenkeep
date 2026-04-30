@@ -14,11 +14,12 @@ import { logger } from '../utils/logger';
 import { AuditService } from '../services/audit.service';
 import { EmailService } from '../services/email.service';
 import { EmailScannerService } from '../services/email-scanner.service';
-import { verifyPremiumRateLimiter, passwordChangeRateLimiter, writeRateLimiter } from '../middleware/rateLimiter';
+import { verifyPremiumRateLimiter, passwordChangeRateLimiter, writeRateLimiter, changeEmailRateLimiter } from '../middleware/rateLimiter';
 import { asyncHandler } from '../utils/async-handler';
 import { sendSuccess, sendMessage } from '../utils/response';
 import { preHashForBcrypt } from '../utils/password';
 import { presignedUrlForKey } from '../config/minio';
+import { getRedisClient } from '../utils/redis';
 
 // S-CR-02: avatar_url is now a MinIO object key, not a URL. Mint a fresh
 // presigned URL on every response so a leaked URL is useless within
@@ -319,9 +320,23 @@ router.post('/me/verify-premium', verifyPremiumRateLimiter, validate(verifyPremi
   });
 }));
 
-// Change email — initiates verification flow
-router.post('/me/change-email', writeRateLimiter, validate(changeEmailSchema), asyncHandler(async (req, res) => {
+// Change email — initiates verification flow.
+//
+// S-C5: rate-limit defense in depth.
+//   - changeEmailRateLimiter: per-USER 3/hour. Per-IP wasn't enough — an
+//     attacker holding a single bearer token could rotate IPs (residential
+//     proxies) and burn the per-IP writeRateLimiter while the victim user
+//     is still unable to actually use their account. Per-user closes that.
+//   - Per-recipient Redis dedupe (24h, hashed): SendGrid sends an email
+//     to whatever the caller types as `newEmail`. Without per-recipient
+//     guard, an attacker authenticated as themselves can mail any victim
+//     repeatedly with HavenKeep-branded content.
+//   - Generic response: rate-limit-skipped responses are shape-identical
+//     to the legitimate path so an attacker probing recipient state can't
+//     distinguish "we mailed it" from "we silently dropped it."
+router.post('/me/change-email', changeEmailRateLimiter, validate(changeEmailSchema), asyncHandler(async (req, res) => {
   const { newEmail, password } = req.body;
+  const newEmailLower: string = String(newEmail).toLowerCase();
 
   // Get current user
   const userResult = await query(
@@ -346,18 +361,61 @@ router.post('/me/change-email', writeRateLimiter, validate(changeEmailSchema), a
   }
 
   // Ensure new email is different from current
-  if (newEmail.toLowerCase() === user.email.toLowerCase()) {
+  if (newEmailLower === user.email.toLowerCase()) {
     throw new AppError('New email must be different from your current email', 400);
   }
 
-  // Check if new email is already in use
+  // S-C5: per-recipient 24h dedupe. Hash the address so a leaked Redis
+  // dump doesn't hand out a list of HavenKeep targets-of-interest. This
+  // is best-effort: if Redis is unavailable we fall through to the rest
+  // of the handler — better to occasionally over-send than to refuse all
+  // legitimate change-email mails when Redis hiccups.
+  const recipientHash = crypto.createHash('sha256').update(newEmailLower).digest('hex');
+  const recipientKey = `changeEmailRecipient:${recipientHash}`;
+  let recipientRateLimited = false;
+  try {
+    const redis = await getRedisClient();
+    const count = await redis.incr(recipientKey);
+    if (count === 1) {
+      await redis.expire(recipientKey, 24 * 60 * 60);
+    }
+    if (count > 1) {
+      recipientRateLimited = true;
+    }
+  } catch (err) {
+    logger.warn({ err, userId: req.user!.id }, 'change-email recipient dedupe Redis check failed; proceeding');
+  }
+
+  if (recipientRateLimited) {
+    // Generic shape-identical response so an attacker can't distinguish
+    // "rate-limited recipient" from "we sent it." Don't even check
+    // existing-user uniqueness here — the response must be the same as
+    // the success path below.
+    logger.warn(
+      { userId: req.user!.id, recipientHash: recipientHash.slice(0, 12) },
+      'change-email recipient rate-limit hit; suppressing send (S-C5)',
+    );
+    return sendMessage(res, 'Verification email sent to your new address. Please check your inbox.');
+  }
+
+  // S-H2: don't 409 here on existing-email — that's an auth'd enumeration
+  // oracle (see Pass 2 H-A2). Mirror the response shape and let the
+  // verify-email-change consumer enforce uniqueness atomically. The
+  // per-recipient dedupe above already guarantees we never send a second
+  // mail to the same address within 24h.
   const existingUser = await query(
     `SELECT id FROM users WHERE LOWER(email) = LOWER($1)`,
     [newEmail]
   );
 
   if (existingUser.rows.length > 0) {
-    throw new AppError('This email is already in use', 409);
+    // Don't send a verification mail to a known address — but respond
+    // identically to the success path so the caller can't tell.
+    logger.info(
+      { userId: req.user!.id },
+      'change-email target already in use; suppressing send (S-H2)',
+    );
+    return sendMessage(res, 'Verification email sent to your new address. Please check your inbox.');
   }
 
   // Generate a verification token

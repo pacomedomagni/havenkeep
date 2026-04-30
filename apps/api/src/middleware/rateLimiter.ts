@@ -175,6 +175,10 @@ function createEndpointRateLimiter(options: {
   max: number;
   message: string;
   skipSuccessfulRequests?: boolean;
+  // S-C5: optional per-user keying for authenticated routes where the
+  // attacker's IP is irrelevant (they're holding a valid bearer). Falls
+  // back to req.ip when req.user.id is absent (auth flows themselves).
+  keyGenerator?: (req: import('express').Request) => string;
 }): import('express').RequestHandler {
   // Resolved on the first request after Redis is available. Cached
   // forever after that — express-rate-limit's RedisStore is safe to
@@ -192,6 +196,7 @@ function createEndpointRateLimiter(options: {
       ...(options.skipSuccessfulRequests !== undefined
         ? { skipSuccessfulRequests: options.skipSuccessfulRequests }
         : {}),
+      ...(options.keyGenerator ? { keyGenerator: options.keyGenerator } : {}),
       standardHeaders: true,
       legacyHeaders: false,
       ...(store ? { store: store as any } : {}),
@@ -366,4 +371,44 @@ export const readRateLimiter = createEndpointRateLimiter({
   windowMs: 60 * 1000, // 1 minute
   max: 120,
   message: 'Too many read requests, please slow down.',
+});
+
+// S-C5: per-user limiter for /me/change-email. The endpoint sends a
+// SendGrid mail to whatever address the authenticated caller supplies —
+// at the prior 30/15min writeRateLimiter (per-IP), an attacker holding
+// one valid bearer token could rotate victim addresses and burn ~120
+// branded HavenKeep emails/hour at any chosen recipient. Per-user 3/hour
+// closes the user-side; the per-recipient guard inside the route handler
+// (Redis 24h dedupe keyed on hash(newEmail)) closes the recipient side.
+export const changeEmailRateLimiter = createEndpointRateLimiter({
+  bucket: 'changeEmail',
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 3,
+  message: 'Too many email-change requests. Please try again in an hour.',
+  keyGenerator: (req) => req.user?.id ?? req.ip ?? 'unknown',
+});
+
+// S-C6: per-user limiter for POST /email-scanner/scan. The endpoint hits
+// Google's / Microsoft's OAuth token endpoint server-side and pulls mail.
+// One compromised premium account at the prior unbounded rate could
+// drain HavenKeep's per-app provider quotas, taking the scanner offline
+// for everyone. 5/hour is generous for legitimate scanning patterns.
+export const emailScannerScanRateLimiter = createEndpointRateLimiter({
+  bucket: 'emailScannerScan',
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 5,
+  message: 'Too many email-scanner runs. Please wait an hour before retrying.',
+  keyGenerator: (req) => req.user?.id ?? req.ip ?? 'unknown',
+});
+
+// S-C6 sibling: per-user limiter for the email-scanner mutation actions
+// (cancel, approve, reject, delete-integration). Higher cap (these are
+// cheap and user-facing) but still per-user-scoped so attackers can't
+// burn through queues from one bearer.
+export const emailScannerWriteRateLimiter = createEndpointRateLimiter({
+  bucket: 'emailScannerWrite',
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  message: 'Too many email-scanner actions. Please slow down.',
+  keyGenerator: (req) => req.user?.id ?? req.ip ?? 'unknown',
 });
