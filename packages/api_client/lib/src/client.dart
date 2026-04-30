@@ -291,6 +291,17 @@ class ApiClient {
 
   /// Load stored tokens on app startup.
   /// Returns true if a valid session was restored.
+  ///
+  /// H-B9 (audit): the prior expired-token-on-restore branch cleared
+  /// tokens on ANY refresh failure (network blip, 502, timeout). A
+  /// user launching the app in a tunnel or while api.havenkeep.io
+  /// was having a 30-second incident got thrown back to the welcome
+  /// screen. Now: only ApiAuthRequiredException (the refresh token
+  /// itself was rejected — i.e. the credential is genuinely dead)
+  /// clears tokens. Transport errors (ApiNetworkException,
+  /// ApiTimeoutException, ApiServerException) leave the tokens in
+  /// place and surface as a "we're offline" state — the next launch
+  /// can retry the refresh against fresher infra.
   Future<bool> restoreSession() async {
     try {
       _accessToken = await _storage.read(key: _keyAccessToken);
@@ -305,9 +316,16 @@ class ApiClient {
             await refreshAccessToken()
                 .timeout(const Duration(seconds: 10));
             return true;
-          } catch (e) {
-            _log('[ApiClient] Token refresh failed during restore: $e');
+          } on ApiAuthRequiredException catch (e) {
+            // Refresh token genuinely rejected — credentials dead.
+            _log('[ApiClient] Refresh token rejected during restore: $e');
             await clearTokens();
+            return false;
+          } catch (e) {
+            // Network / timeout / 5xx — keep tokens, return false so
+            // the caller surfaces an offline state. The next app
+            // launch will retry against the same stored credentials.
+            _log('[ApiClient] Refresh transient failure during restore (keeping tokens): $e');
             return false;
           }
         }
@@ -321,9 +339,12 @@ class ApiClient {
           await refreshAccessToken()
               .timeout(const Duration(seconds: 10));
           return true;
-        } catch (e) {
-          _log('[ApiClient] Token refresh failed during restore: $e');
+        } on ApiAuthRequiredException catch (e) {
+          _log('[ApiClient] Refresh token rejected during restore: $e');
           await clearTokens();
+          return false;
+        } catch (e) {
+          _log('[ApiClient] Refresh transient failure during restore (keeping tokens): $e');
           return false;
         }
       }
