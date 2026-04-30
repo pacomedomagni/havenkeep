@@ -21,6 +21,21 @@ import { preHashForBcrypt } from '../utils/password';
 import { getRedisClient } from '../utils/redis';
 import { presignedUrlForKey } from '../config/minio';
 import { rotateCsrfToken } from '../middleware/csrf';
+import { asyncHandler } from '../utils/async-handler';
+
+// C10: best-effort audit-log writer. The error-path catch arms in this file
+// previously did `await AuditService.logAuth(...)` before `next(error)` —
+// in Express 4 a rejection from that await never reaches the error
+// middleware (next is never called), the handler's promise rejects, and
+// process.on('unhandledRejection') triggers a SIGTERM. One DB hiccup mid-
+// audit-write would crash the API. Fire-and-forget with a logged failure
+// keeps the audit record on the happy path while never blocking the
+// response.
+function logAuthBestEffort(input: Parameters<typeof AuditService.logAuth>[0]): void {
+  AuditService.logAuth(input).catch((err) => {
+    logger.error({ err, action: input.action }, 'AuditService.logAuth failed (best-effort)');
+  });
+}
 
 // S-CR-02: avatar_url is a MinIO object key. Mint a presigned URL on
 // response so a leaked URL is useless within PRESIGNED_URL_TTL_SECONDS.
@@ -229,7 +244,7 @@ async function createAuthSession(
 }
 
 // Register
-router.post('/register', authRateLimiter, validate(registerSchema), async (req, res, next) => {
+router.post('/register', authRateLimiter, validate(registerSchema), asyncHandler(async (req, res) => {
   const client = await getClient();
   try {
     const { email, password, fullName, referralCode } = req.body;
@@ -363,10 +378,10 @@ router.post('/register', authRateLimiter, validate(registerSchema), async (req, 
       },
     });
   } catch (error) {
-    await client.query('ROLLBACK');
+    await client.query('ROLLBACK').catch(() => {});
     // Audit log: failed registration (skip for duplicate-email conflicts)
     if ((error as any)?.code !== '23505' && !(error instanceof AppError && error.statusCode === 409)) {
-      await AuditService.logAuth({
+      logAuthBestEffort({
         action: 'auth.register',
         email: req.body.email,
         ipAddress: getIpAddress(req),
@@ -375,14 +390,14 @@ router.post('/register', authRateLimiter, validate(registerSchema), async (req, 
         errorMessage: error instanceof Error ? error.message : 'Registration failed',
       });
     }
-    next(error);
+    throw error;
   } finally {
     client.release();
   }
-});
+}));
 
 // Login
-router.post('/login', authRateLimiter, validate(loginSchema), async (req, res, next) => {
+router.post('/login', authRateLimiter, validate(loginSchema), asyncHandler(async (req, res) => {
   try {
     const { email, password } = req.body;
 
@@ -411,8 +426,8 @@ router.post('/login', authRateLimiter, validate(loginSchema), async (req, res, n
     const valid = await bcrypt.compare(preHashForBcrypt(password), user.password_hash);
 
     if (!valid) {
-      // Audit log: failed login (wrong password)
-      await AuditService.logAuth({
+      // Audit log: failed login (wrong password) — best-effort, never blocks response
+      logAuthBestEffort({
         action: 'auth.login',
         userId: user.id,
         email: user.email,
@@ -431,8 +446,8 @@ router.post('/login', authRateLimiter, validate(loginSchema), async (req, res, n
       user.id, user.email, user.is_admin || false, user.is_partner || false
     );
 
-    // Audit log: successful login
-    await AuditService.logAuth({
+    // Audit log: successful login (best-effort)
+    logAuthBestEffort({
       action: 'auth.login',
       userId: user.id,
       email: user.email,
@@ -468,7 +483,7 @@ router.post('/login', authRateLimiter, validate(loginSchema), async (req, res, n
   } catch (error) {
     // Audit log: failed login (user not found or other error) — skip if already logged
     if (error instanceof AppError && error.statusCode === 401 && !(error as any)._auditLogged) {
-      await AuditService.logAuth({
+      logAuthBestEffort({
         action: 'auth.login',
         email: req.body.email,
         ipAddress: getIpAddress(req),
@@ -477,88 +492,84 @@ router.post('/login', authRateLimiter, validate(loginSchema), async (req, res, n
         errorMessage: 'Invalid credentials',
       });
     }
-    next(error);
+    throw error;
   }
-});
+}));
 
 // Refresh token
-router.post('/refresh', refreshRateLimiter, validate(refreshTokenSchema), async (req, res, next) => {
-  try {
-    const { refreshToken } = req.body;
+router.post('/refresh', refreshRateLimiter, validate(refreshTokenSchema), asyncHandler(async (req, res) => {
+  const { refreshToken } = req.body;
 
-    // Verify the JWT signature first; the user_id we trust is whatever the
-    // refresh_tokens row carries, not whatever the decoded JWT body claims
-    // (audit Ch01-F020). The decoded body is only used to short-circuit
-    // before doing the DB hit. S-HI-02: pin algorithm.
-    jwt.verify(refreshToken, config.jwt.refreshSecret, { algorithms: ['HS256'] });
+  // Verify the JWT signature first; the user_id we trust is whatever the
+  // refresh_tokens row carries, not whatever the decoded JWT body claims
+  // (audit Ch01-F020). The decoded body is only used to short-circuit
+  // before doing the DB hit. S-HI-02: pin algorithm.
+  jwt.verify(refreshToken, config.jwt.refreshSecret, { algorithms: ['HS256'] });
 
-    // Atomically consume the refresh token (prevents race conditions).
-    // DELETE...RETURNING guarantees only one concurrent request succeeds and
-    // returns the *server-side* user_id bound to the token row.
-    const tokenHash = hashRefreshToken(refreshToken);
-    const tokenResult = await query(
-      `DELETE FROM refresh_tokens
-       WHERE token = $1 AND expires_at > NOW()
-       RETURNING user_id`,
-      [tokenHash]
-    );
+  // Atomically consume the refresh token (prevents race conditions).
+  // DELETE...RETURNING guarantees only one concurrent request succeeds and
+  // returns the *server-side* user_id bound to the token row.
+  const tokenHash = hashRefreshToken(refreshToken);
+  const tokenResult = await query(
+    `DELETE FROM refresh_tokens
+     WHERE token = $1 AND expires_at > NOW()
+     RETURNING user_id`,
+    [tokenHash]
+  );
 
-    if (tokenResult.rows.length === 0) {
-      // Token unknown / already consumed. We can't safely identify the
-      // owning user (the JWT body is attacker-controlled if signing was
-      // compromised), so just refuse without doing any user-scoped action.
-      logger.warn({ tokenHashPrefix: tokenHash.slice(0, 12) }, 'Unknown refresh token presented');
-      throw new AppError('Invalid refresh token', 401);
-    }
-
-    // Trust ONLY the user_id from the row we just deleted.
-    const trustedUserId: string = tokenResult.rows[0].user_id;
-
-    // Get user (include role fields for JWT claims)
-    const userResult = await query(
-      `SELECT u.id, u.email, u.is_admin, u.deleted_at, u.plan,
-              (EXISTS(SELECT 1 FROM partners p WHERE p.user_id = u.id AND p.is_active = TRUE)) as is_partner
-       FROM users u WHERE u.id = $1`,
-      [trustedUserId],
-    );
-
-    if (userResult.rows.length === 0) {
-      throw new AppError('User not found', 401);
-    }
-
-    const user = userResult.rows[0];
-
-    // Refuse to refresh for soft-deleted or suspended users — otherwise a
-    // valid refresh token outlives a suspend (audit Ch01-F021/F047).
-    if (user.deleted_at || user.plan === 'suspended') {
-      // Burn the rest of this user's refresh tokens too.
-      await query(`DELETE FROM refresh_tokens WHERE user_id = $1`, [trustedUserId]);
-      throw new AppError('Account is suspended or deleted', 401);
-    }
-
-    // Blacklist the old access token so it can't be reused after refresh
-    const authHeader = req.headers.authorization;
-    if (authHeader?.startsWith('Bearer ')) {
-      const oldAccessToken = authHeader.substring(7);
-      try {
-        await blacklistTokenAuto(oldAccessToken);
-      } catch {
-        // Best-effort: don't block refresh if blacklisting fails
-      }
-    }
-
-    // Generate new tokens (rotation) and cap active refresh tokens
-    const { accessToken, refreshToken: newRefreshToken } = await createAuthSession(
-      user.id, user.email, user.is_admin || false, user.is_partner || false
-    );
-
-    // S-ME-02: rotate CSRF token on auth state change to defang fixation.
-    rotateCsrfToken(res);
-    res.json({ success: true, data: { accessToken, refreshToken: newRefreshToken } });
-  } catch (error) {
-    next(error);
+  if (tokenResult.rows.length === 0) {
+    // Token unknown / already consumed. We can't safely identify the
+    // owning user (the JWT body is attacker-controlled if signing was
+    // compromised), so just refuse without doing any user-scoped action.
+    logger.warn({ tokenHashPrefix: tokenHash.slice(0, 12) }, 'Unknown refresh token presented');
+    throw new AppError('Invalid refresh token', 401);
   }
-});
+
+  // Trust ONLY the user_id from the row we just deleted.
+  const trustedUserId: string = tokenResult.rows[0].user_id;
+
+  // Get user (include role fields for JWT claims)
+  const userResult = await query(
+    `SELECT u.id, u.email, u.is_admin, u.deleted_at, u.plan,
+            (EXISTS(SELECT 1 FROM partners p WHERE p.user_id = u.id AND p.is_active = TRUE)) as is_partner
+     FROM users u WHERE u.id = $1`,
+    [trustedUserId],
+  );
+
+  if (userResult.rows.length === 0) {
+    throw new AppError('User not found', 401);
+  }
+
+  const user = userResult.rows[0];
+
+  // Refuse to refresh for soft-deleted or suspended users — otherwise a
+  // valid refresh token outlives a suspend (audit Ch01-F021/F047).
+  if (user.deleted_at || user.plan === 'suspended') {
+    // Burn the rest of this user's refresh tokens too.
+    await query(`DELETE FROM refresh_tokens WHERE user_id = $1`, [trustedUserId]);
+    throw new AppError('Account is suspended or deleted', 401);
+  }
+
+  // Blacklist the old access token so it can't be reused after refresh
+  const authHeader = req.headers.authorization;
+  if (authHeader?.startsWith('Bearer ')) {
+    const oldAccessToken = authHeader.substring(7);
+    try {
+      await blacklistTokenAuto(oldAccessToken);
+    } catch {
+      // Best-effort: don't block refresh if blacklisting fails
+    }
+  }
+
+  // Generate new tokens (rotation) and cap active refresh tokens
+  const { accessToken, refreshToken: newRefreshToken } = await createAuthSession(
+    user.id, user.email, user.is_admin || false, user.is_partner || false
+  );
+
+  // S-ME-02: rotate CSRF token on auth state change to defang fixation.
+  rotateCsrfToken(res);
+  res.json({ success: true, data: { accessToken, refreshToken: newRefreshToken } });
+}));
 
 // Logout — requires a valid access token (Ch01-F014: previously accepted
 // unauthenticated requests, which let an attacker who guessed a refresh
@@ -569,103 +580,95 @@ const logoutSchema = Joi.object({
   refreshToken: Joi.string().min(20).max(4096).optional(),
 }).rename('refresh_token', 'refreshToken', { ignoreUndefined: true, override: false });
 
-router.post('/logout', authenticate, refreshRateLimiter, validate(logoutSchema), async (req, res, next) => {
-  try {
-    const { refreshToken } = req.body;
-    const userId = req.user!.id;
+router.post('/logout', authenticate, refreshRateLimiter, validate(logoutSchema), asyncHandler(async (req, res) => {
+  const { refreshToken } = req.body;
+  const userId = req.user!.id;
 
-    // Blacklist the current access token using its actual remaining TTL.
-    const authHeader = req.headers.authorization;
-    if (authHeader?.startsWith('Bearer ')) {
-      const accessToken = authHeader.substring(7);
-      try {
-        await blacklistTokenAuto(accessToken);
-      } catch (blacklistError) {
-        logger.warn({ error: blacklistError }, 'Failed to blacklist access token during logout');
-      }
+  // Blacklist the current access token using its actual remaining TTL.
+  const authHeader = req.headers.authorization;
+  if (authHeader?.startsWith('Bearer ')) {
+    const accessToken = authHeader.substring(7);
+    try {
+      await blacklistTokenAuto(accessToken);
+    } catch (blacklistError) {
+      logger.warn({ error: blacklistError }, 'Failed to blacklist access token during logout');
     }
-
-    if (refreshToken) {
-      // Delete only refresh tokens that belong to the authenticated user —
-      // we don't trust the JWT body of the refresh token any more than for
-      // /refresh (Ch01-F020).
-      const tokenHash = hashRefreshToken(refreshToken);
-      await query(
-        `DELETE FROM refresh_tokens WHERE token = $1 AND user_id = $2`,
-        [tokenHash, userId],
-      );
-    }
-
-    // Invalidate any unused password reset tokens for this user.
-    await query(
-      `UPDATE password_reset_tokens SET used = TRUE WHERE user_id = $1 AND used = FALSE`,
-      [userId],
-    );
-
-    // Invalidate pending email-verification tokens too — a stale verify
-    // link sent before logout shouldn't survive a logout (Ch01-F013).
-    await query(
-      `DELETE FROM email_verification_tokens WHERE user_id = $1`,
-      [userId],
-    );
-
-    // Drop the cached user row so the next request after re-login isn't
-    // served the stale 10s cache entry (Ch01-F048).
-    await invalidateUserCache(userId);
-
-    await AuditService.logAuth({
-      action: 'auth.logout',
-      userId,
-      ipAddress: getIpAddress(req),
-      userAgent: req.get('user-agent'),
-      success: true,
-    });
-
-    res.json({ success: true, message: 'Logged out successfully' });
-  } catch (error) {
-    next(error);
   }
-});
+
+  if (refreshToken) {
+    // Delete only refresh tokens that belong to the authenticated user —
+    // we don't trust the JWT body of the refresh token any more than for
+    // /refresh (Ch01-F020).
+    const tokenHash = hashRefreshToken(refreshToken);
+    await query(
+      `DELETE FROM refresh_tokens WHERE token = $1 AND user_id = $2`,
+      [tokenHash, userId],
+    );
+  }
+
+  // Invalidate any unused password reset tokens for this user.
+  await query(
+    `UPDATE password_reset_tokens SET used = TRUE WHERE user_id = $1 AND used = FALSE`,
+    [userId],
+  );
+
+  // Invalidate pending email-verification tokens too — a stale verify
+  // link sent before logout shouldn't survive a logout (Ch01-F013).
+  await query(
+    `DELETE FROM email_verification_tokens WHERE user_id = $1`,
+    [userId],
+  );
+
+  // Drop the cached user row so the next request after re-login isn't
+  // served the stale 10s cache entry (Ch01-F048).
+  await invalidateUserCache(userId);
+
+  logAuthBestEffort({
+    action: 'auth.logout',
+    userId,
+    ipAddress: getIpAddress(req),
+    userAgent: req.get('user-agent'),
+    success: true,
+  });
+
+  res.json({ success: true, message: 'Logged out successfully' });
+}));
 
 // Logout all devices — requires authentication
-router.post('/logout-all', authenticate, async (req, res, next) => {
-  try {
-    // Blacklist the current access token
-    const authHeader = req.headers.authorization;
-    if (authHeader?.startsWith('Bearer ')) {
-      try {
-        await blacklistTokenAuto(authHeader.substring(7));
-      } catch {
-        // Best-effort
-      }
+router.post('/logout-all', authenticate, asyncHandler(async (req, res) => {
+  // Blacklist the current access token
+  const authHeader = req.headers.authorization;
+  if (authHeader?.startsWith('Bearer ')) {
+    try {
+      await blacklistTokenAuto(authHeader.substring(7));
+    } catch {
+      // Best-effort
     }
-
-    // Delete ALL refresh tokens for this user
-    await query(
-      `DELETE FROM refresh_tokens WHERE user_id = $1`,
-      [req.user!.id]
-    );
-
-    // Invalidate any unused password reset tokens
-    await query(
-      `UPDATE password_reset_tokens SET used = TRUE WHERE user_id = $1 AND used = FALSE`,
-      [req.user!.id]
-    );
-
-    // Audit log
-    await AuditService.logAuth({
-      action: 'auth.logout_all',
-      userId: req.user!.id,
-      ipAddress: getIpAddress(req),
-      userAgent: req.get('user-agent'),
-      success: true,
-    });
-
-    res.json({ success: true, message: 'All sessions logged out successfully' });
-  } catch (error) {
-    next(error);
   }
-});
+
+  // Delete ALL refresh tokens for this user
+  await query(
+    `DELETE FROM refresh_tokens WHERE user_id = $1`,
+    [req.user!.id]
+  );
+
+  // Invalidate any unused password reset tokens
+  await query(
+    `UPDATE password_reset_tokens SET used = TRUE WHERE user_id = $1 AND used = FALSE`,
+    [req.user!.id]
+  );
+
+  // Audit log (best-effort — never block response on audit-write failure)
+  logAuthBestEffort({
+    action: 'auth.logout_all',
+    userId: req.user!.id,
+    ipAddress: getIpAddress(req),
+    userAgent: req.get('user-agent'),
+    success: true,
+  });
+
+  res.json({ success: true, message: 'All sessions logged out successfully' });
+}));
 
 // Forgot password - request reset.
 //
@@ -680,7 +683,7 @@ router.post('/logout-all', authenticate, async (req, res, next) => {
 //   provider's flow.
 const FORGOT_PASSWORD_MIN_DURATION_MS = 250;
 
-router.post('/forgot-password', passwordResetRateLimiter, validate(forgotPasswordSchema), async (req, res, next) => {
+router.post('/forgot-password', passwordResetRateLimiter, validate(forgotPasswordSchema), asyncHandler(async (req, res) => {
   const startedAt = Date.now();
   const respondGeneric = async () => {
     const elapsed = Date.now() - startedAt;
@@ -690,192 +693,180 @@ router.post('/forgot-password', passwordResetRateLimiter, validate(forgotPasswor
     res.json({ success: true, message: 'If an account exists with that email, a reset link has been sent.' });
   };
 
-  try {
-    const { email } = req.body;
+  const { email } = req.body;
 
-    const result = await query(
-      `SELECT id, email, full_name, auth_provider, email_verified
-         FROM users
-        WHERE email = $1
-          AND deleted_at IS NULL
-          AND plan <> 'suspended'`,
-      [email.toLowerCase()],
-    );
+  const result = await query(
+    `SELECT id, email, full_name, auth_provider, email_verified
+       FROM users
+      WHERE email = $1
+        AND deleted_at IS NULL
+        AND plan <> 'suspended'`,
+    [email.toLowerCase()],
+  );
 
-    // Account doesn't exist, is OAuth-only, or hasn't verified email — all
-    // three return the same generic response so an attacker can't tell them
-    // apart.
-    const user = result.rows[0];
-    const isPasswordAccount = user?.auth_provider === 'email' || (user && !user.auth_provider);
+  // Account doesn't exist, is OAuth-only, or hasn't verified email — all
+  // three return the same generic response so an attacker can't tell them
+  // apart.
+  const user = result.rows[0];
+  const isPasswordAccount = user?.auth_provider === 'email' || (user && !user.auth_provider);
 
-    if (!user || !isPasswordAccount || !user.email_verified) {
-      return respondGeneric();
-    }
-
-    // Invalidate any existing reset tokens (single-use semantics).
-    await query(
-      `UPDATE password_reset_tokens SET used = TRUE WHERE user_id = $1 AND used = FALSE`,
-      [user.id],
-    );
-
-    const resetToken = crypto.randomBytes(32).toString('hex');
-    const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
-    await query(
-      `INSERT INTO password_reset_tokens (user_id, token, expires_at)
-         VALUES ($1, $2, $3)`,
-      [user.id, hashToken(resetToken), expiresAt],
-    );
-
-    const resetUrl = `${config.app.frontendUrl}/reset-password?token=${resetToken}`;
-    EmailService.sendPasswordResetEmail({
-      to: user.email,
-      user_name: user.full_name || 'there',
-      reset_url: resetUrl,
-    }).catch((emailError) => {
-      logger.error({ error: emailError, userId: user.id }, 'Failed to send password reset email');
-    });
-
-    AuditService.logAuth({
-      action: 'auth.password_reset_request',
-      userId: user.id,
-      email: user.email,
-      ipAddress: getIpAddress(req),
-      userAgent: req.get('user-agent'),
-      success: true,
-    }).catch((err) => logger.warn({ err }, 'Audit log failed for password_reset_request'));
-
+  if (!user || !isPasswordAccount || !user.email_verified) {
     return respondGeneric();
-  } catch (error) {
-    next(error);
   }
-});
+
+  // Invalidate any existing reset tokens (single-use semantics).
+  await query(
+    `UPDATE password_reset_tokens SET used = TRUE WHERE user_id = $1 AND used = FALSE`,
+    [user.id],
+  );
+
+  const resetToken = crypto.randomBytes(32).toString('hex');
+  const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+  await query(
+    `INSERT INTO password_reset_tokens (user_id, token, expires_at)
+       VALUES ($1, $2, $3)`,
+    [user.id, hashToken(resetToken), expiresAt],
+  );
+
+  const resetUrl = `${config.app.frontendUrl}/reset-password?token=${resetToken}`;
+  EmailService.sendPasswordResetEmail({
+    to: user.email,
+    user_name: user.full_name || 'there',
+    reset_url: resetUrl,
+  }).catch((emailError) => {
+    logger.error({ error: emailError, userId: user.id }, 'Failed to send password reset email');
+  });
+
+  AuditService.logAuth({
+    action: 'auth.password_reset_request',
+    userId: user.id,
+    email: user.email,
+    ipAddress: getIpAddress(req),
+    userAgent: req.get('user-agent'),
+    success: true,
+  }).catch((err) => logger.warn({ err }, 'Audit log failed for password_reset_request'));
+
+  return respondGeneric();
+}));
 
 // Reset password with token
-router.post('/reset-password', authRateLimiter, validate(resetPasswordSchema), async (req, res, next) => {
+router.post('/reset-password', authRateLimiter, validate(resetPasswordSchema), asyncHandler(async (req, res) => {
+  const { token, newPassword } = req.body;
+
+  // Hash the token for lookup. Audit Ch01-F019: lookups go through the
+  // keyed `hashToken` helper so a DB-only leak doesn't allow rainbowing.
+  const tokenHash = hashToken(token);
+
+  // Pre-hash to defang bcrypt's 72-byte truncation (Ch01-F005).
+  const passwordHash = await bcrypt.hash(preHashForBcrypt(newPassword), 12);
+
+  // Atomically: validate+consume token, update password, invalidate all
+  // sessions. If any step fails the token stays unused so the user can
+  // retry instead of being permanently locked out.
+  const client = await getClient();
+  let userId: string;
   try {
-    const { token, newPassword } = req.body;
-
-    // Hash the token for lookup. Audit Ch01-F019: lookups go through the
-    // keyed `hashToken` helper so a DB-only leak doesn't allow rainbowing.
-    const tokenHash = hashToken(token);
-
-    // Pre-hash to defang bcrypt's 72-byte truncation (Ch01-F005).
-    const passwordHash = await bcrypt.hash(preHashForBcrypt(newPassword), 12);
-
-    // Atomically: validate+consume token, update password, invalidate all
-    // sessions. If any step fails the token stays unused so the user can
-    // retry instead of being permanently locked out.
-    const client = await getClient();
-    let userId: string;
-    try {
-      await client.query('BEGIN');
-      const tokenResult = await client.query(
-        `UPDATE password_reset_tokens
-            SET used = TRUE
-          WHERE token = $1 AND expires_at > NOW() AND used = FALSE
-         RETURNING user_id`,
-        [tokenHash],
-      );
-      if (tokenResult.rows.length === 0) {
-        await client.query('ROLLBACK');
-        throw new AppError('Invalid or expired reset token', 400);
-      }
-      userId = tokenResult.rows[0].user_id;
-
-      await client.query(
-        `UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2`,
-        [passwordHash, userId],
-      );
-      // Drop every refresh token + every other unused reset token + every
-      // pending email-verification token so no stale credential survives a
-      // password reset (Ch01-F018: the dead "blacklist caller token" path
-      // below was removed since the caller doesn't have one — the reset
-      // page is unauthenticated).
-      await client.query(`DELETE FROM refresh_tokens WHERE user_id = $1`, [userId]);
-      await client.query(
-        `UPDATE password_reset_tokens SET used = TRUE
-          WHERE user_id = $1 AND used = FALSE`,
-        [userId],
-      );
-      await client.query('COMMIT');
-    } catch (err) {
-      await client.query('ROLLBACK').catch(() => {});
-      throw err;
-    } finally {
-      client.release();
+    await client.query('BEGIN');
+    const tokenResult = await client.query(
+      `UPDATE password_reset_tokens
+          SET used = TRUE
+        WHERE token = $1 AND expires_at > NOW() AND used = FALSE
+       RETURNING user_id`,
+      [tokenHash],
+    );
+    if (tokenResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      throw new AppError('Invalid or expired reset token', 400);
     }
+    userId = tokenResult.rows[0].user_id;
 
-    // Audit log: password reset completed
-    await AuditService.logAuth({
-      action: 'auth.password_reset_complete',
-      userId,
-      ipAddress: getIpAddress(req),
-      userAgent: req.get('user-agent'),
-      success: true,
-    });
-
-    res.json({ success: true, message: 'Password has been reset successfully' });
-  } catch (error) {
-    next(error);
+    await client.query(
+      `UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2`,
+      [passwordHash, userId],
+    );
+    // Drop every refresh token + every other unused reset token + every
+    // pending email-verification token so no stale credential survives a
+    // password reset (Ch01-F018: the dead "blacklist caller token" path
+    // below was removed since the caller doesn't have one — the reset
+    // page is unauthenticated).
+    await client.query(`DELETE FROM refresh_tokens WHERE user_id = $1`, [userId]);
+    await client.query(
+      `UPDATE password_reset_tokens SET used = TRUE
+        WHERE user_id = $1 AND used = FALSE`,
+      [userId],
+    );
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
   }
-});
+
+  // Audit log: password reset completed (best-effort)
+  logAuthBestEffort({
+    action: 'auth.password_reset_complete',
+    userId,
+    ipAddress: getIpAddress(req),
+    userAgent: req.get('user-agent'),
+    success: true,
+  });
+
+  res.json({ success: true, message: 'Password has been reset successfully' });
+}));
 
 // Verify email
-router.post('/verify-email', authRateLimiter, validate(verifyEmailSchema), async (req, res, next) => {
-  try {
-    const { token } = req.body;
+router.post('/verify-email', authRateLimiter, validate(verifyEmailSchema), asyncHandler(async (req, res) => {
+  const { token } = req.body;
 
-    // Atomically consume the verification token. Only accept tokens whose
-    // metadata indicates a register-flow verification — change-email tokens
-    // live in the same table and would otherwise let a request to /verify-email
-    // mark the *current* address as verified without applying the email swap
-    // (audit Ch01-F011). Change-email tokens go through /verify-email-change.
-    const tokenResult = await query(
-      `DELETE FROM email_verification_tokens
-        WHERE token = $1
-          AND expires_at > NOW()
-          AND COALESCE(metadata->>'type', 'register') IN ('register', 'verify')
-        RETURNING user_id`,
-      [hashRefreshToken(token)],
-    );
+  // Atomically consume the verification token. Only accept tokens whose
+  // metadata indicates a register-flow verification — change-email tokens
+  // live in the same table and would otherwise let a request to /verify-email
+  // mark the *current* address as verified without applying the email swap
+  // (audit Ch01-F011). Change-email tokens go through /verify-email-change.
+  const tokenResult = await query(
+    `DELETE FROM email_verification_tokens
+      WHERE token = $1
+        AND expires_at > NOW()
+        AND COALESCE(metadata->>'type', 'register') IN ('register', 'verify')
+      RETURNING user_id`,
+    [hashRefreshToken(token)],
+  );
 
-    if (tokenResult.rows.length === 0) {
-      throw new AppError('Invalid or expired verification token', 400);
-    }
-
-    const userId = tokenResult.rows[0].user_id;
-
-    // Mark email as verified and clean up any remaining tokens for this user.
-    // Limit cleanup to register-flow tokens so an in-flight change-email
-    // token isn't collateral-damage deleted.
-    await Promise.all([
-      query(`UPDATE users SET email_verified = TRUE WHERE id = $1`, [userId]),
-      query(
-        `DELETE FROM email_verification_tokens
-          WHERE user_id = $1
-            AND COALESCE(metadata->>'type', 'register') IN ('register', 'verify')`,
-        [userId],
-      ),
-    ]);
-
-    // 2.3: cached row holds email_verified=false; invalidate so authenticated
-    // routes reading req.user.emailVerified see the new value.
-    await invalidateUserCache(userId);
-
-    // Audit log: email verified
-    await AuditService.logAuth({
-      action: 'auth.email_verify',
-      userId,
-      ipAddress: getIpAddress(req),
-      userAgent: req.get('user-agent'),
-      success: true,
-    });
-
-    res.json({ success: true, message: 'Email verified successfully' });
-  } catch (error) {
-    next(error);
+  if (tokenResult.rows.length === 0) {
+    throw new AppError('Invalid or expired verification token', 400);
   }
-});
+
+  const userId = tokenResult.rows[0].user_id;
+
+  // Mark email as verified and clean up any remaining tokens for this user.
+  // Limit cleanup to register-flow tokens so an in-flight change-email
+  // token isn't collateral-damage deleted.
+  await Promise.all([
+    query(`UPDATE users SET email_verified = TRUE WHERE id = $1`, [userId]),
+    query(
+      `DELETE FROM email_verification_tokens
+        WHERE user_id = $1
+          AND COALESCE(metadata->>'type', 'register') IN ('register', 'verify')`,
+      [userId],
+    ),
+  ]);
+
+  // 2.3: cached row holds email_verified=false; invalidate so authenticated
+  // routes reading req.user.emailVerified see the new value.
+  await invalidateUserCache(userId);
+
+  // Audit log: email verified (best-effort)
+  logAuthBestEffort({
+    action: 'auth.email_verify',
+    userId,
+    ipAddress: getIpAddress(req),
+    userAgent: req.get('user-agent'),
+    success: true,
+  });
+
+  res.json({ success: true, message: 'Email verified successfully' });
+}));
 
 // Google OAuth — accept ID token from mobile, verify, create/find user, return JWT
 const googleOAuthSchema = Joi.object({
@@ -883,8 +874,7 @@ const googleOAuthSchema = Joi.object({
   referralCode: Joi.string().optional(),
 });
 
-router.post('/google', authRateLimiter, validate(googleOAuthSchema), async (req, res, next) => {
-  try {
+router.post('/google', authRateLimiter, validate(googleOAuthSchema), asyncHandler(async (req, res) => {
     // Audit Ch01-F022: accept multiple audiences. The deployed setup keeps
     // Google client IDs per platform — iOS, Android, Web — and the audience
     // claim varies depending on which one the SDK initialised. Accept any
@@ -1008,8 +998,8 @@ router.post('/google', authRateLimiter, validate(googleOAuthSchema), async (req,
       user.id, user.email, user.is_admin || false, user.is_partner ?? false
     );
 
-    // Audit log: OAuth login
-    await AuditService.logAuth({
+    // Audit log: OAuth login (best-effort)
+    logAuthBestEffort({
       action: 'auth.oauth_login',
       userId: user.id,
       email: user.email,
@@ -1046,10 +1036,7 @@ router.post('/google', authRateLimiter, validate(googleOAuthSchema), async (req,
         refreshToken,
       },
     });
-  } catch (error) {
-    next(error);
-  }
-});
+}));
 
 // Apple OAuth — accept ID token from mobile, verify, create/find user, return JWT
 //
@@ -1064,8 +1051,7 @@ const appleOAuthSchema = Joi.object({
   referralCode: Joi.string().optional(),
 });
 
-router.post('/apple', authRateLimiter, validate(appleOAuthSchema), async (req, res, next) => {
-  try {
+router.post('/apple', authRateLimiter, validate(appleOAuthSchema), asyncHandler(async (req, res) => {
     // The /apple endpoint is enabled if at least one valid audience is
     // configured — either the iOS bundle ID (native iOS flow) or one or more
     // Services IDs (Android / web flow).
@@ -1268,8 +1254,8 @@ router.post('/apple', authRateLimiter, validate(appleOAuthSchema), async (req, r
       user.id, user.email, user.is_admin || false, user.is_partner ?? false
     );
 
-    // Audit log: OAuth login
-    await AuditService.logAuth({
+    // Audit log: OAuth login (best-effort)
+    logAuthBestEffort({
       action: 'auth.oauth_login',
       userId: user.id,
       email: user.email,
@@ -1306,9 +1292,6 @@ router.post('/apple', authRateLimiter, validate(appleOAuthSchema), async (req, r
         refreshToken,
       },
     });
-  } catch (error) {
-    next(error);
-  }
-});
+}));
 
 export default router;
