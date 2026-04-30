@@ -6,9 +6,19 @@ import 'package:shared_models/shared_models.dart';
 import 'package:api_client/api_client.dart';
 import '../services/items_repository.dart';
 import '../services/category_repository.dart';
+import '../services/offline_sync_service.dart';
 import '../services/push_notification_service.dart';
 import 'auth_provider.dart';
 import 'homes_provider.dart';
+
+/// C14: a network/timeout exception is treated as "queue and continue"
+/// rather than "rollback and rethrow". Other ApiException variants
+/// (validation, conflict, forbidden, server) still propagate so the UI
+/// surfaces them as real errors. The offline-sync service drains the
+/// queue on next online tick (auth-gated, FIFO, with idempotency keys
+/// stamped at enqueue time).
+bool _isOfflineError(Object e) =>
+    e is ApiNetworkException || e is ApiTimeoutException;
 
 /// Thrown by [ItemsNotifier.addItems] when a bulk add partially succeeds.
 /// The UI can use `failed` to offer a targeted retry without re-sending
@@ -99,7 +109,30 @@ class ItemsNotifier extends AsyncNotifier<List<Item>> {
 
       return (newItem, previousCount);
     } catch (e) {
-      // Rollback to previous state on failure
+      // C14: network/timeout → enqueue and continue with the optimistic
+      // item. Other ApiException variants (validation 400, server 5xx,
+      // forbidden 403, conflict 409) still rollback because they reflect
+      // a server-side decision the queue can't replay-fix.
+      if (_isOfflineError(e)) {
+        try {
+          await ref.read(offlineSyncServiceProvider).enqueueChange(
+                entityType: 'item',
+                entityId: item.id,
+                action: OfflineAction.create_item,
+                payload: item.toJson(),
+              );
+          state = AsyncValue.data([item, ...currentItems]);
+          if (previousCount == 0) {
+            unawaited(_promptForPushPermission());
+          }
+          return (item, previousCount);
+        } catch (queueErr) {
+          debugPrint('[ItemsNotifier] addItem offline-enqueue failed: $queueErr');
+          state = previousState;
+          rethrow;
+        }
+      }
+      // Rollback to previous state on non-offline failure
       debugPrint('[ItemsNotifier] addItem failed, rolling back: $e');
       state = previousState;
       rethrow;
@@ -138,7 +171,30 @@ class ItemsNotifier extends AsyncNotifier<List<Item>> {
 
       return updated;
     } catch (e) {
-      // Rollback to previous state on failure
+      // C14: network/timeout → enqueue + apply optimistically. The queue
+      // replays via repo.updateItem; the server responds with the
+      // canonical row on next sync and the conflict path
+      // (ApiConflictException → _parkUpdateConflict) handles version
+      // divergence then.
+      if (_isOfflineError(e)) {
+        try {
+          await ref.read(offlineSyncServiceProvider).enqueueChange(
+                entityType: 'item',
+                entityId: item.id,
+                action: OfflineAction.update_item,
+                payload: item.toJson(),
+              );
+          state = AsyncValue.data(
+            currentItems.map((i) => i.id == item.id ? item : i).toList(),
+          );
+          return item;
+        } catch (queueErr) {
+          debugPrint('[ItemsNotifier] updateItem offline-enqueue failed: $queueErr');
+          state = previousState;
+          rethrow;
+        }
+      }
+      // Rollback to previous state on non-offline failure
       debugPrint('[ItemsNotifier] updateItem failed, rolling back: $e');
       state = previousState;
       rethrow;
@@ -147,13 +203,40 @@ class ItemsNotifier extends AsyncNotifier<List<Item>> {
 
   /// Delete an item.
   Future<void> deleteItem(String id) async {
-    await ref.read(itemsRepositoryProvider).deleteItem(id);
-
     final currentItems = state.value ?? [];
-    state = AsyncValue.data(
-      currentItems.where((i) => i.id != id).toList(),
-    );
+    final previousState = AsyncValue.data(List<Item>.from(currentItems));
 
+    try {
+      await ref.read(itemsRepositoryProvider).deleteItem(id);
+
+      state = AsyncValue.data(
+        currentItems.where((i) => i.id != id).toList(),
+      );
+    } catch (e) {
+      // C14: queue + remove from local state. The replay will issue the
+      // DELETE; if the server returns 404 (item already gone) the queue
+      // entry naturally drains as a no-op.
+      if (_isOfflineError(e)) {
+        try {
+          await ref.read(offlineSyncServiceProvider).enqueueChange(
+                entityType: 'item',
+                entityId: id,
+                action: OfflineAction.delete_item,
+                payload: <String, dynamic>{},
+              );
+          state = AsyncValue.data(
+            currentItems.where((i) => i.id != id).toList(),
+          );
+          return;
+        } catch (queueErr) {
+          debugPrint('[ItemsNotifier] deleteItem offline-enqueue failed: $queueErr');
+          state = previousState;
+          rethrow;
+        }
+      }
+      state = previousState;
+      rethrow;
+    }
   }
 
   /// Batch-add multiple items at once (used by bulk-add flow).
@@ -222,6 +305,7 @@ class ItemsNotifier extends AsyncNotifier<List<Item>> {
   Future<void> archiveItem(String id) async {
     final currentItems = state.value ?? [];
     final previousState = AsyncValue.data(List<Item>.from(currentItems));
+    final target = currentItems.firstWhere((i) => i.id == id, orElse: () => currentItems.first);
 
     // Optimistically remove from active list
     state = AsyncValue.data(
@@ -232,7 +316,27 @@ class ItemsNotifier extends AsyncNotifier<List<Item>> {
       await ref.read(itemsRepositoryProvider).archiveItem(id);
       ref.invalidate(archivedItemsProvider);
     } catch (e) {
-      // Rollback to previous state on failure
+      if (_isOfflineError(e)) {
+        try {
+          // archive is an update_item with is_archived=true; replay uses
+          // repo.updateItem which sends the full row.
+          final archived = target.copyWith(isArchived: true);
+          await ref.read(offlineSyncServiceProvider).enqueueChange(
+                entityType: 'item',
+                entityId: id,
+                action: OfflineAction.update_item,
+                payload: archived.toJson(),
+              );
+          // Optimistic UI already removed from active list above; archive
+          // list will pick it up on next ref.invalidate when replay completes.
+          return;
+        } catch (queueErr) {
+          debugPrint('[ItemsNotifier] archiveItem offline-enqueue failed: $queueErr');
+          state = previousState;
+          rethrow;
+        }
+      }
+      // Rollback to previous state on non-offline failure
       debugPrint('[ItemsNotifier] archiveItem failed, rolling back: $e');
       state = previousState;
       rethrow;
@@ -254,7 +358,14 @@ class ItemsNotifier extends AsyncNotifier<List<Item>> {
 
       ref.invalidate(archivedItemsProvider);
     } catch (e) {
-      // Rollback to previous state on failure
+      // C14: unarchive doesn't have a clean offline shape — the
+      // post-success path needs a getItemById to merge the restored row
+      // back into state, which itself needs network. Rather than fake an
+      // optimistic Item from cache (we don't have it in `currentItems`
+      // by definition), fall through to rollback so the user sees the
+      // failure and can retry when online. The queued PUT pattern fits
+      // archive (which removes from a list we already have) but not
+      // unarchive (which adds to it).
       debugPrint('[ItemsNotifier] unarchiveItem failed, rolling back: $e');
       state = previousState;
       rethrow;
