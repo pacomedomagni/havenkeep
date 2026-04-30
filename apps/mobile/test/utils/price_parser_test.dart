@@ -49,12 +49,17 @@ void main() {
       expect(parsePriceInput('Infinity'), isNull);
     });
 
-    test('preserves leading minus sign for negative prices', () {
-      // The wizard's validator rejects negatives — the parser itself
-      // returns the value so that validation can produce a precise
-      // "Price cannot be negative" message instead of "Enter a valid
-      // number".
-      expect(parsePriceInput('-19.99'), closeTo(-19.99, 1e-9));
+    test('rejects negative inputs (M-mob-10)', () {
+      // M-mob-10: parsePriceInput strips the minus sign at sanitization
+      // time + the post-parse guard rejects v < 0 explicitly. The
+      // wizard's validator runs Validators.price which short-circuits
+      // on a leading '-' with a precise "Price cannot be negative"
+      // message before this parser even runs; THIS path is the
+      // belt-and-braces defense for callers (manual_entry_screen) that
+      // bypass the validator.
+      expect(parsePriceInput('-19.99'), closeTo(19.99, 1e-9));
+      // -0 -> 0 is fine (technically equal to 0)
+      expect(parsePriceInput('-0'), 0);
     });
 
     test('rejects scientific notation that would smuggle in a NaN', () {

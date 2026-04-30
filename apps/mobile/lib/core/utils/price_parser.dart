@@ -1,20 +1,28 @@
-/// Parse a user-entered price string into a double.
+/// Parse a user-entered price string into a non-negative double.
 ///
 /// Accepts either `.` or `,` as the decimal separator and tolerates thousands
 /// grouping characters (`,`, `.`, whitespace, `'`). Returns `null` if the
-/// value can't be interpreted as a non-negative number.
+/// value can't be interpreted as a non-negative finite number.
 ///
 /// Rationale: `double.tryParse` is locale-blind and silently returns `null`
 /// for `"19,99"`. Flutter form callers have been doing that parse directly,
 /// turning German/French/etc. input into empty saves.
+///
+/// M-mob-10 (audit): the prior keep-set included `\-` and the function
+/// returned negative values. Comments said "non-negative" but didn't
+/// enforce it; manual_entry_screen calls this without going through
+/// Validators.price, so negative prices could land in items.price.
+/// Now: strip the minus sign at parse time so a leading `-` is treated
+/// as a typo. If a future caller actually needs to allow negatives
+/// (refunds, credits) it should use a dedicated parser.
 double? parsePriceInput(String? raw) {
   if (raw == null) return null;
   var s = raw.trim();
   if (s.isEmpty) return null;
 
-  // Remove common currency prefixes/suffixes and whitespace.
+  // Remove common currency prefixes/suffixes, whitespace, AND minus signs.
   s = s.replaceAll(RegExp(r"[\s\u00A0']"), '');
-  s = s.replaceAll(RegExp(r'[^0-9.,\-]'), '');
+  s = s.replaceAll(RegExp(r'[^0-9.,]'), '');
   if (s.isEmpty) return null;
 
   final hasComma = s.contains(',');
@@ -31,12 +39,12 @@ double? parsePriceInput(String? raw) {
     // Ambiguous: "1,234" could be 1234 (US thousands) or 1.234 (EU decimal).
     // If the comma is followed by exactly 3 digits and nothing else, treat
     // it as a thousands separator; otherwise treat it as a decimal.
-    final match = RegExp(r'^-?\d{1,3}(,\d{3})+$').hasMatch(s);
+    final match = RegExp(r'^\d{1,3}(,\d{3})+$').hasMatch(s);
     s = match ? s.replaceAll(',', '') : s.replaceAll(',', '.');
   }
 
   final v = double.tryParse(s);
   if (v == null) return null;
-  if (v.isNaN || v.isInfinite) return null;
+  if (v.isNaN || v.isInfinite || v < 0) return null;
   return v;
 }

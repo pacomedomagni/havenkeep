@@ -1,3 +1,5 @@
+import 'price_parser.dart';
+
 /// Form validation utilities for HavenKeep.
 ///
 /// Provides reusable validators for form fields with user-friendly error messages.
@@ -57,22 +59,28 @@ class Validators {
   /// Validates price value.
   ///
   /// Checks:
-  /// - Valid number format
+  /// - Valid number format (locale-aware: accepts both `.` and `,` as
+  ///   the decimal separator)
   /// - Non-negative
   /// - Reasonable range (< $10M)
+  ///
+  /// M-mob-9 (audit): the prior shape stripped commas before parsing,
+  /// so German/French input like "19,99" became "1999" and tripped the
+  /// >$10M ceiling. Route through parsePriceInput which does proper
+  /// locale-aware parsing — the same parser the form's onSaved
+  /// callback uses.
   static String? price(String? value) {
     if (value == null || value.isEmpty) {
       return null; // Allow empty if not required
     }
 
-    // Try parsing the raw value first to detect negatives
-    final rawParsed = double.tryParse(value);
-    if (rawParsed != null && rawParsed < 0) {
+    // Detect "looks negative" cases first so the user gets a specific
+    // message rather than generic "Please enter a valid price".
+    if (value.trim().startsWith('-')) {
       return 'Price cannot be negative';
     }
 
-    // Strip currency symbols and other non-numeric characters
-    final parsed = double.tryParse(value.replaceAll(RegExp(r'[^\d.]'), ''));
+    final parsed = parsePriceInput(value);
     if (parsed == null) {
       return 'Please enter a valid price';
     }
