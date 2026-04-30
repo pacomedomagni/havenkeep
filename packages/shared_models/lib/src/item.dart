@@ -116,7 +116,7 @@ class Item {
           : null,
       productImageUrl: json['product_image_url'] as String?,
       barcode: json['barcode'] as String?,
-      purchaseDate: _parseDate(json['purchase_date'])!,
+      purchaseDate: _requireDate(json['purchase_date'], 'purchase_date'),
       store: json['store'] as String?,
       // Ch08-Item-D009: handle both numeric and DECIMAL-string envelopes.
       price: json['price'] != null
@@ -125,7 +125,7 @@ class Item {
               : double.tryParse(json['price'].toString()))
           : null,
       warrantyMonths: (json['warranty_months'] as num?)?.toInt() ?? 12,
-      warrantyEndDate: _parseDate(json['warranty_end_date'])!,
+      warrantyEndDate: _requireDate(json['warranty_end_date'], 'warranty_end_date'),
       warrantyType: WarrantyType.fromJson(
         json['warranty_type'] as String? ?? 'manufacturer',
       ),
@@ -379,4 +379,23 @@ DateTime? _parseDate(Object? value) {
   if (value is DateTime) return value;
   if (value is String) return DateTime.tryParse(value);
   return null;
+}
+
+/// L5 (audit): _parseDate(json[X])! crashed the whole list-decode with
+/// `Null check operator used on a null value` when ANY row had a
+/// malformed date. The user saw "an empty list with a generic error"
+/// and triage required reading raw API logs to find the bad row.
+///
+/// _requireDate throws a typed FormatException naming the field +
+/// the offending value, so the surface is still failure (callers
+/// upstream don't have a sane fallback for a null required date) but
+/// the error message identifies the row instead of being a
+/// stack-trace-only NoSuchMethodError.
+DateTime _requireDate(Object? value, String field) {
+  final parsed = _parseDate(value);
+  if (parsed != null) return parsed;
+  throw FormatException(
+    "Item.fromJson: required date field '$field' is missing or unparseable",
+    value,
+  );
 }
