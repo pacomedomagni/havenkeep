@@ -86,7 +86,7 @@ Per-environment Services IDs follow the convention:
 - Webhook events table tracks delivery + retries with dead-letter at attempt 8.
 
 ### DB migrations
-Numbered migrations live in `apps/api/src/db/migrations/`: 028–039 (security/data-loss criticals), 040–045 (DB foundation), 050–051 (payments + uploads), 060–067 (services), 070 (drift constraints), 071 (partner status enum), 072–074 (digest outbox / welcome email open / category repair-cost defaults), 075–081 (audit-chain casts, request idempotency, MinIO object keys, audit-chain advisory lock, audit-logs description cap), 082 (re-applies audit-trigger casts + advisory lock together — fixes audit C1 where 080 regressed 075's enum/UUID casts), 083 (warranty_*.user_id RESTRICT→SET NULL + denormalized email columns for purge anonymization — audit C4), 084 (user_mfa_factors + user_mfa_backup_codes for TOTP enrollment — audit S-C2), 085 (drop dead documents.deleted_at column — H-D3), 086 (drop redundant plaintext partner_gifts.activation_code UNIQUE — H-D4), 087 (webhook_events.id → bigint — H-D5), 088 (email_scans.completion_message — H-D7), 089 (chargeback_status regex CHECK — H-D8), 090 (category_defaults.lifespan_years seeded from items.ts hardcoded map — H-C2). Runner auto-detects `ALTER TYPE ADD VALUE` and `CREATE INDEX CONCURRENTLY` and runs those files outside transactions; the runner now also wraps `main()` in `pg_advisory_lock` (H-D1) so two replicas booting simultaneously can't race on the same DDL. `schema_version` table tracks bootstrap completion.
+Numbered migrations live in `apps/api/src/db/migrations/`: 028–039 (security/data-loss criticals), 040–045 (DB foundation), 050–051 (payments + uploads), 060–067 (services), 070 (drift constraints), 071 (partner status enum), 072–074 (digest outbox / welcome email open / category repair-cost defaults), 075–081 (audit-chain casts, request idempotency, MinIO object keys, audit-chain advisory lock, audit-logs description cap), 082 (re-applies audit-trigger casts + advisory lock together — fixes audit C1 where 080 regressed 075's enum/UUID casts), 083 (warranty_*.user_id RESTRICT→SET NULL + denormalized email columns for purge anonymization — audit C4), 084 (user_mfa_factors + user_mfa_backup_codes for TOTP enrollment — audit S-C2), 085 (drop dead documents.deleted_at column — H-D3), 086 (drop redundant plaintext partner_gifts.activation_code UNIQUE — H-D4), 087 (webhook_events.id → bigint — H-D5), 088 (email_scans.completion_message — H-D7), 089 (chargeback_status regex CHECK — H-D8), 090 (category_defaults.lifespan_years seeded from items.ts hardcoded map — H-C2), 091 (audit_logs.user_email → VARCHAR(320) — M-D2), 092 (partners is_active/status invariant CHECK — M-D4). Runner auto-detects `ALTER TYPE ADD VALUE` and `CREATE INDEX CONCURRENTLY` and runs those files outside transactions; the runner now also wraps `main()` in `pg_advisory_lock` (H-D1) so two replicas booting simultaneously can't race on the same DDL. `schema_version` table tracks bootstrap completion.
 
 ---
 
@@ -184,6 +184,36 @@ Payments hardening:
 - H-P5 — /me/verify-premium is upgrade-only; non-premium response on a currently-premium user leaves the row alone (defers demotion to webhook with event-id causality)
 - H-P6 — already shipped in P1.4 alongside C8 (proportional commission clawback for partial refunds)
 
-**Phase 4** (next): rollback .catch sweep (H-B1), DST math fix (H-B2), mobile bug bash (H-B3..H-B12), async hardening, schema cleanup (M-D1..M-D11), security mediums (S-M1..S-M13), Stripe edge handlers (M-P1..M-P9), account & admin medium (M-A1..M-A10).
+**Phase 4 — Hardening & contract drift** (~20 findings) shipped on branch `remediation/phase-4-hardening`:
 
-**To continue**: `git checkout main && git checkout -b remediation/phase-4-hardening` after Phase 3 PR merges. Read `/tmp/havenkeep-handoff.md` first.
+Bug-correctness Highs:
+- H-B1 — ROLLBACK .catch(() => {}) sweep across 16 files / 33 sites; broken-connection rollback failures no longer mask the real caller error
+- H-B2 — daysRemaining now uses UTC-midnight day-count (daysBetweenUtc helper); DST + non-UTC server no longer tip the count
+- H-B3 — isSyncingProvider is a StateProvider<bool>; OfflineSyncService writes through it from syncPendingChanges so UI sees flips
+- H-B6 — splash bootstrap error routes through ErrorHandler.getUserMessage instead of leaking ApiException toString
+- H-B8 — five family providers gain .autoDispose (documents, claims, maintenance×2, brand suggestions); per-key cache no longer grows unboundedly
+- H-B9 — restoreSession distinguishes ApiAuthRequiredException (clear tokens) from transient transport errors (keep tokens, retry next launch)
+- H-B11 — notification IDs use a process-monotonic counter; collisions and Y2K38 wraparound both closed
+
+Auth & security mediums:
+- S-M1 — authenticate state-deny messages collapsed to a single "Authentication failed" 401 with the actual reason logged via pino
+- S-M4 — /logout now 503's on token-blacklist write failure instead of lying about a successful logout
+- S-H8 — mobile FlutterSecureStorage uses KeychainAccessibility.first_unlock_this_device (no iCloud roam) — matches the SQLCipher DB key choice
+
+Data integrity:
+- M-D2 (mig 091) — audit_logs.user_email widened to VARCHAR(320) (RFC 5321) for forensic accuracy after user delete
+- M-D4 (mig 092) — partners CHECK invariant (is_active = TRUE) ⇔ (status = 'active'); silent desyncs now raise 23514
+
+Payments hardening:
+- M-P8 + M-P9 — RC TRANSFER (both source and destination) and PRODUCT_CHANGE plan transitions now go through auditWebhookPlanTransition
+- M-A10 — receipt_scan_idempotency, apple_sign_in_nonces, gift_verify_attempts retention sweeps wired into the daily cron
+
+Mobile / contract:
+- L4-archive — archiveItem rollback path re-invalidates archivedItemsProvider to keep the archive screen in sync with the active list
+- L5 — Item.fromJson uses _requireDate(value, field) which throws a typed FormatException naming the failed field instead of a generic null-check crash
+- M-mob-6 — LoggingService redact patterns now match emails + phone numbers; sensitive-key list widened to email/phone/fullname/address/apikey
+- M-mob-9 + M-mob-10 — Validators.price routes through parsePriceInput for locale-aware parsing; parsePriceInput rejects negatives explicitly
+
+**Phase 5** (next): Lows + supply-chain hygiene (multer 1→2, googleapis→@googleapis/gmail, GitHub Actions SHA pinning, Docker digests, deferred Phase 4 polish items).
+
+**To continue**: `git checkout main && git checkout -b remediation/phase-5-polish` after Phase 4 PR merges. Read `/tmp/havenkeep-handoff.md` first.
