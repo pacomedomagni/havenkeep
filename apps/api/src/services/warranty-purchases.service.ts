@@ -287,21 +287,59 @@ export class WarrantyPurchasesService {
   }
 
   /**
-   * Cancel a warranty purchase
+   * Cancel a warranty purchase.
+   *
+   * C5: the prior implementation queried partner_commissions.warranty_purchase_id,
+   * which doesn't exist (the schema uses reference_id + reference_type per
+   * mig 070's CHECK enum). This raised 42703 *after* the Stripe refund had
+   * fired, leaving the warranty 'active' with refund issued externally —
+   * manual reconciliation required for every cancel-with-pending-commission.
+   *
+   * C6: the prior implementation called stripe.refunds.create() between
+   * BEGIN and COMMIT. partners.service.ts:420-424 explicitly warns against
+   * this — a COMMIT failure (network blip, lock timeout, replica failover)
+   * leaves a real refund issued but warranty_purchases.status='active'.
+   * The FOR UPDATE lock was also held during the 200-800 ms Stripe round
+   * trip.
+   *
+   * The flow is now three phases mirroring partners.service.ts createGift:
+   *   Phase 1: lock + validate inside a short tx; flip to 'cancelling';
+   *            COMMIT. A duplicate cancel sees 'cancelling' or 'cancelled'
+   *            and short-circuits.
+   *   Phase 2: call Stripe OUTSIDE any transaction. Idempotency key
+   *            `warranty-refund-<id>` makes the call retry-safe across
+   *            phase-3 failures.
+   *   Phase 3: in a new short tx, finalize 'cancelled' + cancel
+   *            commission rows by reference_id + reference_type='warranty_purchase'
+   *            (C5 fix). On phase-3 failure the operator can retry the
+   *            cancel; the Stripe call is idempotent so phase 2 returns
+   *            the same refund id.
+   *
+   * On phase-2 Stripe failure, restore the prior status so the user
+   * retains a usable warranty.
    */
   static async cancelPurchase(
     purchaseId: string,
     userId: string,
     reason?: string
   ): Promise<WarrantyPurchase> {
-    const client = await pool.connect();
-
+    // ── Phase 1: lock + validate + claim 'cancelling' intent ──
+    const intentClient = await pool.connect();
+    type Existing = {
+      id: string;
+      status: string;
+      price: string | number;
+      starts_at: Date;
+      expires_at: Date;
+      stripe_payment_intent_id: string | null;
+      stripe_refund_id: string | null;
+      prior_status: string;
+    };
+    let existing: Existing;
     try {
-      await client.query('BEGIN');
+      await intentClient.query('BEGIN');
 
-      // Lock the row for the entire cancel + refund flow so a concurrent
-      // cancel can't double-refund.
-      const purchaseCheck = await client.query(
+      const purchaseCheck = await intentClient.query(
         `SELECT id, status, price, starts_at, expires_at, stripe_payment_intent_id,
                 stripe_refund_id
            FROM warranty_purchases
@@ -314,59 +352,98 @@ export class WarrantyPurchasesService {
         throw new AppError('Warranty purchase not found', 404);
       }
 
-      const existing = purchaseCheck.rows[0];
+      const row = purchaseCheck.rows[0];
 
-      if (existing.status === 'cancelled') {
+      if (row.status === 'cancelled') {
         throw new AppError('Warranty purchase is already cancelled', 400);
       }
-
-      if (existing.status === 'expired') {
+      if (row.status === 'expired') {
         throw new AppError('Cannot cancel an expired warranty purchase', 400);
+      }
+      if (row.status === 'cancelling') {
+        // A prior phase-2 Stripe call may have succeeded but phase 3 didn't
+        // commit; let the flow continue so the idempotent Stripe call
+        // returns the same refund id and phase 3 finalizes.
       }
 
       // Block cancel after a claim has been opened — the warranty has paid
       // out and the carrier won't honor a refund on used coverage.
-      const hasClaim = await client.query(
-        `SELECT 1 FROM warranty_claims WHERE item_id = (SELECT item_id FROM warranty_purchases WHERE id = $1) AND user_id = $2 LIMIT 1`,
+      const hasClaim = await intentClient.query(
+        `SELECT 1 FROM warranty_claims
+          WHERE item_id = (SELECT item_id FROM warranty_purchases WHERE id = $1)
+            AND user_id = $2
+          LIMIT 1`,
         [purchaseId, userId],
       );
       if (hasClaim.rows.length > 0) {
         throw new AppError('Cannot cancel a warranty that has been claimed', 400);
       }
 
-      const refundCents = proratedRefundCents(
-        Number(existing.price),
-        new Date(existing.starts_at),
-        new Date(existing.expires_at),
-        new Date(),
+      // Flip to a transient 'cancelling' status so a duplicate cancel
+      // request short-circuits and a phase-3 retry is detectable. The
+      // status column on warranty_purchases is a plain VARCHAR(50) (no
+      // CHECK enum, mig 002) so 'cancelling' is accepted.
+      await intentClient.query(
+        `UPDATE warranty_purchases
+            SET status = 'cancelling', updated_at = NOW()
+          WHERE id = $1`,
+        [purchaseId],
       );
 
-      // Issue Stripe refund first when there's something to refund and we
-      // have a payment_intent on file. If Stripe rejects, the cancel rolls
-      // back so the user can retry.
-      let stripeRefundId: string | null = existing.stripe_refund_id ?? null;
-      if (refundCents > 0 && existing.stripe_payment_intent_id && !stripeRefundId) {
-        try {
-          const refund = await stripe.refunds.create(
-            {
-              payment_intent: existing.stripe_payment_intent_id,
-              amount: refundCents,
-              reason: 'requested_by_customer',
-              metadata: { warranty_purchase_id: purchaseId, user_id: userId },
-            },
-            { idempotencyKey: `warranty-refund-${purchaseId}` },
-          );
-          stripeRefundId = refund.id;
-        } catch (refundErr) {
-          logger.error(
-            { err: refundErr, purchaseId, userId, refundCents },
-            'Stripe refund failed for warranty cancel — aborting',
-          );
-          throw new AppError('Refund failed; please try again or contact support', 502);
-        }
-      }
+      existing = { ...row, prior_status: row.status };
+      await intentClient.query('COMMIT');
+    } catch (err) {
+      await intentClient.query('ROLLBACK').catch(() => {});
+      throw err;
+    } finally {
+      intentClient.release();
+    }
 
-      const result = await client.query(
+    const refundCents = proratedRefundCents(
+      Number(existing.price),
+      new Date(existing.starts_at),
+      new Date(existing.expires_at),
+      new Date(),
+    );
+
+    // ── Phase 2: Stripe refund outside any transaction ──
+    let stripeRefundId: string | null = existing.stripe_refund_id ?? null;
+    if (refundCents > 0 && existing.stripe_payment_intent_id && !stripeRefundId) {
+      try {
+        const refund = await stripe.refunds.create(
+          {
+            payment_intent: existing.stripe_payment_intent_id,
+            amount: refundCents,
+            reason: 'requested_by_customer',
+            metadata: { warranty_purchase_id: purchaseId, user_id: userId },
+          },
+          { idempotencyKey: `warranty-refund-${purchaseId}` },
+        );
+        stripeRefundId = refund.id;
+      } catch (refundErr) {
+        // Restore the prior status so the user retains a usable warranty.
+        // The idempotency key ensures a future cancel attempt can re-run
+        // Stripe safely — but we surface the error to the caller now.
+        logger.error(
+          { err: refundErr, purchaseId, userId, refundCents },
+          'Stripe refund failed for warranty cancel — restoring prior status',
+        );
+        await pool.query(
+          `UPDATE warranty_purchases
+              SET status = $2, updated_at = NOW()
+            WHERE id = $1 AND status = 'cancelling'`,
+          [purchaseId, existing.prior_status],
+        );
+        throw new AppError('Refund failed; please try again or contact support', 502);
+      }
+    }
+
+    // ── Phase 3: finalize 'cancelled' + cancel commission rows ──
+    const finalClient = await pool.connect();
+    try {
+      await finalClient.query('BEGIN');
+
+      const result = await finalClient.query(
         `UPDATE warranty_purchases
             SET status = 'cancelled',
                 cancelled_at = NOW(),
@@ -380,29 +457,35 @@ export class WarrantyPurchasesService {
         [purchaseId, userId, reason || null, stripeRefundId, refundCents],
       );
 
-      // F022: when the warranty is cancelled, mark any pending commission
-      // attached to the same warranty purchase as 'cancelled' so partner
-      // payouts don't include refunded sales. Settled commissions stay put
-      // and ride the clawback path established in migration 030b.
-      await client.query(
+      // C5: partner_commissions uses reference_id + reference_type per
+      // mig 070's CHECK enum (values: 'partner_gift', 'warranty_purchase',
+      // 'subscription'). The prior `WHERE warranty_purchase_id = $1`
+      // referenced a non-existent column → 42703 → orphan refund.
+      // F022: settled (status='paid') commissions ride the clawback path
+      // in webhooks.ts charge.refunded; we only cancel pending/approved.
+      await finalClient.query(
         `UPDATE partner_commissions
             SET status = 'cancelled', updated_at = NOW()
-          WHERE warranty_purchase_id = $1
+          WHERE reference_id = $1
+            AND reference_type = 'warranty_purchase'
             AND status IN ('pending', 'approved')`,
         [purchaseId],
       );
 
-      await client.query('COMMIT');
+      await finalClient.query('COMMIT');
 
-      logger.info({ purchaseId, userId, reason, refundCents, stripeRefundId }, 'Warranty purchase cancelled');
+      logger.info(
+        { purchaseId, userId, reason, refundCents, stripeRefundId },
+        'Warranty purchase cancelled',
+      );
 
       return result.rows[0];
-    } catch (error) {
-      await client.query('ROLLBACK');
-      logger.error({ error, purchaseId, userId }, 'Error cancelling warranty purchase');
-      throw error;
+    } catch (err) {
+      await finalClient.query('ROLLBACK').catch(() => {});
+      logger.error({ err, purchaseId, userId }, 'Error finalizing warranty cancel (phase 3)');
+      throw err;
     } finally {
-      client.release();
+      finalClient.release();
     }
   }
 
