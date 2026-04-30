@@ -86,7 +86,7 @@ Per-environment Services IDs follow the convention:
 - Webhook events table tracks delivery + retries with dead-letter at attempt 8.
 
 ### DB migrations
-27 numbered migrations live in `apps/api/src/db/migrations/`: 028–039 (security/data-loss criticals), 040–045 (DB foundation), 050–051 (payments + uploads), 060–067 (services), 070 (drift constraints), 071 (partner status enum), 072–074 (digest outbox / welcome email open / category repair-cost defaults). Runner auto-detects `ALTER TYPE ADD VALUE` and `CREATE INDEX CONCURRENTLY` and runs those files outside transactions. `schema_version` table tracks bootstrap completion.
+Numbered migrations live in `apps/api/src/db/migrations/`: 028–039 (security/data-loss criticals), 040–045 (DB foundation), 050–051 (payments + uploads), 060–067 (services), 070 (drift constraints), 071 (partner status enum), 072–074 (digest outbox / welcome email open / category repair-cost defaults), 075–081 (audit-chain casts, request idempotency, MinIO object keys, audit-chain advisory lock, audit-logs description cap), 082 (re-applies audit-trigger casts + advisory lock together — fixes audit C1 where 080 regressed 075's enum/UUID casts). Runner auto-detects `ALTER TYPE ADD VALUE` and `CREATE INDEX CONCURRENTLY` and runs those files outside transactions. `schema_version` table tracks bootstrap completion.
 
 ---
 
@@ -118,3 +118,26 @@ The remaining work is **off-platform configuration only** — no code blocks shi
 4. **Apple Sign-In Services IDs** — create `app.havenkeep.mobile.signin` and `app.havenkeep.mobile.signin.staging` in Apple Developer portal under Identifiers → Services IDs. Configure each with the marketing domain as the Web Authentication redirect URL.
 5. **App Store Connect** — create app record with bundle ID `app.havenkeep.mobile`. Privacy URL: `https://havenkeep.com/legal/privacy`. Support URL: `https://havenkeep.com/support`. Marketing URL (optional): `https://havenkeep.com`. Account Deletion: in-app via Settings → Delete Account. Privacy Nutrition Label: mirror the categories declared in `PrivacyInfo.xcprivacy`.
 6. **Play Console** — create app with package name `app.havenkeep.mobile`. Privacy Policy: `https://havenkeep.com/legal/privacy`. Data Safety form: mirror `PrivacyInfo.xcprivacy` categories. Account deletion: in-app + `https://havenkeep.com/legal/delete-account`. Target API level 35 is auto-met by Flutter 3.41+.
+
+### D. Audit-remediation in flight (2026-04-29 audit)
+
+A 9-reviewer end-to-end audit on 2026-04-29 produced 145 findings (22 Critical, 44 High, 51 Medium, 28 Low) and a 5-phase remediation plan. Documents live in `/tmp` per Rule 3 (move to durable storage before relying on them):
+
+- `/tmp/havenkeep-handoff.md` — read first; entry point for any session continuing the work
+- `/tmp/havenkeep-audit-2026-04-29.md` — the audit (Part I general, Part II security threat-class addendum)
+- `/tmp/havenkeep-remediation-plan.md` — the 5-phase plan with per-finding instructions
+
+**Phase 1 — Stop the bleeding** (10 findings) shipped on branch `remediation/phase-1-stop-the-bleeding`:
+- C1 (mig 082) — restored audit-trigger enum/UUID casts that mig 080 regressed
+- C9 — registered pg type-parser for NUMERIC (OID 1700) so DECIMAL columns hydrate as JS numbers
+- H-A7 — dashboard auth response envelope unwrap (`body.data.accessToken`); login was broken in prod
+- C7+C8 — Stripe charge.* handlers match by payment_intent (not charge.id); partial refund handling
+- C10 — `asyncHandler` sweep on `routes/auth.ts`; audit-log writes are now best-effort
+- C13b — `/me/recover` reachable for soft-deleted users within 30-day grace
+- S-C1 — audit routes use `requireAdmin` + new `verifyAdminFresh` helper for fresh DB-derived admin checks
+- S-C5 + S-H2 — per-user 3/hour limiter on `/me/change-email` + per-recipient Redis dedupe + closed enumeration oracle
+- S-C6 — per-user rate limit on `/email-scanner/scan` (5/hour) + mutation actions (30/15min)
+
+**Phase 2** (next): C2/C3 (digest pushes), C4 (purge anonymization), C5/C6 (warranty cancel column + 3-phase Stripe), C11 (setTimeout leak), C12 (activation-code retry), C13 (verify-email-change endpoint — note that per Part 3.C-AASA, the consume route lives on the marketing side; the API endpoint exists today as a stub that was never wired), C14 (mobile offline queue), C15 (env-file leak), S-C2 (MFA), S-C4 (OAuth state).
+
+**To continue**: `git checkout remediation/phase-1-stop-the-bleeding` to inspect, or `git checkout main && git checkout -b remediation/phase-2-criticals` after Phase 1 PR merges. Read `/tmp/havenkeep-handoff.md` first.
