@@ -829,6 +829,35 @@ router.post('/logout', authenticate, refreshRateLimiter, validate(logoutSchema),
   res.json({ success: true, message: 'Logged out successfully' });
 }));
 
+// H-A8 (audit): GET /auth/role-check — fresh DB-derived is_admin /
+// is_partner. The dashboard Edge middleware previously read these
+// flags from the unverified JWT body for navigation routing; a demoted
+// user kept role-based dashboard access for up to JWT_EXPIRES_IN
+// (1 hour) — the API still 403'd every page-render fetch via
+// requireAdmin, but the user saw the admin nav shell render in between.
+//
+// This endpoint is intentionally lightweight: just authenticate +
+// a single SELECT on the users table (already cached for 10s by
+// the auth middleware). The dashboard middleware caches the response
+// in a short-TTL cookie so it doesn't hit the API on every navigation.
+router.get(
+  '/role-check',
+  authenticate,
+  asyncHandler(async (req, res) => {
+    // req.user is already populated from the auth middleware's fresh
+    // DB read (or its 10s cache). is_admin and is_partner there are
+    // derived from the same SELECT used by /admin/me etc.
+    res.json({
+      success: true,
+      data: {
+        user_id: req.user!.id,
+        is_admin: req.user!.isAdmin === true,
+        is_partner: req.user!.isPartner === true,
+      },
+    });
+  }),
+);
+
 // Logout all devices — requires authentication
 router.post('/logout-all', authenticate, asyncHandler(async (req, res) => {
   // Blacklist the current access token

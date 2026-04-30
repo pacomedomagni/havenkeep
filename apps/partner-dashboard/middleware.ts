@@ -23,6 +23,23 @@ const ACCESS_TOKEN_COOKIE = 'hk_access_token'
 const REFRESH_TOKEN_COOKIE = 'hk_refresh_token'
 const CSRF_COOKIE = 'csrf_token'
 
+// H-A8: cached role assertion. The Edge middleware previously read
+// is_admin / is_partner from the unverified JWT payload for routing,
+// which meant a demoted user saw the admin/partner nav shell render
+// for up to JWT_EXPIRES_IN (1 hour). The cookie carries the API's
+// fresh DB-derived role decision; we trust the API and refresh the
+// cookie on every request older than the TTL. HttpOnly so JS can't
+// forge it; Secure in prod; SameSite=Lax matches the auth cookies.
+const ROLE_COOKIE = 'hk_role_check'
+const ROLE_CHECK_TTL_SECONDS = 30
+const ROLE_CHECK_TIMEOUT_MS = 2_000
+
+interface CachedRole {
+  isAdmin: boolean
+  isPartner: boolean
+  cachedAt: number
+}
+
 const REFRESH_TIMEOUT_MS = 5_000
 
 // Edge-runtime decoder. The Express API is the only signature verifier — this
@@ -86,6 +103,81 @@ function getRoleRedirect(payload: { isAdmin?: boolean; isPartner?: boolean }): s
   if (payload.isAdmin) return '/admin'
   if (payload.isPartner) return '/dashboard'
   return null
+}
+
+/**
+ * H-A8: read the cached role-check cookie. Returns null if the cookie
+ * doesn't exist, is malformed, or has expired beyond ROLE_CHECK_TTL_SECONDS.
+ */
+function readRoleCookie(request: NextRequest): CachedRole | null {
+  const raw = request.cookies.get(ROLE_COOKIE)?.value
+  if (!raw) return null
+  try {
+    const decoded = JSON.parse(Buffer.from(raw, 'base64url').toString()) as CachedRole
+    if (
+      typeof decoded.isAdmin !== 'boolean' ||
+      typeof decoded.isPartner !== 'boolean' ||
+      typeof decoded.cachedAt !== 'number'
+    ) {
+      return null
+    }
+    if (Date.now() - decoded.cachedAt > ROLE_CHECK_TTL_SECONDS * 1000) {
+      return null
+    }
+    return decoded
+  } catch {
+    return null
+  }
+}
+
+function writeRoleCookie(response: NextResponse, cached: CachedRole) {
+  const payload = Buffer.from(JSON.stringify(cached)).toString('base64url')
+  const isProduction = process.env.NODE_ENV === 'production'
+  response.cookies.set(ROLE_COOKIE, payload, {
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: 'lax',
+    path: '/',
+    maxAge: ROLE_CHECK_TTL_SECONDS,
+  })
+}
+
+/**
+ * H-A8: fetch fresh role state from the API's /auth/role-check endpoint.
+ * Returns null on any failure so the caller can fall back to the
+ * existing JWT-claim path. The 2s timeout matches the rest of the
+ * Edge middleware's network ceiling — we'd rather skip role caching
+ * than block navigation on a slow API.
+ */
+async function fetchFreshRole(accessToken: string): Promise<CachedRole | null> {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), ROLE_CHECK_TIMEOUT_MS)
+  try {
+    const response = await fetch(`${API_URL}/api/v1/auth/role-check`, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${accessToken}` },
+      signal: controller.signal,
+    }).finally(() => clearTimeout(timeoutId))
+    if (!response.ok) return null
+    const body = (await response.json().catch(() => null)) as
+      | { data?: { is_admin?: boolean; is_partner?: boolean } }
+      | null
+    const data = body?.data
+    if (
+      !data ||
+      typeof data.is_admin !== 'boolean' ||
+      typeof data.is_partner !== 'boolean'
+    ) {
+      return null
+    }
+    return {
+      isAdmin: data.is_admin,
+      isPartner: data.is_partner,
+      cachedAt: Date.now(),
+    }
+  } catch {
+    return null
+  }
 }
 
 export async function middleware(request: NextRequest) {
@@ -206,16 +298,38 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  // Decode token for role-based routing
+  // Decode token for shape validation only — H-A8: we no longer trust
+  // the unverified JWT body for role decisions. The fresh role check
+  // below drives routing. We still need decodeJwtPayload to confirm
+  // the token's general shape so a malformed cookie redirects to login.
   const payload = currentAccessToken ? decodeJwtPayload(currentAccessToken) : null
   if (!payload) {
     return redirectToLogin(request)
   }
 
+  // H-A8: derive is_admin / is_partner from the API's fresh DB-derived
+  // role-check, not from the unverified JWT body. Cached for
+  // ROLE_CHECK_TTL_SECONDS so we don't hit the API on every nav. On
+  // fetch failure we fall back to the JWT-claim values so a single
+  // API hiccup doesn't lock everyone out — but the failure is
+  // structurally bounded: every API call still re-derives via
+  // requireAdmin / requirePartner middleware.
+  let cachedRole = readRoleCookie(request)
+  let roleCookieToWrite: CachedRole | null = null
+  if (!cachedRole && currentAccessToken) {
+    cachedRole = await fetchFreshRole(currentAccessToken)
+    if (cachedRole) {
+      roleCookieToWrite = cachedRole
+    }
+  }
+  const isAdmin = cachedRole?.isAdmin ?? payload.isAdmin === true
+  const isPartner = cachedRole?.isPartner ?? payload.isPartner === true
+
   // Non-admin/non-partner users cannot access the dashboard
-  if (!payload.isAdmin && !payload.isPartner) {
+  if (!isAdmin && !isPartner) {
     if (isPublicRoute) {
       ensureCsrfCookie(response, request)
+      if (roleCookieToWrite) writeRoleCookie(response, roleCookieToWrite)
       return response
     }
     return redirectToLogin(request)
@@ -223,23 +337,26 @@ export async function middleware(request: NextRequest) {
 
   // Has valid token on public route — redirect based on role
   if (isPublicRoute && currentAccessToken) {
-    const dest = getRoleRedirect(payload)
+    const dest = getRoleRedirect({ isAdmin, isPartner })
     if (dest) {
-      return NextResponse.redirect(new URL(dest, request.url))
+      const redirectResponse = NextResponse.redirect(new URL(dest, request.url))
+      if (roleCookieToWrite) writeRoleCookie(redirectResponse, roleCookieToWrite)
+      return redirectResponse
     }
     return redirectToLogin(request)
   }
 
   // Route protection: /admin requires isAdmin, /dashboard requires isPartner
-  if (pathname.startsWith('/admin') && payload.isAdmin !== true) {
+  if (pathname.startsWith('/admin') && !isAdmin) {
     return NextResponse.redirect(new URL('/unauthorized', request.url))
   }
 
-  if (pathname.startsWith('/dashboard') && payload.isPartner !== true) {
+  if (pathname.startsWith('/dashboard') && !isPartner) {
     return NextResponse.redirect(new URL('/unauthorized', request.url))
   }
 
   ensureCsrfCookie(response, request)
+  if (roleCookieToWrite) writeRoleCookie(response, roleCookieToWrite)
   return response
 }
 
