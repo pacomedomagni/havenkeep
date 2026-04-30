@@ -815,13 +815,18 @@ export class EmailScannerService {
       }
       const completedMessage = messages.length ? messages.join(' ') : null;
 
+      // H-D7 (audit): write success-path notes to the dedicated
+      // completion_message column (mig 088) so monitoring queries
+      // filtering on `error_message IS NOT NULL` for failed-scan rate
+      // don't pick up these strings as noise.
       await pool.query(
         `UPDATE email_scans
          SET status = 'completed',
              emails_scanned = $2,
              receipts_found = $3,
              items_imported = $4,
-             error_message = $5,
+             completion_message = $5,
+             error_message = NULL,
              completed_at = NOW()
          WHERE id = $1`,
         [scanId, receipts.length, relevantReceipts.length, importedCount, completedMessage]
