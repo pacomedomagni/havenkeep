@@ -217,7 +217,7 @@ Mobile / contract:
 **Phase 5 — Polish & supply-chain hygiene** (~12 findings) shipped on branch `remediation/phase-5-polish`:
 
 Supply-chain hygiene:
-- S-L5 — `.github/workflows/mobile-ci.yml` third-party actions (`subosito/flutter-action`, `codecov/codecov-action`) pinned to commit SHAs (was floating tags `@v2`/`@v3`)
+- S-L5 — n/a after `.github/workflows/` was removed (no CI/CD in this repo). The original P5.1 commit (`170a575`) SHA-pinned third-party actions in `mobile-ci.yml`; that file no longer exists.
 - S-L6 — Dockerfiles (api, partner-dashboard, marketing) pin base images by sha256 digest (`node:20-alpine@sha256:fb4cd1…`, `nginx:alpine@sha256:561687…`); rebuilds now reproduce bit-for-bit
 
 Backend hygiene:
