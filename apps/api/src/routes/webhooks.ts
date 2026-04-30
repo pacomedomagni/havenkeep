@@ -444,6 +444,73 @@ stripeWebhookRouter.post(
           await handleAccountDeauthorized(event.account ?? null);
           break;
 
+        // H-P3 (audit): explicitly observable handlers for events that
+        // previously fell into the default branch silently.
+        //
+        // payout.failed is the most consequential: a partner payout
+        // bounce (invalid bank account, frozen Connect account) left
+        // commissions.status='paid' with stripe_transfer_id set while
+        // the money never landed. Surface it loudly so on-call sees
+        // the failure. Modern Stripe Connect emits payout.failed for
+        // both top-up and connected-account bounces; the legacy
+        // transfer.failed event is no longer in the SDK enum.
+        case 'payout.failed': {
+          const payout = event.data.object as Stripe.Payout;
+          await handlePayoutFailed(payout.id, {
+            amount: payout.amount,
+            currency: payout.currency,
+            failureCode: payout.failure_code,
+            failureMessage: payout.failure_message,
+          });
+          break;
+        }
+        case 'payment_intent.payment_failed': {
+          const intent = event.data.object as Stripe.PaymentIntent;
+          logger.warn(
+            {
+              eventId: event.id,
+              intentId: intent.id,
+              amount: intent.amount,
+              lastError: intent.last_payment_error?.message,
+              code: intent.last_payment_error?.code,
+            },
+            'payment_intent.payment_failed — async card decline / SCA timeout',
+          );
+          break;
+        }
+        case 'customer.deleted': {
+          const customer = event.data.object as Stripe.Customer;
+          // A partner's stripe_customer_id becoming dangling means next
+          // gift creation will fail. Don't auto-null it (the operator
+          // may want forensic context); just log loudly so on-call
+          // notices and can clean up via the admin UI.
+          logger.error(
+            { eventId: event.id, customerId: customer.id, deleted: customer.deleted ?? null },
+            'customer.deleted — a HavenKeep partner/user may now have a dangling stripe_customer_id',
+          );
+          break;
+        }
+        case 'customer.updated': {
+          // Default-payment-method changes etc. We don't mirror customer
+          // state today; just log so a future feature has a hook.
+          logger.info({ eventId: event.id }, 'customer.updated — ignoring (not mirrored)');
+          break;
+        }
+        case 'radar.early_fraud_warning.created': {
+          const warning = event.data.object as Stripe.Radar.EarlyFraudWarning;
+          logger.error(
+            {
+              eventId: event.id,
+              warningId: warning.id,
+              chargeId: typeof warning.charge === 'string' ? warning.charge : warning.charge?.id,
+              actionable: warning.actionable,
+              reason: warning.fraud_type,
+            },
+            'radar.early_fraud_warning.created — pre-dispute alert; review manually',
+          );
+          break;
+        }
+
         default:
           logger.info({ eventType: event.type }, 'Unhandled Stripe webhook event type — ignoring');
       }
@@ -460,6 +527,49 @@ stripeWebhookRouter.post(
     res.status(200).json({ received: true });
   }
 );
+
+/**
+ * H-P3 (audit): handle payout.failed by flagging the matching
+ * partner_commissions row and surfacing a loud ERROR log so on-call
+ * sees the bounce. The prior "fall into default branch" path left
+ * commissions.status='paid' / stripe_transfer_id set with the money
+ * never having landed at the partner's bank.
+ *
+ * We don't auto-rollback the commission status — the partner may have
+ * a recoverable payout method and an admin can re-trigger payout via
+ * /admin/commissions/:id/pay. The ERROR log line is the on-call
+ * signal; a future Phase 4 schema change adds a payout_failed_at
+ * column for the admin UI to filter on.
+ */
+async function handlePayoutFailed(
+  payoutId: string,
+  context: Record<string, unknown>,
+): Promise<void> {
+  const result = await pool.query(
+    `SELECT id, partner_id, amount FROM partner_commissions
+      WHERE stripe_transfer_id = $1
+      LIMIT 1`,
+    [payoutId],
+  );
+  if (result.rows.length === 0) {
+    logger.warn(
+      { payoutId, ...context },
+      'payout.failed: no matching partner_commissions row — orphan payout or pre-mig data',
+    );
+    return;
+  }
+  const commission = result.rows[0];
+  logger.error(
+    {
+      payoutId,
+      commissionId: commission.id,
+      partnerId: commission.partner_id,
+      amount: commission.amount,
+      ...context,
+    },
+    'PARTNER PAYOUT FAILED — money did not land at partner; manual review + retransfer needed',
+  );
+}
 
 /**
  * Handle charge.succeeded — mark partner gift as sent (if still created).
