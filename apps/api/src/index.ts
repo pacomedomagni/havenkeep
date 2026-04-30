@@ -244,6 +244,41 @@ function scheduleExpirationNotifications() {
       logger.error({ err }, 'webhook_events retention sweep failed');
     }
 
+    // M-D-extra (audit): webhook_event_high_water retains forever
+    // — one row per (source, subject_id). For Stripe that's per-charge,
+    // for RC that's per-user. RC rows are intentionally kept (one per
+    // active user); Stripe rows for charges no longer referenced
+    // accumulate unboundedly. Prune Stripe rows > 90 days untouched.
+    try {
+      const result = await pool.query(
+        `DELETE FROM webhook_event_high_water
+          WHERE source = 'stripe'
+            AND last_event_at < NOW() - INTERVAL '90 days'`,
+      );
+      if (result.rowCount && result.rowCount > 0) {
+        logger.info({ deleted: result.rowCount }, 'webhook_event_high_water Stripe retention sweep');
+      }
+    } catch (err) {
+      logger.error({ err }, 'webhook_event_high_water retention sweep failed');
+    }
+
+    // M-NEW-1 (audit): email_scanner_seen_messages retains forever.
+    // Mig 067's idx_email_scanner_seen_messages_first_seen exists for
+    // exactly this prune; we just never wired it. Re-scanning email
+    // older than 90 days isn't a real use case, and per-user the
+    // table grows ~50 receipts/scan × N scans linearly.
+    try {
+      const result = await pool.query(
+        `DELETE FROM email_scanner_seen_messages
+          WHERE first_seen_at < NOW() - INTERVAL '90 days'`,
+      );
+      if (result.rowCount && result.rowCount > 0) {
+        logger.info({ deleted: result.rowCount }, 'email_scanner_seen_messages retention sweep');
+      }
+    } catch (err) {
+      logger.error({ err }, 'email_scanner_seen_messages retention sweep failed');
+    }
+
     // H-D6 (audit): prune FCM tokens whose last_seen_at hasn't been
     // bumped in 60 days. The /users/me/push-token register path now
     // updates last_seen_at on every cold-start re-register, so an
