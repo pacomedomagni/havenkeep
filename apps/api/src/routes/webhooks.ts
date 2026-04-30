@@ -1454,6 +1454,20 @@ revenueCatWebhookRouter.post('/', validateRevenueCatWebhookAuth, async (req: Req
           [expiresAt, userId]
         );
         await invalidateUserCache(userId);
+        // M-P9 (audit): audit-log PRODUCT_CHANGE plan transitions. The
+        // typical free→premium / premium→premium-extended path was
+        // missing forensic context.
+        if (priorPlan !== 'premium') {
+          auditWebhookPlanTransition({
+            userId,
+            fromPlan: priorPlan,
+            toPlan: 'premium',
+            webhookSource: 'revenuecat',
+            webhookEventId: event.id,
+            webhookEventType: event.type,
+            reason: `product change to ${event.product_id ?? 'unknown'}`,
+          });
+        }
         logger.info(
           { userId, productId: event.product_id, expiresAt, eventType: event.type },
           'User subscription product changed'
@@ -1477,6 +1491,14 @@ revenueCatWebhookRouter.post('/', validateRevenueCatWebhookAuth, async (req: Req
         if (UUID_RE.test(originalId)) {
           // Strip premium from the source account *unless* a partner gift
           // still keeps them on premium (mirror of EXPIRATION).
+          // M-P8 (audit): capture the source's prior plan separately so
+          // we can audit-log the demotion with accurate from→to.
+          const sourcePriorResult = await query(
+            `SELECT plan FROM users WHERE id = $1`,
+            [originalId],
+          );
+          const sourcePriorPlan: string | null = sourcePriorResult.rows[0]?.plan ?? null;
+
           const sourceGifts = await query(
             `SELECT 1 FROM partner_gifts
               WHERE activated_user_id = $1 AND is_activated = TRUE
@@ -1495,6 +1517,18 @@ revenueCatWebhookRouter.post('/', validateRevenueCatWebhookAuth, async (req: Req
             // 10s TTL expires; invalidate so the original owner is
             // demoted on every replica immediately.
             await invalidateUserCache(originalId);
+            // M-P8: audit-log the TRANSFER source-side demotion.
+            if (sourcePriorPlan === 'premium') {
+              auditWebhookPlanTransition({
+                userId: originalId,
+                fromPlan: sourcePriorPlan,
+                toPlan: 'free',
+                webhookSource: 'revenuecat',
+                webhookEventId: event.id,
+                webhookEventType: 'TRANSFER (source)',
+                reason: 'subscription transferred to another account',
+              });
+            }
           }
         }
         if (grantsPremium) {
@@ -1504,6 +1538,18 @@ revenueCatWebhookRouter.post('/', validateRevenueCatWebhookAuth, async (req: Req
             [expiresAt, userId],
           );
           await invalidateUserCache(userId);
+          // M-P8: audit-log the TRANSFER destination-side upgrade.
+          if (priorPlan !== 'premium') {
+            auditWebhookPlanTransition({
+              userId,
+              fromPlan: priorPlan,
+              toPlan: 'premium',
+              webhookSource: 'revenuecat',
+              webhookEventId: event.id,
+              webhookEventType: 'TRANSFER (destination)',
+              reason: 'subscription transferred from another account',
+            });
+          }
         }
         logger.info(
           { newOwnerAppUserId: event.app_user_id, originalAppUserId: originalId },
