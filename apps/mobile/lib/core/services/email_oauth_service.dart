@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:math';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_web_auth_2/flutter_web_auth_2.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -22,6 +25,23 @@ class EmailOAuthService {
 
   EmailOAuthService(this._ref);
 
+  /// S-C4 (audit): per-request OAuth `state` parameter. RFC 6749 §10.12
+  /// mandates state for CSRF mitigation: without it, an attacker who
+  /// can lure a victim's browser to an authorization URL signed with
+  /// the attacker's own provider account can have the victim's app
+  /// redeem the attacker's `code`, linking the attacker's mailbox into
+  /// the victim's HavenKeep account. With state, the callback's state
+  /// must match the value we minted client-side; mismatches abort the
+  /// exchange.
+  ///
+  /// 32 random bytes via [Random.secure] (CSPRNG); base64-url encoded
+  /// without padding for compactness in the URL.
+  String _mintOAuthState() {
+    final rng = Random.secure();
+    final bytes = List<int>.generate(32, (_) => rng.nextInt(256));
+    return base64Url.encode(bytes).replaceAll('=', '');
+  }
+
   /// Get a Gmail OAuth `code` via the system browser. The redirect URI is
   /// the custom scheme the platform OAuth app is registered with.
   Future<EmailOAuthCode> getGmailAuthorizationCode() async {
@@ -33,6 +53,7 @@ class EmailOAuthService {
       throw StateError('Gmail OAuth redirect URI is not configured');
     }
 
+    final state = _mintOAuthState();
     final authUri = Uri.https('accounts.google.com', '/o/oauth2/v2/auth', {
       'client_id': config.googleServerClientId,
       'response_type': 'code',
@@ -40,6 +61,7 @@ class EmailOAuthService {
       'scope': 'email https://www.googleapis.com/auth/gmail.readonly',
       'access_type': 'offline',
       'prompt': 'consent',
+      'state': state,
     });
 
     try {
@@ -48,7 +70,17 @@ class EmailOAuthService {
         callbackUrlScheme: Uri.parse(config.gmailRedirectUri).scheme,
       );
 
-      final code = Uri.parse(result).queryParameters['code'];
+      final returnedQuery = Uri.parse(result).queryParameters;
+      final returnedState = returnedQuery['state'];
+      if (returnedState != state) {
+        // The provider echoes our state back unchanged. A mismatch means
+        // either (a) the user/network swapped the callback for an
+        // attacker's code-grant from a different sign-in, or (b) two
+        // concurrent flows clobbered each other. Either way, refuse.
+        throw StateError('Gmail authorization state mismatch');
+      }
+
+      final code = returnedQuery['code'];
       if (code == null || code.isEmpty) {
         throw StateError('Gmail authorization failed');
       }
@@ -74,6 +106,7 @@ class EmailOAuthService {
     }
 
     final tenant = config.outlookTenant.isNotEmpty ? config.outlookTenant : 'common';
+    final state = _mintOAuthState();
     final authUri = Uri.https(
       'login.microsoftonline.com',
       '/$tenant/oauth2/v2.0/authorize',
@@ -83,6 +116,7 @@ class EmailOAuthService {
         'redirect_uri': config.outlookRedirectUri,
         'response_mode': 'query',
         'scope': 'offline_access https://graph.microsoft.com/Mail.Read',
+        'state': state,
       },
     );
 
@@ -92,7 +126,13 @@ class EmailOAuthService {
         callbackUrlScheme: Uri.parse(config.outlookRedirectUri).scheme,
       );
 
-      final code = Uri.parse(result).queryParameters['code'];
+      final returnedQuery = Uri.parse(result).queryParameters;
+      final returnedState = returnedQuery['state'];
+      if (returnedState != state) {
+        throw StateError('Outlook authorization state mismatch');
+      }
+
+      final code = returnedQuery['code'];
       if (code == null || code.isEmpty) {
         throw StateError('Outlook authorization failed');
       }
