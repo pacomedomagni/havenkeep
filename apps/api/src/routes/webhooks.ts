@@ -378,7 +378,14 @@ stripeWebhookRouter.post(
         case 'charge.dispute.created':
         case 'charge.dispute.updated':
         case 'charge.dispute.closed':
-          await handleChargeDispute(event.data.object as Stripe.Dispute);
+          // H-P1: pass event.created so the dispute handler can drop
+          // out-of-order deliveries via isEventInOrder. event.created
+          // is Stripe-side Unix seconds — convert to Date.
+          await handleChargeDispute(
+            event.data.object as Stripe.Dispute,
+            event.id,
+            new Date(event.created * 1000),
+          );
           break;
 
         case 'account.updated':
@@ -700,7 +707,11 @@ async function handlePaymentIntentCanceled(intent: Stripe.PaymentIntent): Promis
  * The dispute outcome (won/lost) updates `chargeback_status`; on lost we
  * treat it like a refund (clawback + revoke premium).
  */
-async function handleChargeDispute(dispute: Stripe.Dispute): Promise<void> {
+async function handleChargeDispute(
+  dispute: Stripe.Dispute,
+  eventId: string,
+  eventAt: Date,
+): Promise<void> {
   const chargeId = typeof dispute.charge === 'string' ? dispute.charge : dispute.charge?.id;
   // C7: partner_gifts.stripe_charge_id holds PaymentIntent IDs; the dispute
   // object exposes payment_intent directly (string id or expanded PI object).
@@ -715,6 +726,23 @@ async function handleChargeDispute(dispute: Stripe.Dispute): Promise<void> {
     );
     return;
   }
+
+  // H-P1 (audit): Stripe retries can be reordered. A
+  // charge.dispute.closed (status='won') arriving before a delayed
+  // charge.dispute.updated (status='under_review') would otherwise
+  // leave chargeback_status='under_review' even though the dispute
+  // is over. Use the same per-subject high-water table the RC
+  // handler already uses. Subject: payment_intent (matches our gift
+  // lookup column).
+  const inOrder = await isEventInOrder('stripe', paymentIntentId, eventId, eventAt);
+  if (!inOrder) {
+    logger.info(
+      { disputeId: dispute.id, paymentIntentId, eventId, eventAt: eventAt.toISOString() },
+      'dispute event out of order — skipping',
+    );
+    return;
+  }
+
   const status: string = dispute.status;
   // 'charge_refunded' isn't in the SDK enum but Stripe still returns it
   // for disputes whose underlying charge was refunded mid-dispute. Compare
