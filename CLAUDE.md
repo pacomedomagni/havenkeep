@@ -86,7 +86,7 @@ Per-environment Services IDs follow the convention:
 - Webhook events table tracks delivery + retries with dead-letter at attempt 8.
 
 ### DB migrations
-Numbered migrations live in `apps/api/src/db/migrations/`: 028–039 (security/data-loss criticals), 040–045 (DB foundation), 050–051 (payments + uploads), 060–067 (services), 070 (drift constraints), 071 (partner status enum), 072–074 (digest outbox / welcome email open / category repair-cost defaults), 075–081 (audit-chain casts, request idempotency, MinIO object keys, audit-chain advisory lock, audit-logs description cap), 082 (re-applies audit-trigger casts + advisory lock together — fixes audit C1 where 080 regressed 075's enum/UUID casts), 083 (warranty_*.user_id RESTRICT→SET NULL + denormalized email columns for purge anonymization — audit C4), 084 (user_mfa_factors + user_mfa_backup_codes for TOTP enrollment — audit S-C2). Runner auto-detects `ALTER TYPE ADD VALUE` and `CREATE INDEX CONCURRENTLY` and runs those files outside transactions. `schema_version` table tracks bootstrap completion.
+Numbered migrations live in `apps/api/src/db/migrations/`: 028–039 (security/data-loss criticals), 040–045 (DB foundation), 050–051 (payments + uploads), 060–067 (services), 070 (drift constraints), 071 (partner status enum), 072–074 (digest outbox / welcome email open / category repair-cost defaults), 075–081 (audit-chain casts, request idempotency, MinIO object keys, audit-chain advisory lock, audit-logs description cap), 082 (re-applies audit-trigger casts + advisory lock together — fixes audit C1 where 080 regressed 075's enum/UUID casts), 083 (warranty_*.user_id RESTRICT→SET NULL + denormalized email columns for purge anonymization — audit C4), 084 (user_mfa_factors + user_mfa_backup_codes for TOTP enrollment — audit S-C2), 085 (drop dead documents.deleted_at column — H-D3), 086 (drop redundant plaintext partner_gifts.activation_code UNIQUE — H-D4), 087 (webhook_events.id → bigint — H-D5), 088 (email_scans.completion_message — H-D7), 089 (chargeback_status regex CHECK — H-D8), 090 (category_defaults.lifespan_years seeded from items.ts hardcoded map — H-C2). Runner auto-detects `ALTER TYPE ADD VALUE` and `CREATE INDEX CONCURRENTLY` and runs those files outside transactions; the runner now also wraps `main()` in `pg_advisory_lock` (H-D1) so two replicas booting simultaneously can't race on the same DDL. `schema_version` table tracks bootstrap completion.
 
 ---
 
@@ -150,6 +150,40 @@ A 9-reviewer end-to-end audit on 2026-04-29 produced 145 findings (22 Critical, 
 - S-C2 (mig 084) — TOTP MFA: user_mfa_factors + user_mfa_backup_codes tables, /api/v1/mfa/totp/{enroll,verify,disable} + /status routes, /auth/mfa/challenge to exchange a short-lived (5min) mfa_token for real access+refresh; /auth/login routes through the gate when MfaService.getStatus returns hasVerifiedFactor
 - S-C4 — Gmail and Outlook OAuth flows now mint and verify a `state` parameter (32-byte CSPRNG, base64url) per RFC 6749 §10.12
 
-**Phase 3** (next): all H-A1..H-A9 (auth & sessions), H-D1..H-D8 (data integrity), H-C1..H-C3 (contract drift), H-P1..H-P6 (payments hardening) — see `/tmp/havenkeep-remediation-plan.md` Phase 3 for per-finding instructions, suggested PR boundaries, and ordering.
+**Phase 3 — High-impact correctness & data** (23 findings) shipped on branch `remediation/phase-3-correctness`:
 
-**To continue**: `git checkout main && git checkout -b remediation/phase-3-correctness` after Phase 2 PR merges. Read `/tmp/havenkeep-handoff.md` first.
+Auth & sessions:
+- H-A1 — /auth/login refuses tokens for soft-deleted (within-grace returns ACCOUNT_PENDING_DELETION 403) / suspended accounts; new AppErrorCode entry
+- H-A2 — closed by P1.8/S-H2 (no-op verification commit not needed)
+- H-A4 — /forgot-password per-target-email Redis counter (3/h) on top of the per-IP limiter; skips the existing-token-burn UPDATE when fired
+- H-A5 — /me/verify-premium revokes Gmail/Outlook OAuth integrations on premium→free transitions (best-effort)
+- H-A6 — /auth/apple rejects when stored apple_user_id differs from JWT sub
+- H-A8 — new GET /auth/role-check + dashboard middleware caches the response in an HttpOnly hk_role_check cookie (30s TTL); demoted users lose nav access in ≤30s instead of ≤1h
+- H-A9 — /admin/partners/:id/{approve,reject} state-machine guards (idempotent on re-execute, refuses rejected→*); audit metadata captures from→to; reject burns refresh tokens + invalidateUserCache
+
+Data integrity:
+- H-D1 — migration runner wraps main() in pg_advisory_lock (key 'MGRN' = 0x4d_47_52_4e); rolling deploys can't race on DDL
+- H-D2 — DELETE /items/:id no longer DELETEs warranty_purchases / warranty_claims; FK SET NULL preserves paid records
+- H-D3 (mig 085) — drops dead documents.deleted_at column + partial index
+- H-D4 (mig 086) — drops redundant plaintext partner_gifts.activation_code UNIQUE; service-side 23505 handler simplified
+- H-D5 (mig 087) — webhook_events.id BIGINT promotion + 7-day cleanup moved from weekly Sunday to daily
+- H-D6 — user_push_tokens INSERT/UPSERT now bumps last_seen_at; FcmService.cleanupStaleTokens(60) wired into the daily cron
+- H-D7 (mig 088) — email_scans.completion_message split out from error_message; service-side writer updated
+- H-D8 (mig 089) — partner_gifts.chargeback_status CHECK is now a regex (lowercase snake_case ≤64 chars) so future Stripe enum additions don't crash the dispute handler
+
+Contract drift:
+- H-C1 — ITEM_LIST_COLUMNS includes estimated_repair_cost; mobile app sees the seeded value
+- H-C2 (mig 090) — items.ts hardcoded CATEGORY_DEFAULT_LIFESPAN replaced by category_defaults.lifespan_years with 60s in-memory cache; admin can change lifespan without a code deploy
+- H-C3 — shared_models MaintenanceDueSummary now parses summary_state into a new MaintenanceSummaryState enum; dashboard can distinguish noItems / noSchedules / caughtUp / hasDue
+
+Payments hardening:
+- H-P1 — Stripe dispute handler invokes isEventInOrder('stripe', payment_intent_id, ...) so reordered retries don't override fresher state
+- H-P2 — auditWebhookPlanTransition helper wired at four highest-impact transitions (charge.refunded revoke, charge.dispute.lost revoke, RC INITIAL_PURCHASE/RENEWAL/UNCANCELLATION upgrade, RC EXPIRATION downgrade); rows carry webhook_source + webhook_event_id metadata
+- H-P3 — explicit handlers for payout.failed (with handlePayoutFailed lookup of partner_commissions), payment_intent.payment_failed, customer.deleted, customer.updated, radar.early_fraud_warning.created
+- H-P4 — TIER_PRICING renamed TIER_PRICE_PER_GIFT_USD; /partners/tiers response surfaces price_per_gift; price_monthly stays at 0 with explanatory comment until recurring billing actually ships
+- H-P5 — /me/verify-premium is upgrade-only; non-premium response on a currently-premium user leaves the row alone (defers demotion to webhook with event-id causality)
+- H-P6 — already shipped in P1.4 alongside C8 (proportional commission clawback for partial refunds)
+
+**Phase 4** (next): rollback .catch sweep (H-B1), DST math fix (H-B2), mobile bug bash (H-B3..H-B12), async hardening, schema cleanup (M-D1..M-D11), security mediums (S-M1..S-M13), Stripe edge handlers (M-P1..M-P9), account & admin medium (M-A1..M-A10).
+
+**To continue**: `git checkout main && git checkout -b remediation/phase-4-hardening` after Phase 3 PR merges. Read `/tmp/havenkeep-handoff.md` first.
