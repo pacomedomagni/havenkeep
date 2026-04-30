@@ -8,6 +8,10 @@ import { uuidParamSchema } from '../validators';
 import { sendSuccess, sendMessage } from '../utils/response';
 import { AppError } from '../utils/errors';
 import { isOAuthEncryptionConfigured } from '../utils/oauth-encryption';
+import {
+  emailScannerScanRateLimiter,
+  emailScannerWriteRateLimiter,
+} from '../middleware/rateLimiter';
 
 const router = Router();
 
@@ -76,8 +80,13 @@ const providerQuerySchema = Joi.object({
  * @desc    Exchange an OAuth code for tokens and start a scan
  * @access  Private (premium)
  */
+// S-C6: per-user 5/hour limiter. /scan exchanges an OAuth code at the
+// upstream provider, then performs a server-side mailbox scan; one
+// compromised premium account previously could drain HavenKeep's per-app
+// Google/Microsoft token-endpoint quota and DOS the scanner globally.
 router.post(
   '/scan',
+  emailScannerScanRateLimiter,
   validate(initiateScanSchema),
   asyncHandler(async (req, res) => {
     if (!isOAuthEncryptionConfigured()) {
@@ -148,6 +157,7 @@ router.get(
  */
 router.post(
   '/review/:id/approve',
+  emailScannerWriteRateLimiter,
   validate(uuidParamSchema, 'params'),
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
@@ -163,6 +173,7 @@ router.post(
  */
 router.post(
   '/review/:id/reject',
+  emailScannerWriteRateLimiter,
   validate(uuidParamSchema, 'params'),
   validate(reviewActionSchema),
   asyncHandler(async (req, res) => {
@@ -180,6 +191,7 @@ router.post(
  */
 router.post(
   '/scans/:id/cancel',
+  emailScannerWriteRateLimiter,
   validate(uuidParamSchema, 'params'),
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
@@ -211,6 +223,7 @@ router.get(
  */
 router.delete(
   '/integrations',
+  emailScannerWriteRateLimiter,
   validate(providerQuerySchema, 'query'),
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
