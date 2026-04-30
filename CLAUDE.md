@@ -96,7 +96,17 @@ Every gate is currently green: api tsc, dashboard tsc + build, marketing build, 
 
 ### A. Gated on infra you control (not code defects)
 
-- **`apps/api npm test` execution.** Tests typecheck and the helpers + setup + 30+ new test files all wire up correctly, but the suite needs a `havenkeep_test` Postgres on `:5432`. The `fortify-postgres-1` container holds that port locally. Either free the port + `createdb havenkeep_test && cd apps/api && npm run db:migrate && npm test`, or update `__tests__/setup.ts` to read `TEST_DB_PORT` and run a sidecar Postgres on a free port. The TRUNCATE guard refuses to run unless `DB_NAME` contains "test".
+- **`apps/api npm test` infrastructure is unblocked.** Postgres on the docker-compose dev stack is now bound to `:5434` (host-side, see `docker-compose.override.yml`) — port 5432 is held by an unrelated project. To run tests:
+  ```sh
+  docker compose up -d postgres redis      # postgres on :5434, redis on :6380
+  docker exec havenkeep-postgres psql -U havenkeep -c "CREATE DATABASE havenkeep_test;"
+  cd apps/api && \
+    DB_HOST=localhost DB_PORT=5434 DB_NAME=havenkeep_test \
+    DATABASE_URL="postgresql://havenkeep:havenkeep_dev_2026@localhost:5434/havenkeep_test" \
+    npm run db:migrate
+  TEST_DB_PORT=5434 TEST_REDIS_URL=redis://localhost:6380 npm test
+  ```
+  Current state: 239/300 tests pass; 61 fail because of pre-existing test gaps (missing Google OAuth / SendGrid mocks, schema-drift assumptions). Each failure is per-test, not infra.
 - **Production CSP report-uri / CSP enforcement headers** (W078 / W111). Marketing site is static Astro — the headers must be set by Caddy in front of it. `astro.config.mjs` documents which headers Caddy needs.
 - **Firebase Crashlytics DSN** (optional). The runtime is wired (see Telemetry above) but reports stop at the device when `firebase_options.dart` has the placeholder API key — drop a real `GoogleService-Info.plist` / `google-services.json` in to start receiving reports.
 
@@ -119,7 +129,95 @@ The remaining work is **off-platform configuration only** — no code blocks shi
 5. **App Store Connect** — create app record with bundle ID `app.havenkeep.mobile`. Privacy URL: `https://havenkeep.com/legal/privacy`. Support URL: `https://havenkeep.com/support`. Marketing URL (optional): `https://havenkeep.com`. Account Deletion: in-app via Settings → Delete Account. Privacy Nutrition Label: mirror the categories declared in `PrivacyInfo.xcprivacy`.
 6. **Play Console** — create app with package name `app.havenkeep.mobile`. Privacy Policy: `https://havenkeep.com/legal/privacy`. Data Safety form: mirror `PrivacyInfo.xcprivacy` categories. Account deletion: in-app + `https://havenkeep.com/legal/delete-account`. Target API level 35 is auto-met by Flutter 3.41+.
 
-### D. Audit-remediation in flight (2026-04-29 audit)
+### D. Production go-live: Stripe Connect + public URLs
+
+The partner self-service payout pipeline is fully built and tested locally. To take it live in production, two things have to happen — both off-platform configuration with no code changes:
+
+#### D.1 Stripe Connect — provide the keys
+
+The Express API expects three env-equivalent values, all read from Docker Secrets in production (`docker-compose.production.yml` already references them). Drop real values into the secrets files on the prod host:
+
+| File | Value | Where to find it |
+|---|---|---|
+| `./secrets/stripe_secret_key.txt` | `sk_live_…` | Stripe Dashboard → Developers → API keys → Live mode → "Secret key" |
+| `./secrets/stripe_webhook_secret.txt` | `whsec_…` | Stripe Dashboard → Developers → Webhooks → click your endpoint → "Signing secret" |
+| `STRIPE_PRICE_ID_PREMIUM` (env, in `.env` not secrets) | `price_…` | Stripe Dashboard → Products → Premium product → "Price ID" |
+
+The webhook endpoint URL to configure in Stripe is `https://api.havenkeep.com/api/v1/webhooks/stripe` and must subscribe to: `payment_intent.succeeded`, `payment_intent.payment_failed`, `charge.refunded`, `charge.dispute.created`, `charge.dispute.lost`, `customer.deleted`, `customer.updated`, `radar.early_fraud_warning.created`, `payout.failed`, `account.updated`. (The handlers are already implemented in `apps/api/src/routes/webhooks.ts`.)
+
+**Stripe Connect configuration** (one-time, on the platform Stripe account):
+1. Stripe Dashboard → Connect → Settings → enable **Express** accounts.
+2. Branding → upload logo + color, set support email to `support@havenkeep.com`.
+3. Tax reporting → enable **Stripe-issued 1099-NEC** for Express accounts (this is what makes the partner-dashboard's "Open tax documents" button surface forms automatically). Stripe charges a small per-form fee; you only pay for partners who hit the $600 threshold.
+4. Settings → enable both **OAuth** and **Direct** account creation modes (the API uses Direct via `accounts.create`).
+
+Validation: the API's config validator refuses to boot in production unless `STRIPE_SECRET_KEY` looks like `sk_live_…` and `STRIPE_WEBHOOK_SECRET` starts with `whsec_`. Sandbox keys (`sk_test_…`) are blocked unless `STRIPE_ALLOW_SANDBOX=true` is also set — flip that to `false` (or remove it) for the production env.
+
+#### D.2 Public URLs — wire DNS + Caddy
+
+The three apps each need their own hostname. DNS A records all point at the same prod-host IP; Caddy in front routes by Host header.
+
+| App | Hostname | Container port | Purpose |
+|---|---|---|---|
+| Marketing site | `havenkeep.com` (+ `www.havenkeep.com` redirect) | `80` (nginx) | Public site, /partners landing |
+| API | `api.havenkeep.com` | `3000` | Mobile + dashboard backend, Stripe webhook target |
+| Partner dashboard | `partners.havenkeep.com` | `3001` | Partner self-service portal |
+
+**DNS records to create** (at your registrar):
+```
+havenkeep.com.            A     <prod-ip>
+www.havenkeep.com.        A     <prod-ip>
+api.havenkeep.com.        A     <prod-ip>
+partners.havenkeep.com.   A     <prod-ip>
+```
+
+**Caddyfile** (place at `/etc/caddy/Caddyfile` on the prod host; Caddy auto-issues Let's Encrypt certs):
+```
+havenkeep.com, www.havenkeep.com {
+    @www host www.havenkeep.com
+    redir @www https://havenkeep.com{uri}
+    reverse_proxy localhost:80
+    header {
+        Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+        X-Frame-Options "DENY"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self' https://api.havenkeep.com; frame-ancestors 'none'"
+    }
+    # Universal Links / App Links manifests must serve as application/json.
+    @aasa path /.well-known/apple-app-site-association /.well-known/assetlinks.json
+    header @aasa Content-Type application/json
+}
+
+api.havenkeep.com {
+    reverse_proxy localhost:3000
+    header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+}
+
+partners.havenkeep.com {
+    reverse_proxy localhost:3001
+    header {
+        Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+        X-Frame-Options "DENY"
+        X-Content-Type-Options "nosniff"
+    }
+}
+```
+
+**Production env vars to set** in `.env` on the prod host (alongside the secrets files above):
+```
+FRONTEND_URL=https://havenkeep.com
+DASHBOARD_URL=https://partners.havenkeep.com
+API_URL=https://api.havenkeep.com
+PUBLIC_PARTNER_DASHBOARD_URL=https://partners.havenkeep.com
+CORS_ORIGINS=https://havenkeep.com,https://partners.havenkeep.com
+```
+
+The `PUBLIC_PARTNER_DASHBOARD_URL` value is what the marketing `/partners` page's "Apply to become a partner" CTA points at; it's compiled into the Astro build, so re-build marketing after setting it.
+
+After Caddy reloads, the partner-flow chain is live: marketing `/partners` → "Apply" → `partners.havenkeep.com/signup` → onboarding → admin approve → Stripe Connect onboarding → "Request payout" works end to end.
+
+### E. Audit-remediation in flight (2026-04-29 audit)
 
 A 9-reviewer end-to-end audit on 2026-04-29 produced 145 findings (22 Critical, 44 High, 51 Medium, 28 Low) and a 5-phase remediation plan. Documents live in `/tmp` per Rule 3 (move to durable storage before relying on them):
 
