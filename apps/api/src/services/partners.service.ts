@@ -555,10 +555,11 @@ export class PartnersService {
           ],
         );
       } catch (insertErr: any) {
+        // Only the hashed-code unique remains after H-D4 (mig 086 dropped
+        // the redundant plaintext uq_partner_gifts_activation_code).
         if (
           insertErr?.code === '23505' &&
-          (insertErr?.constraint === 'idx_partner_gifts_activation_code_hash' ||
-            insertErr?.constraint === 'uq_partner_gifts_activation_code')
+          insertErr?.constraint === 'idx_partner_gifts_activation_code_hash'
         ) {
           // Concurrent createGift call landed on the same hash between
           // our pre-check and the INSERT. Vanishingly rare with 64-bit
