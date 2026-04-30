@@ -68,6 +68,21 @@ function dayOfYearUTC(d: Date): number {
 }
 
 /**
+ * H-B2 (audit): days between two dates, both rounded to UTC midnight.
+ * The naive `Math.ceil(deltaMs / 86_400_000)` is wrong by ±1 hour
+ * across DST and ±1 day around the boundary; with `Math.ceil` the
+ * one-hour delta tips an entire day's count.
+ *
+ * Both inputs are normalized to UTC year/month/day before subtraction
+ * so the result is stable regardless of the server's local TZ.
+ */
+function daysBetweenUtc(from: Date, to: Date): number {
+  const fromUtc = Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate());
+  const toUtc = Date.UTC(to.getUTCFullYear(), to.getUTCMonth(), to.getUTCDate());
+  return Math.round((toUtc - fromUtc) / 86_400_000);
+}
+
+/**
  * F034: bucket the current minute into 5-minute slots so digest sends are
  * batched. Used by the cron path to coalesce sub-minute repeated triggers.
  */
@@ -976,8 +991,12 @@ export class NotificationsService {
           // Send email if user has email notifications enabled
           if (row.email_enabled) {
             try {
-              const daysRemaining = Math.ceil(
-                (new Date(row.warranty_end_date).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
+              // H-B2: UTC-aware day-count. The prior shape divided ms by
+              // 86_400_000 and Math.ceil'd, which tips an entire day on
+              // DST transition or a non-UTC server.
+              const daysRemaining = daysBetweenUtc(
+                new Date(),
+                new Date(row.warranty_end_date),
               );
               await EmailService.sendWarrantyExpirationEmail({
                 to: row.email,
