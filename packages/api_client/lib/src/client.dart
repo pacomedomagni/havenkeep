@@ -259,8 +259,20 @@ class ApiClient {
         _storage = storage ??
             const FlutterSecureStorage(
               aOptions: AndroidOptions(encryptedSharedPreferences: true),
+              // S-H8 (audit): device-bound keychain access. The prior
+              // first_unlock class roams via iCloud Keychain — an
+              // attacker who compromises the user's Apple ID + iCloud
+              // Keychain on a fresh device can restore the HavenKeep
+              // access/refresh tokens and hit the API as the user
+              // without ever knowing the password.
+              //
+              // first_unlock_this_device is NOT iCloud-replicable
+              // (matches the SQLCipher DB key in
+              // secure_storage_service.dart S-HI-06). Trade-off: the
+              // user pays a one-time "sign in again on a new device"
+              // cost; that's the right trust delta for an auth token.
               iOptions: IOSOptions(
-                accessibility: KeychainAccessibility.first_unlock,
+                accessibility: KeychainAccessibility.first_unlock_this_device,
               ),
             );
 
