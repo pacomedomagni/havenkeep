@@ -255,12 +255,47 @@ router.post('/me/verify-premium', verifyPremiumRateLimiter, validate(verifyPremi
 
   // Update user plan in the database
   const prevPlanResult = await query(
-    `SELECT plan FROM users WHERE id = $1`,
+    `SELECT plan, plan_expires_at FROM users WHERE id = $1`,
     [req.user!.id]
   );
   const previousPlan = prevPlanResult.rows[0]?.plan;
+  const previousPlanExpiresAt = prevPlanResult.rows[0]?.plan_expires_at;
 
-  const newPlan = isPremium ? 'premium' : 'free';
+  // H-P5 (audit): /me/verify-premium is now upgrade-only. The prior
+  // shape happily flipped plan='free' when RC returned 200 with empty
+  // entitlements — which can happen during RC consistency hiccups, on
+  // a stale subscriber object during a TRANSFER, or right after a
+  // recently-completed upgrade where RC's read replica hasn't caught
+  // up yet. Combined with the mobile retry loop, three retries against
+  // the same stale snapshot would demote a paying user; the lockout
+  // would only clear at the next RC webhook.
+  //
+  // Webhooks are the source of truth for downgrades — they carry an
+  // event id with causal ordering (mig 050 webhook_event_high_water).
+  // A non-premium /verify-premium response now leaves the row alone
+  // and surfaces as { is_premium: false } to the client; the client
+  // can show "checking subscription state…" and let the webhook
+  // path's EXPIRATION event do the demotion when it actually expires.
+  let newPlan: string;
+  let updateExpiresAt: string | null;
+  if (isPremium) {
+    newPlan = 'premium';
+    updateExpiresAt = expiresAt;
+  } else if (previousPlan === 'premium') {
+    // Don't demote — let the webhook flow handle it.
+    logger.info(
+      { userId: req.user!.id, previousPlan },
+      'H-P5: /verify-premium would have demoted; deferring to webhook (RC may be stale)',
+    );
+    newPlan = previousPlan;
+    updateExpiresAt = previousPlanExpiresAt
+      ? new Date(previousPlanExpiresAt).toISOString()
+      : null;
+  } else {
+    newPlan = 'free';
+    updateExpiresAt = null;
+  }
+
   const result = await query(
     `UPDATE users SET
       plan = $1,
@@ -268,7 +303,7 @@ router.post('/me/verify-premium', verifyPremiumRateLimiter, validate(verifyPremi
       updated_at = NOW()
      WHERE id = $3
      RETURNING id, email, plan, plan_expires_at`,
-    [newPlan, expiresAt, req.user!.id]
+    [newPlan, updateExpiresAt, req.user!.id]
   );
 
   if (result.rows.length === 0) {
