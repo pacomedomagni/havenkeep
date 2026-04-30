@@ -498,78 +498,198 @@ export class NotificationsService {
 
   /**
    * F034 cron tick: claim due outbox rows, coalesce per user, write a single
-   * notification_history row per user that summarises the batch. Idempotent
-   * via the `claimed_at` claim window — a parallel runner that picks up the
-   * same row mid-flush re-checks `flushed_into_id IS NULL` before inserting.
+   * notification_history row per user that summarises the batch, and send
+   * the FCM push.
    *
-   * Returns the number of users that received a digest push.
+   * C2 (audit): the prior implementation inserted notification_history rows
+   * with delivery_status='pending' and never sent FCM. Anyone with
+   * digest_minutes > 0 saw in-app cards but received zero pushes. We now
+   * call FcmService.sendToUser inside the loop and flip delivery_status
+   * to 'delivered' / 'failed' based on the result.
+   *
+   * C3 (audit): the prior CTE filtered on `claimed_at IS NULL OR
+   * claimed_at < $1 - INTERVAL '30 seconds'` but the per-user INSERT and
+   * the flushed_into_id UPDATE were unconditional, so two replicas could
+   * each compute `due` from the same snapshot, both UPDATE the
+   * claimed_at, and both insert duplicate notification_history rows.
+   * Now we wrap claim+insert in a single transaction with FOR UPDATE
+   * SKIP LOCKED at the outbox row level, so only one runner ever sees a
+   * given row, and we guard the flushed_into_id UPDATE with
+   * `WHERE flushed_into_id IS NULL` defensively.
+   *
+   * Quiet-hours and push_enabled honored to match the immediate-push paths.
+   *
+   * Returns the number of users that received a (non-skipped) digest.
    */
   static async flushDigestOutbox(now: Date = new Date()): Promise<number> {
-    const claim = await pool.query(
-      `WITH due AS (
-         SELECT user_id, COUNT(*)::int AS notif_count,
-                array_agg(id) AS outbox_ids,
-                array_agg(DISTINCT type) AS types,
-                MIN(title) AS sample_title
+    type Pending = {
+      userId: string;
+      historyId: string;
+      title: string;
+      body: string;
+      count: number;
+    };
+    const pendings: Pending[] = [];
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      // Lock the due-but-unflushed outbox rows; SKIP LOCKED so concurrent
+      // replicas don't race on the same rows. Any crash mid-loop rolls
+      // back the transaction (no orphan claims) and the next cron tick
+      // re-locks the same rows cleanly.
+      const lockResult = await client.query(
+        `SELECT id, user_id, type, title
            FROM notification_outbox
           WHERE flush_at <= $1
             AND flushed_into_id IS NULL
-            AND (claimed_at IS NULL OR claimed_at < $1 - INTERVAL '30 seconds')
-          GROUP BY user_id
-       ),
-       claimed AS (
-         UPDATE notification_outbox SET claimed_at = $1
-          WHERE id = ANY((SELECT unnest(outbox_ids) FROM due))
-          RETURNING user_id, id
-       )
-       SELECT due.user_id, due.notif_count, due.outbox_ids, due.types, due.sample_title
-         FROM due`,
-      [now],
-    );
-    if (claim.rows.length === 0) return 0;
-
-    let flushed = 0;
-    for (const batch of claim.rows) {
-      const userId: string = batch.user_id;
-      const count: number = batch.notif_count;
-      const types: string[] = batch.types || [];
-      const outboxIds: string[] = batch.outbox_ids || [];
-
-      const title = count === 1 ? batch.sample_title : `You have ${count} new updates`;
-      const body =
-        count === 1
-          ? batch.sample_title
-          : `${types.slice(0, 3).join(', ')}${types.length > 3 ? `, +${types.length - 3} more` : ''}`;
-
-      // Reuse `system` if `digest` is not in the enum; the migration kept
-      // notification_type minimal. The audit's intent is one push per
-      // bucket, not a new type.
-      const inserted = await pool.query(
-        `INSERT INTO notification_history (
-           user_id, type, title, body, data, delivery_status, sent_at
-         ) VALUES ($1, 'system', $2, $3, $4::jsonb, 'pending', NOW())
-         RETURNING id`,
-        [
-          userId,
-          title,
-          body,
-          JSON.stringify({ digest: true, count, types, outbox_ids: outboxIds }),
-        ],
+          ORDER BY flush_at ASC
+          LIMIT 500
+          FOR UPDATE SKIP LOCKED`,
+        [now],
       );
-      const historyId: string = inserted.rows[0].id;
+      if (lockResult.rows.length === 0) {
+        await client.query('COMMIT');
+        return 0;
+      }
 
-      await pool.query(
-        `UPDATE notification_outbox
-            SET flushed_into_id = $1
-          WHERE id = ANY($2::uuid[])`,
-        [historyId, outboxIds],
-      );
+      // Group by user in JS — at LIMIT 500 this is microseconds.
+      type OutboxRow = { id: string; user_id: string; type: string; title: string | null };
+      const byUser = new Map<string, OutboxRow[]>();
+      for (const row of lockResult.rows as OutboxRow[]) {
+        const arr = byUser.get(row.user_id) ?? [];
+        arr.push(row);
+        byUser.set(row.user_id, arr);
+      }
 
-      flushed += 1;
+      for (const [userId, rows] of byUser) {
+        const count = rows.length;
+        const outboxIds = rows.map((r) => r.id);
+        const types = Array.from(new Set(rows.map((r) => r.type)));
+        const sampleTitle = rows.find((r) => r.title)?.title ?? null;
+
+        const title =
+          count === 1 ? (sampleTitle ?? 'You have a new update') : `You have ${count} new updates`;
+        const body =
+          count === 1 && sampleTitle
+            ? sampleTitle
+            : `${types.slice(0, 3).join(', ')}${types.length > 3 ? `, +${types.length - 3} more` : ''}`;
+
+        // Reuse 'system' since notification_type enum was kept minimal.
+        const inserted = await client.query(
+          `INSERT INTO notification_history (
+             user_id, type, title, body, data, delivery_status, sent_at
+           ) VALUES ($1, 'system', $2, $3, $4::jsonb, 'pending', NOW())
+           RETURNING id`,
+          [
+            userId,
+            title,
+            body,
+            JSON.stringify({ digest: true, count, types, outbox_ids: outboxIds }),
+          ],
+        );
+        const historyId: string = inserted.rows[0].id;
+
+        // Defensive: FOR UPDATE SKIP LOCKED already prevents duplicate
+        // writers, but the WHERE flushed_into_id IS NULL guard makes
+        // intent explicit + catches a future bug that removes the lock.
+        await client.query(
+          `UPDATE notification_outbox
+              SET flushed_into_id = $1
+            WHERE id = ANY($2::uuid[]) AND flushed_into_id IS NULL`,
+          [historyId, outboxIds],
+        );
+
+        pendings.push({ userId, historyId, title, body, count });
+      }
+
+      // Commit the claim BEFORE the FCM round-trip. External IO must not
+      // run inside an open transaction (audit Pass 1 H-B4): it pins a
+      // pool client and a COMMIT failure after a successful push leaves
+      // a phantom notification_history row.
+      //
+      // Trade-off: a process kill between COMMIT and the FCM send leaves
+      // a row with delivery_status='pending' the user sees in-app but
+      // never received as a push. Acceptable; the row stays, and a
+      // future retention sweep (M-D6) can collect orphan 'pending' rows.
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw err;
+    } finally {
+      client.release();
     }
 
-    logger.info({ flushed, claimed: claim.rows.length }, 'Notification digest outbox flushed');
-    return flushed;
+    if (pendings.length === 0) return 0;
+
+    // Phase 2: send FCM for each pending batch, honoring push_enabled +
+    // quiet_hours just like the immediate-push paths (see warranty
+    // expiring at line ~825 of this file).
+    const userIds = pendings.map((p) => p.userId);
+    const prefsResult = await pool.query(
+      `SELECT user_id, COALESCE(push_enabled, TRUE) AS push_enabled
+         FROM notification_preferences
+        WHERE user_id = ANY($1::uuid[])`,
+      [userIds],
+    );
+    const pushEnabledByUser = new Map<string, boolean>();
+    for (const r of prefsResult.rows) pushEnabledByUser.set(r.user_id, r.push_enabled !== false);
+
+    let delivered = 0;
+    for (const p of pendings) {
+      const pushEnabled = pushEnabledByUser.get(p.userId) ?? true;
+      if (!pushEnabled) {
+        await pool.query(
+          `UPDATE notification_history SET delivery_status = 'failed' WHERE id = $1`,
+          [p.historyId],
+        );
+        continue;
+      }
+      if (await NotificationsService.isUserInQuietHours(p.userId, now)) {
+        // Leave 'pending'; the next cron tick will retry once the user is
+        // out of quiet hours. (We don't flip to 'failed' here — that would
+        // permanently lose the digest.)
+        continue;
+      }
+      try {
+        const sent = await FcmService.sendToUser(p.userId, {
+          title: p.title,
+          body: p.body,
+          data: { type: 'digest', count: String(p.count), history_id: p.historyId },
+        });
+        if (sent > 0) {
+          await pool.query(
+            `UPDATE notification_history
+                SET delivered_at = NOW(), delivery_status = 'delivered'
+              WHERE id = $1`,
+            [p.historyId],
+          );
+          delivered += 1;
+        } else {
+          // F038 parity: zero live tokens.
+          await pool.query(
+            `UPDATE notification_history SET delivery_status = 'failed' WHERE id = $1`,
+            [p.historyId],
+          );
+        }
+      } catch (fcmError) {
+        logger.error(
+          { error: fcmError, userId: p.userId, historyId: p.historyId },
+          'FCM digest push failed',
+        );
+        await pool.query(
+          `UPDATE notification_history SET delivery_status = 'failed' WHERE id = $1`,
+          [p.historyId],
+        );
+      }
+    }
+
+    logger.info(
+      { claimed: pendings.length, delivered },
+      'Notification digest outbox flushed',
+    );
+    return delivered;
   }
 
   /**
