@@ -399,10 +399,22 @@ router.post('/login', authRateLimiter, validate(loginSchema), asyncHandler(async
   try {
     const { email, password } = req.body;
 
-    // Get user
+    // Get user.
+    // H-A1 (audit): include deleted_at + deletion_scheduled_for so a
+    // soft-deleted or admin-suspended account can never reach the
+    // token-issuing branch even with the right password. The prior
+    // shape happily issued fresh access/refresh tokens to anyone with
+    // the right credentials; every subsequent authenticated call then
+    // 401'd via middleware/auth.ts. That confused legitimate users
+    // (the delete-confirmation email tells them to "log back in to
+    // recover" — see C13b for the recover path) AND masked credential-
+    // stuffing against suspended-for-fraud accounts because
+    // `auth.login success=true` always landed in the audit log.
     const result = await query(
       `SELECT u.id, u.email, u.password_hash, u.full_name, u.avatar_url, u.auth_provider, u.plan,
-              u.plan_expires_at, u.referred_by, u.referral_code, u.is_admin, u.created_at, u.updated_at,
+              u.plan_expires_at, u.referred_by, u.referral_code, u.is_admin,
+              u.deleted_at, u.deletion_scheduled_for,
+              u.created_at, u.updated_at,
               (EXISTS(SELECT 1 FROM partners p WHERE p.user_id = u.id AND p.is_active = TRUE)) as is_partner
        FROM users u WHERE u.email = $1`,
       [email.toLowerCase()]
@@ -435,6 +447,67 @@ router.post('/login', authRateLimiter, validate(loginSchema), asyncHandler(async
         errorMessage: 'Invalid password',
       });
       const err = new AppError('Invalid credentials', 401);
+      (err as any)._auditLogged = true;
+      throw err;
+    }
+
+    // H-A1: refuse to issue tokens for soft-deleted or admin-suspended
+    // accounts even when the password is correct. Two reasons:
+    //   1. The prior path issued tokens then every subsequent call 401'd
+    //      via middleware (Account is closed / suspended). The user got
+    //      an apparently-successful login but couldn't actually use the
+    //      app — confusing UX, and for the soft-delete-recover flow the
+    //      message in the email lied about how recovery works.
+    //   2. Successful credential-stuffing against suspended-for-fraud
+    //      accounts produced `auth.login success=true` audit rows,
+    //      hiding the attack pattern from anyone scanning the audit log
+    //      for "fraud-account login attempts."
+    //
+    // Soft-deleted users within the 30-day grace window get a structured
+    // ACCOUNT_PENDING_DELETION code so the mobile/web UI can route them
+    // to the recover prompt (the recover endpoint at /me/recover is now
+    // reachable thanks to C13b's middleware bypass).
+    if (user.deleted_at) {
+      const withinGrace =
+        user.deletion_scheduled_for &&
+        new Date(user.deletion_scheduled_for) > new Date();
+      logAuthBestEffort({
+        action: 'auth.login',
+        userId: user.id,
+        email: user.email,
+        ipAddress: getIpAddress(req),
+        userAgent: req.get('user-agent'),
+        success: false,
+        errorMessage: withinGrace ? 'soft_deleted_pending' : 'soft_deleted_expired',
+      });
+      if (withinGrace) {
+        // Distinguished status code so the client can route to recover.
+        // Don't leak this code on credentials-wrong responses — those
+        // still return generic 401 — so an attacker who didn't already
+        // have the password gains nothing from the existence signal.
+        const err = new AppError(
+          'Account is scheduled for deletion. Recovery available.',
+          403,
+          'ACCOUNT_PENDING_DELETION',
+        );
+        (err as any)._auditLogged = true;
+        throw err;
+      }
+      const err = new AppError('Account is closed', 401, 'AUTH_REQUIRED');
+      (err as any)._auditLogged = true;
+      throw err;
+    }
+    if (user.plan === 'suspended') {
+      logAuthBestEffort({
+        action: 'auth.login',
+        userId: user.id,
+        email: user.email,
+        ipAddress: getIpAddress(req),
+        userAgent: req.get('user-agent'),
+        success: false,
+        errorMessage: 'plan_suspended',
+      });
+      const err = new AppError('Account suspended. Contact support.', 403, 'FORBIDDEN');
       (err as any)._auditLogged = true;
       throw err;
     }

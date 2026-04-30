@@ -17,7 +17,14 @@ export type AppErrorCode =
   | 'UPSTREAM_FAILED'
   | 'CSRF_FAILED'
   | 'UNHEALTHY'
-  | 'INTERNAL';
+  | 'INTERNAL'
+  // H-A1 (audit): distinguished code so the mobile / dashboard UI can
+  // route a within-grace soft-deleted login to the recover prompt
+  // rather than the generic "wrong credentials" message. The `403 +
+  // ACCOUNT_PENDING_DELETION` shape is only emitted on a *correct*
+  // password — a wrong password still returns generic 401 so the code
+  // doesn't act as an existence oracle.
+  | 'ACCOUNT_PENDING_DELETION';
 
 export interface ValidationDetail {
   field: string;
