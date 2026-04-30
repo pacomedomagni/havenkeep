@@ -1546,6 +1546,42 @@ router.post('/apple', authRateLimiter, validate(appleOAuthSchema), asyncHandler(
       );
     }
 
+    // H-A6 (audit): when the email-matched row already has an
+    // apple_user_id AND it differs from the JWT-claimed sub, refuse.
+    // The prior shape relied on the `WHERE apple_user_id IS NULL`
+    // guard in the post-success UPDATE to silently skip the bind, but
+    // the request still authenticated as the existing user — meaning
+    // a second Apple ID (different `sub`) sharing an email with an
+    // existing Apple-linked account could log in as the original
+    // owner. Apple's `sub` is the canonical identifier; it must
+    // round-trip on every sign-in.
+    if (
+      userResult &&
+      userResult.rows.length > 0 &&
+      userResult.rows[0].apple_user_id != null &&
+      userResult.rows[0].apple_user_id !== appleUserId
+    ) {
+      logAuthBestEffort({
+        action: 'auth.oauth_login',
+        userId: userResult.rows[0].id,
+        email: userResult.rows[0].email,
+        ipAddress: getIpAddress(req),
+        userAgent: req.get('user-agent'),
+        success: false,
+        errorMessage: 'apple_sub_mismatch',
+        metadata: {
+          provider: 'apple',
+          stored_apple_user_id: userResult.rows[0].apple_user_id,
+          presented_apple_user_id: appleUserId,
+        },
+      });
+      throw new AppError(
+        'Apple identifier mismatch. Please sign in with the original Apple ID linked to this account.',
+        401,
+        'AUTH_REQUIRED',
+      );
+    }
+
     // Apple only returns the email on the first sign-in to a given Service
     // ID. If the apple_user_id lookup also failed (genuine first-ever
     // sign-in but the email field was suppressed for any reason — Hide-My-
