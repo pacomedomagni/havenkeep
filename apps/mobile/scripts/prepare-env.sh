@@ -7,10 +7,9 @@
 # `unzip` and `cat` any of them in plaintext, including staging URLs
 # and any future API keys an operator pasted in.
 #
-# Run this BEFORE `flutter build` (debug or release). The CI workflow at
-# .github/workflows/mobile-ci.yml and the iOS deployment runbook at
-# apps/mobile/IOS_DEPLOYMENT.md must call this script with the right
-# flavor argument.
+# Run this BEFORE `flutter build` (debug or release). The iOS deployment
+# runbook at apps/mobile/IOS_DEPLOYMENT.md and scripts/build-release.sh
+# must call this script with the right flavor argument.
 #
 # Usage:
 #   bash apps/mobile/scripts/prepare-env.sh production
