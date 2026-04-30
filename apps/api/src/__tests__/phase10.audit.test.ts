@@ -11,29 +11,7 @@ import { pool } from '../db';
 // ── Rate limiter mock parity with auth.test.ts ──
 // The contact spam test (T028) explicitly opts out of this mock by importing
 // the real limiter through a sub-describe; everything else uses pass-through.
-jest.mock('../middleware/rateLimiter', () => {
-  const pass = (_req: any, _res: any, next: any) => next();
-  return {
-    __esModule: true,
-    authRateLimiter: pass,
-    refreshRateLimiter: pass,
-    passwordResetRateLimiter: pass,
-    uploadRateLimiter: pass,
-    activationCodeRateLimiter: pass,
-    verifyPremiumRateLimiter: pass,
-    passwordChangeRateLimiter: pass,
-    writeRateLimiter: pass,
-    giftResendRateLimiter: pass,
-    receiptScanRateLimiter: pass,
-    newsletterRateLimiter: pass,
-    contactRateLimiter: pass,
-    itemsListRateLimiter: pass,
-    csvExportRateLimiter: pass,
-    readRateLimiter: pass,
-    initializeRateLimiter: jest.fn().mockResolvedValue(undefined),
-    shutdownRateLimiter: jest.fn().mockResolvedValue(undefined),
-  };
-});
+jest.mock('../middleware/rateLimiter', () => require('./test-rate-limiter-mock'));
 
 describe('Phase 10 audit coverage', () => {
   let app: ReturnType<typeof getTestApp>;

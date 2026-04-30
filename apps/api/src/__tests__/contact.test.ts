@@ -2,29 +2,7 @@ import request from 'supertest';
 import { cleanDatabase } from './setup';
 import { getTestApp } from './helpers';
 
-jest.mock('../middleware/rateLimiter', () => {
-  const pass = (_req: any, _res: any, next: any) => next();
-  return {
-    __esModule: true,
-    authRateLimiter: pass,
-    refreshRateLimiter: pass,
-    passwordResetRateLimiter: pass,
-    uploadRateLimiter: pass,
-    activationCodeRateLimiter: pass,
-    verifyPremiumRateLimiter: pass,
-    passwordChangeRateLimiter: pass,
-    writeRateLimiter: pass,
-    giftResendRateLimiter: pass,
-    receiptScanRateLimiter: pass,
-    newsletterRateLimiter: pass,
-    contactRateLimiter: pass,
-    itemsListRateLimiter: pass,
-    csvExportRateLimiter: pass,
-    readRateLimiter: pass,
-    initializeRateLimiter: jest.fn().mockResolvedValue(undefined),
-    shutdownRateLimiter: jest.fn().mockResolvedValue(undefined),
-  };
-});
+jest.mock('../middleware/rateLimiter', () => require('./test-rate-limiter-mock'));
 
 // Mock SendGrid-backed EmailService so contact tests do not hit the real API
 jest.mock('../services/email.service', () => ({

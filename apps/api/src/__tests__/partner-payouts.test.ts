@@ -3,46 +3,38 @@ import { cleanDatabase } from './setup';
 import { getTestApp, createTestUser } from './helpers';
 import { pool } from '../db';
 
-jest.mock('../middleware/rateLimiter', () => {
-  const pass = (_req: any, _res: any, next: any) => next();
-  return {
-    __esModule: true,
-    authRateLimiter: pass,
-    refreshRateLimiter: pass,
-    passwordResetRateLimiter: pass,
-    uploadRateLimiter: pass,
-    activationCodeRateLimiter: pass,
-    verifyPremiumRateLimiter: pass,
-    passwordChangeRateLimiter: pass,
-    writeRateLimiter: pass,
-    giftResendRateLimiter: pass,
-    receiptScanRateLimiter: pass,
-    newsletterRateLimiter: pass,
-    contactRateLimiter: pass,
-    itemsListRateLimiter: pass,
-    csvExportRateLimiter: pass,
-    readRateLimiter: pass,
-    initializeRateLimiter: jest.fn().mockResolvedValue(undefined),
-    shutdownRateLimiter: jest.fn().mockResolvedValue(undefined),
-  };
-});
+jest.mock('../middleware/rateLimiter', () => require('./test-rate-limiter-mock'));
 
 // Mock the Stripe client factory so tests don't reach the network. Each
 // `transfers.create` returns a deterministic transfer id derived from the
 // idempotencyKey so a re-run yields the same row state.
-const transfersCreate = jest.fn(async (_args: any, opts: any) => ({
-  id: `tr_test_${opts?.idempotencyKey ?? 'no-key'}`,
-}));
-const accountsCreateLoginLink = jest.fn(async (accountId: string) => ({
-  url: `https://connect.stripe.test/login/${accountId}`,
-}));
-
-jest.mock('../utils/stripe-client', () => ({
-  createStripeClient: () => ({
+//
+// jest.mock() is hoisted, so the mock fns must be created INSIDE the
+// factory and re-exported. Tests that need to inspect the mocks read
+// them through the mocked module reference (transfersCreate, etc.).
+jest.mock('../utils/stripe-client', () => {
+  const transfersCreate = jest.fn(async (_args: any, opts: any) => ({
+    id: `tr_test_${opts?.idempotencyKey ?? 'no-key'}`,
+  }));
+  const accountsCreateLoginLink = jest.fn(async (accountId: string) => ({
+    url: `https://connect.stripe.test/login/${accountId}`,
+  }));
+  const stripeClient = {
     transfers: { create: transfersCreate },
     accounts: { createLoginLink: accountsCreateLoginLink },
-  }),
-}));
+  };
+  return {
+    __esModule: true,
+    createStripeClient: () => stripeClient,
+    __mocks: { transfersCreate, accountsCreateLoginLink },
+  };
+});
+
+import * as stripeClientModule from '../utils/stripe-client';
+const { transfersCreate, accountsCreateLoginLink } = (stripeClientModule as any).__mocks as {
+  transfersCreate: jest.Mock;
+  accountsCreateLoginLink: jest.Mock;
+};
 
 async function makeActivePartner(
   userId: string,
@@ -51,7 +43,7 @@ async function makeActivePartner(
   const { stripeStatus = 'enabled', stripeAccountId = 'acct_test_partner' } = opts;
   const result = await pool.query(
     `INSERT INTO partners (user_id, partner_type, company_name, status, is_active, subscription_tier, stripe_account_id, stripe_account_status)
-       VALUES ($1, 'realtor', 'Test Realty', 'active', TRUE, 'basic', $2, $3::partner_stripe_account_status)
+       VALUES ($1, 'realtor', 'Test Realty', 'active', TRUE, 'basic', $2, $3)
      RETURNING id`,
     [userId, stripeAccountId, stripeStatus],
   );
@@ -63,10 +55,14 @@ async function insertCommission(
   opts: { status: string; amount?: number; createdDaysAgo?: number; reversed?: boolean },
 ) {
   const { status, amount = 9.9, createdDaysAgo = 0, reversed = false } = opts;
+  // 'paid' rows must carry a stripe_transfer_id (mig 030b CHECK
+  // constraint). Tests seed deterministic ones from gen_random_uuid().
   const inserted = await pool.query(
-    `INSERT INTO partner_commissions (partner_id, type, amount, commission_rate, status, reference_id, reference_type, approved_at, created_at)
+    `INSERT INTO partner_commissions (partner_id, type, amount, commission_rate, status, reference_id, reference_type, approved_at, paid_at, stripe_transfer_id, created_at)
        VALUES ($1, 'gift', $2, 0.10, $3::commission_status, gen_random_uuid(), 'partner_gift',
                CASE WHEN $3::commission_status IN ('approved', 'paid') THEN NOW() - ($4::int || ' days')::interval ELSE NULL END,
+               CASE WHEN $3::commission_status = 'paid' THEN NOW() - ($4::int || ' days')::interval ELSE NULL END,
+               CASE WHEN $3::commission_status = 'paid' THEN 'tr_test_seed_' || gen_random_uuid()::text ELSE NULL END,
                NOW() - ($4::int || ' days')::interval)
      RETURNING id`,
     [partnerId, amount, status, createdDaysAgo],

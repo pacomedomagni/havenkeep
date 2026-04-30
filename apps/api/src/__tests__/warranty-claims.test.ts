@@ -4,29 +4,7 @@ import { getTestApp, createTestUser, createTestHome, createTestItem } from './he
 
 // Rate limiters are module-level singletons (in-memory stores) that persist
 // across app instances. Mock them all as pass-through in tests.
-jest.mock('../middleware/rateLimiter', () => {
-  const pass = (_req: any, _res: any, next: any) => next();
-  return {
-    __esModule: true,
-    authRateLimiter: pass,
-    refreshRateLimiter: pass,
-    passwordResetRateLimiter: pass,
-    uploadRateLimiter: pass,
-    activationCodeRateLimiter: pass,
-    verifyPremiumRateLimiter: pass,
-    passwordChangeRateLimiter: pass,
-    writeRateLimiter: pass,
-    giftResendRateLimiter: pass,
-    receiptScanRateLimiter: pass,
-    newsletterRateLimiter: pass,
-    contactRateLimiter: pass,
-    itemsListRateLimiter: pass,
-    csvExportRateLimiter: pass,
-    readRateLimiter: pass,
-    initializeRateLimiter: jest.fn().mockResolvedValue(undefined),
-    shutdownRateLimiter: jest.fn().mockResolvedValue(undefined),
-  };
-});
+jest.mock('../middleware/rateLimiter', () => require('./test-rate-limiter-mock'));
 
 describe('Warranty Claims API - /api/v1/warranty-claims', () => {
   let app: ReturnType<typeof getTestApp>;

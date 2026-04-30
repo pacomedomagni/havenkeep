@@ -3,29 +3,7 @@ import { cleanDatabase } from './setup';
 import { getTestApp, createTestUser } from './helpers';
 import { encryptToken, decryptToken } from '../utils/oauth-encryption';
 
-jest.mock('../middleware/rateLimiter', () => {
-  const pass = (_req: any, _res: any, next: any) => next();
-  return {
-    __esModule: true,
-    authRateLimiter: pass,
-    refreshRateLimiter: pass,
-    passwordResetRateLimiter: pass,
-    uploadRateLimiter: pass,
-    activationCodeRateLimiter: pass,
-    verifyPremiumRateLimiter: pass,
-    passwordChangeRateLimiter: pass,
-    writeRateLimiter: pass,
-    giftResendRateLimiter: pass,
-    receiptScanRateLimiter: pass,
-    newsletterRateLimiter: pass,
-    contactRateLimiter: pass,
-    itemsListRateLimiter: pass,
-    csvExportRateLimiter: pass,
-    readRateLimiter: pass,
-    initializeRateLimiter: jest.fn().mockResolvedValue(undefined),
-    shutdownRateLimiter: jest.fn().mockResolvedValue(undefined),
-  };
-});
+jest.mock('../middleware/rateLimiter', () => require('./test-rate-limiter-mock'));
 
 // ------------------------------------------------------------------
 // Mock EmailScannerService for the route-level tests so we don't make
