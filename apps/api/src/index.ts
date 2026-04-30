@@ -62,6 +62,22 @@ const runWarrantyOffersJob = () =>
     () => NotificationsService.checkAndNotifyWarrantyOffers());
 
 const PARTNER_GIFT_EXPIRY_LOCK = 93422877;
+const PARTNER_COMMISSION_AUTO_APPROVE_LOCK = 93422878;
+
+// Number of days a commission must sit in 'pending' before the auto-approve
+// cron flips it to 'approved'. The hold protects the platform from refund
+// clawback: if a customer refunds the warranty within this window, the
+// reversal already wrote a row with status='reversed' (and a paired
+// negative-amount sibling) by the time the cron runs, so the original
+// pending row is excluded by the EXISTS subquery below.
+//
+// 30 days matches Stripe's typical chargeback dispute window and the audit's
+// "ApprovalHold" guidance from H-P6 (proportional commission clawback for
+// partial refunds shipped in P1.4 alongside C8).
+const COMMISSION_AUTO_APPROVE_HOLD_DAYS = parseInt(
+  process.env.COMMISSION_AUTO_APPROVE_HOLD_DAYS || '30',
+  10,
+);
 
 /**
  * Auto-expire unactivated partner gifts whose expires_at is in the past
@@ -95,6 +111,54 @@ async function expireUnactivatedPartnerGifts(): Promise<void> {
       'Partner gifts auto-expired and pending commissions cancelled',
     );
   });
+}
+
+/**
+ * Auto-approve partner commissions that have aged past the refund-clawback
+ * hold window. Approved commissions are eligible for the partner's
+ * on-demand payout (POST /partners/me/payouts).
+ *
+ * Skipped:
+ *   - rows that already have a reversal sibling (refund clawback wrote one)
+ *   - rows whose partner is not in stripe_account_status='enabled' — the
+ *     row stays 'pending' so an unverified partner doesn't accumulate
+ *     payable commissions before passing KYC. The /me/payouts endpoint
+ *     already gates on the same field, but auto-approving here would
+ *     mislead the dashboard's "approved (eligible for payout)" total.
+ */
+async function autoApproveAgedPendingCommissions(): Promise<void> {
+  await runWithAdvisoryLock(
+    PARTNER_COMMISSION_AUTO_APPROVE_LOCK,
+    'commission-auto-approve',
+    async () => {
+      const result = await pool.query(
+        `UPDATE partner_commissions pc
+            SET status = 'approved',
+                approved_at = NOW(),
+                updated_at = NOW()
+           FROM partners p
+          WHERE pc.partner_id = p.id
+            AND pc.status = 'pending'
+            AND pc.created_at < NOW() - ($1::int || ' days')::interval
+            AND p.stripe_account_status = 'enabled'
+            AND NOT EXISTS (
+              SELECT 1 FROM partner_commissions r
+               WHERE r.reversal_of_commission_id = pc.id
+            )
+          RETURNING pc.id, pc.partner_id, pc.amount`,
+        [COMMISSION_AUTO_APPROVE_HOLD_DAYS],
+      );
+      if (result.rowCount && result.rowCount > 0) {
+        logger.info(
+          {
+            approvedCount: result.rowCount,
+            holdDays: COMMISSION_AUTO_APPROVE_HOLD_DAYS,
+          },
+          'Aged pending commissions auto-approved',
+        );
+      }
+    },
+  );
 }
 
 // ── Daily scheduler ───────────────────────────────────────────────────────
@@ -149,6 +213,12 @@ function scheduleExpirationNotifications() {
       // the homebuyer never redeemed.
       expireUnactivatedPartnerGifts().catch((err) =>
         logger.error({ err }, 'Partner gift auto-expiry job failed'),
+      ),
+      // Auto-approve partner commissions past the 30-day refund clawback
+      // window. Approved rows are what the partner-facing `/me/payouts`
+      // endpoint sweeps when a partner clicks "Request payout".
+      autoApproveAgedPendingCommissions().catch((err) =>
+        logger.error({ err }, 'Commission auto-approve job failed'),
       ),
       // S2-K: daily audit log hash-chain check. A break here means a row
       // was tampered with after the fact; we surface as `error` so any

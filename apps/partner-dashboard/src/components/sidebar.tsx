@@ -8,6 +8,7 @@ import {
   UserGroupIcon,
   ChartBarIcon,
   BanknotesIcon,
+  ArrowDownTrayIcon,
   Cog6ToothIcon,
   ArrowRightOnRectangleIcon,
 } from '@heroicons/react/24/outline'
@@ -19,6 +20,7 @@ const navigation = [
   { name: 'Referrals', href: '/dashboard/referrals', icon: UserGroupIcon },
   { name: 'Analytics', href: '/dashboard/analytics', icon: ChartBarIcon },
   { name: 'Commissions', href: '/dashboard/commissions', icon: BanknotesIcon },
+  { name: 'Payouts', href: '/dashboard/payouts', icon: ArrowDownTrayIcon },
   { name: 'Settings', href: '/dashboard/settings', icon: Cog6ToothIcon },
 ]
 

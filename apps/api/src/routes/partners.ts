@@ -800,6 +800,248 @@ router.get(
   })
 );
 
+// ========== PARTNER PAYOUTS (self-service) ==========
+
+/**
+ * @route   GET /api/v1/partners/me/payouts/summary
+ * @desc    Earnings totals for the authenticated partner: pending (within
+ *          the 30-day refund-clawback window), approved (eligible for
+ *          payout), paid lifetime + paid year-to-date. Drives the
+ *          dashboard's Payouts page header cards.
+ * @access  Private (Partner only)
+ */
+router.get(
+  '/me/payouts/summary',
+  requirePartner,
+  asyncHandler(async (req, res) => {
+    const userId = req.user!.id;
+    const partner = await PartnersService.getPartner(userId);
+
+    // One round-trip aggregation. Casting to NUMERIC keeps cents-precision
+    // through SUM (commissions live as DECIMAL).
+    const result = await pool.query<{
+      pending_amount: string;
+      approved_amount: string;
+      paid_lifetime: string;
+      paid_ytd: string;
+    }>(
+      `SELECT
+         COALESCE(SUM(amount) FILTER (WHERE status = 'pending'), 0)::numeric AS pending_amount,
+         COALESCE(SUM(amount) FILTER (WHERE status = 'approved'), 0)::numeric AS approved_amount,
+         COALESCE(SUM(amount) FILTER (WHERE status = 'paid'), 0)::numeric AS paid_lifetime,
+         COALESCE(SUM(amount) FILTER (
+           WHERE status = 'paid' AND paid_at >= date_trunc('year', NOW())
+         ), 0)::numeric AS paid_ytd
+       FROM partner_commissions
+       WHERE partner_id = $1`,
+      [partner.id],
+    );
+    const row = result.rows[0];
+
+    sendSuccess(res, {
+      pending_amount: Number(row.pending_amount),
+      approved_amount: Number(row.approved_amount),
+      paid_lifetime: Number(row.paid_lifetime),
+      paid_ytd: Number(row.paid_ytd),
+      stripe_account_status: partner.stripe_account_status,
+      stripe_payouts_enabled: partner.stripe_account_status === 'enabled',
+      last_payout_requested_at: (partner as any).last_payout_requested_at ?? null,
+    });
+  }),
+);
+
+/**
+ * @route   POST /api/v1/partners/me/payouts
+ * @desc    On-demand payout: sweep every 'approved' commission for the
+ *          authenticated partner, fire one Stripe transfer per row, mark
+ *          them paid. Idempotency keys are derived from each commission
+ *          id so a retried request is safe.
+ * @access  Private (Partner only)
+ *
+ * Payment model: each approved commission becomes its own Stripe transfer.
+ * Per-row transfers (rather than one aggregated transfer) preserve the
+ * commission_id ↔ transfer_id mapping the admin payout endpoint already
+ * relies on, keep the chk_partner_commissions_paid_has_transfer constraint
+ * satisfied row-by-row, and let a webhook payout.failed handler narrow
+ * blame to a specific commission. Stripe absorbs no per-transfer fee on
+ * the platform side; partners pay the standard Stripe Connect bank-receive
+ * fee on their connected account.
+ *
+ * Partial-failure semantics: each row's UPDATE is atomic and post-transfer.
+ * If transfer #3 of 5 fails, transfers #1+2 stay paid, #3 stays approved
+ * with no transfer id, #4+5 never run. The response surfaces both
+ * `paid_count` and `failed_count` so the dashboard can render a
+ * non-binary success state.
+ */
+router.post(
+  '/me/payouts',
+  requirePartner,
+  writeRateLimiter,
+  asyncHandler(async (req, res) => {
+    const userId = req.user!.id;
+    const partner = await PartnersService.getPartner(userId);
+
+    // Ch03-F113: only `enabled` accounts can receive transfers. The
+    // signup → onboarding → KYC chain must be complete before a partner
+    // can withdraw.
+    if (!partner.stripe_account_id || partner.stripe_account_status !== 'enabled') {
+      throw new AppError(
+        `Stripe Connect onboarding is not complete (current status: '${partner.stripe_account_status}'). Finish setup in Settings before requesting a payout.`,
+        409,
+      );
+    }
+
+    const eligible = await pool.query<{
+      id: string;
+      amount: string;
+    }>(
+      `SELECT id, amount
+         FROM partner_commissions
+        WHERE partner_id = $1
+          AND status = 'approved'
+        ORDER BY created_at ASC`,
+      [partner.id],
+    );
+
+    // Stamp the request timestamp regardless of whether anything was
+    // eligible. The dashboard reads this to render "you requested a payout
+    // X minutes ago — nothing was eligible" so a zero-row sweep doesn't
+    // look like a silent failure.
+    await pool.query(
+      `UPDATE partners SET last_payout_requested_at = NOW(), updated_at = NOW() WHERE id = $1`,
+      [partner.id],
+    );
+
+    if (eligible.rows.length === 0) {
+      return sendSuccess(res, {
+        paid_count: 0,
+        failed_count: 0,
+        paid_total: 0,
+        transfers: [],
+      });
+    }
+
+    let paidCount = 0;
+    let failedCount = 0;
+    let paidTotal = 0;
+    const transfers: Array<{ commission_id: string; transfer_id: string; amount: number }> = [];
+
+    for (const row of eligible.rows) {
+      const amountCents = Math.round(Number(row.amount) * 100);
+      if (!Number.isFinite(amountCents) || amountCents <= 0) {
+        failedCount += 1;
+        logger.warn({ commissionId: row.id, amount: row.amount }, 'Skipping commission with non-positive amount');
+        continue;
+      }
+
+      try {
+        const transfer = await stripe.transfers.create(
+          {
+            amount: amountCents,
+            currency: 'usd',
+            destination: partner.stripe_account_id,
+            metadata: {
+              commission_id: row.id,
+              partner_id: partner.id,
+              source: 'self_service_payout',
+            },
+          },
+          { idempotencyKey: `commission-pay-${row.id}` },
+        );
+
+        const updated = await pool.query(
+          `UPDATE partner_commissions
+              SET status = 'paid',
+                  paid_at = NOW(),
+                  updated_at = NOW(),
+                  stripe_transfer_id = $2
+            WHERE id = $1 AND status = 'approved'
+            RETURNING id`,
+          [row.id, transfer.id],
+        );
+
+        if (updated.rowCount === 0) {
+          // Concurrent admin pay or another self-service request beat us
+          // to this row. Stripe transfer succeeded with the same idempotency
+          // key the prior caller used, so no double-spend — but we don't
+          // count this as a fresh payout from this request.
+          logger.warn(
+            { commissionId: row.id, transferId: transfer.id },
+            'Commission state changed mid-payout; transfer succeeded idempotently',
+          );
+          continue;
+        }
+
+        paidCount += 1;
+        paidTotal += Number(row.amount);
+        transfers.push({
+          commission_id: row.id,
+          transfer_id: transfer.id,
+          amount: Number(row.amount),
+        });
+      } catch (err) {
+        failedCount += 1;
+        logger.error(
+          { err, commissionId: row.id, partnerId: partner.id },
+          'Stripe transfer failed during self-service payout',
+        );
+      }
+    }
+
+    await AuditService.logFromRequest(req, 'partner.payout_request', {
+      resourceType: 'partner',
+      resourceId: partner.id,
+      description: `Self-service payout: ${paidCount} paid, ${failedCount} failed, $${paidTotal.toFixed(2)} total`,
+      metadata: {
+        paid_count: paidCount,
+        failed_count: failedCount,
+        paid_total: paidTotal,
+        eligible_count: eligible.rows.length,
+      },
+    });
+
+    sendSuccess(res, {
+      paid_count: paidCount,
+      failed_count: failedCount,
+      paid_total: paidTotal,
+      transfers,
+    });
+  }),
+);
+
+/**
+ * @route   POST /api/v1/partners/me/tax-form-link
+ * @desc    Mint a one-time login link to the partner's Stripe Express
+ *          dashboard. The Express dashboard is where Stripe surfaces
+ *          1099-NEC tax forms (and the partner's payout history). We
+ *          delegate tax-form delivery to Stripe Connect rather than
+ *          generating our own 1099s — Stripe Tax Reporting issues the
+ *          forms and files them with the IRS.
+ * @access  Private (Partner only)
+ *
+ * Stripe `accounts.createLoginLink` returns a short-lived URL. We do NOT
+ * persist it; the link is single-use and gates on Stripe's session.
+ */
+router.post(
+  '/me/tax-form-link',
+  requirePartner,
+  writeRateLimiter,
+  asyncHandler(async (req, res) => {
+    const userId = req.user!.id;
+    const partner = await PartnersService.getPartner(userId);
+
+    if (!partner.stripe_account_id) {
+      throw new AppError(
+        'Stripe Connect onboarding has not started yet. Finish setup in Settings to access tax documents.',
+        409,
+      );
+    }
+
+    const loginLink = await stripe.accounts.createLoginLink(partner.stripe_account_id);
+    sendSuccess(res, { url: loginLink.url });
+  }),
+);
+
 // ========== ADMIN ROUTES (admin access required) ==========
 
 /**

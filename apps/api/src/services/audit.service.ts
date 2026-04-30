@@ -63,6 +63,7 @@ export type AuditAction =
   | 'partner.gift_activate'
   | 'partner.warranty_create'
   | 'partner.warranty_update'
+  | 'partner.payout_request'
   // Security events
   | 'security.unauthorized_access'
   | 'security.rate_limit_exceeded'
