@@ -18,25 +18,35 @@ function csrfCookieOptions() {
 }
 
 /**
- * Issue the CSRF cookie when the request already carries a session-class
- * cookie (i.e. the dashboard's hk_access_token / hk_refresh_token, or the
- * cookie-bound CSRF cookie itself rolling forward). Pre-S-ME-02, this
- * minted a cookie on every anonymous request, which both (a) created
- * useless tokens for traffic with no session, and (b) opened a token-
- * fixation vector: an attacker could drop a known token into a victim's
- * browser pre-login, and that token would persist across login.
+ * Roll the CSRF cookie forward when the request already carries one.
+ * Pre-S-ME-02, this minted a cookie on every anonymous request, which
+ * both (a) created useless tokens for traffic with no session, and
+ * (b) opened a token-fixation vector: an attacker could drop a known
+ * token into a victim's browser pre-login, and that token would
+ * persist across login.
+ *
+ * L2 (audit): the prior comment claimed access/refresh cookies also
+ * trigger refresh — they do NOT. Only the CSRF cookie itself drives
+ * the roll-forward here. The dashboard's Edge middleware
+ * (apps/partner-dashboard/middleware.ts:ensureCsrfCookie) is the
+ * upstream half that mints the cookie when a logged-in user lands
+ * without one; this middleware is the downstream half that just
+ * refreshes the maxAge so an idle session doesn't lose CSRF
+ * protection mid-flow. If a future browser-based client talks
+ * directly to api.havenkeep.com bypassing the dashboard proxy, it
+ * needs a public mint endpoint (deferred — S-M7 in audit).
  *
  * Auth handlers (login, refresh, OAuth, signup) call [rotateCsrfToken]
- * to issue a fresh token bound to the new session. This middleware only
- * keeps an existing token rolling when the session is already established.
+ * to issue a fresh token bound to the new session.
  *
  * SameSite=Lax (not Strict — Ch11-I029) so the cookie is sent on
  * top-level navigations the OAuth callback relies on.
  */
 export function setCsrfToken(req: Request, res: Response, next: NextFunction) {
   // Only refresh the cookie if it already exists. Do NOT issue a fresh
-  // token to anonymous traffic — auth handlers are responsible for
-  // minting on auth-state change.
+  // token to anonymous traffic — auth handlers (rotateCsrfToken) and
+  // the dashboard's ensureCsrfCookie are responsible for minting on
+  // auth-state change / first-touch.
   if (req.cookies?.[CSRF_COOKIE]) {
     res.cookie(CSRF_COOKIE, req.cookies[CSRF_COOKIE], csrfCookieOptions());
   }

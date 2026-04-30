@@ -36,7 +36,7 @@ const stripe = createStripeClient();
 
 // H-P4 (audit): per-gift charge in dollars, NOT a monthly subscription.
 //
-// The audit flagged that `TIER_PRICING` (per-gift) and `PARTNER_TIERS`
+// The audit flagged that the per-gift price map and `PARTNER_TIERS`
 // (advertised in the dashboard as `price_monthly`) gave partners
 // conflicting cost expectations: a partner clicking through to "Platinum
 // — $149/month" with the dashboard's prior copy got a 2.5× surprise
@@ -45,8 +45,8 @@ const stripe = createStripeClient();
 // HavenKeep does NOT bill partners on a recurring subscription today —
 // there is no Stripe Subscription created at signup, no
 // invoice.payment_failed handler, no dunning. The actual revenue model
-// is per-gift: the partner's saved card is charged TIER_PRICING[tier]
-// every time they create a gift.
+// is per-gift: the partner's saved card is charged
+// TIER_PRICE_PER_GIFT_USD[tier] every time they create a gift.
 //
 // The product question of "should partners pay a monthly fee instead /
 // in addition to per-gift?" is deliberately deferred — that's a
@@ -60,9 +60,6 @@ const stripe = createStripeClient();
 export const TIER_PRICE_PER_GIFT_USD: Record<string, number> = JSON.parse(
   process.env.PARTNER_TIER_PRICING || '{"basic":99,"premium":149,"platinum":249}'
 );
-// Legacy name retained for the call site at line ~515 below; remove
-// in Phase 4 along with the rest of the partner-pricing rationalization.
-const TIER_PRICING = TIER_PRICE_PER_GIFT_USD;
 
 /**
  * Commission rates per tier (Ch03-F019, Ch12-T037). Locked here and in the
@@ -537,7 +534,7 @@ export class PartnersService {
         throw new AppError('Payment method required. Please add a payment method in your settings before creating gifts.', 402);
       }
 
-      const tierAmount = TIER_PRICING[partner.subscription_tier];
+      const tierAmount = TIER_PRICE_PER_GIFT_USD[partner.subscription_tier];
       if (tierAmount === undefined) {
         throw new AppError(`Unknown subscription tier: ${partner.subscription_tier}`, 400);
       }
