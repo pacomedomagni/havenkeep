@@ -780,13 +780,32 @@ router.post('/logout', authenticate, refreshRateLimiter, validate(logoutSchema),
   const userId = req.user!.id;
 
   // Blacklist the current access token using its actual remaining TTL.
+  //
+  // S-M4 (audit): the prior shape silently swallowed a Redis-down /
+  // blacklist-write failure and proceeded to return 200 "Logged out"
+  // — but the access token's HS256 signature is still valid for the
+  // full TTL (1h) since we never recorded it as revoked. An attacker
+  // racing the user's logout (e.g. has stolen the access token, sees
+  // the user click logout) keeps the token alive.
+  //
+  // Now: surface the failure as 503 so the client sees a real error
+  // and the user can retry. The blacklist write IS the source of
+  // truth for "this token can't be reused after logout." Don't lie.
   const authHeader = req.headers.authorization;
   if (authHeader?.startsWith('Bearer ')) {
     const accessToken = authHeader.substring(7);
     try {
       await blacklistTokenAuto(accessToken);
     } catch (blacklistError) {
-      logger.warn({ error: blacklistError }, 'Failed to blacklist access token during logout');
+      logger.error(
+        { error: blacklistError, userId },
+        'S-M4: failed to blacklist access token during logout — returning 503',
+      );
+      throw new AppError(
+        'Logout temporarily unavailable. Please try again in a moment.',
+        503,
+        'UNHEALTHY',
+      );
     }
   }
 
