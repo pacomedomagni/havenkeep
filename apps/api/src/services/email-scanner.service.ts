@@ -255,7 +255,7 @@ export class EmailScannerService {
 
       await client.query('COMMIT');
     } catch (error) {
-      await client.query('ROLLBACK');
+      await client.query('ROLLBACK').catch(() => {});
       logger.error({ error, userId, provider }, 'Error initiating email scan');
       throw error;
     } finally {
@@ -1420,13 +1420,13 @@ ${maskPII(stripHtmlTags(emailData.body).substring(0, 4000))}`,
       await client.query('BEGIN');
       const itemId = await this.createItemUsing(client, userId, receipt, scanId, true);
       if (itemId === null) {
-        await client.query('ROLLBACK');
+        await client.query('ROLLBACK').catch(() => {});
         return false;
       }
       await client.query('COMMIT');
       return true;
     } catch (error) {
-      await client.query('ROLLBACK');
+      await client.query('ROLLBACK').catch(() => {});
       throw error;
     } finally {
       client.release();
@@ -1686,7 +1686,7 @@ ${maskPII(stripHtmlTags(emailData.body).substring(0, 4000))}`,
       await client.query('COMMIT');
       return { item_id: itemId };
     } catch (error) {
-      await client.query('ROLLBACK');
+      await client.query('ROLLBACK').catch(() => {});
       throw error;
     } finally {
       client.release();

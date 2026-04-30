@@ -1051,7 +1051,7 @@ router.post('/reset-password', authRateLimiter, validate(resetPasswordSchema), a
       [tokenHash],
     );
     if (tokenResult.rows.length === 0) {
-      await client.query('ROLLBACK');
+      await client.query('ROLLBACK').catch(() => {});
       throw new AppError('Invalid or expired reset token', 400);
     }
     userId = tokenResult.rows[0].user_id;
@@ -1183,7 +1183,7 @@ router.post(
       );
 
       if (consumed.rows.length === 0) {
-        await client.query('ROLLBACK');
+        await client.query('ROLLBACK').catch(() => {});
         throw new AppError('Invalid or expired verification link', 400);
       }
 
@@ -1206,7 +1206,7 @@ router.post(
         );
       } catch (err: any) {
         if (err?.code === '23505') {
-          await client.query('ROLLBACK');
+          await client.query('ROLLBACK').catch(() => {});
           throw new AppError('That email is no longer available', 409);
         }
         throw err;
@@ -1370,7 +1370,7 @@ router.post('/google', authRateLimiter, validate(googleOAuthSchema), asyncHandle
         );
         await txClient.query('COMMIT');
       } catch (txError) {
-        await txClient.query('ROLLBACK');
+        await txClient.query('ROLLBACK').catch(() => {});
         throw txError;
       } finally {
         txClient.release();
@@ -1656,7 +1656,7 @@ router.post('/apple', authRateLimiter, validate(appleOAuthSchema), asyncHandler(
         );
         await txClient.query('COMMIT');
       } catch (txError) {
-        await txClient.query('ROLLBACK');
+        await txClient.query('ROLLBACK').catch(() => {});
         throw txError;
       } finally {
         txClient.release();

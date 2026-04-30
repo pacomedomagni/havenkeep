@@ -287,7 +287,7 @@ export class PartnersService {
 
       return partner;
     } catch (error) {
-      await client.query('ROLLBACK');
+      await client.query('ROLLBACK').catch(() => {});
       logger.error({ error, userId }, 'Error registering partner');
       throw error;
     } finally {
@@ -411,7 +411,7 @@ export class PartnersService {
 
       return result.rows[0];
     } catch (error) {
-      await client.query('ROLLBACK');
+      await client.query('ROLLBACK').catch(() => {});
       logger.error({ error, userId }, 'Error updating partner');
       throw error;
     } finally {
@@ -604,7 +604,7 @@ export class PartnersService {
       gift = giftResult.rows[0];
       await reserveClient.query('COMMIT');
     } catch (error) {
-      await reserveClient.query('ROLLBACK');
+      await reserveClient.query('ROLLBACK').catch(() => {});
       throw error;
     } finally {
       reserveClient.release();
@@ -1052,7 +1052,7 @@ export class PartnersService {
         await pool.query('SELECT * FROM partner_gifts WHERE id = $1', [giftId])
       ).rows[0];
     } catch (error) {
-      await client.query('ROLLBACK');
+      await client.query('ROLLBACK').catch(() => {});
       logger.error({ error, giftId, newUserId }, 'Error activating gift');
       throw error;
     } finally {

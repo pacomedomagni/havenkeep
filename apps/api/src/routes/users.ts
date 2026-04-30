@@ -647,7 +647,7 @@ router.delete('/me', validate(deleteAccountSchema), asyncHandler(async (req, res
 
     await client.query('COMMIT');
   } catch (txError) {
-    await client.query('ROLLBACK');
+    await client.query('ROLLBACK').catch(() => {});
     throw txError;
   } finally {
     client.release();
@@ -921,7 +921,7 @@ router.delete(
 
       await client.query('COMMIT');
     } catch (txError) {
-      await client.query('ROLLBACK');
+      await client.query('ROLLBACK').catch(() => {});
       throw txError;
     } finally {
       client.release();

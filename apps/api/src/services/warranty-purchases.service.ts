@@ -273,7 +273,7 @@ export class WarrantyPurchasesService {
 
       return purchase;
     } catch (error: any) {
-      await client.query('ROLLBACK');
+      await client.query('ROLLBACK').catch(() => {});
       // Surface migration 061 idempotency hits as a clean 409 if we ever
       // race past the explicit check above.
       if (error?.code === '23505') {

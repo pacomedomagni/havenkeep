@@ -217,7 +217,7 @@ export class WarrantyClaimsService {
 
       return claim;
     } catch (error) {
-      await client.query('ROLLBACK');
+      await client.query('ROLLBACK').catch(() => {});
       logger.error({ error, userId, data }, 'Error creating warranty claim');
       throw error;
     } finally {
@@ -491,7 +491,7 @@ export class WarrantyClaimsService {
 
       return result.rows[0];
     } catch (error) {
-      await client.query('ROLLBACK');
+      await client.query('ROLLBACK').catch(() => {});
       logger.error({ error, claimId, userId, data }, 'Error updating warranty claim');
       throw error;
     } finally {
@@ -551,7 +551,7 @@ export class WarrantyClaimsService {
 
       logger.info({ claimId, userId }, 'Warranty claim deleted');
     } catch (error) {
-      await client.query('ROLLBACK');
+      await client.query('ROLLBACK').catch(() => {});
       logger.error({ error, claimId, userId }, 'Error deleting warranty claim');
       throw error;
     } finally {

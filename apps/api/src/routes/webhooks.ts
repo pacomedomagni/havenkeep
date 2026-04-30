@@ -713,7 +713,7 @@ async function handleChargeRefunded(charge: Stripe.Charge, eventId: string): Pro
         [paymentIntentId],
       );
       if (giftLookup.rows.length === 0) {
-        await client.query('ROLLBACK');
+        await client.query('ROLLBACK').catch(() => {});
         logger.warn(
           { chargeId, paymentIntentId, partnerId },
           'charge.refunded (partial): no matching gift',
@@ -758,7 +758,7 @@ async function handleChargeRefunded(charge: Stripe.Charge, eventId: string): Pro
     );
 
     if (result.rows.length === 0) {
-      await client.query('ROLLBACK');
+      await client.query('ROLLBACK').catch(() => {});
       logger.info(
         { chargeId, paymentIntentId, partnerId },
         'charge.refunded: gift already in terminal refund state (replay) or no matching gift',
@@ -928,7 +928,7 @@ async function handleChargeDispute(
     );
 
     if (giftRes.rows.length === 0) {
-      await client.query('ROLLBACK');
+      await client.query('ROLLBACK').catch(() => {});
       logger.warn(
         { chargeId, paymentIntentId, disputeId: dispute.id, status },
         'dispute: no matching partner gift',
@@ -986,7 +986,7 @@ async function handleChargeDispute(
       lost ? 'dispute lost — gift reversed' : 'dispute opened — gift flagged',
     );
   } catch (err) {
-    await client.query('ROLLBACK');
+    await client.query('ROLLBACK').catch(() => {});
     throw err;
   } finally {
     client.release();

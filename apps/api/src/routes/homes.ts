@@ -210,7 +210,7 @@ router.delete('/:id', writeRateLimiter, validate(uuidParamSchema, 'params'), asy
 
     sendMessage(res, 'Home deleted successfully');
   } catch (error) {
-    await client.query('ROLLBACK');
+    await client.query('ROLLBACK').catch(() => {});
     throw error;
   } finally {
     client.release();

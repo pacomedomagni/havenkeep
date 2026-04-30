@@ -251,7 +251,7 @@ router.post(
       );
 
       if (prevRes.rows.length === 0) {
-        await dbClient.query('ROLLBACK');
+        await dbClient.query('ROLLBACK').catch(() => {});
         throw new AppError('Item not found', 404);
       }
 

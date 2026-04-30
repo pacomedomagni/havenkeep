@@ -383,7 +383,7 @@ export class MaintenanceService {
 
       return entry;
     } catch (error) {
-      await client.query('ROLLBACK');
+      await client.query('ROLLBACK').catch(() => {});
       logger.error({ error, userId, data }, 'Error logging maintenance');
       throw error;
     } finally {
@@ -528,7 +528,7 @@ export class MaintenanceService {
 
       logger.info({ id, userId }, 'Maintenance log entry deleted');
     } catch (error) {
-      await client.query('ROLLBACK');
+      await client.query('ROLLBACK').catch(() => {});
       logger.error({ error, id, userId }, 'Error deleting maintenance log entry');
       throw error;
     } finally {

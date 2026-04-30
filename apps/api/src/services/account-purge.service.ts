@@ -113,7 +113,7 @@ export async function purgeExpiredSoftDeletedAccounts(): Promise<PurgeResult> {
           const del = await txClient.query(`DELETE FROM users WHERE id = $1`, [userId]);
           if (del.rowCount === 0) {
             // Concurrent admin-delete or recovery beat us to it.
-            await txClient.query('ROLLBACK');
+            await txClient.query('ROLLBACK').catch(() => {});
             continue;
           }
           await txClient.query('COMMIT');

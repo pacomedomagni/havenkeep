@@ -573,7 +573,7 @@ router.post('/', writeRateLimiter, validate(createItemSchema), idempotency('item
 
     sendSuccess(res, await normalizeItemRow(item), { status: 201 });
   } catch (error) {
-    await client.query('ROLLBACK');
+    await client.query('ROLLBACK').catch(() => {});
     throw error;
   } finally {
     client.release();
@@ -723,7 +723,7 @@ router.put('/:id', writeRateLimiter, validate(uuidParamSchema, 'params'), valida
 
     sendSuccess(res, await normalizeItemRow(item));
   } catch (error) {
-    await client.query('ROLLBACK');
+    await client.query('ROLLBACK').catch(() => {});
     throw error;
   } finally {
     client.release();
@@ -786,7 +786,7 @@ router.delete('/:id', writeRateLimiter, validate(uuidParamSchema, 'params'), ide
 
     await client.query('COMMIT');
   } catch (error) {
-    await client.query('ROLLBACK');
+    await client.query('ROLLBACK').catch(() => {});
     throw error;
   } finally {
     client.release();

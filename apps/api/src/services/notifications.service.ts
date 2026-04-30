@@ -792,7 +792,7 @@ export class NotificationsService {
 
       return result.rows[0];
     } catch (error) {
-      await client.query('ROLLBACK');
+      await client.query('ROLLBACK').catch(() => {});
       logger.error({ error, templateName, userId, vars }, 'Error creating notification from template');
       throw error;
     } finally {

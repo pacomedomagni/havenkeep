@@ -443,7 +443,7 @@ router.delete(
           [id],
         );
         if (result.rows.length === 0) {
-          await client.query('ROLLBACK');
+          await client.query('ROLLBACK').catch(() => {});
           throw new AppError('User not found', 404);
         }
         await client.query('COMMIT');
