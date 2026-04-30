@@ -41,13 +41,19 @@ const ALLOWED_UPDATE_FIELDS = new Set([
 
 // Audit Ch02-F005/F006: explicit column allowlist; drives both the list
 // SELECT and the per-row payload shape so list/detail can't drift.
+//
+// H-C1 (audit): estimated_repair_cost was missing from the allowlist —
+// the create path seeded it from category_defaults (mig 074) but the
+// SELECT and RETURNING never read it back, so every Item.estimatedRepairCost
+// in the mobile app was permanently null. UI elements that display
+// "Est. repair cost: $X" rendered empty.
 const ITEM_LIST_COLUMNS = `
   id, user_id, home_id, name, brand, model_number, serial_number,
   category, room, purchase_date, store, price,
   warranty_months, warranty_end_date, warranty_type, warranty_provider,
   notes, is_archived, archived_at, product_image_url, barcode, added_via,
   installation_date, last_maintenance_date, next_maintenance_due,
-  expected_lifespan_years, created_at, updated_at
+  expected_lifespan_years, estimated_repair_cost, created_at, updated_at
 `;
 
 // Default expected lifespan (in years) by category, used when the item has no explicit value
