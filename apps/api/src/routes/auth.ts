@@ -1314,10 +1314,22 @@ router.post('/google', authRateLimiter, validate(googleOAuthSchema), asyncHandle
     }
     const oauthClient = googleOAuth2Client;
 
-    const ticket = await oauthClient.verifyIdToken({
-      idToken,
-      audience: allowedGoogleAudiences,
-    });
+    // verifyIdToken throws on every failure mode: malformed JWT,
+    // wrong audience, expired token, alg:none, signature mismatch,
+    // unknown signer. All are user-controlled inputs, so they must
+    // surface as 401 (not 500). Without this catch, a forged token
+    // hit the global error handler and returned 500 — leaking that
+    // we crashed *and* using the wrong status code.
+    let ticket;
+    try {
+      ticket = await oauthClient.verifyIdToken({
+        idToken,
+        audience: allowedGoogleAudiences,
+      });
+    } catch (err) {
+      logger.warn({ err: (err as Error).message }, 'Google ID token verification failed');
+      throw new AppError('Invalid Google token', 401);
+    }
 
     const payload = ticket.getPayload();
     if (!payload || !payload.email) {

@@ -30,6 +30,12 @@ process.env.MINIO_ENDPOINT = 'localhost';
 // don't matter — only that the config-level guards see something non-empty.
 process.env.OAUTH_TOKEN_ENCRYPTION_SECRET ||= 'test-oauth-encryption-secret-32bytes!';
 process.env.OPENAI_API_KEY ||= 'sk-test-fake-not-real';
+process.env.REVENUECAT_WEBHOOK_SECRET ||= 'rc_test_secret';
+process.env.STRIPE_SECRET_KEY ||= 'sk_test_fake_for_unit_tests';
+process.env.STRIPE_WEBHOOK_SECRET ||= 'whsec_test_fake_for_unit_tests';
+// Tests using example.com as redirect_uri need to opt in via the env.
+process.env.OAUTH_REDIRECT_URI_PREFIXES ||=
+  'havenkeep://oauth-callback,https://havenkeep.com/oauth-callback,https://example.com/cb';
 
 // Hard guard: tests TRUNCATE the entire schema between suites. If DATABASE_URL
 // or DB_NAME are misconfigured (e.g. someone copy-pasted production env vars
@@ -68,19 +74,27 @@ async function flushRedis() {
 // Tables to truncate between test suites (order matters for FK constraints)
 const TABLES = [
   'webhook_events',
+  'webhook_event_high_water',
   'audit_logs',
   'user_push_tokens',
   'email_verification_tokens',
   'password_reset_tokens',
   'refresh_tokens',
+  'warranty_claim_state_history',
   'warranty_claims',
   'warranty_purchases',
   'maintenance_history',
+  'maintenance_schedules',
   'notification_history',
+  'notification_outbox',
+  'notification_preferences',
   'documents',
   'email_scanner_review_queue',
+  'email_scanner_seen_messages',
   'email_scans',
   'user_oauth_integrations',
+  'user_mfa_backup_codes',
+  'user_mfa_factors',
   // Phase 6 tables — keep before `users` so the FK CASCADE order holds.
   'openai_usage',
   'receipt_scan_idempotency',
@@ -92,6 +106,14 @@ const TABLES = [
   'newsletter_subscribers',
   'contact_submissions',
   'user_analytics',
+  'savings_feed',
+  'request_idempotency',
+  'gift_verify_attempts',
+  'barcode_lookup_quota',
+  // Standalone tables (no FK to users — TRUNCATE CASCADE on `users` doesn't
+  // touch them, so they need to be listed explicitly to avoid cross-test
+  // pollution from rows that survive the previous suite.
+  'apple_sign_in_nonces',
   'users',
 ];
 

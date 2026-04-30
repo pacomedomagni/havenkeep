@@ -22,7 +22,7 @@ describe('Audit API - /api/v1/audit', () => {
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(Array.isArray(res.body.data)).toBe(true);
-      expect(res.body.pagination).toBeDefined();
+      expect(res.body.meta.pagination).toBeDefined();
     });
 
     it('should reject without authentication (401)', async () => {
@@ -45,8 +45,8 @@ describe('Audit API - /api/v1/audit', () => {
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(Array.isArray(res.body.data)).toBe(true);
-      expect(res.body.pagination).toBeDefined();
-      expect(res.body.pagination.total).toBeGreaterThanOrEqual(0);
+      expect(res.body.meta.pagination).toBeDefined();
+      expect(res.body.meta.pagination.total).toBeGreaterThanOrEqual(0);
     });
   });
 
@@ -135,16 +135,28 @@ describe('Audit API - /api/v1/audit', () => {
 
   describe('POST /api/v1/audit/cleanup', () => {
     it('should allow admin to trigger cleanup', async () => {
-      const { user } = await createTestUser({ isAdmin: true });
-      const adminToken = getAdminToken(user.id, user.email);
+      // Cleanup is gated on AUDIT_CLEANUP_CONFIRMATION_PHRASE matching
+      // a request body field (HMAC-compared). Set a deterministic value
+      // for the duration of this test only.
+      const phrase = 'test-cleanup-phrase-32-chars-or-more';
+      const prior = process.env.AUDIT_CLEANUP_CONFIRMATION_PHRASE;
+      process.env.AUDIT_CLEANUP_CONFIRMATION_PHRASE = phrase;
+      try {
+        const { user } = await createTestUser({ isAdmin: true });
+        const adminToken = getAdminToken(user.id, user.email);
 
-      const res = await request(app)
-        .post('/api/v1/audit/cleanup')
-        .set('Authorization', `Bearer ${adminToken}`);
+        const res = await request(app)
+          .post('/api/v1/audit/cleanup')
+          .set('Authorization', `Bearer ${adminToken}`)
+          .send({ confirm: 'PURGE', confirmation_phrase: phrase });
 
-      expect(res.status).toBe(200);
-      expect(res.body.success).toBe(true);
-      expect(res.body.message).toBe('Audit log cleanup completed');
+        expect(res.status).toBe(200);
+        expect(res.body.success).toBe(true);
+        expect(res.body.message).toBe('Audit log cleanup completed');
+      } finally {
+        if (prior === undefined) delete process.env.AUDIT_CLEANUP_CONFIRMATION_PHRASE;
+        else process.env.AUDIT_CLEANUP_CONFIRMATION_PHRASE = prior;
+      }
     });
 
     it('should reject non-admin from triggering cleanup (403)', async () => {

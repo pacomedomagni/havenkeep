@@ -35,10 +35,12 @@ describe('Warranty Claims API - /api/v1/warranty-claims', () => {
       expect(res.status).toBe(201);
       expect(res.body.success).toBe(true);
       expect(res.body.data.item_id).toBe(item.id);
-      expect(res.body.data.repair_cost).toBe('300.00');
-      expect(res.body.data.amount_saved).toBe('150.00');
+      // C9 (audit): NUMERIC columns hydrate as JS numbers via the registered
+      // pg type-parser. Previously the pg driver returned strings ("300.00").
+      expect(res.body.data.repair_cost).toBe(300);
+      expect(res.body.data.amount_saved).toBe(150);
       expect(res.body.data.id).toBeDefined();
-      expect(res.body.message).toBe('Warranty claim created successfully');
+      expect(res.body.meta?.message).toBe('Warranty claim created successfully');
     });
 
     it('should create a warranty claim with all optional fields', async () => {
@@ -135,9 +137,9 @@ describe('Warranty Claims API - /api/v1/warranty-claims', () => {
       expect(res.body.success).toBe(true);
       expect(Array.isArray(res.body.data)).toBe(true);
       expect(res.body.data.length).toBe(2);
-      expect(res.body.pagination).toBeDefined();
-      expect(res.body.pagination.total).toBe(3);
-      expect(res.body.pagination.total_pages).toBe(2);
+      expect(res.body.meta.pagination).toBeDefined();
+      expect(res.body.meta.pagination.total).toBe(3);
+      expect(res.body.meta.pagination.total_pages).toBe(2);
     });
 
     it('should filter claims by item_id', async () => {
@@ -228,7 +230,7 @@ describe('Warranty Claims API - /api/v1/warranty-claims', () => {
       const createRes = await request(app)
         .post('/api/v1/warranty-claims')
         .set('Authorization', `Bearer ${token}`)
-        .send({ item_id: item.id, repair_cost: 200, amount_saved: 400, issue_description: 'Screen cracked' });
+        .send({ item_id: item.id, repair_cost: 400, amount_saved: 200, issue_description: 'Screen cracked' });
 
       const claimId = createRes.body.data.id;
 
@@ -287,7 +289,7 @@ describe('Warranty Claims API - /api/v1/warranty-claims', () => {
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.data.status).toBe('in_review');
-      expect(res.body.message).toBe('Warranty claim updated successfully');
+      expect(res.body.meta?.message).toBe('Warranty claim updated successfully');
     });
   });
 
@@ -302,7 +304,7 @@ describe('Warranty Claims API - /api/v1/warranty-claims', () => {
       const createRes = await request(app)
         .post('/api/v1/warranty-claims')
         .set('Authorization', `Bearer ${token}`)
-        .send({ item_id: item.id, repair_cost: 100, amount_saved: 200 });
+        .send({ item_id: item.id, repair_cost: 200, amount_saved: 100 });
 
       const claimId = createRes.body.data.id;
 

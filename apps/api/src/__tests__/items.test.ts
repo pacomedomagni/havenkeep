@@ -101,11 +101,11 @@ describe('Items API', () => {
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.data.length).toBe(2);
-      expect(res.body.pagination).toBeDefined();
-      expect(res.body.pagination.total).toBe(3);
-      expect(res.body.pagination.total_pages).toBe(2);
-      expect(res.body.pagination.page).toBe(1);
-      expect(res.body.pagination.limit).toBe(2);
+      expect(res.body.meta.pagination).toBeDefined();
+      expect(res.body.meta.pagination.total).toBe(3);
+      expect(res.body.meta.pagination.total_pages).toBe(2);
+      expect(res.body.meta.pagination.page).toBe(1);
+      expect(res.body.meta.pagination.limit).toBe(2);
     });
 
     it('should return the second page of items', async () => {
@@ -122,7 +122,7 @@ describe('Items API', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.data.length).toBe(1);
-      expect(res.body.pagination.page).toBe(2);
+      expect(res.body.meta.pagination.page).toBe(2);
     });
 
     it('should filter items by homeId', async () => {

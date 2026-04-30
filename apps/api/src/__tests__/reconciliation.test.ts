@@ -19,7 +19,8 @@ describe('ReconciliationService — zero drift after recompute (S1-E / S2-I)', (
     const archived = await createTestItem(user.id, home.id, {
       name: 'Archived TV',
     });
-    await pool.query(`UPDATE items SET is_archived = TRUE WHERE id = $1`, [
+    // chk_items_archived_consistency: is_archived=TRUE requires archived_at.
+    await pool.query(`UPDATE items SET is_archived = TRUE, archived_at = NOW() WHERE id = $1`, [
       archived.id,
     ]);
 

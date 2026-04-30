@@ -628,10 +628,15 @@ router.delete('/me', validate(deleteAccountSchema), asyncHandler(async (req, res
     // Capture the prior plan so /me/recover can restore it later. We move
     // the user to 'suspended' for the 30-day grace window — recover swaps
     // back to plan_before_delete.
+    // CASE arms must be the same type. plan is the user_plan enum,
+    // plan_before_delete is VARCHAR(32). Cast the enum to text so the
+    // expression matches the target column. Without the cast PG raises
+    // 42804 ("CASE types character varying and user_plan cannot be
+    // matched") and account-soft-delete returns 500.
     await client.query(
       `UPDATE users
           SET plan_before_delete = CASE
-                                     WHEN plan <> 'suspended' THEN plan
+                                     WHEN plan <> 'suspended' THEN plan::text
                                      ELSE plan_before_delete
                                    END,
               deleted_at = NOW(),
@@ -714,11 +719,15 @@ router.post('/me/recover', asyncHandler(async (req, res) => {
   // Clear soft-delete markers and restore the prior plan captured at delete
   // time. Falls back to 'free' only when no prior plan was captured (e.g.
   // user soft-deleted before plan_before_delete shipped).
+  // COALESCE returns VARCHAR (plan_before_delete's type); cast to
+  // user_plan enum so the assignment to `plan` succeeds. Without the
+  // cast PG raises 42804 ("column plan is of type user_plan but
+  // expression is of type character varying").
   const recovered = await query(
     `UPDATE users
         SET deleted_at = NULL,
             deletion_scheduled_for = NULL,
-            plan = COALESCE(plan_before_delete, 'free'),
+            plan = COALESCE(plan_before_delete, 'free')::user_plan,
             plan_before_delete = NULL,
             updated_at = NOW()
       WHERE id = $1

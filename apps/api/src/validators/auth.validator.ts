@@ -5,18 +5,22 @@ import Joi from 'joi';
 // even though it ends after "Aa1!s". Anchoring to ^...$ makes the rule mean
 // what it reads.
 //
-// 8..72 chars: bcrypt only hashes the first 72 bytes (Ch01-F005); enforcing
-// 72-char max in Joi keeps the API contract honest. Service code SHA-256
-// pre-hashes longer inputs into the bcrypt boundary.
+// 8..1024 chars: bcrypt only hashes the first 72 bytes, which would silently
+// truncate any longer password to its 72-byte prefix and weaken security
+// (Ch01-F005 / S1-C). Service code defends with a SHA-256 pre-hash that
+// collapses any input to a 64-byte digest before bcrypt sees it. The
+// validator MUST allow longer inputs to reach that pre-hash — the prior
+// max(72) cap was tighter than the security model and rejected long
+// passphrases at the gate, defeating S1-C entirely.
 const PASSWORD_PATTERN = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]+$/;
 const PASSWORD_MESSAGES = {
   'string.pattern.base':
     'Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character',
   'string.min': 'Password must be at least 8 characters long',
-  'string.max': 'Password must be at most 72 characters long',
+  'string.max': 'Password must be at most 1024 characters long',
 };
 
-const passwordSchema = Joi.string().min(8).max(72).pattern(PASSWORD_PATTERN).required().messages(PASSWORD_MESSAGES);
+const passwordSchema = Joi.string().min(8).max(1024).pattern(PASSWORD_PATTERN).required().messages(PASSWORD_MESSAGES);
 
 // Standard email schema: trimmed + lowercased before validation so the API
 // can normalize the value once instead of every callsite (Ch01-F002).

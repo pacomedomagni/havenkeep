@@ -11,7 +11,9 @@ import { passwordSchema } from './auth.validator';
  * Joi can't see the authenticated user's email.
  */
 export const changePasswordSchema = Joi.object({
-  currentPassword: Joi.string().min(1).max(128).required(),
+  // max(1024) (was 128) so a long passphrase can reach preHashForBcrypt
+  // — see auth.validator.ts comment on passwordSchema (S1-C).
+  currentPassword: Joi.string().min(1).max(1024).required(),
   newPassword: passwordSchema,
 })
   .custom((value, helpers) => {
@@ -29,7 +31,8 @@ export const changePasswordSchema = Joi.object({
  * accounts use the explicit confirmDelete flag instead (handled in route).
  */
 export const deleteAccountSchema = Joi.object({
-  password: Joi.string().min(1).max(128).optional(),
+  // max(1024) (was 128); see auth.validator.ts comment on passwordSchema (S1-C).
+  password: Joi.string().min(1).max(1024).optional(),
   confirmDelete: Joi.boolean().valid(true).required(),
 })
   .rename('confirm_delete', 'confirmDelete', { ignoreUndefined: true, override: false });

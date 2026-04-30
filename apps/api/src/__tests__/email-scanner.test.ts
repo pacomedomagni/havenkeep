@@ -435,6 +435,9 @@ describe('EmailScannerService — trusted-domain + review queue', () => {
         senderAddress: 'orders@homedepot.com',
         senderDomain: 'homedepot.com',
         confidence: 0.97,
+        // S-ME-07: trusted-domain + high confidence is necessary but not
+        // sufficient for auto-import — DKIM must pass too.
+        dkimPassed: true,
       },
     ]);
 

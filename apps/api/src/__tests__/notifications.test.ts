@@ -46,8 +46,8 @@ describe('Notifications routes - /api/v1/notifications', () => {
       expect(res.body.success).toBe(true);
       expect(Array.isArray(res.body.data)).toBe(true);
       expect(res.body.data.length).toBe(0);
-      expect(res.body.pagination).toBeDefined();
-      expect(res.body.pagination.total).toBe(0);
+      expect(res.body.meta.pagination).toBeDefined();
+      expect(res.body.meta.pagination.total).toBe(0);
     });
 
     it('should return notifications for the user', async () => {
@@ -62,7 +62,7 @@ describe('Notifications routes - /api/v1/notifications', () => {
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.data.length).toBe(2);
-      expect(res.body.pagination.total).toBe(2);
+      expect(res.body.meta.pagination.total).toBe(2);
     });
 
     it('should not return notifications belonging to another user', async () => {
@@ -96,7 +96,7 @@ describe('Notifications routes - /api/v1/notifications', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
-      expect(res.body.message).toBe('Notification marked as read');
+      expect(res.body.meta?.message).toBe('Notification marked as read');
       expect(res.body.data).toHaveProperty('opened_at');
       expect(res.body.data.opened_at).not.toBeNull();
     });

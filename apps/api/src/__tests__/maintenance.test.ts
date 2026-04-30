@@ -83,6 +83,7 @@ describe('Maintenance routes - /api/v1/maintenance', () => {
         .send({
           item_id: item.id,
           task_name: 'Changed HVAC filter',
+          completed_date: new Date().toISOString(),
           notes: 'Used a MERV-13 filter',
           cost: 25.99,
         });
@@ -92,7 +93,7 @@ describe('Maintenance routes - /api/v1/maintenance', () => {
       expect(res.body.data).toHaveProperty('id');
       expect(res.body.data.item_id).toBe(item.id);
       expect(res.body.data.task_name).toBe('Changed HVAC filter');
-      expect(res.body.message).toBe('Maintenance task logged successfully');
+      expect(res.body.meta?.message).toBe('Maintenance task logged successfully');
     });
 
     it('should return 404 when logging for a non-existent item', async () => {
@@ -104,6 +105,7 @@ describe('Maintenance routes - /api/v1/maintenance', () => {
         .send({
           item_id: '00000000-0000-0000-0000-000000000000',
           task_name: 'Some task',
+          completed_date: new Date().toISOString(),
         });
 
       expect(res.status).toBe(404);
@@ -143,8 +145,8 @@ describe('Maintenance routes - /api/v1/maintenance', () => {
       expect(res.body.success).toBe(true);
       expect(Array.isArray(res.body.data)).toBe(true);
       expect(res.body.data.length).toBe(0);
-      expect(res.body.pagination).toBeDefined();
-      expect(res.body.pagination.total).toBe(0);
+      expect(res.body.meta.pagination).toBeDefined();
+      expect(res.body.meta.pagination.total).toBe(0);
     });
 
     it('should return history after logging maintenance', async () => {
@@ -159,6 +161,7 @@ describe('Maintenance routes - /api/v1/maintenance', () => {
         .send({
           item_id: item.id,
           task_name: 'Cleaned gutters',
+          completed_date: new Date().toISOString(),
         });
 
       const res = await request(app)
@@ -169,7 +172,7 @@ describe('Maintenance routes - /api/v1/maintenance', () => {
       expect(res.body.success).toBe(true);
       expect(res.body.data.length).toBe(1);
       expect(res.body.data[0].task_name).toBe('Cleaned gutters');
-      expect(res.body.pagination.total).toBe(1);
+      expect(res.body.meta.pagination.total).toBe(1);
     });
   });
 
@@ -192,6 +195,7 @@ describe('Maintenance routes - /api/v1/maintenance', () => {
         .send({
           item_id: item.id,
           task_name: 'Replaced water filter',
+          completed_date: new Date().toISOString(),
         });
 
       const entryId = logRes.body.data.id;

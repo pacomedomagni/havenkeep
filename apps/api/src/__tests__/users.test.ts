@@ -2,6 +2,26 @@ import request from 'supertest';
 import { cleanDatabase } from './setup';
 import { getTestApp, createTestUser } from './helpers';
 
+jest.mock('../middleware/rateLimiter', () => require('./test-rate-limiter-mock'));
+
+// EmailService is fire-and-forget production code; in tests it still throws
+// without SENDGRID_API_KEY, which propagates to the route's error handler
+// and turns a 200 into a 500. Stub all senders to no-ops.
+jest.mock('../services/email.service', () => ({
+  EmailService: {
+    sendContactNotificationEmail: jest.fn().mockResolvedValue(undefined),
+    sendPartnerWelcomeEmail: jest.fn().mockResolvedValue(undefined),
+    sendGiftEmail: jest.fn().mockResolvedValue(undefined),
+    sendPasswordResetEmail: jest.fn().mockResolvedValue(undefined),
+    sendEmailVerificationEmail: jest.fn().mockResolvedValue(undefined),
+    sendEmailChangeVerificationEmail: jest.fn().mockResolvedValue(undefined),
+    sendNewsletterConfirmEmail: jest.fn().mockResolvedValue(undefined),
+    sendNewsletterDoubleOptInEmail: jest.fn().mockResolvedValue(undefined),
+    sendAccountDeletionEmail: jest.fn().mockResolvedValue(undefined),
+    sendAccountRecoveryEmail: jest.fn().mockResolvedValue(undefined),
+  },
+}));
+
 const app = getTestApp();
 
 describe('Users API', () => {
@@ -207,8 +227,11 @@ describe('Users API', () => {
   // through preHashForBcrypt so passwords > 72 bytes don't silently
   // truncate to the 72-byte prefix shared with every other long password.
   describe('Long-password handling on /users routes (S1-C)', () => {
+    // PASSWORD_PATTERN allows only [A-Za-z\d@$!%*?&]; the prior test value
+    // included a `-` which 400'd at the validator before any long-password
+    // path could run.
     const longPassword =
-      'x'.repeat(80) + 'EndOfLongPasswordWithUniqueSuffix-2026!';
+      'x'.repeat(80) + 'EndOfLongPasswordWithUniqueSuffix2026!';
 
     it('change-password accepts an 80+ byte password', async () => {
       const { user, token } = await createTestUser({
@@ -216,7 +239,10 @@ describe('Users API', () => {
         password: longPassword,
       });
 
-      const newPassword = 'a'.repeat(85) + 'NewSuffix-9!';
+      // Password regex (auth.validator.ts) rejects characters outside
+      // [A-Za-z\d@$!%*?&] — the `-` in 'NewSuffix-9!' would 400 even
+      // before the long-password code path is exercised.
+      const newPassword = 'a'.repeat(85) + 'NewSuffix9!A';
       const res = await request(app)
         .put('/api/v1/users/me/password')
         .set('Authorization', `Bearer ${token}`)
@@ -241,8 +267,11 @@ describe('Users API', () => {
         password: longPassword,
       });
 
+      // S-ME-02 / S-C5: change-email is a POST to /me/change-email (mints
+      // an email-change token + sends a confirmation email — the test
+      // verifies the password gate accepts the long password).
       const res = await request(app)
-        .put('/api/v1/users/me/email')
+        .post('/api/v1/users/me/change-email')
         .set('Authorization', `Bearer ${token}`)
         .send({
           password: longPassword,
@@ -261,7 +290,7 @@ describe('Users API', () => {
       const res = await request(app)
         .delete('/api/v1/users/me')
         .set('Authorization', `Bearer ${token}`)
-        .send({ password: longPassword });
+        .send({ password: longPassword, confirmDelete: true });
 
       expect(res.status).toBe(200);
     });

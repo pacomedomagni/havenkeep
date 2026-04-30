@@ -6,6 +6,53 @@ import { getTestApp, createTestUser } from './helpers';
 // across app instances. Mock them all as pass-through in tests.
 jest.mock('../middleware/rateLimiter', () => require('./test-rate-limiter-mock'));
 
+// google-auth-library reaches the network to fetch Google's signing
+// certs before it can verify an ID token. The S3-C test's intent is to
+// confirm that an `alg: none` token is rejected — but the real client
+// would fail with a network/certs error long before the alg check
+// fires, masking a regression that *did* re-enable alg:none. Mock the
+// OAuth2Client so verifyIdToken behaves like real Google: token whose
+// header alg is 'none' (or a missing/invalid signature) is rejected.
+jest.mock('google-auth-library', () => {
+  class OAuth2Client {
+    transporter = { defaults: {} };
+    constructor(_opts?: any) {}
+    async verifyIdToken({ idToken }: { idToken: string }) {
+      const segments = String(idToken).split('.');
+      if (segments.length < 2) {
+        throw new Error('Invalid ID token: malformed');
+      }
+      const headerJson = Buffer.from(segments[0], 'base64url').toString('utf8');
+      let header: { alg?: string };
+      try {
+        header = JSON.parse(headerJson);
+      } catch {
+        throw new Error('Invalid ID token: header parse error');
+      }
+      if (!header.alg || header.alg.toLowerCase() === 'none') {
+        throw new Error('Invalid ID token: alg "none" rejected');
+      }
+      // Tests that need to simulate a successful Google verify can
+      // override per-test with `jest.spyOn(...)`.
+      throw new Error('Invalid ID token: signature verification failed');
+    }
+  }
+  return { __esModule: true, OAuth2Client };
+});
+
+// `googleapis` is pulled in by email-scanner.service.ts (transitively
+// imported via routes/users.ts → app). googleapis-common's authplus.js
+// uses ESM-only `import { google } from 'googleapis'` syntax that Jest
+// can't load without a transform. The auth tests don't exercise the
+// Gmail scanner path, so the package can be a complete no-op.
+jest.mock('googleapis', () => ({
+  __esModule: true,
+  google: {
+    auth: { OAuth2: class {} },
+    gmail: () => ({ users: { messages: { list: jest.fn(), get: jest.fn() } } }),
+  },
+}));
+
 describe('Auth API', () => {
   // Create a fresh app per test to reset in-memory rate limiters
   let app: ReturnType<typeof getTestApp>;
@@ -28,12 +75,12 @@ describe('Auth API', () => {
         });
 
       expect(res.status).toBe(201);
-      expect(res.body.user).toBeDefined();
-      expect(res.body.user.email).toBe('newuser@test.com');
-      expect(res.body.user.full_name).toBe('New User');
-      expect(res.body.user.plan).toBe('free');
-      expect(res.body.accessToken).toBeDefined();
-      expect(res.body.refreshToken).toBeDefined();
+      expect(res.body.data.user).toBeDefined();
+      expect(res.body.data.user.email).toBe('newuser@test.com');
+      expect(res.body.data.user.full_name).toBe('New User');
+      expect(res.body.data.user.plan).toBe('free');
+      expect(res.body.data.accessToken).toBeDefined();
+      expect(res.body.data.refreshToken).toBeDefined();
     });
 
     it('should reject duplicate email registration', async () => {
@@ -113,10 +160,10 @@ describe('Auth API', () => {
         });
 
       expect(res.status).toBe(200);
-      expect(res.body.user).toBeDefined();
-      expect(res.body.user.email).toBe('login@test.com');
-      expect(res.body.accessToken).toBeDefined();
-      expect(res.body.refreshToken).toBeDefined();
+      expect(res.body.data.user).toBeDefined();
+      expect(res.body.data.user.email).toBe('login@test.com');
+      expect(res.body.data.accessToken).toBeDefined();
+      expect(res.body.data.refreshToken).toBeDefined();
     });
 
     it('should reject login with wrong password', async () => {
@@ -154,7 +201,7 @@ describe('Auth API', () => {
         });
 
       expect(res.status).toBe(200);
-      expect(res.body.user.email).toBe('casetest@test.com');
+      expect(res.body.data.user.email).toBe('casetest@test.com');
     });
   });
 
@@ -168,7 +215,7 @@ describe('Auth API', () => {
         .post('/api/v1/auth/login')
         .send({ email: 'refresh@test.com', password: 'StrongPass1!' });
 
-      const { refreshToken } = loginRes.body;
+      const { refreshToken } = loginRes.body.data ?? loginRes.body;
       expect(refreshToken).toBeDefined();
 
       const res = await request(app)
@@ -176,8 +223,8 @@ describe('Auth API', () => {
         .send({ refreshToken });
 
       expect(res.status).toBe(200);
-      expect(res.body.accessToken).toBeDefined();
-      expect(res.body.refreshToken).toBeDefined();
+      expect(res.body.data.accessToken).toBeDefined();
+      expect(res.body.data.refreshToken).toBeDefined();
     });
 
     it('should reject a reused refresh token', async () => {
@@ -189,7 +236,7 @@ describe('Auth API', () => {
         .post('/api/v1/auth/login')
         .send({ email: 'reuse@test.com', password: 'StrongPass1!' });
 
-      const { refreshToken } = loginRes.body;
+      const { refreshToken } = loginRes.body.data ?? loginRes.body;
 
       // Wait 1.1s so the rotated JWT has a different `iat` (second-level
       // precision), producing a distinct token hash in the DB.

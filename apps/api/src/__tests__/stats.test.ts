@@ -67,7 +67,7 @@ describe('Stats API - /api/v1/stats', () => {
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.data).toHaveProperty('score');
-      expect(res.body.message).toBe('Health score recalculated');
+      expect(res.body.meta?.message).toBe('Health score recalculated');
     });
   });
 

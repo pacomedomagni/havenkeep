@@ -28,8 +28,8 @@ describe('Warranty Purchases API - /api/v1/warranty-purchases', () => {
       expect(res.body.success).toBe(true);
       expect(Array.isArray(res.body.data)).toBe(true);
       expect(res.body.data.length).toBe(0);
-      expect(res.body.pagination).toBeDefined();
-      expect(res.body.pagination.total).toBe(0);
+      expect(res.body.meta.pagination).toBeDefined();
+      expect(res.body.meta.pagination.total).toBe(0);
     });
 
     it('should list purchases after creation', async () => {
@@ -55,7 +55,7 @@ describe('Warranty Purchases API - /api/v1/warranty-purchases', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.data.length).toBe(1);
-      expect(res.body.pagination.total).toBe(1);
+      expect(res.body.meta.pagination.total).toBe(1);
     });
 
     it('should filter purchases by status', async () => {
@@ -128,7 +128,7 @@ describe('Warranty Purchases API - /api/v1/warranty-purchases', () => {
       expect(res.body.data.plan_name).toBe('3 Year Protection');
       expect(res.body.data.duration_months).toBe(36);
       expect(res.body.data.id).toBeDefined();
-      expect(res.body.message).toBe('Warranty purchase created successfully');
+      expect(res.body.meta?.message).toBe('Warranty purchase created successfully');
     });
 
     it('should reject create without authentication (401)', async () => {
@@ -340,7 +340,7 @@ describe('Warranty Purchases API - /api/v1/warranty-purchases', () => {
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.data.status).toBe('cancelled');
-      expect(res.body.message).toBe('Warranty purchase cancelled successfully');
+      expect(res.body.meta?.message).toBe('Warranty purchase cancelled successfully');
     });
   });
 });

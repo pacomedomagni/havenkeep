@@ -60,26 +60,33 @@ describe('Webhooks API', () => {
       it('should handle charge.succeeded and update gift status', async () => {
         // Create a test partner and gift
         const { user } = await createTestUser({ email: 'partner@test.com' });
-        await pool.query(
-          `INSERT INTO partners (user_id, company_name, partner_type, is_active)
-           VALUES ($1, 'Test Co', 'realtor', true)`,
-          [user.id]
-        );
-        const giftResult = await pool.query(
-          `INSERT INTO partner_gifts (partner_id, homebuyer_name, homebuyer_email, premium_months, status, stripe_charge_id, amount)
-           VALUES ($1, 'Test Buyer', 'buyer@test.com', 3, 'created', 'ch_test_123', 2999)
+        const partnerRow = await pool.query(
+          `INSERT INTO partners (user_id, company_name, partner_type, is_active, status)
+           VALUES ($1, 'Test Co', 'realtor', true, 'active')
            RETURNING id`,
           [user.id]
+        );
+        const partnerId = partnerRow.rows[0].id;
+        // C7: partner_gifts.stripe_charge_id stores the payment_intent id
+        // (pi_*), not the charge id (ch_*). The webhook handler matches
+        // by event.data.object.payment_intent against this column.
+        const giftResult = await pool.query(
+          `INSERT INTO partner_gifts (partner_id, homebuyer_name, homebuyer_email, premium_months, status, stripe_charge_id, amount_charged)
+           VALUES ($1, 'Test Buyer', 'buyer@test.com', 3, 'created', 'pi_test_123', 29.99)
+           RETURNING id`,
+          [partnerId]
         );
         const giftId = giftResult.rows[0].id;
 
         const payload = JSON.stringify({
           id: 'evt_test_charge_succeeded',
           type: 'charge.succeeded',
+          created: Math.floor(Date.now() / 1000),
           data: {
             object: {
               id: 'ch_test_123',
-              metadata: { partner_id: user.id },
+              payment_intent: 'pi_test_123',
+              metadata: { partner_id: partnerId },
             },
           },
         });
@@ -104,34 +111,39 @@ describe('Webhooks API', () => {
 
       it('should handle charge.failed and expire gift', async () => {
         const { user } = await createTestUser({ email: 'partner2@test.com' });
-        await pool.query(
-          `INSERT INTO partners (user_id, company_name, partner_type, is_active)
-           VALUES ($1, 'Test Co 2', 'realtor', true)`,
-          [user.id]
-        );
-        const giftResult = await pool.query(
-          `INSERT INTO partner_gifts (partner_id, homebuyer_name, homebuyer_email, premium_months, status, stripe_charge_id, amount)
-           VALUES ($1, 'Failed Buyer', 'failed@test.com', 3, 'created', 'ch_test_fail', 2999)
+        const partnerRow = await pool.query(
+          `INSERT INTO partners (user_id, company_name, partner_type, is_active, status)
+           VALUES ($1, 'Test Co 2', 'realtor', true, 'active')
            RETURNING id`,
           [user.id]
+        );
+        const partnerId = partnerRow.rows[0].id;
+        // C7: stripe_charge_id stores the payment_intent id (pi_*).
+        const giftResult = await pool.query(
+          `INSERT INTO partner_gifts (partner_id, homebuyer_name, homebuyer_email, premium_months, status, stripe_charge_id, amount_charged)
+           VALUES ($1, 'Failed Buyer', 'failed@test.com', 3, 'created', 'pi_test_fail', 29.99)
+           RETURNING id`,
+          [partnerId]
         );
         const giftId = giftResult.rows[0].id;
 
         // Create a pending commission for this gift
         await pool.query(
-          `INSERT INTO partner_commissions (partner_id, reference_id, reference_type, amount, status)
-           VALUES ($1, $2, 'partner_gift', 500, 'pending')`,
-          [user.id, giftId]
+          `INSERT INTO partner_commissions (partner_id, reference_id, reference_type, type, commission_rate, amount, status)
+           VALUES ($1, $2, 'partner_gift', 'gift', 0.10, 500, 'pending')`,
+          [partnerId, giftId]
         );
 
         const payload = JSON.stringify({
           id: 'evt_test_charge_failed',
           type: 'charge.failed',
+          created: Math.floor(Date.now() / 1000),
           data: {
             object: {
               id: 'ch_test_fail',
+              payment_intent: 'pi_test_fail',
               failure_message: 'Card declined',
-              metadata: { partner_id: user.id },
+              metadata: { partner_id: partnerId },
             },
           },
         });
@@ -308,17 +320,19 @@ describe('Webhooks API', () => {
       // Set up partner + an active gift held by this user.
       const partnerOwner = await createTestUser({ email: 'gifter@test.com' });
       const partnerRow = await pool.query(
-        `INSERT INTO partners (user_id, partner_type, company_name, is_active)
-         VALUES ($1, 'realtor', 'GiftCo', TRUE)
+        `INSERT INTO partners (user_id, partner_type, company_name, is_active, status)
+         VALUES ($1, 'realtor', 'GiftCo', TRUE, 'active')
          RETURNING id`,
         [partnerOwner.user.id],
       );
       await pool.query(
         `INSERT INTO partner_gifts (
            partner_id, homebuyer_email, homebuyer_name, premium_months,
-           amount_charged, status, is_activated, activated_user_id, expires_at
+           amount_charged, status, is_activated, activated_user_id, expires_at,
+           stripe_charge_id
          )
-         VALUES ($1, $2, 'Gifted User', 12, 99, 'activated', TRUE, $3, NOW() + INTERVAL '180 days')`,
+         VALUES ($1, $2, 'Gifted User', 12, 99, 'activated', TRUE, $3, NOW() + INTERVAL '180 days',
+                 'ch_test_seed_active_gift')`,
         [partnerRow.rows[0].id, user.email, user.id],
       );
 

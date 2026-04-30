@@ -443,6 +443,14 @@ export class WarrantyPurchasesService {
     try {
       await finalClient.query('BEGIN');
 
+      // chk_warranty_purchases_refund_shape requires either both refund
+      // columns NULL, OR both populated (refund_amount_cents >= 0 AND
+      // refunded_at IS NOT NULL). The prior UPDATE always set
+      // refund_amount_cents = $5 (0 on a no-Stripe cancel) and left
+      // refunded_at NULL — violating the constraint and 500'ing every
+      // cancel without an associated payment_intent. NULL out both
+      // when there's nothing to refund.
+      const persistedRefundCents = refundCents > 0 ? refundCents : null;
       const result = await finalClient.query(
         `UPDATE warranty_purchases
             SET status = 'cancelled',
@@ -451,10 +459,10 @@ export class WarrantyPurchasesService {
                 updated_at = NOW(),
                 stripe_refund_id = $4,
                 refund_amount_cents = $5,
-                refunded_at = CASE WHEN $5::int > 0 THEN NOW() ELSE refunded_at END
+                refunded_at = CASE WHEN $5::int IS NOT NULL THEN NOW() ELSE refunded_at END
           WHERE id = $1 AND user_id = $2
           RETURNING *`,
-        [purchaseId, userId, reason || null, stripeRefundId, refundCents],
+        [purchaseId, userId, reason || null, stripeRefundId, persistedRefundCents],
       );
 
       // C5: partner_commissions uses reference_id + reference_type per

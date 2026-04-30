@@ -23,7 +23,9 @@ describe('Newsletter Routes', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
-      expect(res.body.message).toMatch(/successfully subscribed/i);
+      // Double-opt-in: response no longer says "subscribed" until the user
+      // confirms via the link we email them.
+      expect(res.body.message).toMatch(/check your inbox/i);
     });
 
     it('should return 400 when email is missing', async () => {

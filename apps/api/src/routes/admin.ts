@@ -299,10 +299,16 @@ router.put('/users/:id/suspend',
 
     // Capture the prior plan so unsuspend can restore it. We're inside an
     // implicit auto-commit so this is a single SET-and-CASE statement.
+    //
+    // CASE arms must be the same type. `plan` is the user_plan enum and
+    // `plan_before_suspend` is VARCHAR(32). Cast the enum side to text so
+    // the CASE result matches the target column type. Without this, PG
+    // raises "CASE types character varying and user_plan cannot be matched"
+    // and every admin suspend hit a 500.
     await query(
       `UPDATE users
           SET plan_before_suspend = CASE
-                                      WHEN plan <> 'suspended' THEN plan
+                                      WHEN plan <> 'suspended' THEN plan::text
                                       ELSE plan_before_suspend
                                     END,
               plan = 'suspended',
@@ -373,9 +379,12 @@ router.put('/users/:id/unsuspend', validate(userIdParamSchema, 'params'), async 
       );
     }
 
+    // Cast COALESCE result to user_plan enum so the assignment to
+    // `plan` (enum-typed) succeeds. plan_before_* are VARCHAR(32);
+    // without the cast PG raises 42804.
     const result = await query(
       `UPDATE users
-          SET plan = COALESCE(plan_before_suspend, plan_before_delete, 'free'),
+          SET plan = COALESCE(plan_before_suspend, plan_before_delete, 'free')::user_plan,
               plan_before_suspend = NULL,
               updated_at = NOW()
         WHERE id = $1 AND plan = 'suspended'

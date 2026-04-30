@@ -61,11 +61,11 @@ describe('Admin routes - /api/v1/admin', () => {
       expect(res.body.success).toBe(true);
       expect(Array.isArray(res.body.data)).toBe(true);
       expect(res.body.data.length).toBeGreaterThanOrEqual(3);
-      expect(res.body.pagination).toBeDefined();
-      expect(res.body.pagination).toHaveProperty('page');
-      expect(res.body.pagination).toHaveProperty('limit');
-      expect(res.body.pagination).toHaveProperty('total');
-      expect(res.body.pagination).toHaveProperty('total_pages');
+      expect(res.body.meta.pagination).toBeDefined();
+      expect(res.body.meta.pagination).toHaveProperty('page');
+      expect(res.body.meta.pagination).toHaveProperty('limit');
+      expect(res.body.meta.pagination).toHaveProperty('total');
+      expect(res.body.meta.pagination).toHaveProperty('total_pages');
     });
   });
 
@@ -93,7 +93,7 @@ describe('Admin routes - /api/v1/admin', () => {
       expect(res.body.success).toBe(true);
       expect(res.body.data.id).toBe(targetUser.id);
       expect(res.body.data.email).toBe('suspend-me@test.com');
-      expect(res.body.message).toBe('User suspended');
+      expect(res.body.meta?.message).toBe('User suspended');
     });
 
     it('should return 404 when suspending a non-existent user', async () => {
