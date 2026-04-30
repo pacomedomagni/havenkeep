@@ -97,9 +97,11 @@ export async function authenticate(
       // Audit Ch01-F040: include `deleted_at` so a soft-deleted user with a
       // still-valid access token is rejected on the next call. The plan
       // check below rejects 'suspended' users on the same path.
+      // C13b: also pull deletion_scheduled_for so we can carve out an
+      // exception for POST /me/recover during the cooling-off window.
       const result = await query(
         `SELECT u.id, u.email, u.plan, u.is_admin, u.plan_expires_at, u.email_verified,
-                u.deleted_at,
+                u.deleted_at, u.deletion_scheduled_for,
                 (EXISTS(SELECT 1 FROM partners p WHERE p.user_id = u.id AND p.is_active = TRUE)) as is_partner
          FROM users u WHERE u.id = $1`,
         [decoded.userId],
@@ -120,10 +122,27 @@ export async function authenticate(
       }
     }
 
-    if (userRow.deleted_at) {
+    // C13b: /me/recover is the one authenticated route a soft-deleted user
+    // must be able to reach during the 30-day cooling-off window — the
+    // delete-confirmation email tells the user "log back in to recover"
+    // and the recover handler validates ownership before flipping
+    // deleted_at back. Every other authenticated path stays closed.
+    // Note: soft-delete also sets plan='suspended' so the recover-bypass
+    // must short-circuit BOTH gates below, not just the deleted_at one.
+    const isRecoverEndpoint =
+      req.method === 'POST' &&
+      (req.path === '/me/recover' ||
+        req.path.endsWith('/me/recover') ||
+        req.originalUrl?.endsWith('/users/me/recover'));
+    const withinGrace =
+      !!userRow.deletion_scheduled_for &&
+      new Date(userRow.deletion_scheduled_for) > new Date();
+    const recoverBypass = userRow.deleted_at && isRecoverEndpoint && withinGrace;
+
+    if (userRow.deleted_at && !recoverBypass) {
       throw new AppError('Account is closed', 401);
     }
-    if (userRow.plan === 'suspended') {
+    if (userRow.plan === 'suspended' && !recoverBypass) {
       throw new AppError('Account suspended', 403);
     }
 
