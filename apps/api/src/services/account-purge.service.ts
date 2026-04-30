@@ -85,6 +85,28 @@ export async function purgeExpiredSoftDeletedAccounts(): Promise<PurgeResult> {
         try {
           await txClient.query('BEGIN');
           harvest = await harvestUserKeys(txClient, userId);
+
+          // C4: anonymize-but-retain warranty rows BEFORE deleting the
+          // user. Mig 083 changed warranty_purchases.user_id and
+          // warranty_claims.user_id from ON DELETE RESTRICT to SET NULL,
+          // so the DELETE below now succeeds. The denormalized email
+          // columns preserve the financial / forensic trail. We only
+          // overwrite NULL values so concurrent retroactive backfills
+          // don't clobber a value already snapshotted at an earlier
+          // event (e.g. claim creation snapshot).
+          await txClient.query(
+            `UPDATE warranty_purchases
+                SET user_email_at_purchase = $2
+              WHERE user_id = $1 AND user_email_at_purchase IS NULL`,
+            [userId, userEmail],
+          );
+          await txClient.query(
+            `UPDATE warranty_claims
+                SET user_email_at_claim = $2
+              WHERE user_id = $1 AND user_email_at_claim IS NULL`,
+            [userId, userEmail],
+          );
+
           // Refresh-tokens have FK ON DELETE CASCADE; explicit DELETE
           // matches the admin path's belt-and-braces pattern.
           await txClient.query(`DELETE FROM refresh_tokens WHERE user_id = $1`, [userId]);
