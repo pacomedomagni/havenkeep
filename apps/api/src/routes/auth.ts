@@ -23,6 +23,7 @@ import { presignedUrlForKey } from '../config/minio';
 import { rotateCsrfToken } from '../middleware/csrf';
 import { asyncHandler } from '../utils/async-handler';
 import { hashToken, hashRefreshToken } from '../utils/token-hash';
+import { MfaService, mintMfaChallengeToken, verifyMfaChallengeToken } from '../services/mfa.service';
 
 // C10: best-effort audit-log writer. The error-path catch arms in this file
 // previously did `await AuditService.logAuth(...)` before `next(error)` —
@@ -438,6 +439,35 @@ router.post('/login', authRateLimiter, validate(loginSchema), asyncHandler(async
       throw err;
     }
 
+    // S-C2: if the user has any verified MFA factor, defer issuing the
+    // real access/refresh pair. Mint a short-lived MFA challenge token
+    // instead; the client then POSTs the TOTP code (or a backup code)
+    // to /auth/mfa/challenge to exchange the challenge for real tokens.
+    // The challenge token's `purpose: 'mfa_challenge'` claim makes it
+    // unusable as an access token elsewhere.
+    const mfaStatus = await MfaService.getStatus(user.id);
+    if (mfaStatus.hasVerifiedFactor) {
+      const mfaToken = mintMfaChallengeToken(user.id);
+      logAuthBestEffort({
+        action: 'auth.login',
+        userId: user.id,
+        email: user.email,
+        ipAddress: getIpAddress(req),
+        userAgent: req.get('user-agent'),
+        success: true,
+        errorMessage: 'mfa_required',
+      });
+      res.json({
+        success: true,
+        data: {
+          mfa_required: true,
+          mfa_token: mfaToken,
+          factor_types: mfaStatus.factorTypes,
+        },
+      });
+      return;
+    }
+
     // Generate tokens, store refresh token, and cap active tokens
     const { accessToken, refreshToken } = await createAuthSession(
       user.id, user.email, user.is_admin || false, user.is_partner || false
@@ -492,6 +522,101 @@ router.post('/login', authRateLimiter, validate(loginSchema), asyncHandler(async
     throw error;
   }
 }));
+
+// S-C2: MFA challenge — exchange a short-lived MFA challenge token + a
+// TOTP code (or backup code) for real access + refresh tokens.
+//
+// /auth/login mints the mfa_token JWT when the user has any verified
+// factor. This route validates the challenge, validates the code, then
+// calls createAuthSession just like the post-MFA-bypass path in /login.
+//
+// The challenge token's `purpose: 'mfa_challenge'` claim is enforced by
+// verifyMfaChallengeToken so it can't masquerade as an access token.
+const mfaChallengeSchema = Joi.object({
+  mfa_token: Joi.string().min(20).max(4096).required(),
+  code: Joi.string().min(6).max(64).required(),
+});
+
+router.post(
+  '/mfa/challenge',
+  authRateLimiter,
+  validate(mfaChallengeSchema),
+  asyncHandler(async (req, res) => {
+    const { mfa_token, code } = req.body;
+
+    let userId: string;
+    try {
+      ({ userId } = verifyMfaChallengeToken(mfa_token));
+    } catch (err) {
+      if (err instanceof AppError) throw err;
+      // jwt errors land here
+      throw new AppError('Invalid or expired MFA challenge', 401);
+    }
+
+    // Re-fetch the user — the row may have been suspended / deleted /
+    // demoted between /login and now. We treat the challenge handoff
+    // as a re-authentication boundary.
+    const userResult = await query(
+      `SELECT u.id, u.email, u.full_name, u.avatar_url, u.auth_provider, u.plan,
+              u.plan_expires_at, u.referred_by, u.referral_code, u.is_admin,
+              u.deleted_at, u.created_at, u.updated_at,
+              (EXISTS(SELECT 1 FROM partners p WHERE p.user_id = u.id AND p.is_active = TRUE)) as is_partner
+       FROM users u WHERE u.id = $1`,
+      [userId],
+    );
+    if (userResult.rows.length === 0) {
+      throw new AppError('Account not found', 401);
+    }
+    const user = userResult.rows[0];
+    if (user.deleted_at || user.plan === 'suspended') {
+      throw new AppError('Account is closed or suspended', 401);
+    }
+
+    // Validate the TOTP / backup code. Throws AppError 400 on invalid.
+    await MfaService.verifyChallengeCode(userId, code);
+
+    const { accessToken, refreshToken } = await createAuthSession(
+      user.id,
+      user.email,
+      user.is_admin || false,
+      user.is_partner || false,
+    );
+
+    logAuthBestEffort({
+      action: 'auth.login',
+      userId: user.id,
+      email: user.email,
+      ipAddress: getIpAddress(req),
+      userAgent: req.get('user-agent'),
+      success: true,
+      errorMessage: 'mfa_passed',
+    });
+
+    rotateCsrfToken(res);
+    res.json({
+      success: true,
+      data: {
+        user: {
+          id: user.id,
+          email: user.email,
+          full_name: user.full_name,
+          avatar_url: await presignAvatarUrl(user.avatar_url),
+          auth_provider: user.auth_provider || 'email',
+          plan: user.plan,
+          plan_expires_at: user.plan_expires_at || null,
+          referred_by: user.referred_by || null,
+          referral_code: user.referral_code || null,
+          is_admin: user.is_admin,
+          is_partner: user.is_partner,
+          created_at: user.created_at,
+          updated_at: user.updated_at,
+        },
+        accessToken,
+        refreshToken,
+      },
+    });
+  }),
+);
 
 // Refresh token
 router.post('/refresh', refreshRateLimiter, validate(refreshTokenSchema), asyncHandler(async (req, res) => {

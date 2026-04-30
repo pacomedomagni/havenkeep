@@ -28,6 +28,7 @@ import categoriesRoutes from './routes/categories';
 import uploadsRoutes from './routes/uploads';
 import receiptsRoutes from './routes/receipts';
 import auditRoutes from './routes/audit';
+import mfaRoutes from './routes/mfa';
 import { stripeWebhookRouter, revenueCatWebhookRouter } from './routes/webhooks';
 import newsletterRoutes from './routes/newsletter';
 import contactRoutes from './routes/contact';
@@ -197,6 +198,7 @@ export function createApp(options: CreateAppOptions = {}) {
   apiV1.use('/uploads', uploadsRoutes);
   apiV1.use('/receipts', receiptsRoutes);
   apiV1.use('/audit', auditRoutes);
+  apiV1.use('/mfa', mfaRoutes);
   apiV1.use('/newsletter', newsletterRoutes);
   apiV1.use('/contact', contactRoutes);
 
