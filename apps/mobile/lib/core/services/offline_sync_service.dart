@@ -237,6 +237,14 @@ class OfflineSyncService {
     }
 
     _isSyncing = true;
+    // H-B3: notify UI bound to isSyncingProvider that a sync is now active.
+    // Best-effort: a notifier write failure (extremely unlikely on a
+    // StateProvider) must not block the sync run itself.
+    try {
+      _ref.read(isSyncingProvider.notifier).state = true;
+    } catch (_) {
+      // ignore — re-entry guard is the source of truth
+    }
 
     // Track which entity domains were touched so we can invalidate the
     // matching notifiers once the sync run finishes. Without this, queue
@@ -336,6 +344,12 @@ class OfflineSyncService {
       await _db.clearSyncedActions();
     } finally {
       _isSyncing = false;
+      // H-B3: notify UI that sync is no longer active.
+      try {
+        _ref.read(isSyncingProvider.notifier).state = false;
+      } catch (_) {
+        // ignore
+      }
       _invalidateTouched(touched);
     }
   }
@@ -548,9 +562,23 @@ final offlineSyncServiceProvider = Provider<OfflineSyncService>((ref) {
 });
 
 /// Whether a sync is currently in progress.
-final isSyncingProvider = Provider<bool>((ref) {
-  return ref.watch(offlineSyncServiceProvider).isSyncing;
-});
+///
+/// H-B3 (audit): the prior shape was a plain `Provider<bool>` whose body
+/// returned `ref.watch(offlineSyncServiceProvider).isSyncing`. Riverpod
+/// only re-runs `Provider.build` when a watched dependency changes; the
+/// service instance itself never changes, and the underlying `_isSyncing`
+/// bool was mutated as a private field with no notify mechanism. UI
+/// bound to this provider read `false` once on first watch and never
+/// saw the flag flip — pull-to-refresh / "Syncing…" indicators never
+/// animated.
+///
+/// Now: `StateProvider<bool>` written through by
+/// [OfflineSyncService.syncPendingChanges] via
+/// `ref.read(isSyncingProvider.notifier).state = true/false`.
+/// The service still keeps a private re-entry guard
+/// (`_isSyncing` bool) so a recursive call short-circuits without
+/// touching the provider.
+final isSyncingProvider = StateProvider<bool>((ref) => false);
 
 /// Number of parked sync conflicts awaiting user resolution.
 ///
