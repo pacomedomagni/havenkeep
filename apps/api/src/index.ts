@@ -227,20 +227,28 @@ function scheduleExpirationNotifications() {
       logger.error({ err }, 'openai_usage retention sweep failed');
     }
 
+    // H-D5 (audit): webhook_events 7-day retention. Was previously
+    // gated to Sunday-only (weekly) which let 7 days of growth pile
+    // up between sweeps on a busy table. Now daily — the delete is
+    // cheap (idx_webhook_events_processed_at covers it) and there's
+    // no reason to bunch.
+    try {
+      const result = await pool.query(
+        `DELETE FROM webhook_events WHERE processed_at < NOW() - INTERVAL '7 days'`,
+      );
+      if (result.rowCount && result.rowCount > 0) {
+        logger.info({ deleted: result.rowCount }, 'webhook_events retention sweep');
+      }
+    } catch (err) {
+      logger.error({ err }, 'webhook_events retention sweep failed');
+    }
+
     // Sunday weekly sweep — `getUTCDay()` so the boundary is consistent.
     if (new Date().getUTCDay() === 0) {
       try {
         await ReconciliationService.reconcileUserAnalytics();
       } catch (err) {
         logger.error({ err }, 'Weekly analytics reconciliation failed');
-      }
-      try {
-        const result = await pool.query(
-          `DELETE FROM webhook_events WHERE processed_at < NOW() - INTERVAL '7 days'`,
-        );
-        logger.info({ deleted: result.rowCount }, 'Weekly webhook events cleanup completed');
-      } catch (err) {
-        logger.error({ err }, 'Weekly webhook events cleanup failed');
       }
     }
     scheduleNext();
