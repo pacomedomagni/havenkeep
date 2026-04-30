@@ -43,3 +43,9 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# C15: build-time env bundle. scripts/prepare-env.sh copies the active
+# flavor file (.env.development|staging|production) to .env.bundled
+# right before `flutter build`. Pubspec only references the single file
+# so only the active flavor ships in the IPA/APK assets.
+.env.bundled

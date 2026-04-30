@@ -57,16 +57,22 @@ Future<void> main() async {
         systemNavigationBarIconBrightness: Brightness.light,
       ));
 
-      // Determine environment from build flavor (defaults to development)
+      // Determine environment from build flavor (defaults to development).
+      // The FLAVOR define still drives the in-app `Environment` enum so
+      // logging / theming / Crashlytics gates know which env they're in.
       const flavorString = String.fromEnvironment('FLAVOR', defaultValue: 'development');
       final environment = Environment.fromString(flavorString);
 
-      // Load environment-specific configuration
-      final envFileName = '.env.${environment.name}';
+      // C15 (audit): we now load a single .env.bundled file rather than
+      // .env.${environment.name}. scripts/prepare-env.sh copies the
+      // active flavor's file into .env.bundled BEFORE `flutter build`,
+      // and pubspec.yaml ships only the bundled file in the IPA/APK
+      // assets. Loading from a per-flavor path with all three files
+      // bundled would have re-introduced the leak.
       try {
-        await dotenv.load(fileName: envFileName);
+        await dotenv.load(fileName: '.env.bundled');
       } catch (e) {
-        debugPrint('[Main] Failed to load $envFileName: $e');
+        debugPrint('[Main] Failed to load .env.bundled: $e');
       }
 
       // Create and validate configuration

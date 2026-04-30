@@ -146,6 +146,10 @@ flutter:
     - assets/animations/
     - assets/icons/
     - assets/lottie/
-    - .env.development
-    - .env.staging
-    - .env.production
+    # C15 (audit): ship only the active flavor's env file. The
+    # scripts/prepare-env.sh helper copies .env.{development|staging|
+    # production} -> .env.bundled before `flutter build`. The previous
+    # shape listed all three under `assets:`, which meant anyone with
+    # the IPA/APK could unzip and cat staging URLs / OAuth client IDs /
+    # any future REVENUECAT_API_KEY etc. in plaintext.
+    - .env.bundled
