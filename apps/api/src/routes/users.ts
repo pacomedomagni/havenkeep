@@ -304,6 +304,23 @@ router.post('/me/verify-premium', verifyPremiumRateLimiter, validate(verifyPremi
         expires_at: expiresAt,
       },
     });
+
+    // H-A5 (audit): when a user transitions OUT of premium, revoke any
+    // stored Gmail/Outlook OAuth integrations. The encrypted refresh
+    // tokens otherwise sit at rest in user_oauth_integrations
+    // indefinitely — the user can't re-trigger a scan because
+    // /email-scanner/* is requirePremium-gated, but the credential
+    // material lives on. Soft-delete already wipes these (see purge);
+    // plan-downgrade was the gap. Best-effort: a transient revoke
+    // failure must not block the plan flip.
+    if (previousPlan === 'premium' && newPlan !== 'premium') {
+      EmailScannerService.revokeIntegration(req.user!.id).catch((err) => {
+        logger.error(
+          { err, userId: req.user!.id },
+          'H-A5: failed to revoke OAuth integrations on plan downgrade (best-effort)',
+        );
+      });
+    }
   }
 
   logger.info(
