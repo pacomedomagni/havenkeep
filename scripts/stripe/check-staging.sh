@@ -110,34 +110,33 @@ SSH_OPTS=(-i "$STAGING_SSH_KEY" -o BatchMode=yes -o ConnectTimeout=8)
 ssh "${SSH_OPTS[@]}" "root@$STAGING_HOST" "true" 2>/dev/null \
   || fail "cannot SSH to root@$STAGING_HOST — check ~/.ssh/loni_deploy + droplet status"
 
-# Read the three Stripe env values without printing them. Drop on missing.
-ENV_LINES=$(ssh "${SSH_OPTS[@]}" "root@$STAGING_HOST" \
-  "grep -E '^(STRIPE_SECRET_KEY|STRIPE_WEBHOOK_SECRET|STRIPE_PRICE_ID_PREMIUM|STRIPE_ALLOW_SANDBOX)=' \
-   $STAGING_APP_DIR/.env.api 2>/dev/null | sed -E 's/=(sk_|pk_|whsec_|price_)[A-Za-z0-9_]+.*/=\1***/'")
+# Verify the four Stripe env values WITHOUT pulling secrets across the wire.
+# Each check runs a tiny grep on the droplet that exits 0/1; the laptop
+# only ever sees an exit code, never the value.
+check_env_var() {
+  local var="$1" prefix="$2" label="$3" required="${4:-required}"
+  if ssh "${SSH_OPTS[@]}" "root@$STAGING_HOST" \
+       "grep -qE '^${var}=${prefix}' $STAGING_APP_DIR/.env.api" 2>/dev/null; then
+    pass "$label"
+    return 0
+  fi
+  if [ "$required" = "optional" ]; then
+    yellow "  WARN  $label — not set"
+    return 0
+  fi
+  fail "$label — missing or wrong shape in $STAGING_APP_DIR/.env.api"
+}
 
-# STRIPE_SECRET_KEY must be sk_test_…
-if echo "$ENV_LINES" | grep -q "^STRIPE_SECRET_KEY=sk_test_"; then
-  pass "STRIPE_SECRET_KEY present (sk_test_…)"
-elif echo "$ENV_LINES" | grep -q "^STRIPE_SECRET_KEY=sk_live_"; then
+# Refuse sk_live_ on staging immediately, before reporting the success path.
+if ssh "${SSH_OPTS[@]}" "root@$STAGING_HOST" \
+     "grep -qE '^STRIPE_SECRET_KEY=sk_live_' $STAGING_APP_DIR/.env.api" 2>/dev/null; then
   fail "STRIPE_SECRET_KEY is sk_live_… — staging must use Test mode keys"
-else
-  fail "STRIPE_SECRET_KEY missing or invalid in $STAGING_APP_DIR/.env.api"
 fi
 
-# STRIPE_WEBHOOK_SECRET must start with whsec_
-echo "$ENV_LINES" | grep -q "^STRIPE_WEBHOOK_SECRET=whsec_" \
-  && pass "STRIPE_WEBHOOK_SECRET present (whsec_…)" \
-  || fail "STRIPE_WEBHOOK_SECRET missing or invalid in .env.api"
-
-# STRIPE_PRICE_ID_PREMIUM must start with price_
-echo "$ENV_LINES" | grep -q "^STRIPE_PRICE_ID_PREMIUM=price_" \
-  && pass "STRIPE_PRICE_ID_PREMIUM present (price_…)" \
-  || fail "STRIPE_PRICE_ID_PREMIUM missing in .env.api"
-
-# Sandbox flag is required for sk_test_… in staging.
-echo "$ENV_LINES" | grep -q "^STRIPE_ALLOW_SANDBOX=true" \
-  && pass "STRIPE_ALLOW_SANDBOX=true (config validator will accept sk_test_…)" \
-  || fail "STRIPE_ALLOW_SANDBOX=true missing — config validator will refuse sk_test_… on boot"
+check_env_var STRIPE_SECRET_KEY        "sk_test_" "STRIPE_SECRET_KEY present (sk_test_…)"
+check_env_var STRIPE_WEBHOOK_SECRET    "whsec_"   "STRIPE_WEBHOOK_SECRET present (whsec_…)"
+check_env_var STRIPE_PRICE_ID_PREMIUM  "price_"   "STRIPE_PRICE_ID_PREMIUM present (price_…)"
+check_env_var STRIPE_ALLOW_SANDBOX     "true"     "STRIPE_ALLOW_SANDBOX=true (config validator will accept sk_test_…)"
 
 # ============================================================================
 step "4. Webhook signature verification end-to-end"
