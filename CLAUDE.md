@@ -55,7 +55,7 @@ Monorepo, pnpm + npm hybrid (mobile is its own pubspec workspace).
 
 - **`apps/mobile`** — Flutter (Dart SDK `^3.0.0`). Riverpod, Dio (via `api_client`), `sqflite_sqlcipher`, `flutter_dotenv` for env config (NOT dart-defines). Bundle ID `app.havenkeep.mobile` on both iOS and Android.
 - **`apps/api`** — Express + Postgres (raw `pg` client, NOT Prisma). JWT auth with refresh tokens. Routes per feature (`src/routes/*`). Logging via pino → Loki. No Sentry.
-- **`apps/marketing`** — Astro static site. Tailwind dark theme. Hosts `/legal/*` and `/delete-account` for store compliance. Sitemap + RSS shipped. CSP/X-Frame headers expected via Caddy in front of the static host.
+- **`apps/marketing`** — Astro static site. Tailwind dark theme. Hosts `/legal/*` and `/delete-account` for store compliance. Sitemap + RSS shipped. CSP/X-Frame headers are set by Caddy in front of the static host (live on staging via the shared `infra/Caddyfile`; production matches the same shape — see Part 3 §B.2).
 - **`apps/partner-dashboard`** — Next.js admin/partner portal. Same-origin proxy at `/api/v1/[...path]` with header allowlist + double-submit CSRF on mutations.
 - **`packages/shared_models`** — Dart models shared between mobile and any other Dart consumer. Hydrate-render tested.
 - **`packages/api_client`** — Dart wrapper around Dio for talking to the Express API. `pathSegments` API; sealed `ApiException` hierarchy with 9 typed subclasses; `idempotencyKey` parameter on every mutating method.
@@ -86,7 +86,41 @@ Per-environment Services IDs follow the convention:
 - Webhook events table tracks delivery + retries with dead-letter at attempt 8.
 
 ### DB migrations
-Numbered migrations live in `apps/api/src/db/migrations/`: 028–039 (security/data-loss criticals), 040–045 (DB foundation), 050–051 (payments + uploads), 060–067 (services), 070 (drift constraints), 071 (partner status enum), 072–074 (digest outbox / welcome email open / category repair-cost defaults), 075–081 (audit-chain casts, request idempotency, MinIO object keys, audit-chain advisory lock, audit-logs description cap), 082 (re-applies audit-trigger casts + advisory lock together — fixes audit C1 where 080 regressed 075's enum/UUID casts), 083 (warranty_*.user_id RESTRICT→SET NULL + denormalized email columns for purge anonymization — audit C4), 084 (user_mfa_factors + user_mfa_backup_codes for TOTP enrollment — audit S-C2), 085 (drop dead documents.deleted_at column — H-D3), 086 (drop redundant plaintext partner_gifts.activation_code UNIQUE — H-D4), 087 (webhook_events.id → bigint — H-D5), 088 (email_scans.completion_message — H-D7), 089 (chargeback_status regex CHECK — H-D8), 090 (category_defaults.lifespan_years seeded from items.ts hardcoded map — H-C2), 091 (audit_logs.user_email → VARCHAR(320) — M-D2), 092 (partners is_active/status invariant CHECK — M-D4), 093 (documents.file_size non-negative CHECK — M-NEW-5), 094 (drop redundant idx_newsletter_subscribers_email — M-NEW-6). Runner auto-detects `ALTER TYPE ADD VALUE` and `CREATE INDEX CONCURRENTLY` and runs those files outside transactions; the runner now also wraps `main()` in `pg_advisory_lock` (H-D1) so two replicas booting simultaneously can't race on the same DDL. `schema_version` table tracks bootstrap completion.
+Numbered migrations live in `apps/api/src/db/migrations/`: 028–039 (security/data-loss criticals), 040–045 (DB foundation), 050–051 (payments + uploads), 060–067 (services), 070 (drift constraints), 071 (partner status enum), 072–074 (digest outbox / welcome email open / category repair-cost defaults), 075–081 (audit-chain casts, request idempotency, MinIO object keys, audit-chain advisory lock, audit-logs description cap), 082 (re-applies audit-trigger casts + advisory lock together — fixes audit C1 where 080 regressed 075's enum/UUID casts), 083 (warranty_*.user_id RESTRICT→SET NULL + denormalized email columns for purge anonymization — audit C4), 084 (user_mfa_factors + user_mfa_backup_codes for TOTP enrollment — audit S-C2), 085 (drop dead documents.deleted_at column — H-D3), 086 (drop redundant plaintext partner_gifts.activation_code UNIQUE — H-D4), 087 (webhook_events.id → bigint — H-D5), 088 (email_scans.completion_message — H-D7), 089 (chargeback_status regex CHECK — H-D8), 090 (category_defaults.lifespan_years seeded from items.ts hardcoded map — H-C2), 091 (audit_logs.user_email → VARCHAR(320) — M-D2), 092 (partners is_active/status invariant CHECK — M-D4), 093 (documents.file_size non-negative CHECK — M-NEW-5), 094 (drop redundant idx_newsletter_subscribers_email — M-NEW-6), 095 (partial index on partner_commissions for the 30-day auto-approve sweep + columns for self-service payouts), 096 (audit_action enum: add `partner.payout_request` so the new payout endpoint can audit-log without 22P02), 097 (warranty_claim_state_history immutable trigger now allows FK CASCADE delete from the parent claim), 098 (warranty_purchase_status enum: add `cancelling` for the three-phase cancel flow's transient state), 099 (cleanup_old_audit_logs() rewritten as SECURITY DEFINER under audit_cleaner role — newer Postgres rejects mid-function `SET LOCAL ROLE` inside a SECURITY DEFINER body), 100 (grant SELECT on audit_logs to audit_cleaner — DELETE alone wasn't enough; PG needs SELECT to evaluate the WHERE clause). Runner auto-detects `ALTER TYPE ADD VALUE` and `CREATE INDEX CONCURRENTLY` and runs those files outside transactions; the runner also wraps `main()` in `pg_advisory_lock` (H-D1) so two replicas booting simultaneously can't race on the same DDL. `schema_version` table tracks bootstrap completion.
+
+### Stripe SDK pin
+`stripe@^21.0.1` with `apiVersion: '2026-03-25.dahlia'` (see [apps/api/src/utils/stripe-client.ts](apps/api/src/utils/stripe-client.ts)). NOT v22 — v22 ships a CJS-typing regression that breaks `Stripe.Charge` / `Stripe.PaymentIntent` / `Stripe.Event` resolution under our `tsconfig.module=commonjs`. v21 carries the same API version pin and runtime surface. Bump to v22+ once Stripe ships the CJS fix or we migrate the API to ESM.
+
+### Staging deployment
+Staging lives on a shared Digital Ocean droplet at **`206.189.26.12`** (Ubuntu 24.04, 8 GB / 2 vCPU). Eight apps share the box (havenkeep, loni, restorae, platform, bquick, legalci, fortify, hge-men) plus shared infra (Postgres, MinIO, Redis, Caddy, Dozzle). HavenKeep does NOT run its own Postgres/Redis/MinIO — it consumes the shared infra-postgres / infra-redis / infra-minio containers on the `staging-net` Docker network.
+
+Deploy system lives at **`~/Projects/staging/`** (separate repo, not in this monorepo). The flow:
+```sh
+cd ~/Projects/staging
+./ship.sh havenkeep            # builds 3 images on laptop, scps tarballs, deploys
+./rollback.sh havenkeep        # roll back to previous image tag
+```
+What `ship.sh` does: builds `havenkeep-api`, `havenkeep-dashboard`, `havenkeep-marketing` for `linux/amd64`, saves as gzipped tarballs, scps to `/opt/staging/havenkeep/images/`, then SSHes and triggers `/opt/staging/havenkeep/deploy.sh <tag>`. The droplet-side `deploy.sh` runs migrations as a one-shot container (`profile: migrate`) before flipping `IMAGE_TAG=` in `.env` and `docker compose up -d --force-recreate`. Failed healthchecks roll back automatically.
+
+| Surface | URL | Container | Bound to |
+|---|---|---|---|
+| Marketing | `https://staging.havenkeep.app` | `havenkeep-marketing` | `staging-net:4321` (Astro preview) |
+| API | `https://api.staging.havenkeep.app` | `havenkeep-api` | `staging-net:3000` |
+| Partner dashboard | `https://partner.staging.havenkeep.app` | `havenkeep-dashboard` | `staging-net:3001` |
+
+(Subdomain note: staging uses `partner.` singular — that's what the live Caddyfile binds. Production may use `partners.` plural; decide before going live.)
+
+**Where staging secrets live** (NOT in this repo — they live on the droplet):
+- `/opt/staging/havenkeep/.env` — just `IMAGE_TAG=<tag>`, read by compose
+- `/opt/staging/havenkeep/.env.api` — API runtime env: `APP_BASE_URL`, `FRONTEND_URL`, `DASHBOARD_URL`, `CORS_ORIGINS`, `STRIPE_*`, `JWT_SECRET`, etc.
+- `/opt/staging/havenkeep/.env.dashboard` — Next.js runtime env
+- `/opt/staging/infra/.env` — shared infra (postgres root password, per-app DB passwords, MinIO root + 6 per-app keypairs, Redis password)
+
+Per-app Caddy routing lives in `/opt/staging/infra/Caddyfile`. The havenkeep block already has a raw-body matcher for `/api/v1/webhooks/stripe` and `/api/v1/webhooks/revenuecat` (Stripe signature verification needs the raw body unmolested by Caddy compression).
+
+Logs: `https://logs.staging.kouakoudomagni.com` (Dozzle, basic auth — ask Domagni for credentials). Or `ssh root@206.189.26.12 'docker logs havenkeep-api -f'`.
+
+Production runbook is in Part 3 §B.
 
 ---
 
@@ -143,9 +177,11 @@ The three apps each need their own hostname. DNS A records all point at the same
 |---|---|---|---|
 | Marketing site | `havenkeep.com` (+ `www.havenkeep.com` redirect) | `staging.havenkeep.app` | `80` (nginx) |
 | API | `api.havenkeep.com` | `api.staging.havenkeep.app` | `3000` |
-| Partner dashboard | `partners.havenkeep.com` | `partners.staging.havenkeep.app` | `3001` |
+| Partner dashboard | `partners.havenkeep.com` | `partner.staging.havenkeep.app` | `3001` |
 
-The staging triple lives on the shared dev droplet (`104.248.51.126`) behind Loni's Caddy on the 20** port range; `docker-compose.staging.yml` + `scripts/deploy-staging.sh` use these hostnames as defaults. Production lives on its own host with its own Caddy. Staging Stripe webhooks point at `https://api.staging.havenkeep.app/api/v1/webhooks/stripe`; production at the `.com` equivalent.
+The staging triple is documented in Part 2 §"Staging deployment" — droplet `206.189.26.12`, deployed via `~/Projects/staging/ship.sh havenkeep`. Production lives on its own host with its own Caddy. Staging Stripe webhooks point at `https://api.staging.havenkeep.app/api/v1/webhooks/stripe`; production at the `.com` equivalent.
+
+**Subdomain note:** staging is `partner.` (singular, matches the live Caddyfile); the prod row above shows `partners.` (plural). Decide before going live and pick one — symmetry with staging argues for `partner.havenkeep.com`. Whatever you pick, update the DNS record list below + the Caddyfile.
 
 **DNS records to create** (at your registrar):
 ```
@@ -155,7 +191,7 @@ api.havenkeep.com.                   A     <prod-ip>
 partners.havenkeep.com.              A     <prod-ip>
 staging.havenkeep.app.               A     <staging-ip>
 api.staging.havenkeep.app.           A     <staging-ip>
-partners.staging.havenkeep.app.      A     <staging-ip>
+partner.staging.havenkeep.app.       A     <staging-ip>
 ```
 
 **Caddyfile** (place at `/etc/caddy/Caddyfile` on the prod host; Caddy auto-issues Let's Encrypt certs). This also covers W078 / W111 — the production CSP enforcement headers must be set by Caddy in front of the static Astro site:
