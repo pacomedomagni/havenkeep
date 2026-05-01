@@ -63,6 +63,15 @@ class RedisStore {
     return { totalHits, resetTime };
   }
 
+  async decrement(key: string): Promise<void> {
+    // express-rate-limit ≥7 calls decrement when a request handler later
+    // marks itself as not-counting (e.g. failed auth shouldn't pull from
+    // the limit budget). Pop one element from the sliding window so the
+    // count drops by 1; ZREMRANGEBYRANK with stop=0 removes the oldest.
+    const redisKey = this.prefix + key;
+    await this.client.zRemRangeByRank(redisKey, 0, 0);
+  }
+
   async resetKey(key: string): Promise<void> {
     const redisKey = this.prefix + key;
     await this.client.del(redisKey);
