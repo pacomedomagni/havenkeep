@@ -40,7 +40,7 @@ const CLIENT_LEAK_MS = intFromEnv('DB_CLIENT_LEAK_THRESHOLD', 10_000);
 // (Ch11-I036) Production: rejectUnauthorized:true PLUS a CA file when
 // DB_SSL_CA_FILE is set, so we actually verify the issuer.
 function buildSslConfig() {
-  if (config.env === 'production' || config.database.ssl) {
+  if (config.database.ssl) {
     const caPath = process.env.DB_SSL_CA_FILE;
     if (caPath) {
       try {

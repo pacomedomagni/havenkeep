@@ -118,7 +118,7 @@ async function runMigration(migrationFile: string) {
     if (!skipTxn) {
       await client.query('ROLLBACK').catch(() => {});
     }
-    logger.error({ error, file: migrationFile }, 'Migration failed');
+    logger.error({ err: error, file: migrationFile }, 'Migration failed');
     throw error;
   } finally {
     client.release();
@@ -215,7 +215,7 @@ async function main() {
     });
     process.exit(0);
   } catch (error) {
-    logger.error({ error }, 'Migration failed');
+    logger.error({ err: error }, 'Migration failed');
     process.exit(1);
   } finally {
     await pool.end();

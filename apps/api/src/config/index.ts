@@ -48,7 +48,12 @@ export const config = {
     name: process.env.DB_NAME || 'havenkeep',
     user: process.env.DB_USER || 'havenkeep',
     password: readSecret('DB_PASSWORD') || readSecret('POSTGRES_PASSWORD') || '',
-    ssl: process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging',
+    // SSL is required to the DB only when DB_SSL=true (e.g. RDS / Aiven /
+    // managed Postgres reachable over the public internet). Staging runs
+    // Postgres on the same Docker private network behind Caddy — there is
+    // no plaintext-on-the-wire risk and forcing SSL only causes
+    // ECONNREFUSED against a non-SSL Postgres listener.
+    ssl: process.env.DB_SSL === 'true',
   },
 
   jwt: {
