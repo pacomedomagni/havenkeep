@@ -128,12 +128,23 @@ api_call() {
   local token; token=$(cat "$STATE_DIR/token" 2>/dev/null || echo "")
   if [ -z "$token" ]; then fail "No token in $STATE_DIR/token — re-run phase 1 first"; fi
   local out; out=$(mktemp)
-  HTTP_CODE=$(curl -sS -o "$out" -w "%{http_code}" \
+  # When this function is called via `$(api_call ...)`, the assignment to
+  # HTTP_CODE happens in a subshell and never reaches the parent. Persist
+  # the code via a state-dir file so callers can read it after.
+  local code; code=$(curl -sS -o "$out" -w "%{http_code}" \
     -X "$method" "$STAGING_API$path" \
     -H "Authorization: Bearer $token" \
     -H "Content-Type: application/json" \
     ${body:+--data "$body"})
+  echo "$code" > "$STATE_DIR/http_code"
+  HTTP_CODE="$code"
   cat "$out"; rm -f "$out"
+}
+
+# Read HTTP_CODE set by the most recent api_call. Use this when api_call
+# was invoked via `$()` (which puts the assignment in a subshell).
+last_http_code() {
+  cat "$STATE_DIR/http_code" 2>/dev/null
 }
 
 # Wait until a docker log line matches the given pattern, with a timeout.
@@ -305,10 +316,10 @@ ensure_partner_user() {
 ensure_partner_record() {
   info "ensuring partner record exists"
   api_call POST /api/v1/partners/register '{"partner_type":"realtor","company_name":"E2E Test Realty","phone":"555-0100"}' >/dev/null
-  case "$HTTP_CODE" in
+  case "$(last_http_code)" in
     201|200) pass "partner record created" ;;
     400)     pass "partner record already existed (idempotent)" ;;
-    *)       fail "/partners/register HTTP $HTTP_CODE" ;;
+    *)       fail "/partners/register HTTP $(last_http_code)" ;;
   esac
 
   PARTNER_ID=$(db_query_one \
@@ -372,15 +383,14 @@ ensure_stripe_customer_with_card() {
       --customer "$CUSTOMER" \
       --payment-method-types card \
       -d "usage=off_session" \
-      -d "automatic_payment_methods[enabled]=true" \
-      -d "automatic_payment_methods[allow_redirects]=never" \
       | jq -r .id)
     [ -n "$SI" ] || fail "setup_intents create returned no id"
     PM=$(stripe payment_methods create --type card -d "card[token]=tok_visa" | jq -r .id)
     [ -n "$PM" ] || fail "payment_methods create returned no id"
-    stripe setup_intents confirm "$SI" \
-      -d "payment_method=$PM" \
-      -d "return_url=https://staging.havenkeep.app/done" >/dev/null
+    SI_STATUS=$(stripe setup_intents confirm "$SI" -d "payment_method=$PM" | jq -r .status)
+    if [ "$SI_STATUS" != "succeeded" ]; then
+      fail "SetupIntent confirm did not reach 'succeeded' (status=$SI_STATUS)"
+    fi
     stripe customers update "$CUSTOMER" \
       -d "invoice_settings[default_payment_method]=$PM" >/dev/null
 
@@ -413,8 +423,8 @@ if want_phase 2; then
       premium_months:6,
       custom_message:"E2E test gift"
     }')")
-  if [ "$HTTP_CODE" != "201" ] && [ "$HTTP_CODE" != "200" ]; then
-    red "  POST /partners/gifts HTTP $HTTP_CODE"
+  if [ "$(last_http_code)" != "201" ] && [ "$(last_http_code)" != "200" ]; then
+    red "  POST /partners/gifts HTTP $(last_http_code)"
     echo "$GIFT_RES" | head -c 400 >&2; echo >&2
     fail "gift creation failed"
   fi
@@ -454,12 +464,17 @@ if want_phase 3; then
   expect_log "charge.refunded handler dispatched" \
     "eventType.*charge.refunded" 15
 
-  # The handler inserts a 'reversed' sibling row on the partner_commission
-  # to claw back the full commission. Wait for that to appear.
+  # Refund clawback semantics depend on the commission's prior state:
+  #   - if commission was still 'pending' (no payout yet, our case here),
+  #     the handler flips the row in-place to 'cancelled'.
+  #   - if commission was already 'paid', the handler inserts a separate
+  #     'reversed' sibling row carrying the negative amount.
+  # Phase 6 (payout) exercises the second path; here we just confirm the
+  # pending row was cancelled.
   GIFT_ID=$(cat "$STATE_DIR/gift_id")
-  expect_db "commission reversal row exists" \
-    "SELECT COUNT(*) FROM partner_commissions WHERE reference_id='$GIFT_ID' AND status='reversed'" \
-    "1" 15
+  expect_db "commission cancelled (pending-state refund)" \
+    "SELECT status FROM partner_commissions WHERE reference_id='$GIFT_ID'" \
+    "cancelled" 15
 fi
 
 # ============================================================================
@@ -496,7 +511,7 @@ if want_phase 5; then
 
   info "POST /partners/stripe-connect/onboard"
   ONB=$(api_call POST /api/v1/partners/stripe-connect/onboard "")
-  [ "$HTTP_CODE" = "200" ] || { red "  HTTP $HTTP_CODE"; echo "$ONB" >&2; fail "onboard call failed"; }
+  [ "$(last_http_code)" = "200" ] || { red "  HTTP $(last_http_code)"; echo "$ONB" >&2; fail "onboard call failed"; }
   ACCOUNT_LINK=$(echo "$ONB" | jq -r '.data.url // .url // empty')
   pass "onboarding link issued: ${ACCOUNT_LINK:0:60}…"
 
@@ -541,9 +556,9 @@ if want_phase 6; then
 
   info "POST /partners/me/payouts"
   PAYOUT_RES=$(api_call POST /api/v1/partners/me/payouts '{}')
-  case "$HTTP_CODE" in
+  case "$(last_http_code)" in
     200) pass "payout endpoint returned 200" ;;
-    *)   red "  HTTP $HTTP_CODE"; echo "$PAYOUT_RES" >&2;
+    *)   red "  HTTP $(last_http_code)"; echo "$PAYOUT_RES" >&2;
          fail "payout endpoint failed (likely Connect account not 'enabled' — finish phase 5 first)" ;;
   esac
   echo "$PAYOUT_RES" | jq . | sed 's/^/      /' | head -20
