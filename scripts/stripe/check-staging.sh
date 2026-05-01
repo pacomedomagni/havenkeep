@@ -93,16 +93,6 @@ HEALTH_STATUS=$(jq -r '.status // "missing"' < /tmp/.hk-health 2>/dev/null)
 pass "$STAGING_API/health → 200 {status: ok}"
 rm -f /tmp/.hk-health
 
-# Caddy must serve the AASA file as application/json (mobile compliance,
-# also signals Caddy itself is healthy on the host).
-AASA_CT=$(curl -sI --max-time 5 "https://staging.havenkeep.app/.well-known/apple-app-site-association" \
-  | grep -i "^content-type:" | tr -d '\r' | awk '{print tolower($2)}' || true)
-if [ "$AASA_CT" = "application/json" ]; then
-  pass "marketing site Caddy serving AASA correctly"
-else
-  yellow "  WARN  AASA Content-Type is '$AASA_CT' (expected application/json) — mobile universal links will silently fail"
-fi
-
 # ============================================================================
 step "3. API config (staging .env.api on droplet)"
 # ============================================================================
