@@ -24,7 +24,7 @@ This account is provisioned with the Premium entitlement enabled server-side via
 https://havenkeep.com/legal/privacy
 ```
 
-(For staging review use: `https://havenkeep.kouakoudomagni.com/legal/privacy`.)
+(For staging review use: `https://staging.havenkeep.app/legal/privacy`.)
 
 ---
 

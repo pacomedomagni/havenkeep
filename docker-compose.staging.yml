@@ -150,9 +150,9 @@ services:
       REVENUECAT_SECRET_API_KEY: ${REVENUECAT_SECRET_API_KEY:-}
       REVENUECAT_WEBHOOK_SECRET: ${REVENUECAT_WEBHOOK_SECRET:-}
       FIREBASE_SERVICE_ACCOUNT_JSON: ${FIREBASE_SERVICE_ACCOUNT_JSON:-}
-      APP_BASE_URL: ${APP_BASE_URL:-https://api.havenkeep.kouakoudomagni.com}
-      FRONTEND_URL: ${FRONTEND_URL:-https://havenkeep.kouakoudomagni.com}
-      DASHBOARD_URL: ${DASHBOARD_URL:-https://partner.havenkeep.kouakoudomagni.com}
+      APP_BASE_URL: ${APP_BASE_URL:-https://api.staging.havenkeep.app}
+      FRONTEND_URL: ${FRONTEND_URL:-https://staging.havenkeep.app}
+      DASHBOARD_URL: ${DASHBOARD_URL:-https://partners.staging.havenkeep.app}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/health"]

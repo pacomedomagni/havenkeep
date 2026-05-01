@@ -38,7 +38,7 @@ router.use(requirePremium);
 // (comma-separated). Defaults to the canonical mobile + web callbacks.
 const OAUTH_REDIRECT_URI_PREFIXES = (
   process.env.OAUTH_REDIRECT_URI_PREFIXES ||
-  'havenkeep://oauth-callback,https://havenkeep.com/oauth-callback,https://havenkeep.kouakoudomagni.com/oauth-callback'
+  'havenkeep://oauth-callback,https://havenkeep.com/oauth-callback,https://staging.havenkeep.app/oauth-callback'
 )
   .split(',')
   .map((s) => s.trim())

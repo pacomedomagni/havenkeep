@@ -82,7 +82,7 @@ case "$CMD" in
       docker build --platform "$PLATFORM" \
         -f apps/partner-dashboard/Dockerfile \
         --target production \
-        --build-arg NEXT_PUBLIC_API_URL=https://api.havenkeep.kouakoudomagni.com \
+        --build-arg NEXT_PUBLIC_API_URL=https://api.staging.havenkeep.app \
         -t "$DASHBOARD_IMAGE" \
         apps/partner-dashboard
       echo -e "${CYAN}  Saving Dashboard image...${NC}"
@@ -184,9 +184,9 @@ case "$CMD" in
     echo -e "${GREEN}  HavenKeep staging deployed!${NC}"
     echo -e "${GREEN}═══════════════════════════════════════${NC}"
     echo ""
-    echo -e "  API:        ${CYAN}https://api.havenkeep.kouakoudomagni.com${NC}"
-    echo -e "  Marketing:  ${CYAN}https://havenkeep.kouakoudomagni.com${NC}"
-    echo -e "  Dashboard:  ${CYAN}https://partner.havenkeep.kouakoudomagni.com${NC}"
+    echo -e "  API:        ${CYAN}https://api.staging.havenkeep.app${NC}"
+    echo -e "  Marketing:  ${CYAN}https://staging.havenkeep.app${NC}"
+    echo -e "  Dashboard:  ${CYAN}https://partners.staging.havenkeep.app${NC}"
     echo ""
     ;;
 

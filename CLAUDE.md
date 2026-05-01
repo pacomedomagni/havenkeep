@@ -139,18 +139,23 @@ Validation: the API's config validator refuses to boot in production unless `STR
 
 The three apps each need their own hostname. DNS A records all point at the same prod-host IP; Caddy in front routes by Host header.
 
-| App | Hostname | Container port | Purpose |
+| App | Production | Staging | Container port |
 |---|---|---|---|
-| Marketing site | `havenkeep.com` (+ `www.havenkeep.com` redirect) | `80` (nginx) | Public site, /partners landing |
-| API | `api.havenkeep.com` | `3000` | Mobile + dashboard backend, Stripe webhook target |
-| Partner dashboard | `partners.havenkeep.com` | `3001` | Partner self-service portal |
+| Marketing site | `havenkeep.com` (+ `www.havenkeep.com` redirect) | `staging.havenkeep.app` | `80` (nginx) |
+| API | `api.havenkeep.com` | `api.staging.havenkeep.app` | `3000` |
+| Partner dashboard | `partners.havenkeep.com` | `partners.staging.havenkeep.app` | `3001` |
+
+The staging triple lives on the shared dev droplet (`104.248.51.126`) behind Loni's Caddy on the 20** port range; `docker-compose.staging.yml` + `scripts/deploy-staging.sh` use these hostnames as defaults. Production lives on its own host with its own Caddy. Staging Stripe webhooks point at `https://api.staging.havenkeep.app/api/v1/webhooks/stripe`; production at the `.com` equivalent.
 
 **DNS records to create** (at your registrar):
 ```
-havenkeep.com.            A     <prod-ip>
-www.havenkeep.com.        A     <prod-ip>
-api.havenkeep.com.        A     <prod-ip>
-partners.havenkeep.com.   A     <prod-ip>
+havenkeep.com.                       A     <prod-ip>
+www.havenkeep.com.                   A     <prod-ip>
+api.havenkeep.com.                   A     <prod-ip>
+partners.havenkeep.com.              A     <prod-ip>
+staging.havenkeep.app.               A     <staging-ip>
+api.staging.havenkeep.app.           A     <staging-ip>
+partners.staging.havenkeep.app.      A     <staging-ip>
 ```
 
 **Caddyfile** (place at `/etc/caddy/Caddyfile` on the prod host; Caddy auto-issues Let's Encrypt certs). This also covers W078 / W111 — the production CSP enforcement headers must be set by Caddy in front of the static Astro site:
