@@ -197,22 +197,22 @@ expect_db() {
 # ============================================================================
 if [ "$CLEANUP" = "1" ]; then
   cyan "Cleanup: removing e2e fixtures from staging…"
-  $SSH "docker exec infra-postgres psql -U havenkeep -d havenkeep <<EOSQL
-    -- Find the test partner via the tag email and tear down everything that
-    -- references it. partner_commissions / partner_gifts FK cascade.
-    DELETE FROM partner_gifts
-      WHERE partner_id IN (
-        SELECT p.id FROM partners p JOIN users u ON u.id = p.user_id
-         WHERE u.email = '$TEST_PARTNER_EMAIL'
-      );
-    DELETE FROM partner_commissions
-      WHERE partner_id IN (
-        SELECT p.id FROM partners p JOIN users u ON u.id = p.user_id
-         WHERE u.email = '$TEST_PARTNER_EMAIL'
-      );
-    DELETE FROM partners WHERE user_id IN (SELECT id FROM users WHERE email = '$TEST_PARTNER_EMAIL');
-    DELETE FROM users WHERE email IN ('$TEST_PARTNER_EMAIL', '$TEST_HOMEBUYER_EMAIL');
-EOSQL"
+  # Use a LIKE pattern that matches every fixture this script has ever
+  # created across all $HK_E2E_SLUG overrides — every fixture email
+  # contains 'e2e-stripe'. Heredoc-through-ssh quoting is fragile; run
+  # each statement as its own psql -c so the SSH layer can't strip
+  # parts of a multi-line script.
+  PATTERN="%e2e-stripe%"
+  for sql in \
+    "DELETE FROM partner_commissions WHERE partner_id IN (SELECT p.id FROM partners p JOIN users u ON u.id=p.user_id WHERE u.email LIKE '$PATTERN')" \
+    "DELETE FROM partner_gifts WHERE partner_id IN (SELECT p.id FROM partners p JOIN users u ON u.id=p.user_id WHERE u.email LIKE '$PATTERN')" \
+    "DELETE FROM partners WHERE user_id IN (SELECT id FROM users WHERE email LIKE '$PATTERN')" \
+    "DELETE FROM refresh_tokens WHERE user_id IN (SELECT id FROM users WHERE email LIKE '$PATTERN')" \
+    "DELETE FROM users WHERE email LIKE '$PATTERN'"
+  do
+    $SSH "docker exec infra-postgres psql -U havenkeep -d havenkeep -c \"$sql\"" 2>/dev/null \
+      | sed 's/^/      /'
+  done
   rm -rf "$STATE_DIR"
   green "  cleanup done — fixtures purged from DB; Stripe test customers/accounts left in place (manual purge in Test mode dashboard if desired)"
   exit 0

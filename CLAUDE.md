@@ -126,38 +126,9 @@ Logs: `https://logs.staging.kouakoudomagni.com` (Dozzle, basic auth — ask Doma
 
 Every gate is currently green: api tsc + 305/305 jest tests, dashboard tsc + build, marketing build, both Dart packages analyze, mobile analyze, 444 flutter tests, debug APK build all pass. The 2026-04-29 audit-remediation arc is closed (145 findings → 145 dispositions; see `git log --oneline` if you need the per-finding history).
 
-**No outstanding code-level work.** All in-repo follow-ups (S-M7 public CSRF mint, Phase-5 activation-code wipe) shipped on `main`. The list below is staging-track only — production is months away and intentionally not documented here yet (when prod gets close, that runbook gets written based on what staging actually proved).
+**No outstanding code-level work.** All in-repo follow-ups (S-M7 public CSRF mint, Phase-5 activation-code wipe) shipped on `main`. **Staging Stripe is verified-green** — `./scripts/stripe/check-staging.sh` and `./scripts/stripe/e2e-staging.sh` both pass; a real $9.90 transfer landed on a Connect account during phase 6. The only outstanding work is mobile build prep below — production is months away and intentionally not documented here yet.
 
-### A. Staging — Stripe test mode setup
-
-The partner-payout pipeline runs end to end against staging at `https://api.staging.havenkeep.app/api/v1/webhooks/stripe`.
-
-**Setup** (one-time):
-
-1. **On the staging droplet** (`/opt/staging/havenkeep/.env.api`), populate:
-   - `STRIPE_SECRET_KEY=sk_test_…` (Stripe Dashboard, **Test mode** toggle on)
-   - `STRIPE_WEBHOOK_SECRET=whsec_…` (the signing secret printed when you save the webhook endpoint)
-   - `STRIPE_PRICE_ID_PREMIUM=price_…` (create the Premium product under Test mode first)
-   - `STRIPE_ALLOW_SANDBOX=true` (the config validator refuses `sk_test_…` without it)
-2. **In the Stripe Dashboard (Test mode)**, register the webhook endpoint at `https://api.staging.havenkeep.app/api/v1/webhooks/stripe` subscribing to: `payment_intent.succeeded`, `payment_intent.payment_failed`, `charge.refunded`, `charge.dispute.created`, `charge.dispute.updated`, `charge.dispute.closed`, `customer.deleted`, `customer.updated`, `radar.early_fraud_warning.created`, `payout.failed`, `account.updated`. The handlers are in [apps/api/src/routes/webhooks.ts](apps/api/src/routes/webhooks.ts). (Dispute outcome — won/lost — is on `charge.dispute.closed.status`; there is no separate `.lost` event.)
-3. **Enable Connect (Test mode)** under Connect → Settings: Express accounts on, OAuth + Direct on, Stripe-issued 1099-NEC on.
-
-**Verification scripts** ship in [scripts/stripe/](scripts/stripe/):
-
-- `./scripts/stripe/check-staging.sh` — under-10s connectivity smoke test. Verifies stripe CLI auth, public surface (Caddy + `/health`), API config (the four env values land in `.env.api`), and webhook signature path end to end.
-- `./scripts/stripe/e2e-staging.sh` — full acceptance suite. Seven independent phases:
-  - **Phase 1: plumbing** — fires every subscribed event via `stripe trigger`, verifies API logs each handler ran
-  - **Phase 2: gift purchase** — creates a real PaymentIntent through `POST /partners/gifts`, verifies `partner_gifts.status='created'` + commission row
-  - **Phase 3: refund** — `stripe refunds create` → `charge.refunded` handler → reversal commission row
-  - **Phase 4: dispute** — `charge.dispute.created/.updated/.closed` triggers; `.lost` requires manual dashboard step
-  - **Phase 5: connect onboarding** — opens hosted Express form, waits for `account.updated` → `stripe_account_status='enabled'`
-  - **Phase 6: payout** — ages a commission past the 30-day clawback, runs `POST /partners/me/payouts`, verifies `transfer.id` written and row marked `paid`
-  - **Phase 7: failures** — `payment_intent.payment_failed`, `payout.failed`, `customer.deleted`, `radar.early_fraud_warning.created`
-  - Run subset via `--phases=2,3,4`. Wipe fixtures via `--cleanup`. Test state cached at `~/.havenkeep/stripe-e2e-staging/` so re-runs are idempotent.
-
-The bar for "staging Stripe is green" is `./scripts/stripe/e2e-staging.sh` exiting 0 on every phase.
-
-### B. Mobile build prep (when you're ready to ship a TestFlight / Play Internal build)
+### A. Mobile build prep (when you're ready to ship a TestFlight / Play Internal build)
 
 Code-side the mobile is build-ready: bundle ID `app.havenkeep.mobile`, Apple Team ID `N3RF2GHS99` wired into AASA + Xcode signing, upload-key SHA-256 wired into `assetlinks.json`, iOS PrivacyInfo.xcprivacy + APNs + Apple Sign-In + Associated Domains entitlements, complete Info.plist permission strings, `ITSAppUsesNonExemptEncryption=false`, adaptive Android launcher icon, all marketing legal pages live on staging.
 
