@@ -130,7 +130,9 @@ Every gate is currently green: api tsc + 305/305 jest tests, dashboard tsc + bui
 
 ### A. Staging — Stripe test mode setup
 
-The partner-payout pipeline runs end to end against staging at `https://api.staging.havenkeep.app/api/v1/webhooks/stripe`. To exercise it:
+The partner-payout pipeline runs end to end against staging at `https://api.staging.havenkeep.app/api/v1/webhooks/stripe`.
+
+**Setup** (one-time):
 
 1. **On the staging droplet** (`/opt/staging/havenkeep/.env.api`), populate:
    - `STRIPE_SECRET_KEY=sk_test_…` (Stripe Dashboard, **Test mode** toggle on)
@@ -138,16 +140,22 @@ The partner-payout pipeline runs end to end against staging at `https://api.stag
    - `STRIPE_PRICE_ID_PREMIUM=price_…` (create the Premium product under Test mode first)
    - `STRIPE_ALLOW_SANDBOX=true` (the config validator refuses `sk_test_…` without it)
 2. **In the Stripe Dashboard (Test mode)**, register the webhook endpoint at `https://api.staging.havenkeep.app/api/v1/webhooks/stripe` subscribing to: `payment_intent.succeeded`, `payment_intent.payment_failed`, `charge.refunded`, `charge.dispute.created`, `charge.dispute.lost`, `customer.deleted`, `customer.updated`, `radar.early_fraud_warning.created`, `payout.failed`, `account.updated`. The handlers are in [apps/api/src/routes/webhooks.ts](apps/api/src/routes/webhooks.ts).
-3. **Enable Connect (Test mode)** under Connect → Settings: Express accounts on, OAuth + Direct on, Stripe-issued 1099-NEC on. Branding info won't gate testing — fill it whenever.
-4. **Smoke test**:
-   ```sh
-   stripe login            # picks up Test mode automatically
-   stripe trigger payment_intent.succeeded
-   stripe trigger charge.refunded
-   ```
-   Watch `https://logs.staging.kouakoudomagni.com` (Dozzle) for the API processing each event.
+3. **Enable Connect (Test mode)** under Connect → Settings: Express accounts on, OAuth + Direct on, Stripe-issued 1099-NEC on.
 
-The 9-step partner acceptance test (sign up → onboard → gift → activate → commission → payout → refund → dispute) is the bar for "staging Stripe is green."
+**Verification scripts** ship in [scripts/stripe/](scripts/stripe/):
+
+- `./scripts/stripe/check-staging.sh` — under-10s connectivity smoke test. Verifies stripe CLI auth, public surface (Caddy + `/health`), API config (the four env values land in `.env.api`), and webhook signature path end to end.
+- `./scripts/stripe/e2e-staging.sh` — full acceptance suite. Seven independent phases:
+  - **Phase 1: plumbing** — fires every subscribed event via `stripe trigger`, verifies API logs each handler ran
+  - **Phase 2: gift purchase** — creates a real PaymentIntent through `POST /partners/gifts`, verifies `partner_gifts.status='created'` + commission row
+  - **Phase 3: refund** — `stripe refunds create` → `charge.refunded` handler → reversal commission row
+  - **Phase 4: dispute** — `charge.dispute.created/.updated/.closed` triggers; `.lost` requires manual dashboard step
+  - **Phase 5: connect onboarding** — opens hosted Express form, waits for `account.updated` → `stripe_account_status='enabled'`
+  - **Phase 6: payout** — ages a commission past the 30-day clawback, runs `POST /partners/me/payouts`, verifies `transfer.id` written and row marked `paid`
+  - **Phase 7: failures** — `payment_intent.payment_failed`, `payout.failed`, `customer.deleted`, `radar.early_fraud_warning.created`
+  - Run subset via `--phases=2,3,4`. Wipe fixtures via `--cleanup`. Test state cached at `~/.havenkeep/stripe-e2e-staging/` so re-runs are idempotent.
+
+The bar for "staging Stripe is green" is `./scripts/stripe/e2e-staging.sh` exiting 0 on every phase.
 
 ### B. Mobile build prep (when you're ready to ship a TestFlight / Play Internal build)
 
