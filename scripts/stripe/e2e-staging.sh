@@ -49,9 +49,13 @@ SSH="ssh ${SSH_OPTS[*]} root@$STAGING_HOST"
 # Test fixture identifiers. Re-runnable: same email + same partner record.
 # Suffix with a fixed slug so cleanup can find them and re-runs don't pile up.
 SLUG="e2e-stripe-${USER:-tester}"
-TEST_PARTNER_EMAIL="partner-${SLUG}@havenkeep.test"
-TEST_HOMEBUYER_EMAIL="homebuyer-${SLUG}@havenkeep.test"
-TEST_PASSWORD="StripeE2E-Stage-2026!ABC"
+# Use example.com (RFC 2606 reserved — never resolves; safe for test data
+# and passes Joi's TLD validation, unlike .test which Joi rejects).
+TEST_PARTNER_EMAIL="partner-${SLUG}@havenkeep.example.com"
+TEST_HOMEBUYER_EMAIL="homebuyer-${SLUG}@havenkeep.example.com"
+# Password must satisfy auth.validator.PASSWORD_PATTERN: ≥1 upper, ≥1 lower,
+# ≥1 digit, ≥1 of @$!%*?&. No hyphens (the pattern's char class is strict).
+TEST_PASSWORD="StripeE2EStage2026!ABC"
 
 # Where the e2e run stashes its state across phases (token, partner_id, gift_id).
 STATE_DIR="$HOME/.havenkeep/stripe-e2e-staging"
@@ -312,6 +316,33 @@ ensure_partner_record() {
   [ -n "$PARTNER_ID" ] || fail "could not resolve partner_id"
   echo "$PARTNER_ID" > "$STATE_DIR/partner_id"
   pass "partner_id=$PARTNER_ID"
+
+  # Newly registered partners are 'pending' until admin approval. The login
+  # JWT's isPartner claim AND the auth middleware's req.user.isPartner both
+  # source from `EXISTS(partners p WHERE status='active')`. The middleware
+  # also caches the user row in Redis (10s TTL) — invalidate that cache
+  # after the promotion so the very next request sees the updated state.
+  # Production goes through admin review.
+  info "promoting partner to status='active' (staging shortcut for admin approval)"
+  USER_ID=$(db_query_one "SELECT id FROM users WHERE email='$TEST_PARTNER_EMAIL'")
+  $SSH "docker exec infra-postgres psql -U havenkeep -d havenkeep -c \
+    \"UPDATE partners SET status='active', is_active=TRUE WHERE id='$PARTNER_ID'\"" >/dev/null
+  REDIS_PASS=$($SSH "grep '^REDIS_PASSWORD=' /opt/staging/havenkeep/.env.api | cut -d= -f2")
+  $SSH "docker exec infra-redis redis-cli -a '$REDIS_PASS' --no-auth-warning -n 3 del 'user:$USER_ID'" >/dev/null
+
+  # The JWT was minted before partner activation so its isPartner claim
+  # is still false. requirePartner middleware reads from the JWT, not the
+  # DB — relogin so the next call carries isPartner=true.
+  info "re-issuing access token now that partner is active"
+  RELOGIN=$(curl -sS -X POST "$STAGING_API/api/v1/auth/login" \
+    -H "Content-Type: application/json" \
+    --data "$(jq -n \
+      --arg email "$TEST_PARTNER_EMAIL" \
+      --arg password "$TEST_PASSWORD" \
+      '{email:$email, password:$password}')")
+  local newtok; newtok=$(echo "$RELOGIN" | jq -r '.data.accessToken // .accessToken // empty')
+  [ -n "$newtok" ] || fail "re-login after partner registration failed"
+  echo "$newtok" > "$STATE_DIR/token"
 }
 
 ensure_stripe_customer_with_card() {
@@ -332,13 +363,24 @@ ensure_stripe_customer_with_card() {
     [ -n "$CUSTOMER" ] || fail "stripe customer create failed"
     info "created Stripe customer $CUSTOMER"
 
-    # Attach a test PaymentMethod and set as default.
-    PM=$(stripe payment_methods create \
-      --type card \
-      --card.number 4242424242424242 \
-      --card.exp_month 12 --card.exp_year 2030 --card.cvc 314 \
+    # Run a SetupIntent + confirm cycle so the resulting PaymentMethod is
+    # marked usable for off_session charging. Just attaching a PM directly
+    # leaves it in a state where the API's `paymentIntents.create({off_session:true})`
+    # call fails with "missing a payment method" (Stripe requires the
+    # mandate set up via SetupIntent for off-session reuse).
+    SI=$(stripe setup_intents create \
+      --customer "$CUSTOMER" \
+      --payment-method-types card \
+      -d "usage=off_session" \
+      -d "automatic_payment_methods[enabled]=true" \
+      -d "automatic_payment_methods[allow_redirects]=never" \
       | jq -r .id)
-    stripe payment_methods attach "$PM" --customer "$CUSTOMER" >/dev/null
+    [ -n "$SI" ] || fail "setup_intents create returned no id"
+    PM=$(stripe payment_methods create --type card -d "card[token]=tok_visa" | jq -r .id)
+    [ -n "$PM" ] || fail "payment_methods create returned no id"
+    stripe setup_intents confirm "$SI" \
+      -d "payment_method=$PM" \
+      -d "return_url=https://staging.havenkeep.app/done" >/dev/null
     stripe customers update "$CUSTOMER" \
       -d "invoice_settings[default_payment_method]=$PM" >/dev/null
 

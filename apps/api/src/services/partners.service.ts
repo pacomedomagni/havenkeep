@@ -631,11 +631,32 @@ export class PartnersService {
       if (amountCents <= 0) {
         throw new AppError('Tier amount is invalid', 500);
       }
+
+      // PaymentIntents.create with `customer` does NOT auto-resolve the
+      // customer's default PaymentMethod when `confirm: true` — Stripe
+      // requires `payment_method` to be passed explicitly. Read the
+      // partner's saved default PM from the customer record so off-session
+      // charges actually use the saved card. Without this the call fails
+      // with payment_intent_unexpected_state ("missing a payment method").
+      const customer = await stripe.customers.retrieve(stripeCustomerId);
+      if (customer.deleted) {
+        throw new AppError('Stripe customer was deleted; please re-add a payment method', 402);
+      }
+      const defaultPm = customer.invoice_settings?.default_payment_method;
+      const paymentMethodId = typeof defaultPm === 'string' ? defaultPm : defaultPm?.id;
+      if (!paymentMethodId) {
+        throw new AppError(
+          'No saved payment method on file. Please add a card in your settings before creating gifts.',
+          402,
+        );
+      }
+
       const paymentIntent = await stripe.paymentIntents.create(
         {
           amount: amountCents,
           currency: 'usd',
           customer: stripeCustomerId,
+          payment_method: paymentMethodId,
           description: `Closing gift for ${data.homebuyerName}`,
           confirm: true,
           off_session: true,
