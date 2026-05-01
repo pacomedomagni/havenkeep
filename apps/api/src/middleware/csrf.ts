@@ -32,9 +32,9 @@ function csrfCookieOptions() {
  * upstream half that mints the cookie when a logged-in user lands
  * without one; this middleware is the downstream half that just
  * refreshes the maxAge so an idle session doesn't lose CSRF
- * protection mid-flow. If a future browser-based client talks
- * directly to api.havenkeep.com bypassing the dashboard proxy, it
- * needs a public mint endpoint (deferred — S-M7 in audit).
+ * protection mid-flow. Browser clients that talk directly to
+ * api.havenkeep.com bypassing the dashboard proxy mint via
+ * GET /api/v1/csrf (S-M7 — see routes/csrf.ts).
  *
  * Auth handlers (login, refresh, OAuth, signup) call [rotateCsrfToken]
  * to issue a fresh token bound to the new session.

@@ -92,30 +92,11 @@ Numbered migrations live in `apps/api/src/db/migrations/`: 028–039 (security/d
 
 ## Part 3 — Outstanding work
 
-Every gate is currently green: api tsc, dashboard tsc + build, marketing build, both Dart packages analyze, mobile analyze, 444 flutter tests, debug APK build all pass. The 2026-04-29 audit-remediation arc is closed (145 findings → 145 dispositions; see `git log --oneline` if you need the per-finding history). The list below is the only remaining work.
+Every gate is currently green: api tsc + 305/305 jest tests, dashboard tsc + build, marketing build, both Dart packages analyze, mobile analyze, 444 flutter tests, debug APK build all pass. The 2026-04-29 audit-remediation arc is closed (145 findings → 145 dispositions; see `git log --oneline` if you need the per-finding history).
 
-### A. In-code follow-ups (need code changes, no infra dependency)
+**No outstanding code-level work.** All in-repo follow-ups (S-M7 public CSRF mint, Phase-5 activation-code wipe) shipped on `main`. The remaining items below are off-platform configuration that has to happen on Stripe / Apple / Google / your prod host — there's no code change that unblocks them.
 
-- **S-M7 — public CSRF mint endpoint.** Documented as deferred at [apps/api/src/middleware/csrf.ts:37](apps/api/src/middleware/csrf.ts#L37). The dashboard's Edge middleware mints the cookie today; only matters if a non-dashboard browser client ever talks directly to `api.havenkeep.com`. Skip unless that client surface ships.
-- **Phase-5 follow-up — null `partner_gifts.activation_code` after activation email sends.** [apps/api/src/services/partners.service.ts:20](apps/api/src/services/partners.service.ts#L20) already documents the intent. Plaintext sits in the row indefinitely after the email fires; should be wiped post-send so a DB dump only ever exposes the SHA-256 hash.
-
-### B. Test-suite verification
-
-Commit `4ba87a0` ("Test suite to 300/300 + fix six production bugs") claims the suite is green. Tests live at [apps/api/src/__tests__/](apps/api/src/__tests__/) (26 files). Verify before relying on the green-state claim:
-
-```sh
-docker compose up -d postgres redis      # postgres on :5434, redis on :6380 (override file)
-docker exec havenkeep-postgres psql -U havenkeep -c "CREATE DATABASE havenkeep_test;"
-cd apps/api && \
-  DB_HOST=localhost DB_PORT=5434 DB_NAME=havenkeep_test \
-  DATABASE_URL="postgresql://havenkeep:havenkeep_dev_2026@localhost:5434/havenkeep_test" \
-  npm run db:migrate
-TEST_DB_PORT=5434 TEST_REDIS_URL=redis://localhost:6380 npm test
-```
-
-If failures resurface, fix per-test — the infra path is unblocked.
-
-### C. App Store / Play Store submission (off-platform configuration)
+### A. App Store / Play Store submission (off-platform configuration)
 
 Code-side everything is ready: bundle ID `app.havenkeep.mobile`, Apple Team ID `N3RF2GHS99` wired into AASA + Xcode signing, upload-key SHA-256 wired into `assetlinks.json`, iOS PrivacyInfo.xcprivacy with required-reasons APIs + data collection categories, APNs entitlement, Apple Sign-In + Associated Domains entitlements, complete Info.plist permission strings + `ITSAppUsesNonExemptEncryption=false`, all marketing legal pages (`/legal/privacy`, `/legal/terms`, `/legal/delete-account`, `/cookies`, `/security`), a `/support` page (App Store Support URL), Caddy AASA MIME-type + CSP headers, and an adaptive Android launcher icon. Universal Links + App Links manifest files at `apps/marketing/public/.well-known/`.
 
@@ -130,11 +111,11 @@ The remaining work is **off-platform configuration only**:
 5. **App Store Connect** — create app record with bundle ID `app.havenkeep.mobile`. Privacy URL: `https://havenkeep.com/legal/privacy`. Support URL: `https://havenkeep.com/support`. Marketing URL (optional): `https://havenkeep.com`. Account Deletion: in-app via Settings → Delete Account. Privacy Nutrition Label: mirror the categories declared in `PrivacyInfo.xcprivacy`.
 6. **Play Console** — create app with package name `app.havenkeep.mobile`. Privacy Policy: `https://havenkeep.com/legal/privacy`. Data Safety form: mirror `PrivacyInfo.xcprivacy` categories. Account deletion: in-app + `https://havenkeep.com/legal/delete-account`. Target API level 35 is auto-met by Flutter 3.41+.
 
-### D. Production go-live: Stripe Connect + public URLs (off-platform configuration)
+### B. Production go-live: Stripe Connect + public URLs (off-platform configuration)
 
 Partner self-service payouts are fully built and tested locally. To take it live, two things have to happen — both off-platform configuration with no code changes.
 
-#### D.1 Stripe Connect — provide the keys
+#### B.1 Stripe Connect — provide the keys
 
 The Express API expects three env-equivalent values, all read from Docker Secrets in production (`docker-compose.production.yml` already references them). Drop real values into the secrets files on the prod host:
 
@@ -154,7 +135,7 @@ The webhook endpoint URL to configure in Stripe is `https://api.havenkeep.com/ap
 
 Validation: the API's config validator refuses to boot in production unless `STRIPE_SECRET_KEY` looks like `sk_live_…` and `STRIPE_WEBHOOK_SECRET` starts with `whsec_`. Sandbox keys (`sk_test_…`) are blocked unless `STRIPE_ALLOW_SANDBOX=true` is also set — flip that to `false` (or remove it) for the production env.
 
-#### D.2 Public URLs — wire DNS + Caddy
+#### B.2 Public URLs — wire DNS + Caddy
 
 The three apps each need their own hostname. DNS A records all point at the same prod-host IP; Caddy in front routes by Host header.
 

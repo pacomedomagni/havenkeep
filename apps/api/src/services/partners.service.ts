@@ -16,9 +16,15 @@ import { invalidateUserCache } from '../middleware/auth';
  * Activation codes are 64 bits of entropy, formatted XXXX-XXXX-XXXX-XXXX
  * (16 hex chars + 3 dashes). Stored hashed (SHA-256) in
  * partner_gifts.activation_code_hash and verified by hashing the user input
- * before lookup. Plaintext is held in `activation_code` only long enough to
- * be embedded in the activation email and URL — Phase 5 follow-up nulls
- * `activation_code` once the email has shipped.
+ * before lookup. Plaintext is held in `activation_code` (and the matching
+ * `activation_url`) only while the gift can still be redeemed: it's needed
+ * for the initial email, for partner-initiated resends, and for the
+ * homebuyer typing the code into the activation form. Both fields are
+ * nulled on a terminal transition — `activateGift` (gift redeemed,
+ * plaintext is now exfil risk with no functional value) and the daily
+ * `expireUnactivatedPartnerGifts` sweep (no further sends are valid).
+ * verifyActivationCode goes through the hash, so the lookup keeps working
+ * after the wipe.
  */
 function generateActivationCode(): { plaintext: string; hash: string } {
   const raw = crypto.randomBytes(8).toString('hex').toUpperCase(); // 16 hex
@@ -994,12 +1000,18 @@ export class PartnersService {
       // activated_user_id. Guard the UPDATE with `activated_user_id IS NULL`
       // so only the first writer wins; the second sees 0 affected rows and
       // we surface a 409.
+      // Wipe plaintext activation_code + activation_url at the terminal
+       // transition: the gift can no longer be redeemed via this row, so
+       // holding the plaintext gives a DB-dump attacker a code that maps
+       // to a known activated_user_id. The hash stays for audit/lookup.
       const updateResult = await client.query(
         `UPDATE partner_gifts
          SET is_activated = TRUE,
              activated_at = NOW(),
              activated_user_id = $2,
-             status = 'activated'
+             status = 'activated',
+             activation_code = NULL,
+             activation_url = NULL
          WHERE id = $1
            AND activated_user_id IS NULL
            AND is_activated = FALSE`,
@@ -1313,6 +1325,14 @@ export class PartnersService {
         throw new AppError('Gift has expired', 400);
       }
 
+      // activation_code + activation_url are nulled on a terminal
+      // transition (activate or expire). If we reach here without them,
+      // the daily expiry sweep beat us between the time-window check
+      // above and this read — refuse rather than send an empty email.
+      if (!gift.activation_code || !gift.activation_url) {
+        throw new AppError('Gift has expired', 400);
+      }
+
       // Get partner details for email
       const partnerResult = await pool.query(
         'SELECT * FROM partners WHERE user_id = $1',
@@ -1328,8 +1348,8 @@ export class PartnersService {
         partner_name: partner.company_name || `Partner ${partner.id.slice(0, 8)}`,
         partner_company: partner.company_name,
         premium_months: gift.premium_months,
-        activation_url: gift.activation_url ?? '',
-        activation_code: gift.activation_code ?? '',
+        activation_url: gift.activation_url,
+        activation_code: gift.activation_code,
         custom_message: gift.custom_message ?? undefined,
         brand_color: partner.brand_color ?? undefined,
         logo_url: partner.logo_url ?? undefined,

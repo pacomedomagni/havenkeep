@@ -86,9 +86,16 @@ const COMMISSION_AUTO_APPROVE_HOLD_DAYS = parseInt(
  */
 async function expireUnactivatedPartnerGifts(): Promise<void> {
   await runWithAdvisoryLock(PARTNER_GIFT_EXPIRY_LOCK, 'partner-gift-auto-expiry', async () => {
+    // Null plaintext activation_code + activation_url at the terminal
+     // transition — no further sends or redemptions are valid for an
+     // expired gift, so retaining plaintext is exfil risk with zero
+     // functional value (verifyActivationCode lookups go through the hash).
     const expired = await pool.query(
       `UPDATE partner_gifts
-          SET status = 'expired', updated_at = NOW()
+          SET status = 'expired',
+              activation_code = NULL,
+              activation_url = NULL,
+              updated_at = NOW()
         WHERE status IN ('created', 'sent')
           AND is_activated = FALSE
           AND expires_at IS NOT NULL

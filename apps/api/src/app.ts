@@ -32,6 +32,7 @@ import mfaRoutes from './routes/mfa';
 import { stripeWebhookRouter, revenueCatWebhookRouter } from './routes/webhooks';
 import newsletterRoutes from './routes/newsletter';
 import contactRoutes from './routes/contact';
+import csrfRoutes from './routes/csrf';
 
 export interface CreateAppOptions {
   rateLimiter?: express.RequestHandler;
@@ -201,6 +202,7 @@ export function createApp(options: CreateAppOptions = {}) {
   apiV1.use('/mfa', mfaRoutes);
   apiV1.use('/newsletter', newsletterRoutes);
   apiV1.use('/contact', contactRoutes);
+  apiV1.use('/csrf', csrfRoutes);
 
   app.use('/api/v1', apiV1);
 

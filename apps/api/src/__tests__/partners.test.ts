@@ -1,6 +1,12 @@
+import crypto from 'crypto';
 import request from 'supertest';
 import { cleanDatabase } from './setup';
 import { getTestApp, createTestUser } from './helpers';
+import { pool } from '../db';
+import {
+  PartnersService,
+  hashActivationCode,
+} from '../services/partners.service';
 
 jest.mock('../middleware/rateLimiter', () => require('./test-rate-limiter-mock'));
 
@@ -24,6 +30,7 @@ const REGISTER_PAYLOAD = {
 describe('Partners Routes', () => {
   let app: ReturnType<typeof getTestApp>;
   let token: string;
+  let userId: string;
 
   beforeAll(() => {
     app = getTestApp();
@@ -31,8 +38,9 @@ describe('Partners Routes', () => {
 
   beforeEach(async () => {
     await cleanDatabase();
-    const { token: t } = await createTestUser();
+    const { token: t, user } = await createTestUser();
     token = t;
+    userId = user.id;
   });
 
   // ----------------------------------------------------------------
@@ -244,6 +252,175 @@ describe('Partners Routes', () => {
 
       // Validator rejects the unknown field — it isn't in updatePartnerSchema.
       expect(res.status).toBe(400);
+    });
+  });
+
+  // ----------------------------------------------------------------
+  // Phase-5 follow-up: activation_code + activation_url are wiped on
+  // terminal transitions so a DB dump can never resurrect a redeemed
+  // or expired code. The hash stays so verifyActivationCode keeps
+  // working for audit / historical lookups.
+  // ----------------------------------------------------------------
+
+  describe('partner_gifts plaintext wipe on terminal transition', () => {
+    async function seedPartnerWithGift(opts: {
+      ownerToken: string;
+      ownerId: string;
+      homebuyerEmail: string;
+      expiresAt?: Date;
+    }) {
+      // Register the partner record (owner is already a user from the
+      // outer beforeEach).
+      await request(app)
+        .post('/api/v1/partners/register')
+        .set('Authorization', `Bearer ${opts.ownerToken}`)
+        .send(REGISTER_PAYLOAD);
+
+      const partnerRow = await pool.query(
+        'SELECT id FROM partners WHERE user_id = $1',
+        [opts.ownerId],
+      );
+      const partnerId = partnerRow.rows[0].id;
+
+      // Build a plaintext code + matching hash inline so the test
+      // doesn't depend on the createGift Stripe flow.
+      const raw = crypto.randomBytes(8).toString('hex').toUpperCase();
+      const plaintext = `${raw.slice(0, 4)}-${raw.slice(4, 8)}-${raw.slice(8, 12)}-${raw.slice(12, 16)}`;
+      const hash = hashActivationCode(plaintext);
+      const url = `http://localhost:3000/gifts/activate?code=${encodeURIComponent(plaintext)}`;
+
+      const expiresAt =
+        opts.expiresAt ?? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+      // chk_partner_gifts_stripe_charge_required (mig 011) requires a
+      // non-null stripe_charge_id on rows in 'created' / 'sent' / 'activated'.
+      // Seed a synthetic id; this test bypasses the real Stripe flow.
+      const fakeStripeChargeId = `pi_test_${crypto.randomBytes(8).toString('hex')}`;
+
+      const giftRow = await pool.query(
+        `INSERT INTO partner_gifts (
+           partner_id, homebuyer_email, homebuyer_name,
+           premium_months, status, amount_charged, expires_at,
+           stripe_charge_id, activation_code, activation_code_hash, activation_url
+         ) VALUES ($1, $2, 'Buyer', 6, 'created', 99, $3, $4, $5, $6, $7)
+         RETURNING id`,
+        [
+          partnerId,
+          opts.homebuyerEmail.toLowerCase(),
+          expiresAt,
+          fakeStripeChargeId,
+          plaintext,
+          hash,
+          url,
+        ],
+      );
+
+      return { partnerId, giftId: giftRow.rows[0].id, plaintext, hash };
+    }
+
+    it('activateGift nulls activation_code + activation_url, keeps the hash', async () => {
+      const homebuyerEmail = `homebuyer-${crypto.randomUUID()}@test.com`;
+      const homebuyer = await createTestUser({ email: homebuyerEmail, emailVerified: true });
+
+      const { giftId, hash } = await seedPartnerWithGift({
+        ownerToken: token,
+        ownerId: userId,
+        homebuyerEmail,
+      });
+
+      const result = await PartnersService.activateGift(
+        giftId,
+        homebuyer.user.id,
+        homebuyerEmail,
+      );
+
+      expect(result.is_activated).toBe(true);
+      expect(result.activation_code).toBeNull();
+      expect(result.activation_url).toBeNull();
+
+      // The hash column is the verification source — it must survive.
+      const post = await pool.query(
+        `SELECT activation_code, activation_code_hash, activation_url
+           FROM partner_gifts WHERE id = $1`,
+        [giftId],
+      );
+      expect(post.rows[0].activation_code).toBeNull();
+      expect(post.rows[0].activation_url).toBeNull();
+      expect(post.rows[0].activation_code_hash).toBe(hash);
+    });
+
+    it('resendGiftEmail refuses once activation_code has been wiped', async () => {
+      const homebuyerEmail = `homebuyer-${crypto.randomUUID()}@test.com`;
+
+      const { giftId } = await seedPartnerWithGift({
+        ownerToken: token,
+        ownerId: userId,
+        homebuyerEmail,
+      });
+
+      // Simulate the daily expiry sweep wiping the plaintext between the
+      // partner's "Resend" click and the service-level read.
+      await pool.query(
+        `UPDATE partner_gifts
+            SET status = 'expired',
+                activation_code = NULL,
+                activation_url = NULL
+          WHERE id = $1`,
+        [giftId],
+      );
+
+      await expect(
+        PartnersService.resendGiftEmail(giftId, userId),
+      ).rejects.toMatchObject({ statusCode: 400, message: 'Gift has expired' });
+    });
+  });
+
+  // ----------------------------------------------------------------
+  // S-M7: public CSRF mint endpoint for browser clients that bypass
+  // the partner-dashboard proxy.
+  // ----------------------------------------------------------------
+
+  describe('GET /api/v1/csrf', () => {
+    it('mints a fresh 64-char hex token when no cookie is present', async () => {
+      const res = await request(app).get('/api/v1/csrf');
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.csrfToken).toMatch(/^[a-f0-9]{64}$/);
+      expect(res.headers['cache-control']).toBe('no-store');
+
+      const setCookie = res.headers['set-cookie'];
+      expect(setCookie).toBeDefined();
+      // supertest types the header as `string`, but Express sends an array
+      // when there are multiple Set-Cookie entries. Normalise both shapes.
+      const cookies = Array.isArray(setCookie) ? setCookie : [setCookie as unknown as string];
+      const csrfCookie = cookies.find((c) => c.startsWith('csrf_token='));
+      expect(csrfCookie).toBeDefined();
+      // The cookie value should be the same token returned in the body.
+      expect(csrfCookie).toContain(`csrf_token=${res.body.csrfToken}`);
+      // SameSite=Lax + non-HttpOnly (double-submit needs JS read access).
+      expect(csrfCookie).toMatch(/SameSite=Lax/i);
+      expect(csrfCookie).not.toMatch(/HttpOnly/i);
+    });
+
+    it('returns the existing well-formed token unchanged (idempotent)', async () => {
+      const existing = 'a'.repeat(64);
+      const res = await request(app)
+        .get('/api/v1/csrf')
+        .set('Cookie', `csrf_token=${existing}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.csrfToken).toBe(existing);
+    });
+
+    it('replaces a malformed cookie with a fresh token', async () => {
+      const res = await request(app)
+        .get('/api/v1/csrf')
+        .set('Cookie', 'csrf_token=not-a-valid-token');
+
+      expect(res.status).toBe(200);
+      expect(res.body.csrfToken).toMatch(/^[a-f0-9]{64}$/);
+      expect(res.body.csrfToken).not.toBe('not-a-valid-token');
     });
   });
 });
