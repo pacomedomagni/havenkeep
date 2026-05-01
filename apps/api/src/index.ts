@@ -7,7 +7,7 @@ validateEnvironment();
 import type { Server } from 'http';
 import { config } from './config';
 import { logger, fatalLogger } from './utils/logger';
-import { initializeRateLimiter, closeRateLimiterRedis } from './middleware/rateLimiter';
+import { initializeRateLimiter, initializeEndpointRedis, closeRateLimiterRedis } from './middleware/rateLimiter';
 import { initializeTokenBlacklist, closeTokenBlacklist } from './utils/token-blacklist';
 import { closeRedisClient } from './utils/redis';
 import { NotificationsService } from './services/notifications.service';
@@ -518,6 +518,11 @@ async function waitForDatabase(maxAttempts = 30, intervalMs = 1000): Promise<voi
 
 async function start() {
   await waitForDatabase();
+
+  // Audit Ch11-I089b: bind endpoint rate limiters to Redis AFTER the DB
+  // readiness probe finishes, not at module-load. Eager top-level connect
+  // raced with module init and starved the socket past its 24s timeout.
+  await initializeEndpointRedis();
 
   const rateLimiter = await initializeRateLimiter();
   await initializeTokenBlacklist();

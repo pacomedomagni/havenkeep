@@ -216,25 +216,25 @@ function createEndpointRateLimiter(options: {
 }
 
 // Initialize the shared Redis client for endpoint-specific limiters.
-// Called after initializeRateLimiter resolves.
-async function initializeEndpointRedis() {
+// Called from start() in index.ts, AFTER waitForDatabase has resolved.
+//
+// Audit Ch11-I089b: previously this was invoked at module-load time
+// (top-level), which started a redis connect in parallel with the rest
+// of the boot path. On a slow first-DB-probe (the api boots before the
+// DB readiness window passes), node's event loop was starved enough
+// that the redis socket timed out at 24s and the rate limiter init
+// crashed startup. Pull it inside start() so DB-readiness completes
+// first; the redis connect now finishes in <300ms.
+export async function initializeEndpointRedis() {
   if (config.env !== 'development' && config.env !== 'test') {
     try {
       sharedRedisClient = await getRedisClient();
       logger.info('Endpoint rate limiters bound to shared Redis');
     } catch (error) {
-      logger.error('Failed to initialize Redis for endpoint rate limiters, using in-memory store', error);
+      logger.error({ err: error }, 'Failed to initialize Redis for endpoint rate limiters, using in-memory store');
     }
   }
 }
-
-// Eagerly attempt to connect (non-blocking).
-// The limiters will use in-memory until this resolves — and because the
-// real limiter object is built on first request (not at module load),
-// once Redis is up every limiter gets a Redis-backed store.
-initializeEndpointRedis().catch((err) => {
-  logger.error('Failed to initialize endpoint Redis (non-fatal):', err);
-});
 
 /**
  * Close the rate-limiter's reference to Redis. The shared Redis client owns

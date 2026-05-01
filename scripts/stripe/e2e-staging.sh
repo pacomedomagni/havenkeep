@@ -223,7 +223,8 @@ EVENTS_PLUMBING=(
   payment_intent.payment_failed
   charge.refunded
   charge.dispute.created
-  charge.dispute.lost
+  charge.dispute.updated
+  charge.dispute.closed
   customer.updated
   customer.deleted
   radar.early_fraud_warning.created
@@ -243,7 +244,7 @@ if want_phase 1; then
         warn "$ev triggered, but no matching log line within 10s (may have rate-limited or skipped)"
       fi
     else
-      # Some events (charge.dispute.lost) are not directly triggerable from
+      # Some events are not directly triggerable from
       # the CLI on every Stripe account; that's fine, plumbing-mode just
       # records which ones can be exercised this way.
       warn "$ev not directly triggerable via CLI (this is normal for some events)"
@@ -435,12 +436,13 @@ if want_phase 4; then
   stripe trigger charge.dispute.updated >/dev/null 2>&1 || \
     warn "dispute.updated trigger not available — skipping intermediate state"
 
-  # charge.dispute.lost is harder to trigger from the CLI alone (Stripe wants
-  # you to mark the dispute as lost in the dashboard). We surface the path
-  # if the trigger works; otherwise the handler is exercised in plumbing.
-  info "trigger charge.dispute.closed (proxy for .lost)"
+  # Dispute outcome (won/lost) is carried on charge.dispute.closed.status —
+  # there is no separate .lost event. The CLI can fire .closed but the
+  # status it sets defaults to 'won' on synthetic data; for a real .lost
+  # path you need to mark the dispute as lost in the test-mode dashboard.
+  info "trigger charge.dispute.closed"
   stripe trigger charge.dispute.closed >/dev/null 2>&1 || \
-    warn ".closed trigger not available — manual dashboard test required for .lost"
+    warn ".closed trigger not available — exercise .lost path via dashboard"
 fi
 
 # ============================================================================

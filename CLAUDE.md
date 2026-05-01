@@ -139,7 +139,7 @@ The partner-payout pipeline runs end to end against staging at `https://api.stag
    - `STRIPE_WEBHOOK_SECRET=whsec_…` (the signing secret printed when you save the webhook endpoint)
    - `STRIPE_PRICE_ID_PREMIUM=price_…` (create the Premium product under Test mode first)
    - `STRIPE_ALLOW_SANDBOX=true` (the config validator refuses `sk_test_…` without it)
-2. **In the Stripe Dashboard (Test mode)**, register the webhook endpoint at `https://api.staging.havenkeep.app/api/v1/webhooks/stripe` subscribing to: `payment_intent.succeeded`, `payment_intent.payment_failed`, `charge.refunded`, `charge.dispute.created`, `charge.dispute.lost`, `customer.deleted`, `customer.updated`, `radar.early_fraud_warning.created`, `payout.failed`, `account.updated`. The handlers are in [apps/api/src/routes/webhooks.ts](apps/api/src/routes/webhooks.ts).
+2. **In the Stripe Dashboard (Test mode)**, register the webhook endpoint at `https://api.staging.havenkeep.app/api/v1/webhooks/stripe` subscribing to: `payment_intent.succeeded`, `payment_intent.payment_failed`, `charge.refunded`, `charge.dispute.created`, `charge.dispute.updated`, `charge.dispute.closed`, `customer.deleted`, `customer.updated`, `radar.early_fraud_warning.created`, `payout.failed`, `account.updated`. The handlers are in [apps/api/src/routes/webhooks.ts](apps/api/src/routes/webhooks.ts). (Dispute outcome — won/lost — is on `charge.dispute.closed.status`; there is no separate `.lost` event.)
 3. **Enable Connect (Test mode)** under Connect → Settings: Express accounts on, OAuth + Direct on, Stripe-issued 1099-NEC on.
 
 **Verification scripts** ship in [scripts/stripe/](scripts/stripe/):
