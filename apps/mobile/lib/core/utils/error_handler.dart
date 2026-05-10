@@ -31,6 +31,13 @@ class ErrorHandler {
       switch (error) {
         case ApiAuthRequiredException():
           return 'Your session has expired. Please sign in again.';
+        case ApiAccountPendingDeletionException():
+          // C0-14: the welcome screen catches this before reaching the
+          // generic error renderer and routes to the recover prompt.
+          // If we somehow get here, the user-facing message is still
+          // accurate — though they'll have no path to act on it without
+          // the typed catch upstream.
+          return 'Your account is scheduled for deletion. Sign in to recover it.';
         case ApiForbiddenException():
           return 'You don\'t have permission for this action.';
         case ApiNotFoundException():

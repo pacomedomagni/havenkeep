@@ -254,7 +254,11 @@ class _EditItemScreenState extends ConsumerState<EditItemScreen> {
       },
     );
     if (picked != null) {
-      setState(() => _purchaseDate = picked);
+      // H59: normalize to local midnight so a cross-TZ refresh doesn't
+      // shift the rendered date by ±1 day. The picker hands back a
+      // DateTime at "now" wall-clock; we only care about the calendar
+      // day the user clicked.
+      setState(() => _purchaseDate = DateTime(picked.year, picked.month, picked.day));
     }
   }
 

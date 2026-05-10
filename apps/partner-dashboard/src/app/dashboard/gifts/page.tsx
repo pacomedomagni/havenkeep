@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { apiClient } from '@/lib/api';
 import { logError } from '@/lib/log-error';
@@ -255,6 +255,13 @@ function CreateGiftModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  // C0-6: mint one idempotency key per modal instance. The API requires
+  // the header on /partners/gifts so a network retry can't produce a
+  // second $99-$249 Stripe charge. Stable across re-renders of the
+  // same modal (so a transport-level retry replays the same key);
+  // a fresh modal open mints a fresh key — that's a new user intent.
+  const idempotencyKey = useRef(crypto.randomUUID());
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     // Double-click guard: ignore re-entry while a submit is already in flight.
@@ -266,6 +273,7 @@ function CreateGiftModal({
       const data = await apiClient('/api/v1/partners/gifts', {
         method: 'POST',
         body: formData,
+        headers: { 'Idempotency-Key': idempotencyKey.current },
       });
 
       if (data.success) {

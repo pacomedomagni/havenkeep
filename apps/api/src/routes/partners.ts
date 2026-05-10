@@ -14,7 +14,9 @@ import {
 } from '../validators/partners.validator';
 import { uuidParamSchema } from '../validators';
 import { asyncHandler } from '../utils/async-handler';
+import { decimalToCents, centsToDecimalString } from '../utils/money';
 import { activationCodeRateLimiter, writeRateLimiter, giftResendRateLimiter } from '../middleware/rateLimiter';
+import { idempotency } from '../middleware/idempotency';
 import { AuditService } from '../services/audit.service';
 import { AppError } from '../utils/errors';
 import { sendSuccess, sendMessage } from '../utils/response';
@@ -329,6 +331,17 @@ router.put(
 router.post(
   '/gifts',
   requirePartner,
+  // C0-6: gift create is the most expensive mutating call ($99-$249
+  // per charge). Without rate limiting + a required Idempotency-Key,
+  // a double-tap or a transport-level retry produces two distinct
+  // gift rows with two Stripe charges — the per-gift
+  // `idempotencyKey: gift-<id>` on the inner Stripe call doesn't
+  // help because the gift IDs themselves differ. writeRateLimiter
+  // caps burst rate per IP+user; idempotency() with required=true
+  // refuses requests that omit the header so the client must opt in
+  // to safety explicitly.
+  writeRateLimiter,
+  idempotency('partners:gift_create', { required: true }),
   validate(createGiftSchema),
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
@@ -591,7 +604,9 @@ router.post(
 // can't drift. price_monthly stays at 0 to make the no-subscription
 // truth explicit; the field is retained for the dashboard which
 // already renders it.
-import { TIER_PRICE_PER_GIFT_USD } from '../services/partners.service';
+// H74: import the commission-rate map so the dashboard-facing
+// PARTNER_TIERS can never drift from what /me/payouts actually pays.
+import { TIER_PRICE_PER_GIFT_USD, TIER_COMMISSION_RATES } from '../services/partners.service';
 
 const PARTNER_TIERS = [
   {
@@ -600,11 +615,11 @@ const PARTNER_TIERS = [
     price_monthly: 0,
     price_per_gift: TIER_PRICE_PER_GIFT_USD.basic,
     max_gifts_per_month: 10,
-    commission_rate: 0.10,
+    commission_rate: TIER_COMMISSION_RATES.basic,
     features: [
       `$${TIER_PRICE_PER_GIFT_USD.basic} per gift`,
       '10 gifts/month',
-      '10% commission',
+      `${Math.round(TIER_COMMISSION_RATES.basic * 100)}% commission`,
     ],
   },
   {
@@ -613,11 +628,11 @@ const PARTNER_TIERS = [
     price_monthly: 0,
     price_per_gift: TIER_PRICE_PER_GIFT_USD.premium,
     max_gifts_per_month: 50,
-    commission_rate: 0.15,
+    commission_rate: TIER_COMMISSION_RATES.premium,
     features: [
       `$${TIER_PRICE_PER_GIFT_USD.premium} per gift`,
       '50 gifts/month',
-      '15% commission',
+      `${Math.round(TIER_COMMISSION_RATES.premium * 100)}% commission`,
       'Priority support',
     ],
   },
@@ -627,12 +642,12 @@ const PARTNER_TIERS = [
     price_monthly: 0,
     price_per_gift: TIER_PRICE_PER_GIFT_USD.platinum,
     max_gifts_per_month: -1,
-    commission_rate: 0.20,
+    commission_rate: TIER_COMMISSION_RATES.platinum,
     features: [
       `$${TIER_PRICE_PER_GIFT_USD.platinum} per gift`,
       'Unlimited gifts',
-      '20% commission',
-      'Dedicated account manager',
+      `${Math.round(TIER_COMMISSION_RATES.platinum * 100)}% commission`,
+      'Direct line to the founding team',
       'Custom branding',
     ],
   },
@@ -825,12 +840,18 @@ router.get(
       paid_lifetime: string;
       paid_ytd: string;
     }>(
+      // H33: net `paid` against `reversed` rows so a clawback after a
+       // payout deducts cleanly from the lifetime / YTD total. The prior
+       // shape summed only `status = 'paid'`, so a -$14.85 reversal
+       // sibling row left lifetime advertising $14.85 forever — and
+       // the analytics endpoint (different SQL) netted correctly, so
+       // the two surfaces contradicted each other.
       `SELECT
          COALESCE(SUM(amount) FILTER (WHERE status = 'pending'), 0)::numeric AS pending_amount,
          COALESCE(SUM(amount) FILTER (WHERE status = 'approved'), 0)::numeric AS approved_amount,
-         COALESCE(SUM(amount) FILTER (WHERE status = 'paid'), 0)::numeric AS paid_lifetime,
+         COALESCE(SUM(amount) FILTER (WHERE status IN ('paid','reversed')), 0)::numeric AS paid_lifetime,
          COALESCE(SUM(amount) FILTER (
-           WHERE status = 'paid' AND paid_at >= date_trunc('year', NOW())
+           WHERE status IN ('paid','reversed') AND COALESCE(paid_at, created_at) >= date_trunc('year', NOW())
          ), 0)::numeric AS paid_ytd
        FROM partner_commissions
        WHERE partner_id = $1`,
@@ -923,11 +944,15 @@ router.post(
 
     let paidCount = 0;
     let failedCount = 0;
-    let paidTotal = 0;
+    // H32: sum totals in integer cents. The prior `paidTotal += Number(row.amount)`
+    // accumulated IEEE-754 dollars; after 200 commissions the running
+    // sum and `.toFixed(2)` rendering drifted. Cents arithmetic is
+    // exact at the boundary partner_commissions stores at.
+    let paidTotalCents = 0;
     const transfers: Array<{ commission_id: string; transfer_id: string; amount: number }> = [];
 
     for (const row of eligible.rows) {
-      const amountCents = Math.round(Number(row.amount) * 100);
+      const amountCents = decimalToCents(row.amount);
       if (!Number.isFinite(amountCents) || amountCents <= 0) {
         failedCount += 1;
         logger.warn({ commissionId: row.id, amount: row.amount }, 'Skipping commission with non-positive amount');
@@ -973,7 +998,7 @@ router.post(
         }
 
         paidCount += 1;
-        paidTotal += Number(row.amount);
+        paidTotalCents += amountCents;
         transfers.push({
           commission_id: row.id,
           transfer_id: transfer.id,
@@ -988,14 +1013,15 @@ router.post(
       }
     }
 
+    const paidTotalStr = centsToDecimalString(paidTotalCents);
     await AuditService.logFromRequest(req, 'partner.payout_request', {
       resourceType: 'partner',
       resourceId: partner.id,
-      description: `Self-service payout: ${paidCount} paid, ${failedCount} failed, $${paidTotal.toFixed(2)} total`,
+      description: `Self-service payout: ${paidCount} paid, ${failedCount} failed, $${paidTotalStr} total`,
       metadata: {
         paid_count: paidCount,
         failed_count: failedCount,
-        paid_total: paidTotal,
+        paid_total_cents: paidTotalCents,
         eligible_count: eligible.rows.length,
       },
     });
@@ -1003,7 +1029,10 @@ router.post(
     sendSuccess(res, {
       paid_count: paidCount,
       failed_count: failedCount,
-      paid_total: paidTotal,
+      // Wire keeps the dollars decimal-string shape — clients can render
+      // it without re-doing cents math. paid_total_cents in metadata
+      // is the source of truth.
+      paid_total: paidTotalStr,
       transfers,
     });
   }),
@@ -1079,6 +1108,15 @@ router.put(
        RETURNING *`,
       [id]
     );
+
+    // H76: money-moving admin action — record in the audit chain so
+    // commission state changes have a forensic trail.
+    await AuditService.logFromRequest(req, 'admin.commission_approve', {
+      resourceType: 'partner_commission',
+      resourceId: id,
+      description: 'Admin approved commission',
+      metadata: { amount: result.rows[0]?.amount, partner_id: result.rows[0]?.partner_id },
+    });
 
     sendSuccess(res, result.rows[0], { message: 'Commission approved' });
   })
@@ -1172,6 +1210,18 @@ router.put(
       );
     }
 
+    // H76: money-moving admin action — record in the audit chain.
+    await AuditService.logFromRequest(req, 'admin.commission_pay', {
+      resourceType: 'partner_commission',
+      resourceId: commission.id,
+      description: 'Admin paid commission via Stripe transfer',
+      metadata: {
+        amount_cents: amountCents,
+        partner_id: commission.partner_id,
+        stripe_transfer_id: transfer.id,
+      },
+    });
+
     sendSuccess(res, result.rows[0], { message: 'Commission paid via Stripe transfer' });
   })
 );
@@ -1211,6 +1261,14 @@ router.put(
        RETURNING *`,
       [id]
     );
+
+    // H76: money-moving admin action — record in the audit chain.
+    await AuditService.logFromRequest(req, 'admin.commission_cancel', {
+      resourceType: 'partner_commission',
+      resourceId: id,
+      description: 'Admin cancelled commission',
+      metadata: { amount: result.rows[0]?.amount, partner_id: result.rows[0]?.partner_id },
+    });
 
     sendSuccess(res, result.rows[0], { message: 'Commission cancelled' });
   })

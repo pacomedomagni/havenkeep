@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
@@ -94,6 +95,14 @@ Future<void> main() async {
       // subsequent crash and gives us "we shipped a server change that
       // produced an enum the client didn't know about, then it crashed
       // five seconds later."
+      //
+      // H55: buffer events that fire BEFORE Firebase init resolves so
+      // the breadcrumb isn't dropped. Drift can happen during the
+      // restoreSession parse step (a User row carries an enum value
+      // the binary doesn't know yet); without the buffer that event
+      // arrived ~50ms before `_crashlyticsReady` flipped and was lost.
+      // Once _crashlyticsReady=true the buffer is flushed and future
+      // events skip the buffer.
       registerUnknownEnumReporter((enumName, value, fallback) {
         LoggingService.warn('enum_drift', {
           'enum': enumName,
@@ -103,6 +112,12 @@ Future<void> main() async {
         if (_crashlyticsReady) {
           FirebaseCrashlytics.instance
               .log('enum_drift: $enumName=$value (fallback=$fallback)');
+        } else {
+          _enumDriftBuffer.add('enum_drift: $enumName=$value (fallback=$fallback)');
+          // Bound the buffer so a pathological hot-path doesn't OOM us
+          // before Firebase comes up. We log the 64 most recent events
+          // — older drift is dropped intentionally.
+          if (_enumDriftBuffer.length > 64) _enumDriftBuffer.removeFirst();
         }
       });
 
@@ -117,9 +132,17 @@ Future<void> main() async {
       // "Keep me signed in" — when the user has explicitly opted out, we
       // discard the restored session before any UI sees it. This is the
       // security-conscious default so kiosk/shared-device usage is sane.
+      //
+      // H54: clear the SecureStorage `active_user_id` mirror BEFORE
+      // we clear the tokens. The previous order left a stale
+      // active_user_id behind, and the DB opener two blocks below
+      // read it and opened the just-signed-out user's per-account
+      // SQLCipher file. Order matters: kill the mirror first, then
+      // the tokens.
       final keepSignedIn = await AppPrefsService.getKeepSignedIn();
       if (!keepSignedIn && apiClient.isAuthenticated) {
         try {
+          await SecureStorageService.setActiveUserId(null);
           await apiClient.clearTokens();
         } catch (e) {
           LoggingService.warn('Forced sign-out (keep-signed-in=false) failed', {
@@ -164,6 +187,12 @@ Future<void> main() async {
           await FirebaseCrashlytics.instance
               .setCrashlyticsCollectionEnabled(!kDebugMode);
           _crashlyticsReady = true;
+          // H55: flush the pre-init enum-drift buffer. Crashlytics now
+          // has the breadcrumbs that fired during the ~50-200ms window
+          // before _crashlyticsReady flipped.
+          while (_enumDriftBuffer.isNotEmpty) {
+            FirebaseCrashlytics.instance.log(_enumDriftBuffer.removeFirst());
+          }
         } catch (e) {
           LoggingService.warn('Firebase initialization failed', {'error': e.toString()});
         }
@@ -228,6 +257,12 @@ Future<void> main() async {
 /// call site so the app still works on a developer build with no Firebase
 /// API key configured (else the SDK throws on first call).
 bool _crashlyticsReady = false;
+
+/// H55: ring buffer for enum-drift breadcrumbs that fire before the
+/// Crashlytics SDK is ready. Bounded to 64 entries so a pathological
+/// hot-path can't OOM us during boot. Flushed once when
+/// `_crashlyticsReady` flips true.
+final _enumDriftBuffer = ListQueue<String>();
 
 /// Global provider for environment configuration.
 final environmentConfigProvider = Provider<EnvironmentConfig>((ref) {

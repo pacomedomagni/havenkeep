@@ -74,7 +74,9 @@ class _CreateClaimScreenState extends ConsumerState<CreateClaimScreen> {
       ),
     );
     if (picked != null) {
-      setState(() => _claimDate = picked);
+      // H59: anchor to local midnight so a cross-TZ refresh doesn't
+      // shift the date by ±1 day.
+      setState(() => _claimDate = DateTime(picked.year, picked.month, picked.day));
     }
   }
 

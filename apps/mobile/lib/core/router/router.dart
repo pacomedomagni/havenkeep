@@ -619,13 +619,25 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
 
       // Post-activation success screen — popped to from the activation flow.
+      //
+      // H61: read `premiumMonths` from BOTH `extra` and the `?months=` query
+      // parameter. The activation screen navigates with a query string
+      // (deep-link friendly + survives cold restarts), but in-app callers
+      // can also pass `extra: {'premiumMonths': N}`. Defaulting to 6 only
+      // when both are absent stops the success screen from silently
+      // misrepresenting a 12-month gift as 6 (the audit finding).
       GoRoute(
         path: AppRoutes.giftActivationSuccess,
         parentNavigatorKey: _rootNavigatorKey,
         builder: (context, state) {
           final extra = state.extra as Map<String, dynamic>?;
+          final queryMonths = int.tryParse(
+            state.uri.queryParameters['months'] ?? '',
+          );
+          final premiumMonths =
+              (extra?['premiumMonths'] as int?) ?? queryMonths ?? 6;
           return GiftActivationSuccessScreen(
-            premiumMonths: (extra?['premiumMonths'] as int?) ?? 6,
+            premiumMonths: premiumMonths,
           );
         },
       ),

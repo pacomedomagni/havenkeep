@@ -37,6 +37,10 @@ export default function UserTable({ users: initialUsers }: UserTableProps) {
   const [toast, setToast] = useState<Toast | null>(null)
   const [deleteCandidate, setDeleteCandidate] = useState<User | null>(null)
   const [deleteInput, setDeleteInput] = useState('')
+  // C0-28: API requires a 1-500 char reason on every admin hard-delete
+  // for audit metadata. Without it the endpoint 400s before the DELETE
+  // even runs, so the prior UI shipped a request that always failed.
+  const [deleteReason, setDeleteReason] = useState('')
   const [deleteLoading, setDeleteLoading] = useState(false)
 
   useEffect(() => {
@@ -76,16 +80,22 @@ export default function UserTable({ users: initialUsers }: UserTableProps) {
   const submitDelete = async () => {
     if (!deleteCandidate) return
     if (deleteInput !== DELETE_CONFIRM_TOKEN) return
+    if (deleteReason.trim().length === 0) return
     setDeleteLoading(true)
     try {
+      // C0-28: send the body the API actually validates. Empty body
+      // 400s before the DELETE even runs (`adminDeleteUserBodySchema`
+      // requires both fields).
       await apiClient(`/api/v1/admin/users/${encodeURIComponent(deleteCandidate.id)}`, {
         method: 'DELETE',
+        body: { confirm: DELETE_CONFIRM_TOKEN, reason: deleteReason.trim() },
       })
 
       setUsers(users.filter(u => u.id !== deleteCandidate.id))
       setToast({ message: 'User deleted successfully', type: 'success' })
       setDeleteCandidate(null)
       setDeleteInput('')
+      setDeleteReason('')
     } catch (err) {
       const message =
         err instanceof ApiError ? err.message : 'Failed to delete user. Please try again.'
@@ -262,11 +272,25 @@ export default function UserTable({ users: initialUsers }: UserTableProps) {
               aria-label={`Type ${DELETE_CONFIRM_TOKEN} to confirm deletion`}
               autoFocus
             />
+            <label htmlFor="delete-reason" className="block text-sm font-medium text-haven-text-secondary mt-4 mb-2">
+              Reason (recorded in the audit log)
+            </label>
+            <textarea
+              id="delete-reason"
+              value={deleteReason}
+              onChange={(e) => setDeleteReason(e.target.value)}
+              className="input-field w-full"
+              rows={3}
+              maxLength={500}
+              placeholder="e.g. user request, GDPR erasure ticket #1234, abuse report"
+              aria-label="Reason for deletion"
+            />
             <div className="flex justify-end gap-3 mt-4">
               <button
                 onClick={() => {
                   setDeleteCandidate(null)
                   setDeleteInput('')
+                  setDeleteReason('')
                 }}
                 className="btn-secondary"
                 disabled={deleteLoading}
@@ -275,7 +299,11 @@ export default function UserTable({ users: initialUsers }: UserTableProps) {
               </button>
               <button
                 onClick={submitDelete}
-                disabled={deleteLoading || deleteInput !== DELETE_CONFIRM_TOKEN}
+                disabled={
+                  deleteLoading ||
+                  deleteInput !== DELETE_CONFIRM_TOKEN ||
+                  deleteReason.trim().length === 0
+                }
                 className="px-4 py-2 text-sm font-medium rounded-lg bg-red-500/30 text-red-300 hover:bg-red-500/40 transition-colors disabled:opacity-50"
               >
                 {deleteLoading ? 'Deleting…' : 'Delete account'}

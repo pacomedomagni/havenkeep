@@ -151,10 +151,18 @@ describe('Admin routes - /api/v1/admin', () => {
       const { user: notAdmin } = await createTestUser({ email: 'notadmin@test.com' });
       const jwt = require('jsonwebtoken');
       const { config } = require('../config');
+      // H13: middleware pins iss + aud — the forged token must clear
+      // signature + iss/aud verification so the admin re-fetch is the
+      // gate this assertion actually probes. Without these, the test
+      // would 401 at the middleware and never reach the admin re-check.
       const forged = jwt.sign(
         { userId: notAdmin.id, email: notAdmin.email, isAdmin: true, isPartner: false },
         config.jwt.secret,
-        { expiresIn: '1h' },
+        {
+          expiresIn: '1h',
+          issuer: config.jwt.issuer,
+          audience: config.jwt.audience,
+        },
       );
 
       const res = await request(app)

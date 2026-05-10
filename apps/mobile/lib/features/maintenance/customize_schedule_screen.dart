@@ -126,7 +126,9 @@ class _CustomizeBody extends ConsumerWidget {
     final nameController = TextEditingController();
     int frequencyMonths = 6;
 
-    final result = await showDialog<CustomMaintenanceTask>(
+    final result = await () async {
+      try {
+        return await showDialog<CustomMaintenanceTask>(
       context: context,
       builder: (dialogCtx) {
         return StatefulBuilder(
@@ -198,6 +200,14 @@ class _CustomizeBody extends ConsumerWidget {
         );
       },
     );
+      } finally {
+        // H60: dispose the dialog-scoped controller on every exit
+        // path. The prior shape leaked the controller (and its
+        // attached listeners) on cancel because dispose() was never
+        // called.
+        nameController.dispose();
+      }
+    }();
 
     if (result == null) return;
     await ref

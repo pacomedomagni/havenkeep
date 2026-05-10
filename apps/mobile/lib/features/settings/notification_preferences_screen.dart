@@ -257,8 +257,12 @@ class _NotificationPreferencesScreenState
   Widget build(BuildContext context) {
     final prefsAsync = ref.watch(notificationPreferencesProvider);
 
-    // Initialize form from loaded prefs
-    prefsAsync.whenData((prefs) => _initFromPrefs(prefs));
+    // H82: don't mutate state inside build(). The previous
+    // `prefsAsync.whenData(_initFromPrefs)` here wrote private fields
+    // synchronously while building the tree — fragile under rebuild
+    // edge cases. The listener below handles both initial population
+    // (when _isInitialized is false → _initFromPrefs) and later
+    // refreshes (when _isInitialized + !_isDirty → live-update).
 
     // 4.14 / M-MED-06: live-update when the upstream provider
     // emits new prefs and the user has nothing to lose. Guarded by
@@ -266,9 +270,28 @@ class _NotificationPreferencesScreenState
     ref.listen<AsyncValue<NotificationPreferences?>>(
       notificationPreferencesProvider,
       (previous, next) {
-        next.whenData(_onExternalPrefsUpdate);
+        next.whenData((prefs) {
+          if (!_isInitialized) {
+            _initFromPrefs(prefs);
+          } else {
+            _onExternalPrefsUpdate(prefs);
+          }
+        });
       },
     );
+
+    // H82: prime the initial state if the provider's current value
+    // is already available. ref.listen fires only on FUTURE changes;
+    // when the user navigates here after the prefs were already
+    // loaded by another screen, we'd otherwise stay in the loading
+    // state forever. Read the synchronous valueOrNull and init.
+    if (!_isInitialized) {
+      prefsAsync.whenData((prefs) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && !_isInitialized) _initFromPrefs(prefs);
+        });
+      });
+    }
 
     return Scaffold(
       backgroundColor: HavenColors.background,

@@ -1,5 +1,6 @@
 import { pool } from '../db';
 import { logger } from '../utils/logger';
+import { AuditService } from './audit.service';
 import {
   harvestUserKeys,
   flattenHarvest,
@@ -84,6 +85,20 @@ export async function purgeExpiredSoftDeletedAccounts(): Promise<PurgeResult> {
         let harvest: Awaited<ReturnType<typeof harvestUserKeys>> | null = null;
         try {
           await txClient.query('BEGIN');
+          // H10: SELECT ... FOR UPDATE the user row first so a
+          // concurrent /me/recover can't slip in between this purge's
+          // harvest and DELETE. If the recover landed first, the
+          // user's deleted_at column is NULL by the time we read it
+          // here — skip the purge for this user, the next cron run
+          // sees the recovered state cleanly.
+          const lockRow = await txClient.query<{ deleted_at: Date | null }>(
+            `SELECT deleted_at FROM users WHERE id = $1 FOR UPDATE`,
+            [userId],
+          );
+          if (lockRow.rows.length === 0 || lockRow.rows[0].deleted_at === null) {
+            await txClient.query('ROLLBACK').catch(() => {});
+            continue;
+          }
           harvest = await harvestUserKeys(txClient, userId);
 
           // C4: anonymize-but-retain warranty rows BEFORE deleting the
@@ -129,6 +144,40 @@ export async function purgeExpiredSoftDeletedAccounts(): Promise<PurgeResult> {
           result.storageRemoved += cleanup.removed;
           result.storageFailed += cleanup.failed;
         }
+
+        // C0-16: write the audit_logs row OUTSIDE the user-deletion
+        // transaction. Inside the tx the row would FK to users(id) and
+        // get cascade-deleted in the same statement; outside, the
+        // row's user_id column becomes NULL by ON DELETE SET NULL but
+        // the denormalized user_email column preserves who got purged.
+        // Without this row the audit chain has no record that an
+        // erasure event ever happened — GDPR's "we can prove what we
+        // deleted and when" requirement is unmet.
+        //
+        // Fire-and-forget — a failed audit write doesn't roll back the
+        // (already-committed) deletion. Logged so the operator can
+        // reconcile manually.
+        AuditService.log({
+          // userId intentionally omitted: the FK has already cascade-
+          // cleared. userEmail preserves who was purged.
+          userEmail,
+          action: 'admin.user_delete',
+          severity: 'warning',
+          resourceType: 'user',
+          resourceId: userId,
+          description: 'Account hard-deleted by cooling-off purge cron (30-day window expired)',
+          metadata: {
+            initiated_by: 'system',
+            cron: 'purgeExpiredSoftDeletedAccounts',
+            storage_keys_removed: harvest ? flattenHarvest(harvest).length : 0,
+          },
+          success: true,
+        }).catch((auditErr) => {
+          logger.error(
+            { err: auditErr, userId, userEmail },
+            'C0-16: failed to write audit log for cron-purged user (deletion already committed)',
+          );
+        });
 
         result.purged++;
         logger.info(

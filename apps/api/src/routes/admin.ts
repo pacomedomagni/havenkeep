@@ -12,6 +12,7 @@ import { AuditService } from '../services/audit.service';
 import { getRedisClient } from '../utils/redis';
 import { logger } from '../utils/logger';
 import { sendSuccess, sendMessage } from '../utils/response';
+import { redriveDeadLetterWebhook } from '../services/webhook-dead-letter.service';
 
 const ADMIN_STATS_TTL = 60; // 60 seconds
 
@@ -164,12 +165,15 @@ router.get('/stats/full', async (req, res, next) => {
 router.get('/stats/daily-signups', validate(dateRangeQuerySchema, 'query'), async (req, res, next) => {
   try {
     const days = (req.query.days as any) || 30;
+    // H75: exclude soft-deleted users so the time series reconciles
+    // with the headline total in /stats/full (which already filters).
     const result = await query(`
       SELECT
         DATE(created_at) AS date,
         COUNT(*) AS count
       FROM users
       WHERE created_at >= NOW() - MAKE_INTERVAL(days => $1)
+        AND deleted_at IS NULL
       GROUP BY DATE(created_at)
       ORDER BY date ASC
     `, [days]);
@@ -183,13 +187,18 @@ router.get('/stats/daily-signups', validate(dateRangeQuerySchema, 'query'), asyn
 router.get('/stats/daily-items', validate(dateRangeQuerySchema, 'query'), async (req, res, next) => {
   try {
     const days = (req.query.days as any) || 30;
+    // H75: same deleted_at filter — `items` rows for purged users
+    // cascade-delete already, but the JOIN to users.deleted_at lets us
+    // exclude items whose owner is currently in soft-delete grace.
     const result = await query(`
       SELECT
-        DATE(created_at) AS date,
+        DATE(i.created_at) AS date,
         COUNT(*) AS count
-      FROM items
-      WHERE created_at >= NOW() - MAKE_INTERVAL(days => $1)
-      GROUP BY DATE(created_at)
+      FROM items i
+      JOIN users u ON u.id = i.user_id
+      WHERE i.created_at >= NOW() - MAKE_INTERVAL(days => $1)
+        AND u.deleted_at IS NULL
+      GROUP BY DATE(i.created_at)
       ORDER BY date ASC
     `, [days]);
     sendSuccess(res, result.rows);
@@ -305,6 +314,10 @@ router.put('/users/:id/suspend',
     // the CASE result matches the target column type. Without this, PG
     // raises "CASE types character varying and user_plan cannot be matched"
     // and every admin suspend hit a 500.
+    // H19: stamp tokens_invalidated_at in the same UPDATE so the
+    // suspended user's existing access tokens are rejected by
+    // authenticate() on their next request. The prior shape deleted
+    // refresh tokens but left access tokens alive for up to 1h.
     await query(
       `UPDATE users
           SET plan_before_suspend = CASE
@@ -312,6 +325,7 @@ router.put('/users/:id/suspend',
                                       ELSE plan_before_suspend
                                     END,
               plan = 'suspended',
+              tokens_invalidated_at = NOW(),
               updated_at = NOW()
         WHERE id = $1`,
       [id],
@@ -829,6 +843,13 @@ router.get('/commissions', validate(paginationSchema, 'query'), async (req, res,
 
     const [result, countResult] = await Promise.all([
       query(
+        // C0-10: LEFT JOIN partners + COALESCE with the snapshot
+        // columns. After a partner's owning user is purged, the
+        // partner row CASCADE-deletes, the commission's partner_id
+        // SET NULLs, and the JOIN returns nothing — but the original
+        // identity is still legible via partner_*_at_event. The
+        // company_name + email below render the captured-at-event
+        // value when the live row is gone (1099-NEC trail).
         `SELECT
           pc.id,
           pc.partner_id,
@@ -836,11 +857,11 @@ router.get('/commissions', validate(paginationSchema, 'query'), async (req, res,
           pc.amount,
           pc.status,
           pc.created_at,
-          p.company_name,
-          u.email
+          COALESCE(p.company_name, pc.partner_company_name_at_event) AS company_name,
+          COALESCE(u.email, pc.partner_email_at_event) AS email
         FROM partner_commissions pc
-        JOIN partners p ON p.id = pc.partner_id
-        JOIN users u ON u.id = p.user_id
+        LEFT JOIN partners p ON p.id = pc.partner_id
+        LEFT JOIN users u ON u.id = p.user_id
         ${whereClause}
         ORDER BY pc.created_at DESC
         LIMIT $${paramIndex++} OFFSET $${paramIndex++}`,
@@ -888,5 +909,38 @@ router.get('/commissions/stats', async (req, res, next) => {
     next(error);
   }
 });
+
+// H2: re-drive a dead-lettered webhook. Operator fixes the underlying
+// handler bug first, then calls this to let the row re-process. The
+// row's status flips back to 'pending' and attempts reset to 0.
+router.post(
+  '/webhooks/:id/redrive',
+  writeRateLimiter,
+  async (req, res, next) => {
+    try {
+      const idParam = req.params.id;
+      // webhook_events.id is bigint (mig 087); validate cheaply.
+      if (!/^\d+$/.test(idParam)) {
+        throw new AppError('Invalid webhook id', 400);
+      }
+      const redrive = await redriveDeadLetterWebhook(idParam);
+      if (!redrive) {
+        throw new AppError('Webhook event not in dead_letter state', 404);
+      }
+      await AuditService.logFromRequest(req, 'admin.settings_change', {
+        resourceType: 'webhook_event',
+        resourceId: idParam,
+        description: 'Admin re-drove dead-lettered webhook',
+        metadata: {
+          previous_status: redrive.previousStatus,
+          previous_attempts: redrive.previousAttempts,
+        },
+      });
+      sendSuccess(res, { id: idParam, status: 'pending' }, { message: 'Webhook re-queued' });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
 
 export default router;

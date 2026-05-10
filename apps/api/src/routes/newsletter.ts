@@ -72,11 +72,15 @@ router.post(
       // Insert (or replace any prior pending row). If the address is already
       // subscribed we silently no-op the email send.
       const upserted = await pool.query(
+        // H77: confirmation_expires_at = NOW() + 7 days. Tokens older
+        // than that are refused by /confirm. The interval matches the
+        // typical "I'll get to my email later this week" window
+        // without leaving an indefinite list-poisoning surface.
         `INSERT INTO newsletter_subscribers (
            email, ip_address, source, status,
-           confirmation_token_hash, confirmation_sent_at, subscribed_at
+           confirmation_token_hash, confirmation_sent_at, confirmation_expires_at, subscribed_at
          )
-         VALUES ($1, $2, $3, 'pending_confirmation', $4, NOW(), NOW())
+         VALUES ($1, $2, $3, 'pending_confirmation', $4, NOW(), NOW() + INTERVAL '7 days', NOW())
          ON CONFLICT (LOWER(email)) WHERE status = 'subscribed'
          DO NOTHING
          RETURNING id, status`,
@@ -121,13 +125,18 @@ router.get(
   asyncHandler(async (req, res) => {
     const { token } = req.query as { token: string };
     const tokenHash = hashConfirmationToken(token);
+    // H77: gate on the expiry. A token older than its 7-day TTL is
+    // refused with the same generic message as an unknown token so
+    // an attacker can't distinguish "expired" from "never existed."
     const result = await pool.query(
       `UPDATE newsletter_subscribers
           SET status = 'subscribed',
               confirmed_at = NOW(),
-              confirmation_token_hash = NULL
+              confirmation_token_hash = NULL,
+              confirmation_expires_at = NULL
         WHERE confirmation_token_hash = $1
           AND status = 'pending_confirmation'
+          AND (confirmation_expires_at IS NULL OR confirmation_expires_at > NOW())
         RETURNING email`,
       [tokenHash],
     );

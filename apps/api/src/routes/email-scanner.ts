@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { Router } from 'express';
 import { authenticate, requirePremium } from '../middleware/auth';
 import { EmailScannerService } from '../services/email-scanner.service';
@@ -8,10 +9,78 @@ import { uuidParamSchema } from '../validators';
 import { sendSuccess, sendMessage } from '../utils/response';
 import { AppError } from '../utils/errors';
 import { isOAuthEncryptionConfigured } from '../utils/oauth-encryption';
+import { getRedisClient } from '../utils/redis';
+import { config } from '../config';
 import {
   emailScannerScanRateLimiter,
   emailScannerWriteRateLimiter,
 } from '../middleware/rateLimiter';
+
+// H47: server-issued OAuth state token. Mint flow:
+//   1. Client calls POST /state-token → server returns `{state, ttl_seconds}`.
+//   2. Client kicks off provider OAuth flow with `state` in the URL.
+//   3. Provider redirects back to client with `code` + same `state`.
+//   4. Client POSTs `{code, redirect_uri, state, ...}` to /scan.
+//   5. Server validates HMAC, looks up Redis row, deletes on use.
+// HMAC is over `${userId}.${nonce}.${expiresAtMs}` keyed with the
+// JWT_SECRET; Redis stores a sentinel keyed by `oauth_state:${nonce}`
+// so re-use is impossible.
+const STATE_TTL_SECONDS = 5 * 60;
+
+function mintOauthState(userId: string): { state: string; ttlSeconds: number } {
+  const nonce = crypto.randomBytes(24).toString('base64url');
+  const expiresAt = Date.now() + STATE_TTL_SECONDS * 1000;
+  const payload = `${userId}.${nonce}.${expiresAt}`;
+  const mac = crypto
+    .createHmac('sha256', config.jwt.secret)
+    .update(payload)
+    .digest('base64url');
+  return { state: `${payload}.${mac}`, ttlSeconds: STATE_TTL_SECONDS };
+}
+
+async function consumeOauthState(state: string, userId: string): Promise<void> {
+  const parts = state.split('.');
+  if (parts.length !== 4) {
+    throw new AppError('Invalid OAuth state', 400);
+  }
+  const [claimUser, nonce, expStr, mac] = parts;
+  if (claimUser !== userId) {
+    throw new AppError('OAuth state belongs to a different user', 401);
+  }
+  const expiresAt = Number(expStr);
+  if (!Number.isFinite(expiresAt) || expiresAt < Date.now()) {
+    throw new AppError('OAuth state expired', 401);
+  }
+  const payload = `${claimUser}.${nonce}.${expStr}`;
+  const expectedMac = crypto
+    .createHmac('sha256', config.jwt.secret)
+    .update(payload)
+    .digest('base64url');
+  // Use timingSafeEqual when lengths match; mismatch is itself a fail.
+  const expectedBuf = Buffer.from(expectedMac, 'base64url');
+  const macBuf = Buffer.from(mac, 'base64url');
+  if (
+    expectedBuf.length !== macBuf.length ||
+    !crypto.timingSafeEqual(expectedBuf, macBuf)
+  ) {
+    throw new AppError('OAuth state signature mismatch', 401);
+  }
+  // Redis single-use: SET NX + EX, then DEL. Absence of the row at
+  // verify time means the state was already consumed.
+  const redis = await getRedisClient();
+  const key = `oauth_state:${nonce}`;
+  const setResult = await redis.set(key, userId, {
+    EX: STATE_TTL_SECONDS,
+    NX: true,
+  });
+  if (setResult !== 'OK') {
+    // Either someone else won the NX (replay) or we already deleted it.
+    throw new AppError('OAuth state has already been used', 401);
+  }
+  // Consume immediately so the same state can't be replayed even within
+  // the TTL window.
+  await redis.del(key);
+}
 
 const router = Router();
 
@@ -45,7 +114,30 @@ const OAUTH_REDIRECT_URI_PREFIXES = (
   .filter(Boolean);
 
 function redirectUriAllowed(value: string, helpers: Joi.CustomHelpers): any {
-  if (!OAUTH_REDIRECT_URI_PREFIXES.some((prefix) => value === prefix || value.startsWith(prefix))) {
+  // H39: exact match on (protocol + host + path) so a prefix
+  // `https://staging.havenkeep.app/oauth-callback` doesn't match
+  // `https://staging.havenkeep.app/oauth-callback.attacker.com/...`
+  // via a naive startsWith. The query/fragment is free to vary —
+  // OAuth callbacks routinely append ?code= etc.
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return helpers.error('any.invalid', { reason: 'redirect_uri is not a valid URL' });
+  }
+  const canonical = `${parsed.protocol}//${parsed.host}${parsed.pathname}`;
+  const allowed = OAUTH_REDIRECT_URI_PREFIXES.some((prefix) => {
+    try {
+      const allowedParsed = new URL(prefix);
+      const allowedCanonical = `${allowedParsed.protocol}//${allowedParsed.host}${allowedParsed.pathname}`;
+      return canonical === allowedCanonical;
+    } catch {
+      // Non-URL prefix (e.g. havenkeep:// scheme has no host segment for
+      // some platforms). Fall back to exact-match on the prefix.
+      return value === prefix;
+    }
+  });
+  if (!allowed) {
     return helpers.error('any.invalid', { reason: 'redirect_uri not in allowlist' });
   }
   return value;
@@ -58,6 +150,14 @@ const initiateScanSchema = Joi.object({
     .uri({ scheme: ['http', 'https', 'havenkeep'] })
     .custom(redirectUriAllowed, 'redirect_uri allowlist')
     .required(),
+  // H47: server-issued OAuth `state` token. The client requests one via
+  // POST /email-scanner/state-token before kicking off the OAuth
+  // redirect, then echoes it back here. The server stored an HMAC-
+  // signed (userId, timestamp) row in Redis on mint; we verify both
+  // the signature AND the Redis presence (single-use). Replays fail.
+  // Without server-side state, a malicious client could skip the check
+  // entirely.
+  state: Joi.string().min(20).max(512).required(),
   date_range_start: Joi.date().iso().optional(),
   date_range_end: Joi.date().iso().optional(),
   access_token: Joi.any().forbidden(),
@@ -84,6 +184,16 @@ const providerQuerySchema = Joi.object({
 // upstream provider, then performs a server-side mailbox scan; one
 // compromised premium account previously could drain HavenKeep's per-app
 // Google/Microsoft token-endpoint quota and DOS the scanner globally.
+// H47: client requests a state token before opening the OAuth flow.
+router.post(
+  '/state-token',
+  emailScannerWriteRateLimiter,
+  asyncHandler(async (req, res) => {
+    const minted = mintOauthState(req.user!.id);
+    sendSuccess(res, { state: minted.state, ttl_seconds: minted.ttlSeconds });
+  }),
+);
+
 router.post(
   '/scan',
   emailScannerScanRateLimiter,
@@ -94,7 +204,12 @@ router.post(
     }
 
     const userId = req.user!.id;
-    const { provider, code, redirect_uri, date_range_start, date_range_end } = req.body;
+    const { provider, code, redirect_uri, state, date_range_start, date_range_end } = req.body;
+
+    // H47: verify the state token before doing anything else. A
+    // malicious / rebuilt client that skipped the state-token mint
+    // step will fail here with a 401.
+    await consumeOauthState(state, userId);
 
     const scan = await EmailScannerService.initiateScan(userId, provider, code, redirect_uri, {
       dateRangeStart: date_range_start,

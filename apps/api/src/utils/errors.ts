@@ -39,18 +39,28 @@ export class AppError extends Error {
    * the error handler renders only `code` + `message`.
    */
   public readonly cause?: unknown;
+  /**
+   * Optional structured data merged into the response envelope by the
+   * error handler. Reserved for error shapes the client must branch on —
+   * e.g. ACCOUNT_PENDING_DELETION ships a `recovery_token` so the client
+   * has a credential to call /me/recover. The shape is intentionally
+   * narrow to discourage stuffing arbitrary debug payloads here.
+   */
+  public readonly responseData?: Record<string, string>;
 
   constructor(
     message: string,
     statusCode: number = 500,
     code: AppErrorCode = 'INTERNAL',
     cause?: unknown,
+    responseData?: Record<string, string>,
   ) {
     super(message);
     this.name = 'AppError';
     this.statusCode = statusCode;
     this.code = code;
     this.cause = cause;
+    this.responseData = responseData;
     Error.captureStackTrace(this, this.constructor);
   }
 }

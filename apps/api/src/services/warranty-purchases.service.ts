@@ -12,6 +12,14 @@ const stripe = createStripeClient();
  * Compute prorated refund (cents) for a cancelled active warranty.
  * Refunds the unused fraction: priceCents * (daysRemaining / totalCoverageDays).
  * Callers cap to the captured charge amount; Stripe enforces the same.
+ *
+ * C0-7: route through dollarsToCents + commissionCents so prorated
+ * refunds use the same float-drift-free arithmetic the rest of this
+ * file uses for commissions. The prior `Math.round(priceDollars * 100
+ * * fraction)` shape could off-by-one on edge cases (e.g. 19.99 → 1998
+ * cents instead of 1999) because `19.99 * 100` is 1998.9999... in
+ * IEEE-754. dollarsToCents normalises via string split first, then
+ * commissionCents does the rounded multiply at the cent boundary.
  */
 function proratedRefundCents(
   priceDollars: number,
@@ -23,8 +31,8 @@ function proratedRefundCents(
   const usedDays = Math.max(0, Math.round((cancelledAt.getTime() - startsAt.getTime()) / 86_400_000));
   const remainingDays = Math.max(0, totalDays - usedDays);
   const fraction = remainingDays / totalDays;
-  const cents = Math.round(priceDollars * 100 * fraction);
-  return Math.max(0, cents);
+  const priceCents = dollarsToCents(priceDollars);
+  return Math.max(0, commissionCents(priceCents, fraction));
 }
 
 interface CreateWarrantyPurchaseData {
@@ -450,7 +458,24 @@ export class WarrantyPurchasesService {
       // refunded_at NULL — violating the constraint and 500'ing every
       // cancel without an associated payment_intent. NULL out both
       // when there's nothing to refund.
-      const persistedRefundCents = refundCents > 0 ? refundCents : null;
+      //
+      // C0-5: drive persistedRefundCents off the actual Stripe refund,
+      // not the *intended* refund amount. The prior shape wrote the
+      // computed cents whenever `refundCents > 0` — including the
+      // case where Phase 2 was skipped because the row had no
+      // stripe_payment_intent_id (legacy free-tier warranties / dev
+      // seeds). That produced phantom refunds: the warranty row read
+      // "refunded $X / refunded_at = NOW()" while Stripe held no
+      // matching refund record. Finance reconciliation diverged and
+      // the user's dashboard misled them about money returned.
+      //
+      // After this change, refund columns are only persisted when
+      // Stripe actually issued the refund (stripeRefundId is non-null).
+      // A cancel without a payment intent now finalises as
+      // status='cancelled' with the refund columns left NULL — which
+      // is the truth: no refund happened.
+      const persistedRefundCents =
+        stripeRefundId && refundCents > 0 ? refundCents : null;
       const result = await finalClient.query(
         `UPDATE warranty_purchases
             SET status = 'cancelled',

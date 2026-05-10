@@ -1463,4 +1463,178 @@ HavenKeep — Your Warranties. Protected.
       throw error;
     }
   }
+
+  /**
+   * H78: day-25 "5 days left to recover" nudge. Sent once per
+   * soft-deleted user when their deletion_scheduled_for is 4-5 days
+   * away. The cron stamps last_grace_reminder_sent_at so we don't
+   * re-send.
+   */
+  static async sendGraceReminderEmail(data: {
+    to: string;
+    userName: string;
+    deletionScheduledFor: Date;
+  }): Promise<void> {
+    try {
+      const friendlyDate = data.deletionScheduledFor.toLocaleDateString('en-US', {
+        weekday: 'long',
+        month: 'long',
+        day: 'numeric',
+      });
+      const subject = 'Your HavenKeep account will be deleted in 5 days';
+      const text =
+        `Hi ${data.userName || 'there'},\n\n` +
+        `You scheduled your HavenKeep account for deletion 25 days ago. ` +
+        `It's set to be permanently erased on ${friendlyDate}.\n\n` +
+        `If you've changed your mind, sign in to the HavenKeep app ` +
+        `before then — we'll surface a "Cancel deletion" screen and your ` +
+        `account will be restored exactly as it was.\n\n` +
+        `If you do nothing, your account and all its data — items, ` +
+        `warranties, documents — will be permanently deleted on ${friendlyDate}.\n\n` +
+        `— HavenKeep`;
+      const html = `<pre style="font-family:ui-monospace,monospace;background:#0f172a;color:#e2e8f0;padding:16px;border-radius:8px;white-space:pre-wrap;">${escapeHtml(text)}</pre>`;
+      await sgMail.send({
+        to: data.to,
+        from: { email: config.sendgrid.fromEmail, name: 'HavenKeep' },
+        subject,
+        text,
+        html,
+      });
+      logger.info({ to: data.to }, 'Sent day-25 grace reminder email');
+    } catch (error) {
+      logger.error({ error, to: data.to }, 'Failed to send grace reminder email');
+      throw error;
+    }
+  }
+
+  /**
+   * H30: alert when a Stripe webhook signature fails verification. The
+   * most common cause in practice is a body that arrived gzipped (Caddy
+   * compression accidentally enabled on the webhook path) — without an
+   * alert the failures just stack up in pino-Loki and Stripe quietly
+   * dead-letters the event after 8 retries. Throttle to one alert per
+   * 15 minutes per process: a misconfigured edge will fire dozens of
+   * verifications-per-second; we want to know about it once, not
+   * floood SendGrid.
+   */
+  private static lastStripeSigFailureAlertAt = 0;
+  private static readonly STRIPE_SIG_ALERT_THROTTLE_MS = 15 * 60 * 1000;
+
+  static async sendStripeWebhookSignatureFailureAlert(data: {
+    message: string;
+    contentEncoding: string | null;
+  }): Promise<void> {
+    const now = Date.now();
+    if (now - this.lastStripeSigFailureAlertAt < this.STRIPE_SIG_ALERT_THROTTLE_MS) {
+      return;
+    }
+    this.lastStripeSigFailureAlertAt = now;
+
+    try {
+      const subject = '[HavenKeep CRITICAL] Stripe webhook signature verification failed';
+      const text =
+        `Stripe webhook signature verification failed.\n\n` +
+        `Error: ${data.message}\n` +
+        `Content-Encoding header: ${data.contentEncoding ?? '(none)'}\n\n` +
+        `Common causes:\n` +
+        `  - Caddy / a reverse proxy enabled compression on /api/v1/webhooks/stripe\n` +
+        `    (the body must arrive unmolested; check the Caddyfile for an\n` +
+        `    \`encode none\` block on this path)\n` +
+        `  - STRIPE_WEBHOOK_SECRET rotation mismatch between Stripe dashboard\n` +
+        `    and the API container\n` +
+        `  - Replay from a different environment whose secret no longer matches\n\n` +
+        `Stripe will retry up to 8 times then dead-letter the event. Inspect\n` +
+        `webhook_events for any matching event_id; re-drive once the underlying\n` +
+        `issue is fixed via POST /api/v1/admin/webhooks/<id>/redrive (H2).`;
+      const html = `<pre style="font-family:ui-monospace,monospace;background:#0f172a;color:#fca5a5;padding:16px;border-radius:8px;white-space:pre-wrap;">${escapeHtml(text)}</pre>`;
+      await sgMail.send({
+        to: 'alerts@havenkeep.com',
+        from: { email: config.sendgrid.fromEmail, name: 'HavenKeep Webhooks' },
+        subject,
+        text,
+        html,
+      });
+      logger.warn(data, 'Sent Stripe webhook signature-failure alert email');
+    } catch (error) {
+      logger.error({ error }, 'Failed to send Stripe webhook signature-failure alert email');
+    }
+  }
+
+  /**
+   * H2: dead-letter webhook alert. Sent once per dead-letter row when
+   * the daily cron first observes it. Includes enough context for an
+   * operator to find the row in admin and decide whether to re-drive.
+   */
+  static async sendWebhookDeadLetterAlert(data: {
+    rows: Array<{
+      id: number | string;
+      source: string;
+      event_id: string;
+      event_type: string | null;
+      created_at: Date;
+    }>;
+  }): Promise<void> {
+    try {
+      const lines = data.rows
+        .map(
+          (r) =>
+            `  id=${r.id}  ${r.source}/${r.event_type ?? '?'}  event_id=${r.event_id}  created_at=${r.created_at.toISOString()}`,
+        )
+        .join('\n');
+      const text =
+        `${data.rows.length} webhook event(s) reached the dead-letter cap. They will not be retried automatically.\n\n` +
+        `${lines}\n\n` +
+        `Re-drive via POST /api/v1/admin/webhooks/<id>/redrive once the underlying handler is fixed.`;
+      const html = `<pre style="font-family:ui-monospace,monospace;background:#0f172a;color:#fcd34d;padding:16px;border-radius:8px;white-space:pre-wrap;">${escapeHtml(text)}</pre>`;
+      await sgMail.send({
+        to: 'alerts@havenkeep.com',
+        from: { email: config.sendgrid.fromEmail, name: 'HavenKeep Webhooks' },
+        subject: `[HavenKeep] ${data.rows.length} webhook(s) dead-lettered`,
+        text,
+        html,
+      });
+      logger.warn({ count: data.rows.length }, 'Sent webhook dead-letter alert email');
+    } catch (error) {
+      logger.error({ error }, 'Failed to send webhook dead-letter alert email');
+    }
+  }
+
+  /**
+   * H1: critical operator alert when the daily audit-chain verifier
+   * surfaces a broken row. The chain break itself is also written
+   * into audit_logs so the forensic trail exists, but the email is
+   * how oncall actually finds out within minutes rather than at the
+   * next dashboard glance.
+   *
+   * Sends to a fixed `alerts@havenkeep.com` distribution. Failures are
+   * logged but don't throw — the cron's caller never blocks on email.
+   */
+  static async sendAuditChainBreakAlert(data: {
+    brokenCount: number;
+    firstBrokenAt: string | null;
+    firstBrokenId: string | null;
+  }): Promise<void> {
+    try {
+      const { brokenCount, firstBrokenAt, firstBrokenId } = data;
+      const subject = `[HavenKeep CRITICAL] Audit log chain integrity failure (${brokenCount} row${brokenCount === 1 ? '' : 's'})`;
+      const text =
+        `The daily audit-chain verifier reported ${brokenCount} broken row(s).\n\n` +
+        `First broken row:\n` +
+        `  id:         ${firstBrokenId ?? 'unknown'}\n` +
+        `  created_at: ${firstBrokenAt ?? 'unknown'}\n\n` +
+        `This may indicate tampering. Inspect audit_logs around the broken row's timestamp and review who had DB write access in that window. ` +
+        `See migration 101 + docs/AUDIT_FIX_LIST.md C0-2/C0-4 for the protection model.`;
+      const html = `<pre style="font-family:ui-monospace,monospace;background:#0f172a;color:#fca5a5;padding:16px;border-radius:8px;white-space:pre-wrap;">${escapeHtml(text)}</pre>`;
+      await sgMail.send({
+        to: 'alerts@havenkeep.com',
+        from: { email: config.sendgrid.fromEmail, name: 'HavenKeep Audit' },
+        subject,
+        text,
+        html,
+      });
+      logger.warn(data, 'Sent audit-chain break alert email');
+    } catch (error) {
+      logger.error({ error }, 'Failed to send audit-chain break alert email');
+    }
+  }
 }

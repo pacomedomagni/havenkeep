@@ -275,10 +275,19 @@ class OfflineSyncService {
           // request_idempotency cache will return the cached response
           // without duplicating the underlying write.
           await _db.markActionInFlight(entry.id);
-          await _processEntry(entry);
-          await _db.markActionSynced(entry.id);
-          final domain = _domainFor(entry.action);
-          if (domain != null) touched.add(domain);
+          final didSync = await _processEntry(entry);
+          if (didSync) {
+            await _db.markActionSynced(entry.id);
+            final domain = _domainFor(entry.action);
+            if (domain != null) touched.add(domain);
+          } else {
+            // H50: parked-conflict path didn't actually write to the
+            // server — don't mark it synced (clearSyncedActions would
+            // then delete the queue entry while the conflict row is
+            // still waiting for user resolution). Leave the entry in
+            // a `parked` state so the conflict UI can find it.
+            await _db.markActionParked(entry.id);
+          }
         } on NonRetriableError catch (e) {
           // Non-retriable errors (e.g., missing local file) — mark as permanently failed
           debugPrint('[OfflineSync] Non-retriable error for entry ${entry.id}: $e');
@@ -305,6 +314,12 @@ class OfflineSyncService {
               continue;
 
             case ApiForbiddenException():
+            case ApiAccountPendingDeletionException():
+            // C0-14: an offline action that drops while the user is in
+            // their cooling-off window can't be retried automatically —
+            // the user must explicitly recover the account before any
+            // queued mutation will succeed. Treat as non-retriable so
+            // the queue doesn't pile up against a dead session.
             case ApiNotFoundException():
             case ApiValidationException():
               // Client errors with no path to recovery. Drop them.
@@ -400,7 +415,10 @@ class OfflineSyncService {
   /// that a re-sent in-flight entry collapses to the original write
   /// server-side. Entries enqueued before the schema-v4 migration have a
   /// null key and degrade gracefully (server treats them as non-idempotent).
-  Future<void> _processEntry(OfflineQueueData entry) async {
+  /// H50: returns `true` if the action was fully synced server-side,
+  /// `false` if it was parked (e.g. a 409 that needs user conflict
+  /// resolution). The caller must NOT mark a parked entry `synced`.
+  Future<bool> _processEntry(OfflineQueueData entry) async {
     late final OfflineAction action;
     late final Map<String, dynamic> payload;
     try {
@@ -408,7 +426,10 @@ class OfflineSyncService {
       payload = jsonDecode(entry.payload) as Map<String, dynamic>;
     } catch (e) {
       debugPrint('[OfflineSync] Skipping malformed entry ${entry.id}: $e');
-      return;
+      // Treat as synced so clearSyncedActions removes it — a malformed
+      // payload will never become valid by retrying, so parking it
+      // would just leak it in the queue forever.
+      return true;
     }
 
     final idempotencyKey = entry.idempotencyKey;
@@ -419,7 +440,7 @@ class OfflineSyncService {
         await _ref
             .read(itemsRepositoryProvider)
             .createItem(item, idempotencyKey: idempotencyKey);
-        break;
+        return true;
 
       case OfflineAction.update_item:
         final item = Item.fromJson(payload);
@@ -427,30 +448,31 @@ class OfflineSyncService {
           await _ref
               .read(itemsRepositoryProvider)
               .updateItem(item, idempotencyKey: idempotencyKey);
+          return true;
         } on ApiConflictException {
           // 409 Conflict: server version differs — park the divergence
           // for the user to resolve. We deliberately do NOT silently
           // last-write-wins.
           await _parkUpdateConflict(item);
+          return false;
         }
-        break;
 
       case OfflineAction.delete_item:
         await _ref
             .read(itemsRepositoryProvider)
             .deleteItem(entry.entityId, idempotencyKey: idempotencyKey);
-        break;
+        return true;
 
       case OfflineAction.create_document:
         await _processDocumentUpload(entry, payload);
-        break;
+        return true;
 
       case OfflineAction.update_preferences:
         final prefs = NotificationPreferences.fromJson(payload);
         await _ref
             .read(notificationsRepositoryProvider)
             .upsertPreferences(prefs, idempotencyKey: idempotencyKey);
-        break;
+        return true;
     }
   }
 

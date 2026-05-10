@@ -4,10 +4,10 @@ import Navigation from '../components/Navigation.astro';
 import Footer from '../components/Footer.astro';
 ---
 
-<Layout title="Security" description="Learn about HavenKeep's security practices, data protection, and compliance standards">
+<Layout title="Security" description="The security practices HavenKeep actually implements — encryption, audit logging, authentication, and what we don't yet claim.">
   <Navigation />
   <main>
-    <!-- Hero Section -->
+    <!-- Hero -->
     <section class="pt-32 pb-20 bg-gradient-to-b from-gray-900 to-gray-800">
       <div class="container">
         <div class="max-w-4xl mx-auto text-center">
@@ -16,11 +16,9 @@ import Footer from '../components/Footer.astro';
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
             </svg>
           </div>
-          <h1 class="text-5xl md:text-6xl font-bold text-white mb-6">
-            Security First
-          </h1>
+          <h1 class="text-5xl md:text-6xl font-bold text-white mb-6">Security</h1>
           <p class="text-xl md:text-2xl text-gray-300">
-            Your data security is our highest priority. Learn about our comprehensive security measures
+            What we actually do today, written by the engineer who built it — no aspirational badges.
           </p>
         </div>
       </div>
@@ -30,214 +28,96 @@ import Footer from '../components/Footer.astro';
     <section class="py-20 bg-gray-900">
       <div class="container">
         <div class="max-w-4xl mx-auto space-y-16">
+
           <!-- Encryption -->
           <div>
             <h2 class="text-3xl font-bold text-white mb-6">Encryption</h2>
-            <div class="space-y-4 text-gray-300">
-              <p class="text-lg">
-                All data transmitted to and from HavenKeep is encrypted using TLS 1.3. Sensitive fields are encrypted at the application layer with AES-256-GCM, the database disk is fully encrypted, and the on-device database on your phone is encrypted with SQLCipher (AES-256).
-              </p>
-              <ul class="space-y-2 ml-6">
-                <li class="flex items-start">
-                  <svg class="w-5 h-5 text-accent mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-                  </svg>
-                  TLS 1.3 for all data in transit
-                </li>
-                <li class="flex items-start">
-                  <svg class="w-5 h-5 text-accent mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-                  </svg>
-                  AES-256-GCM for sensitive fields; full-disk encryption at rest
-                </li>
-                <li class="flex items-start">
-                  <svg class="w-5 h-5 text-accent mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-                  </svg>
-                  SQLCipher AES-256 for the on-device mobile database
-                </li>
-              </ul>
-            </div>
+            <ul class="space-y-3 text-gray-300 ml-6 list-disc">
+              <li>TLS 1.2+ on every connection. Caddy in front of the API terminates TLS with auto-renewed certificates.</li>
+              <li>OAuth refresh tokens (Gmail / Outlook), TOTP secrets, and other sensitive fields are individually encrypted with AES-256-GCM. Each ciphertext is bound to the row it belongs to via additional-authenticated-data (AAD), so a tampered row swap fails the auth-tag check.</li>
+              <li>The mobile app's on-device SQLite database is encrypted with SQLCipher (AES-256). Tokens land in the platform secure keychain (iOS Keychain, Android Keystore) with hardware-backed encryption when the device supports it.</li>
+              <li>Passwords are bcrypt-hashed with cost 12, pre-hashed with SHA-256 so passwords above 72 bytes don't lose entropy.</li>
+            </ul>
           </div>
 
-          <!-- Infrastructure -->
+          <!-- Authentication -->
           <div>
-            <h2 class="text-3xl font-bold text-white mb-6">Infrastructure Security</h2>
-            <div class="space-y-4 text-gray-300">
-              <p class="text-lg">
-                HavenKeep is hosted on enterprise-grade cloud infrastructure with multiple layers of security controls, redundancy, and monitoring.
-              </p>
-              <ul class="space-y-2 ml-6">
-                <li class="flex items-start">
-                  <svg class="w-5 h-5 text-accent mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-                  </svg>
-                  Hosted on infrastructure designed to meet SOC 2 Type II standards
-                </li>
-                <li class="flex items-start">
-                  <svg class="w-5 h-5 text-accent mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-                  </svg>
-                  24/7 intrusion detection and prevention systems
-                </li>
-                <li class="flex items-start">
-                  <svg class="w-5 h-5 text-accent mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-                  </svg>
-                  Automated security patching and updates
-                </li>
-                <li class="flex items-start">
-                  <svg class="w-5 h-5 text-accent mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-                  </svg>
-                  Geographic redundancy and disaster recovery
-                </li>
-              </ul>
-            </div>
+            <h2 class="text-3xl font-bold text-white mb-6">Authentication</h2>
+            <ul class="space-y-3 text-gray-300 ml-6 list-disc">
+              <li>JWT access tokens (1-hour TTL) + opaque refresh tokens (7-day TTL, rotated on every use). Tokens are bound to a specific environment via <code>iss</code> and <code>aud</code> claims.</li>
+              <li>Refresh-token reuse triggers immediate revocation of every active session for that user — a leaked-and-replayed refresh token kills its family within one request.</li>
+              <li>Optional TOTP MFA with single-use backup codes. MFA secrets are stored encrypted (see Encryption above).</li>
+              <li>Suspending an account or changing the password stamps <code>tokens_invalidated_at</code> on the user row; any access token issued before that moment is rejected by middleware on the next request.</li>
+              <li>OAuth sign-in via Google and Apple. Apple's nonce claim is verified against the client-supplied value to defang token replay.</li>
+            </ul>
           </div>
 
-          <!-- Access Controls -->
+          <!-- Audit logging -->
           <div>
-            <h2 class="text-3xl font-bold text-white mb-6">Access Controls</h2>
-            <div class="space-y-4 text-gray-300">
-              <p class="text-lg">
-                We implement strict access controls to ensure only authorized personnel can access production systems, with all access logged and monitored.
-              </p>
-              <ul class="space-y-2 ml-6">
-                <li class="flex items-start">
-                  <svg class="w-5 h-5 text-accent mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-                  </svg>
-                  Multi-factor authentication for all team members
-                </li>
-                <li class="flex items-start">
-                  <svg class="w-5 h-5 text-accent mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-                  </svg>
-                  Role-based access control (RBAC)
-                </li>
-                <li class="flex items-start">
-                  <svg class="w-5 h-5 text-accent mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-                  </svg>
-                  Principle of least privilege
-                </li>
-                <li class="flex items-start">
-                  <svg class="w-5 h-5 text-accent mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-                  </svg>
-                  Comprehensive audit logging
-                </li>
-              </ul>
-            </div>
+            <h2 class="text-3xl font-bold text-white mb-6">Audit logging</h2>
+            <ul class="space-y-3 text-gray-300 ml-6 list-disc">
+              <li>Every sensitive action (sign-in, password change, admin operation, money-moving commission state change) writes a row to <code>audit_logs</code>.</li>
+              <li>The table is hash-chained: each row stores SHA-256 of (previous-hash || row payload). A daily verifier walks the chain; any break sends a critical alert.</li>
+              <li>The chain trigger uses a UTC-canonical timestamp so writer and verifier produce the same hash regardless of session timezone.</li>
+              <li>The API role does not own <code>audit_logs</code> and cannot drop the immutable-row trigger or DELETE rows. The retention cleanup runs as a separate Postgres role.</li>
+            </ul>
           </div>
 
-          <!-- Backups -->
+          <!-- Application protections -->
           <div>
-            <h2 class="text-3xl font-bold text-white mb-6">Backups & Recovery</h2>
-            <div class="space-y-4 text-gray-300">
-              <p class="text-lg">
-                Your data is automatically backed up multiple times daily, with backups encrypted and stored in geographically distributed locations.
-              </p>
-              <ul class="space-y-2 ml-6">
-                <li class="flex items-start">
-                  <svg class="w-5 h-5 text-accent mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-                  </svg>
-                  Automated daily backups
-                </li>
-                <li class="flex items-start">
-                  <svg class="w-5 h-5 text-accent mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-                  </svg>
-                  30-day backup retention
-                </li>
-                <li class="flex items-start">
-                  <svg class="w-5 h-5 text-accent mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-                  </svg>
-                  Point-in-time recovery capability
-                </li>
-                <li class="flex items-start">
-                  <svg class="w-5 h-5 text-accent mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-                  </svg>
-                  Regular disaster recovery testing
-                </li>
-              </ul>
-            </div>
+            <h2 class="text-3xl font-bold text-white mb-6">Application protections</h2>
+            <ul class="space-y-3 text-gray-300 ml-6 list-disc">
+              <li>Every database query that touches user-owned data is scoped by <code>user_id</code> at the application layer. The schema's foreign keys mirror this so a missing scope clause fails closed.</li>
+              <li>Mutating endpoints support a client-supplied <code>Idempotency-Key</code>; the partner-gift creation endpoint requires it, so a double-tap can never produce two charges.</li>
+              <li>Per-IP and per-account rate limits on sign-in, refresh, password reset, and other sensitive endpoints. Limits are enforced through Redis so a multi-replica deploy doesn't multiply effective budgets.</li>
+              <li>CSRF protection on the partner dashboard via double-submit cookie. The Next.js proxy strips cookies before forwarding to the API and rejects cross-origin mutations.</li>
+              <li>Stripe webhooks verify the raw-body signature before any handler runs. Replays of out-of-order events are gated by a per-charge high-water mark.</li>
+            </ul>
           </div>
 
-          <!-- Compliance -->
+          <!-- Account deletion -->
           <div>
-            <h2 class="text-3xl font-bold text-white mb-6">Compliance & Certifications</h2>
-            <div class="space-y-4 text-gray-300">
-              <p class="text-lg">
-                We maintain compliance with industry standards and regulations to protect your data and privacy.
-              </p>
-              <div class="grid md:grid-cols-2 gap-6 mt-6">
-                <div class="border border-gray-700 rounded-lg p-6 bg-gray-800">
-                  <h3 class="text-xl font-semibold text-white mb-2">GDPR</h3>
-                  <p class="text-gray-400">
-                    Committed to compliance with the EU General Data Protection Regulation
-                  </p>
-                </div>
-                <div class="border border-gray-700 rounded-lg p-6 bg-gray-800">
-                  <h3 class="text-xl font-semibold text-white mb-2">SOC 2 Type II</h3>
-                  <p class="text-gray-400">
-                    Architecture designed to meet SOC 2 Type II standards
-                  </p>
-                </div>
-                <div class="border border-gray-700 rounded-lg p-6 bg-gray-800">
-                  <h3 class="text-xl font-semibold text-white mb-2">CCPA</h3>
-                  <p class="text-gray-400">
-                    Committed to California Consumer Privacy Act compliance
-                  </p>
-                </div>
-                <div class="border border-gray-700 rounded-lg p-6 bg-gray-800">
-                  <h3 class="text-xl font-semibold text-white mb-2">ISO 27001</h3>
-                  <p class="text-gray-400">
-                    Working toward ISO 27001 certification
-                  </p>
-                </div>
-              </div>
-            </div>
+            <h2 class="text-3xl font-bold text-white mb-6">Account deletion</h2>
+            <ul class="space-y-3 text-gray-300 ml-6 list-disc">
+              <li>Deletion is soft, with a 30-day cooling-off window. Sign in during the window to recover; after 30 days, a cron permanently erases the account.</li>
+              <li>The purge harvests every object the user owns from object storage (receipt photos, documents, avatars) before the SQL cascade fires.</li>
+              <li>OAuth grants (Gmail / Outlook) are revoked at the provider, not just locally, on disconnect or account deletion.</li>
+              <li>Push-notification tokens are deleted on sign-out and at account deletion.</li>
+              <li>The hard-delete event itself is recorded in the audit chain (with the user's email preserved in a denormalized column) so we can later answer "did we delete this user, and when?".</li>
+            </ul>
           </div>
 
-          <!-- Responsible Disclosure -->
+          <!-- Hosting -->
           <div>
-            <h2 class="text-3xl font-bold text-white mb-6">Responsible Disclosure</h2>
-            <div class="space-y-4 text-gray-300">
-              <p class="text-lg">
-                We take security vulnerabilities seriously. If you discover a security issue, please report it to us responsibly.
-              </p>
-              <div class="border border-gray-700 rounded-lg p-6 bg-gray-800">
-                <h3 class="text-xl font-semibold text-white mb-3">Report a Vulnerability</h3>
-                <p class="text-gray-300 mb-4">
-                  Email us at <a href="mailto:security@havenkeep.com" class="text-primary hover:text-secondary">security@havenkeep.com</a> with details of the vulnerability. We'll respond within 24 hours and keep you updated throughout the resolution process.
-                </p>
-                <p class="text-gray-400 text-sm">
-                  We offer rewards for responsible disclosure of significant security vulnerabilities through our bug bounty program.
-                </p>
-              </div>
-            </div>
+            <h2 class="text-3xl font-bold text-white mb-6">Hosting</h2>
+            <ul class="space-y-3 text-gray-300 ml-6 list-disc">
+              <li>We run on DigitalOcean droplets we manage directly. Postgres, MinIO (S3-compatible object storage), and Redis live on the same private network behind Caddy.</li>
+              <li>We don't yet operate from multiple regions, do point-in-time database recovery, or run formal disaster-recovery drills. As we scale we'll add these; we'd rather not claim them prematurely.</li>
+              <li>We don't hold SOC 2, ISO 27001, or any third-party security certification. We're a small team building toward those as the user base grows.</li>
+            </ul>
+          </div>
+
+          <!-- Responsible disclosure -->
+          <div>
+            <h2 class="text-3xl font-bold text-white mb-6">Reporting a vulnerability</h2>
+            <p class="text-gray-300 mb-4">
+              Email <a href="mailto:security@havenkeep.com" class="text-primary hover:text-secondary">security@havenkeep.com</a> with details of any security issue you find. We don't run a paid bug-bounty program yet, but we'll respond personally within a few business days and credit responsible disclosures publicly (with your permission).
+            </p>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- CTA Section -->
+    <!-- CTA -->
     <section class="py-20 bg-gray-800">
       <div class="container">
         <div class="max-w-3xl mx-auto text-center">
-          <h2 class="text-3xl font-bold text-white mb-6">
-            Questions about our security?
-          </h2>
+          <h2 class="text-3xl font-bold text-white mb-6">Questions?</h2>
           <p class="text-xl text-gray-300 mb-8">
-            Our team is happy to discuss our security practices in detail
+            We're happy to walk through anything specific.
           </p>
           <a href="/contact" class="inline-block bg-primary hover:bg-secondary text-white font-semibold py-4 px-8 rounded-lg transition-colors duration-200">
-            Contact Us
+            Contact us
           </a>
         </div>
       </div>

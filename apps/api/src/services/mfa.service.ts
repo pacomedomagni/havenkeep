@@ -7,7 +7,17 @@ import { pool } from '../db';
 import { config } from '../config';
 import { logger } from '../utils/logger';
 import { AppError } from '../utils/errors';
-import { encryptToken, decryptToken, isOAuthEncryptionConfigured } from '../utils/oauth-encryption';
+import { encryptToken, decryptToken, isOAuthEncryptionConfigured, currentKeyVersion } from '../utils/oauth-encryption';
+
+/**
+ * H22: AAD for MFA factor ciphertexts. Binding the TOTP secret to
+ * (user_id, factor_type) means a row swap fails GCM verification —
+ * an attacker with DB write can't move a known-working factor onto
+ * another user's row.
+ */
+function mfaFactorAad(userId: string, factorType: string): string {
+  return `${userId}|${factorType}`;
+}
 import { hashToken } from '../utils/token-hash';
 
 /**
@@ -34,6 +44,13 @@ import { hashToken } from '../utils/token-hash';
 // 5 min — long enough for a user to open their authenticator app, short
 // enough to bound replay if the challenge token leaks.
 const CHALLENGE_TTL_SECONDS = 5 * 60;
+
+// 15 min — span of a typical "I clicked the wrong button, let me undo"
+// recovery flow. The token's only consumer is POST /users/me/recover; it
+// dies after one successful recover or after 15 min, whichever comes
+// first. Short enough that a leaked token can't be sat on through the
+// 30-day grace window.
+const ACCOUNT_RECOVER_TTL_SECONDS = 15 * 60;
 
 // 10 backup codes minted at enrollment. Single-use. Format:
 // 4 groups of 4 hex chars (e.g. "ab12-cd34-ef56-7890") — easy to type
@@ -95,7 +112,12 @@ export function mintMfaChallengeToken(userId: string): string {
   return jwt.sign(
     { userId, purpose: 'mfa_challenge' },
     config.jwt.secret,
-    { algorithm: 'HS256', expiresIn: CHALLENGE_TTL_SECONDS },
+    {
+      algorithm: 'HS256',
+      expiresIn: CHALLENGE_TTL_SECONDS,
+      issuer: config.jwt.issuer,
+      audience: config.jwt.audience,
+    },
   );
 }
 
@@ -104,11 +126,39 @@ export function verifyMfaChallengeToken(token: string): { userId: string } {
   const jwt = require('jsonwebtoken') as typeof import('jsonwebtoken');
   const decoded = jwt.verify(token, config.jwt.secret, {
     algorithms: ['HS256'],
+    issuer: config.jwt.issuer,
+    audience: config.jwt.audience,
   }) as { userId?: string; purpose?: string };
   if (decoded.purpose !== 'mfa_challenge' || typeof decoded.userId !== 'string') {
     throw new AppError('Invalid MFA challenge token', 401);
   }
   return { userId: decoded.userId };
+}
+
+/**
+ * C0-15: account-recovery token. Same JWT primitives as the MFA challenge
+ * token; distinct `purpose: 'account_recover'` so the authenticate
+ * middleware can refuse it everywhere except POST /users/me/recover.
+ *
+ * Minted by /auth/login (+ OAuth handlers) when a soft-deleted user
+ * within the 30-day grace window re-authenticates. The user's original
+ * (pre-delete) access token has already been invalidated by the
+ * soft-delete blacklist, so without this token the user has no
+ * authenticated path to cancel the deletion.
+ */
+export function mintAccountRecoverToken(userId: string): string {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const jwt = require('jsonwebtoken') as typeof import('jsonwebtoken');
+  return jwt.sign(
+    { userId, purpose: 'account_recover' },
+    config.jwt.secret,
+    {
+      algorithm: 'HS256',
+      expiresIn: ACCOUNT_RECOVER_TTL_SECONDS,
+      issuer: config.jwt.issuer,
+      audience: config.jwt.audience,
+    },
+  );
 }
 
 export class MfaService {
@@ -148,7 +198,8 @@ export class MfaService {
     const otpauthUrl = totp.generateURI({ issuer, label: accountLabel, secret });
     const qrCodeDataUrl = await qrcode.toDataURL(otpauthUrl);
 
-    const encrypted = encryptToken(secret);
+    const encrypted = encryptToken(secret, mfaFactorAad(userId, 'totp'));
+    const keyVer = currentKeyVersion();
 
     // Mint backup codes BEFORE the transaction commits so a partial failure
     // doesn't leave a factor in place with no recovery path.
@@ -180,10 +231,10 @@ export class MfaService {
 
       const inserted = await client.query<{ id: string }>(
         `INSERT INTO user_mfa_factors
-           (user_id, factor_type, secret_ciphertext, secret_iv, secret_tag, label)
-         VALUES ($1, 'totp', $2, $3, $4, $5)
+           (user_id, factor_type, secret_ciphertext, secret_iv, secret_tag, label, key_version)
+         VALUES ($1, 'totp', $2, $3, $4, $5, $6)
          RETURNING id`,
-        [userId, encrypted.ciphertext, encrypted.iv, encrypted.tag, accountLabel],
+        [userId, encrypted.ciphertext, encrypted.iv, encrypted.tag, accountLabel, keyVer],
       );
       factorId = inserted.rows[0].id;
 
@@ -222,8 +273,9 @@ export class MfaService {
       secret_ciphertext: string;
       secret_iv: string;
       secret_tag: string;
+      key_version: number | null;
     }>(
-      `SELECT id, secret_ciphertext, secret_iv, secret_tag
+      `SELECT id, secret_ciphertext, secret_iv, secret_tag, key_version
          FROM user_mfa_factors
         WHERE user_id = $1 AND factor_type = 'totp' AND verified_at IS NULL`,
       [userId],
@@ -232,11 +284,15 @@ export class MfaService {
       throw new AppError('No pending MFA enrollment found', 404);
     }
     const row = factor.rows[0];
-    const secret = decryptToken({
-      ciphertext: row.secret_ciphertext,
-      iv: row.secret_iv,
-      tag: row.secret_tag,
-    });
+    const secret = decryptToken(
+      {
+        ciphertext: row.secret_ciphertext,
+        iv: row.secret_iv,
+        tag: row.secret_tag,
+        keyVersion: row.key_version ?? undefined,
+      },
+      mfaFactorAad(userId, 'totp'),
+    );
     const result = totp.verifySync({
       token: code,
       secret,
@@ -284,8 +340,9 @@ export class MfaService {
       secret_ciphertext: string;
       secret_iv: string;
       secret_tag: string;
+      key_version: number | null;
     }>(
-      `SELECT secret_ciphertext, secret_iv, secret_tag
+      `SELECT secret_ciphertext, secret_iv, secret_tag, key_version
          FROM user_mfa_factors
         WHERE user_id = $1 AND factor_type = 'totp' AND verified_at IS NOT NULL
         LIMIT 1`,
@@ -297,11 +354,15 @@ export class MfaService {
       throw new AppError('No verified MFA factor on file', 400);
     }
     const row = factor.rows[0];
-    const secret = decryptToken({
-      ciphertext: row.secret_ciphertext,
-      iv: row.secret_iv,
-      tag: row.secret_tag,
-    });
+    const secret = decryptToken(
+      {
+        ciphertext: row.secret_ciphertext,
+        iv: row.secret_iv,
+        tag: row.secret_tag,
+        keyVersion: row.key_version ?? undefined,
+      },
+      mfaFactorAad(userId, 'totp'),
+    );
     const result = totp.verifySync({
       token: trimmed,
       secret,

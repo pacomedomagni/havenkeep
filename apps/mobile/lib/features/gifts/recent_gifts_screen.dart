@@ -120,7 +120,9 @@ class _GiftCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
-                  gift.status.name,
+                  // H81: render the human-readable label (Activated)
+                  // instead of the machine-form name (activated).
+                  gift.status.displayLabel,
                   style: TextStyle(fontSize: 12, color: statusColor),
                 ),
               ),

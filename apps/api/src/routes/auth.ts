@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
@@ -6,7 +6,7 @@ import { query, getClient } from '../db';
 import Joi from 'joi';
 import { config } from '../config';
 import { AppError } from '../utils/errors';
-import { authRateLimiter, refreshRateLimiter, passwordResetRateLimiter } from '../middleware/rateLimiter';
+import { authRateLimiter, refreshRateLimiter, passwordResetRateLimiter, loginPerEmailRateLimiter } from '../middleware/rateLimiter';
 import { authenticate, invalidateUserCache } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { registerSchema, loginSchema, refreshTokenSchema } from '../validators';
@@ -23,7 +23,7 @@ import { presignedUrlForKey } from '../config/minio';
 import { rotateCsrfToken } from '../middleware/csrf';
 import { asyncHandler } from '../utils/async-handler';
 import { hashToken, hashRefreshToken } from '../utils/token-hash';
-import { MfaService, mintMfaChallengeToken, verifyMfaChallengeToken } from '../services/mfa.service';
+import { MfaService, mintMfaChallengeToken, verifyMfaChallengeToken, mintAccountRecoverToken } from '../services/mfa.service';
 
 // C10: best-effort audit-log writer. The error-path catch arms in this file
 // previously did `await AuditService.logAuth(...)` before `next(error)` —
@@ -216,16 +216,33 @@ async function createAuthSession(
 ): Promise<{ accessToken: string; refreshToken: string }> {
   // S-HI-02: pin algorithm explicitly so a JWT secret swap to RSA-public-
   // key material can't introduce an HS256 forgery primitive.
+  // H13: bind iss/aud so a token from a different environment can't
+  // be replayed here even if secrets ever cross-contaminate.
   const accessToken = jwt.sign(
     { userId, email, isAdmin, isPartner },
     config.jwt.secret,
-    { expiresIn: config.jwt.expiresIn, algorithm: 'HS256' }
+    {
+      expiresIn: config.jwt.expiresIn,
+      algorithm: 'HS256',
+      issuer: config.jwt.issuer,
+      audience: config.jwt.audience,
+    }
   );
 
+  // H12: stamp a unique jti so two near-simultaneous logins from the
+  // same user produce distinct refresh tokens. Before this, the JWT
+  // body was `{userId}` plus `iat` at 1s precision — two logins
+  // landing in the same second collided on the hashed refresh_token
+  // primary key and the second INSERT raised 23505 → 500.
   const refreshToken = jwt.sign(
-    { userId },
+    { userId, jti: crypto.randomUUID() },
     config.jwt.refreshSecret,
-    { expiresIn: config.jwt.refreshExpiresIn, algorithm: 'HS256' }
+    {
+      expiresIn: config.jwt.refreshExpiresIn,
+      algorithm: 'HS256',
+      issuer: config.jwt.issuer,
+      audience: config.jwt.audience,
+    }
   );
 
   const expiresAt = new Date(Date.now() + REFRESH_TOKEN_EXPIRY_MS);
@@ -239,6 +256,52 @@ async function createAuthSession(
   await capRefreshTokens(userId);
 
   return { accessToken, refreshToken };
+}
+
+/**
+ * C0-12: hoisted MFA dispatch. When the user has any verified MFA
+ * factor, mint a challenge token, send the `{ mfa_required: true, ... }`
+ * response, and return true. The caller must then bail without
+ * issuing real access/refresh tokens.
+ *
+ * Called from `/auth/login`, `/auth/google`, `/auth/apple`. Keeping the
+ * audit-log emission inside the helper guarantees every MFA-gated
+ * login lands the same `mfa_required` audit row regardless of which
+ * provider drove it.
+ *
+ * Skip for freshly-created users (isNewUser=true) — they have no
+ * factors yet, and the check would only add a wasted SELECT.
+ */
+async function dispatchMfaIfRequired(
+  req: Request,
+  res: Response,
+  user: { id: string; email: string },
+  auditAction: 'auth.login' | 'auth.oauth_login',
+  extraAuditMetadata?: Record<string, unknown>,
+): Promise<boolean> {
+  const mfaStatus = await MfaService.getStatus(user.id);
+  if (!mfaStatus.hasVerifiedFactor) return false;
+
+  const mfaToken = mintMfaChallengeToken(user.id);
+  logAuthBestEffort({
+    action: auditAction,
+    userId: user.id,
+    email: user.email,
+    ipAddress: getIpAddress(req),
+    userAgent: req.get('user-agent'),
+    success: true,
+    errorMessage: 'mfa_required',
+    metadata: extraAuditMetadata,
+  });
+  res.json({
+    success: true,
+    data: {
+      mfa_required: true,
+      mfa_token: mfaToken,
+      factor_types: mfaStatus.factorTypes,
+    },
+  });
+  return true;
 }
 
 // Register
@@ -298,17 +361,27 @@ router.post('/register', authRateLimiter, validate(registerSchema), asyncHandler
 
     // Store refresh token inside the transaction (we generate both tokens here
     // so that the refresh token is committed atomically with the user row).
-    // S-HI-02: pin algorithm explicitly.
+    // S-HI-02: pin algorithm explicitly. H12/H13: include jti + iss/aud.
     const accessToken = jwt.sign(
       { userId: user.id, email: user.email, isAdmin: user.is_admin || false, isPartner: false },
       config.jwt.secret,
-      { expiresIn: config.jwt.expiresIn, algorithm: 'HS256' }
+      {
+        expiresIn: config.jwt.expiresIn,
+        algorithm: 'HS256',
+        issuer: config.jwt.issuer,
+        audience: config.jwt.audience,
+      }
     );
 
     const refreshToken = jwt.sign(
-      { userId: user.id },
+      { userId: user.id, jti: crypto.randomUUID() },
       config.jwt.refreshSecret,
-      { expiresIn: config.jwt.refreshExpiresIn, algorithm: 'HS256' }
+      {
+        expiresIn: config.jwt.refreshExpiresIn,
+        algorithm: 'HS256',
+        issuer: config.jwt.issuer,
+        audience: config.jwt.audience,
+      }
     );
 
     const refreshExpiresAt = new Date(Date.now() + REFRESH_TOKEN_EXPIRY_MS);
@@ -395,7 +468,7 @@ router.post('/register', authRateLimiter, validate(registerSchema), asyncHandler
 }));
 
 // Login
-router.post('/login', authRateLimiter, validate(loginSchema), asyncHandler(async (req, res) => {
+router.post('/login', authRateLimiter, loginPerEmailRateLimiter, validate(loginSchema), asyncHandler(async (req, res) => {
   try {
     const { email, password } = req.body;
 
@@ -481,14 +554,27 @@ router.post('/login', authRateLimiter, validate(loginSchema), asyncHandler(async
         errorMessage: withinGrace ? 'soft_deleted_pending' : 'soft_deleted_expired',
       });
       if (withinGrace) {
-        // Distinguished status code so the client can route to recover.
+        // C0-15: mint a short-lived recovery-purpose token so the
+        // client has an authenticated path to /me/recover. The user's
+        // pre-delete access token is already invalidated by the
+        // soft-delete logout, so without this they have no way to
+        // reach the recover endpoint until they regain a session via
+        // some other path (which doesn't exist for a soft-deleted
+        // user). The token's `purpose: 'account_recover'` claim makes
+        // it unusable as a general bearer credential (enforced in
+        // middleware/auth.ts).
+        //
+        // Distinguished error code so the client can route to recover.
         // Don't leak this code on credentials-wrong responses — those
         // still return generic 401 — so an attacker who didn't already
         // have the password gains nothing from the existence signal.
+        const recoveryToken = mintAccountRecoverToken(user.id);
         const err = new AppError(
           'Account is scheduled for deletion. Recovery available.',
           403,
           'ACCOUNT_PENDING_DELETION',
+          undefined,
+          { recovery_token: recoveryToken },
         );
         (err as any)._auditLogged = true;
         throw err;
@@ -513,31 +599,10 @@ router.post('/login', authRateLimiter, validate(loginSchema), asyncHandler(async
     }
 
     // S-C2: if the user has any verified MFA factor, defer issuing the
-    // real access/refresh pair. Mint a short-lived MFA challenge token
-    // instead; the client then POSTs the TOTP code (or a backup code)
-    // to /auth/mfa/challenge to exchange the challenge for real tokens.
-    // The challenge token's `purpose: 'mfa_challenge'` claim makes it
-    // unusable as an access token elsewhere.
-    const mfaStatus = await MfaService.getStatus(user.id);
-    if (mfaStatus.hasVerifiedFactor) {
-      const mfaToken = mintMfaChallengeToken(user.id);
-      logAuthBestEffort({
-        action: 'auth.login',
-        userId: user.id,
-        email: user.email,
-        ipAddress: getIpAddress(req),
-        userAgent: req.get('user-agent'),
-        success: true,
-        errorMessage: 'mfa_required',
-      });
-      res.json({
-        success: true,
-        data: {
-          mfa_required: true,
-          mfa_token: mfaToken,
-          factor_types: mfaStatus.factorTypes,
-        },
-      });
+    // real access/refresh pair. The helper mints a challenge token and
+    // sends the `mfa_required` response — caller must bail without
+    // creating an auth session.
+    if (await dispatchMfaIfRequired(req, res, user, 'auth.login')) {
       return;
     }
 
@@ -699,7 +764,12 @@ router.post('/refresh', refreshRateLimiter, validate(refreshTokenSchema), asyncH
   // refresh_tokens row carries, not whatever the decoded JWT body claims
   // (audit Ch01-F020). The decoded body is only used to short-circuit
   // before doing the DB hit. S-HI-02: pin algorithm.
-  jwt.verify(refreshToken, config.jwt.refreshSecret, { algorithms: ['HS256'] });
+  // H13: refresh tokens also carry iss/aud per createAuthSession.
+  jwt.verify(refreshToken, config.jwt.refreshSecret, {
+    algorithms: ['HS256'],
+    issuer: config.jwt.issuer,
+    audience: config.jwt.audience,
+  });
 
   // Atomically consume the refresh token (prevents race conditions).
   // DELETE...RETURNING guarantees only one concurrent request succeeds and
@@ -713,10 +783,48 @@ router.post('/refresh', refreshRateLimiter, validate(refreshTokenSchema), asyncH
   );
 
   if (tokenResult.rows.length === 0) {
-    // Token unknown / already consumed. We can't safely identify the
-    // owning user (the JWT body is attacker-controlled if signing was
-    // compromised), so just refuse without doing any user-scoped action.
-    logger.warn({ tokenHashPrefix: tokenHash.slice(0, 12) }, 'Unknown refresh token presented');
+    // H11: token presented but no live row — this is the classic
+    // refresh-token-reuse signal. The signature was already verified
+    // above, so the userId in the JWT body is server-issued and
+    // trustworthy. Standard OAuth 2.0 best practice on reuse detection
+    // is to revoke the ENTIRE refresh-token family (every active
+    // session for the user), because a leaked token has been seen in
+    // the wild. Emit a warning audit row so a human can investigate.
+    try {
+      const decoded = jwt.decode(refreshToken) as { userId?: string } | null;
+      const replayedUserId =
+        decoded && typeof decoded.userId === 'string' ? decoded.userId : null;
+      if (replayedUserId) {
+        const killed = await query(
+          `DELETE FROM refresh_tokens WHERE user_id = $1 RETURNING id`,
+          [replayedUserId],
+        );
+        logger.warn(
+          {
+            tokenHashPrefix: tokenHash.slice(0, 12),
+            replayedUserId,
+            sessionsKilled: killed.rowCount,
+          },
+          'Refresh-token reuse detected — revoked entire family',
+        );
+        AuditService.logAuth({
+          action: 'auth.token_refresh',
+          userId: replayedUserId,
+          ipAddress: getIpAddress(req),
+          userAgent: req.get('user-agent'),
+          success: false,
+          errorMessage: 'refresh_token_reuse_detected',
+          metadata: { sessions_killed: killed.rowCount ?? 0 },
+        }).catch(() => {});
+      } else {
+        logger.warn(
+          { tokenHashPrefix: tokenHash.slice(0, 12) },
+          'Unknown refresh token presented (no userId claim)',
+        );
+      }
+    } catch (decodeErr) {
+      logger.warn({ err: decodeErr }, 'Failed to decode refresh token on reuse-detect');
+    }
     throw new AppError('Invalid refresh token', 401);
   }
 
@@ -745,14 +853,27 @@ router.post('/refresh', refreshRateLimiter, validate(refreshTokenSchema), asyncH
     throw new AppError('Account is suspended or deleted', 401);
   }
 
-  // Blacklist the old access token so it can't be reused after refresh
+  // Blacklist the old access token so it can't be reused after refresh.
+  // H16: fail-loud on blacklist failure. Mirrors /logout (S-M4) — the
+  // blacklist write IS the source of truth for "this token can't be
+  // reused"; silently swallowing meant a Redis hiccup mid-refresh left
+  // the old access token alive for up to JWT_EXPIRES_IN (1h) even
+  // though we'd already issued the rotated pair.
   const authHeader = req.headers.authorization;
   if (authHeader?.startsWith('Bearer ')) {
     const oldAccessToken = authHeader.substring(7);
     try {
       await blacklistTokenAuto(oldAccessToken);
-    } catch {
-      // Best-effort: don't block refresh if blacklisting fails
+    } catch (blacklistError) {
+      logger.error(
+        { error: blacklistError, userId: trustedUserId },
+        'H16: failed to blacklist old access token during refresh — returning 503',
+      );
+      throw new AppError(
+        'Token refresh temporarily unavailable. Please try again in a moment.',
+        503,
+        'UNHEALTHY',
+      );
     }
   }
 
@@ -833,6 +954,13 @@ router.post('/logout', authenticate, refreshRateLimiter, validate(logoutSchema),
     [userId],
   );
 
+  // C0-29: drop the device's push tokens. Without this a signed-out
+  // user keeps receiving push notifications until FCM auto-expires the
+  // tokens (~60 days), and a stolen / shared device that signs out
+  // keeps the prior user's pushes flowing. Privacy-policy text claims
+  // we delete push tokens on sign-out — this enforces it.
+  await query(`DELETE FROM user_push_tokens WHERE user_id = $1`, [userId]);
+
   // Drop the cached user row so the next request after re-login isn't
   // served the stale 10s cache entry (Ch01-F048).
   await invalidateUserCache(userId);
@@ -879,13 +1007,22 @@ router.get(
 
 // Logout all devices — requires authentication
 router.post('/logout-all', authenticate, asyncHandler(async (req, res) => {
-  // Blacklist the current access token
+  // Blacklist the current access token. H16: fail-loud on blacklist
+  // failure — same reasoning as /logout (S-M4).
   const authHeader = req.headers.authorization;
   if (authHeader?.startsWith('Bearer ')) {
     try {
       await blacklistTokenAuto(authHeader.substring(7));
-    } catch {
-      // Best-effort
+    } catch (blacklistError) {
+      logger.error(
+        { error: blacklistError, userId: req.user!.id },
+        'H16: failed to blacklist access token during logout-all — returning 503',
+      );
+      throw new AppError(
+        'Logout-all temporarily unavailable. Please try again in a moment.',
+        503,
+        'UNHEALTHY',
+      );
     }
   }
 
@@ -1075,8 +1212,11 @@ router.post('/reset-password', authRateLimiter, validate(resetPasswordSchema), a
     }
     userId = tokenResult.rows[0].user_id;
 
+    // H18: stamp tokens_invalidated_at so any access token issued
+    // before the reset is rejected by authenticate(). Same reasoning
+    // as /me/password.
     await client.query(
-      `UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2`,
+      `UPDATE users SET password_hash = $1, tokens_invalidated_at = NOW(), updated_at = NOW() WHERE id = $2`,
       [passwordHash, userId],
     );
     // Drop every refresh token + every other unused reset token + every
@@ -1213,12 +1353,16 @@ router.post(
       // both consuming change-email tokens to the same address: one wins,
       // the other gets a clean 409 with their token already consumed.
       try {
+        // H18: stamp tokens_invalidated_at so any access token issued
+        // under the old email is rejected by authenticate(). Without
+        // this, /me/password's hardening did the job for password
+        // changes but verified email change still left a 1h window
+        // where the new email and the old access token coexisted.
         await client.query(
           `UPDATE users
               SET email = $2,
                   email_verified = TRUE,
-                  email_change_pending = NULL,
-                  email_change_target = NULL,
+                  tokens_invalidated_at = NOW(),
                   updated_at = NOW()
             WHERE id = $1`,
           [userId, newEmail],
@@ -1349,9 +1493,12 @@ router.post('/google', authRateLimiter, validate(googleOAuthSchema), asyncHandle
     // intentionally do not auto-mirror the Google avatar to MinIO.
 
     // Find or create user
+    // C0-12/C0-13: pull deleted_at + deletion_scheduled_for so the
+    // soft-delete + suspended guards below match the /login shape.
     let userResult = await query(
       `SELECT id, email, full_name, avatar_url, auth_provider, plan, plan_expires_at,
               referred_by, referral_code, is_admin, email_verified, created_at, updated_at,
+              deleted_at, deletion_scheduled_for,
               (EXISTS(SELECT 1 FROM partners p WHERE p.user_id = users.id AND p.status = 'active')) as is_partner
        FROM users WHERE email = $1`,
       [email]
@@ -1408,6 +1555,69 @@ router.post('/google', authRateLimiter, validate(googleOAuthSchema), asyncHandle
       }
     } else {
       user = userResult.rows[0];
+
+      // C0-13: refuse to issue tokens to soft-deleted / admin-suspended
+      // OAuth users. Mirrors the /login guard at line ~470. Soft-deleted
+      // users within the 30-day grace window get a recovery_token so the
+      // client can route to the recover prompt (C0-15).
+      if (user.deleted_at) {
+        const withinGrace =
+          user.deletion_scheduled_for &&
+          new Date(user.deletion_scheduled_for) > new Date();
+        logAuthBestEffort({
+          action: 'auth.oauth_login',
+          userId: user.id,
+          email: user.email,
+          ipAddress: getIpAddress(req),
+          userAgent: req.get('user-agent'),
+          success: false,
+          errorMessage: withinGrace ? 'soft_deleted_pending' : 'soft_deleted_expired',
+          metadata: { provider: 'google' },
+        });
+        if (withinGrace) {
+          const recoveryToken = mintAccountRecoverToken(user.id);
+          const err = new AppError(
+            'Account is scheduled for deletion. Recovery available.',
+            403,
+            'ACCOUNT_PENDING_DELETION',
+            undefined,
+            { recovery_token: recoveryToken },
+          );
+          (err as any)._auditLogged = true;
+          throw err;
+        }
+        const err = new AppError('Account is closed', 401, 'AUTH_REQUIRED');
+        (err as any)._auditLogged = true;
+        throw err;
+      }
+      if (user.plan === 'suspended') {
+        logAuthBestEffort({
+          action: 'auth.oauth_login',
+          userId: user.id,
+          email: user.email,
+          ipAddress: getIpAddress(req),
+          userAgent: req.get('user-agent'),
+          success: false,
+          errorMessage: 'plan_suspended',
+          metadata: { provider: 'google' },
+        });
+        const err = new AppError('Account suspended. Contact support.', 403, 'FORBIDDEN');
+        (err as any)._auditLogged = true;
+        throw err;
+      }
+    }
+
+    // C0-12: enforce MFA on OAuth re-sign-in. Skip for freshly-created
+    // users (no factors yet). Helper writes the response and returns
+    // true when MFA is required — bail without issuing real tokens.
+    if (!isNewUser && await dispatchMfaIfRequired(
+      req,
+      res,
+      user,
+      'auth.oauth_login',
+      { provider: 'google' },
+    )) {
+      return;
     }
 
     // Generate tokens, store refresh token, and cap active tokens
@@ -1563,6 +1773,7 @@ router.post('/apple', authRateLimiter, validate(appleOAuthSchema), asyncHandler(
       userResult = await query(
         `SELECT id, email, full_name, avatar_url, auth_provider, plan, plan_expires_at,
                 referred_by, referral_code, is_admin, email_verified, apple_user_id, created_at, updated_at,
+                deleted_at, deletion_scheduled_for,
                 (EXISTS(SELECT 1 FROM partners p WHERE p.user_id = users.id AND p.status = 'active')) as is_partner
          FROM users WHERE email = $1`,
         [email]
@@ -1575,6 +1786,7 @@ router.post('/apple', authRateLimiter, validate(appleOAuthSchema), asyncHandler(
       const appleIdResult = await query(
         `SELECT id, email, full_name, avatar_url, auth_provider, plan, plan_expires_at,
                 referred_by, referral_code, is_admin, email_verified, apple_user_id, created_at, updated_at,
+                deleted_at, deletion_scheduled_for,
                 (EXISTS(SELECT 1 FROM partners p WHERE p.user_id = users.id AND p.status = 'active')) as is_partner
          FROM users WHERE apple_user_id = $1`,
         [appleUserId]
@@ -1695,11 +1907,74 @@ router.post('/apple', authRateLimiter, validate(appleOAuthSchema), asyncHandler(
     } else {
       user = userResult.rows[0];
 
+      // C0-13: refuse to issue tokens to soft-deleted / admin-suspended
+      // Apple users. Mirrors the /login + /google guards. Soft-deleted
+      // users within the 30-day grace window get a recovery_token so
+      // the client can route to the recover prompt (C0-15).
+      if (user.deleted_at) {
+        const withinGrace =
+          user.deletion_scheduled_for &&
+          new Date(user.deletion_scheduled_for) > new Date();
+        logAuthBestEffort({
+          action: 'auth.oauth_login',
+          userId: user.id,
+          email: user.email,
+          ipAddress: getIpAddress(req),
+          userAgent: req.get('user-agent'),
+          success: false,
+          errorMessage: withinGrace ? 'soft_deleted_pending' : 'soft_deleted_expired',
+          metadata: { provider: 'apple' },
+        });
+        if (withinGrace) {
+          const recoveryToken = mintAccountRecoverToken(user.id);
+          const err = new AppError(
+            'Account is scheduled for deletion. Recovery available.',
+            403,
+            'ACCOUNT_PENDING_DELETION',
+            undefined,
+            { recovery_token: recoveryToken },
+          );
+          (err as any)._auditLogged = true;
+          throw err;
+        }
+        const err = new AppError('Account is closed', 401, 'AUTH_REQUIRED');
+        (err as any)._auditLogged = true;
+        throw err;
+      }
+      if (user.plan === 'suspended') {
+        logAuthBestEffort({
+          action: 'auth.oauth_login',
+          userId: user.id,
+          email: user.email,
+          ipAddress: getIpAddress(req),
+          userAgent: req.get('user-agent'),
+          success: false,
+          errorMessage: 'plan_suspended',
+          metadata: { provider: 'apple' },
+        });
+        const err = new AppError('Account suspended. Contact support.', 403, 'FORBIDDEN');
+        (err as any)._auditLogged = true;
+        throw err;
+      }
+
       // Ensure apple_user_id is stored for future lookups
       await query(
         `UPDATE users SET apple_user_id = $1 WHERE id = $2 AND apple_user_id IS NULL`,
         [appleUserId, user.id]
       );
+    }
+
+    // C0-12: enforce MFA on OAuth re-sign-in. Skip for freshly-created
+    // users (no factors yet). Helper writes the response and returns
+    // true when MFA is required — bail without issuing real tokens.
+    if (!isNewUser && await dispatchMfaIfRequired(
+      req,
+      res,
+      user,
+      'auth.oauth_login',
+      { provider: 'apple' },
+    )) {
+      return;
     }
 
     // Generate tokens, store refresh token, and cap active tokens

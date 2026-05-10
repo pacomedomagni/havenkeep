@@ -9,6 +9,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_models/shared_models.dart';
 import 'package:shared_ui/shared_ui.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../core/providers/auth_provider.dart';
 import '../../core/providers/homes_provider.dart';
@@ -18,6 +19,7 @@ import '../../core/utils/error_handler.dart';
 import '../../core/utils/money_formatter.dart';
 import '../../core/utils/price_parser.dart';
 import '../../core/widgets/haven_loader.dart';
+import 'add_item_guard.dart';
 
 /// Receipt scan screen — capture a receipt photo, extract data via OCR,
 /// review/edit extracted fields, then save as a new item.
@@ -183,7 +185,25 @@ class _ReceiptScanScreenState extends ConsumerState<ReceiptScanScreen> {
     try {
       final user = ref.read(currentUserProvider).value;
       final home = ref.read(currentHomeProvider);
-      if (user == null || home == null) return;
+      // H79: surface the missing-precondition cause instead of going
+      // idle. The prior `return` left the user staring at a dead
+      // button with no idea what was wrong.
+      if (user == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Please sign in to save items.')),
+          );
+        }
+        return;
+      }
+      if (home == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Set up a home before adding items.')),
+          );
+        }
+        return;
+      }
 
       // Ch05-F009: use the locale-aware parser everywhere.
       final price = parsePriceInput(_priceController.text);
@@ -204,7 +224,10 @@ class _ReceiptScanScreenState extends ConsumerState<ReceiptScanScreen> {
 
       const warrantyMonths = 12;
       final item = Item(
-        id: '', // DB generates
+        // H53: client-side UUID (was '' → DB generated). Empty id
+        // collides in selectors when two offline creates queue up;
+        // a stamped client UUID avoids the collision.
+        id: const Uuid().v4(),
         homeId: home.id,
         userId: user.id,
         name: itemName,
@@ -270,7 +293,8 @@ class _ReceiptScanScreenState extends ConsumerState<ReceiptScanScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    // H57: gate every direct add-item route on the free-plan limit.
+    return AddItemGuard(child: Scaffold(
       backgroundColor: HavenColors.background,
       appBar: AppBar(
         title: const Text(
@@ -279,7 +303,7 @@ class _ReceiptScanScreenState extends ConsumerState<ReceiptScanScreen> {
         ),
       ),
       body: _buildBody(),
-    );
+    ));
   }
 
   Widget _buildBody() {

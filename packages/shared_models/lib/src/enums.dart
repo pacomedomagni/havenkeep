@@ -2,6 +2,17 @@
 ///
 /// All enum values use snake_case to match database column values exactly.
 /// Dart's `.name` property returns the snake_case string automatically.
+///
+/// H56: every fromJson factory routes through `coerceEnum` so an
+/// unknown server value lands in the unknown-enum funnel (platform
+/// logs + Crashlytics breadcrumb via the registered reporter) before
+/// being coerced to a safe default. The prior `firstWhere(orElse:)`
+/// pattern silently coerced — a server-added enum value on an older
+/// mobile binary would replay as the wrong action with zero telemetry.
+/// `OfflineAction` is the most dangerous of these (a server-added
+/// `delete_archive` on an older binary would replay as `create_item`).
+
+import '_unknown_enum_log.dart';
 
 // ============================================
 // ITEM CATEGORY
@@ -54,9 +65,11 @@ enum ItemCategory {
   other;
 
   factory ItemCategory.fromJson(String value) {
-    return ItemCategory.values.firstWhere(
-      (e) => e.name == value,
-      orElse: () => ItemCategory.other,
+    return coerceEnumByName(
+      enumName: 'ItemCategory',
+      rawValue: value,
+      values: ItemCategory.values,
+      fallback: ItemCategory.other,
     );
   }
 
@@ -131,9 +144,11 @@ enum ItemRoom {
   other;
 
   factory ItemRoom.fromJson(String value) {
-    return ItemRoom.values.firstWhere(
-      (e) => e.name == value,
-      orElse: () => ItemRoom.other,
+    return coerceEnumByName(
+      enumName: 'ItemRoom',
+      rawValue: value,
+      values: ItemRoom.values,
+      fallback: ItemRoom.other,
     );
   }
 
@@ -168,9 +183,11 @@ enum WarrantyType {
   home_warranty;
 
   factory WarrantyType.fromJson(String value) {
-    return WarrantyType.values.firstWhere(
-      (e) => e.name == value,
-      orElse: () => WarrantyType.manufacturer,
+    return coerceEnumByName(
+      enumName: 'WarrantyType',
+      rawValue: value,
+      values: WarrantyType.values,
+      fallback: WarrantyType.manufacturer,
     );
   }
 
@@ -194,9 +211,11 @@ enum WarrantyStatus {
   expired;
 
   factory WarrantyStatus.fromJson(String value) {
-    return WarrantyStatus.values.firstWhere(
-      (e) => e.name == value,
-      orElse: () => WarrantyStatus.active,
+    return coerceEnumByName(
+      enumName: 'WarrantyStatus',
+      rawValue: value,
+      values: WarrantyStatus.values,
+      fallback: WarrantyStatus.active,
     );
   }
 
@@ -219,9 +238,11 @@ enum AuthProvider {
   apple;
 
   factory AuthProvider.fromJson(String value) {
-    return AuthProvider.values.firstWhere(
-      (e) => e.name == value,
-      orElse: () => AuthProvider.email,
+    return coerceEnumByName(
+      enumName: 'AuthProvider',
+      rawValue: value,
+      values: AuthProvider.values,
+      fallback: AuthProvider.email,
     );
   }
 
@@ -244,9 +265,11 @@ enum UserPlan {
   suspended;
 
   factory UserPlan.fromJson(String value) {
-    return UserPlan.values.firstWhere(
-      (e) => e.name == value,
-      orElse: () => UserPlan.free,
+    return coerceEnumByName(
+      enumName: 'UserPlan',
+      rawValue: value,
+      values: UserPlan.values,
+      fallback: UserPlan.free,
     );
   }
 
@@ -271,9 +294,11 @@ enum HomeType {
   other;
 
   factory HomeType.fromJson(String value) {
-    return HomeType.values.firstWhere(
-      (e) => e.name == value,
-      orElse: () => HomeType.other,
+    return coerceEnumByName(
+      enumName: 'HomeType',
+      rawValue: value,
+      values: HomeType.values,
+      fallback: HomeType.other,
     );
   }
 
@@ -300,9 +325,11 @@ enum DocumentType {
   other;
 
   factory DocumentType.fromJson(String value) {
-    return DocumentType.values.firstWhere(
-      (e) => e.name == value,
-      orElse: () => DocumentType.other,
+    return coerceEnumByName(
+      enumName: 'DocumentType',
+      rawValue: value,
+      values: DocumentType.values,
+      fallback: DocumentType.other,
     );
   }
 
@@ -338,9 +365,11 @@ enum NotificationType {
   system;
 
   factory NotificationType.fromJson(String value) {
-    return NotificationType.values.firstWhere(
-      (e) => e.name == value,
-      orElse: () => NotificationType.system,
+    return coerceEnumByName(
+      enumName: 'NotificationType',
+      rawValue: value,
+      values: NotificationType.values,
+      fallback: NotificationType.system,
     );
   }
 
@@ -374,9 +403,11 @@ enum NotificationAction {
   find_repair;
 
   factory NotificationAction.fromJson(String value) {
-    return NotificationAction.values.firstWhere(
-      (e) => e.name == value,
-      orElse: () => NotificationAction.view_item,
+    return coerceEnumByName(
+      enumName: 'NotificationAction',
+      rawValue: value,
+      values: NotificationAction.values,
+      fallback: NotificationAction.view_item,
     );
   }
 
@@ -401,9 +432,11 @@ enum PartnerType {
   other;
 
   factory PartnerType.fromJson(String value) {
-    return PartnerType.values.firstWhere(
-      (e) => e.name == value,
-      orElse: () => PartnerType.other,
+    return coerceEnumByName(
+      enumName: 'PartnerType',
+      rawValue: value,
+      values: PartnerType.values,
+      fallback: PartnerType.other,
     );
   }
 
@@ -428,9 +461,11 @@ enum ReferralSource {
   user_invite;
 
   factory ReferralSource.fromJson(String value) {
-    return ReferralSource.values.firstWhere(
-      (e) => e.name == value,
-      orElse: () => ReferralSource.realtor,
+    return coerceEnumByName(
+      enumName: 'ReferralSource',
+      rawValue: value,
+      values: ReferralSource.values,
+      fallback: ReferralSource.realtor,
     );
   }
 
@@ -453,9 +488,11 @@ enum ConversionType {
   premium_sub;
 
   factory ConversionType.fromJson(String value) {
-    return ConversionType.values.firstWhere(
-      (e) => e.name == value,
-      orElse: () => ConversionType.extended_warranty,
+    return coerceEnumByName(
+      enumName: 'ConversionType',
+      rawValue: value,
+      values: ConversionType.values,
+      fallback: ConversionType.extended_warranty,
     );
   }
 
@@ -478,9 +515,11 @@ enum ConversionStatus {
   paid;
 
   factory ConversionStatus.fromJson(String value) {
-    return ConversionStatus.values.firstWhere(
-      (e) => e.name == value,
-      orElse: () => ConversionStatus.pending,
+    return coerceEnumByName(
+      enumName: 'ConversionStatus',
+      rawValue: value,
+      values: ConversionStatus.values,
+      fallback: ConversionStatus.pending,
     );
   }
 
@@ -507,9 +546,11 @@ enum ItemAddedVia {
   bulk_setup;
 
   factory ItemAddedVia.fromJson(String value) {
-    return ItemAddedVia.values.firstWhere(
-      (e) => e.name == value,
-      orElse: () => ItemAddedVia.manual,
+    return coerceEnumByName(
+      enumName: 'ItemAddedVia',
+      rawValue: value,
+      values: ItemAddedVia.values,
+      fallback: ItemAddedVia.manual,
     );
   }
 
@@ -537,10 +578,21 @@ enum OfflineAction {
   create_document,
   update_preferences;
 
+  static const Map<String, OfflineAction> _byName = {
+    'create_item': OfflineAction.create_item,
+    'update_item': OfflineAction.update_item,
+    'delete_item': OfflineAction.delete_item,
+    'create_document': OfflineAction.create_document,
+    'update_preferences': OfflineAction.update_preferences,
+  };
+
   factory OfflineAction.fromJson(String value) {
-    return OfflineAction.values.firstWhere(
-      (e) => e.name == value,
-      orElse: () => OfflineAction.create_item,
+    return coerceEnum(
+      enumName: 'OfflineAction',
+      rawValue: value,
+      byName: _byName,
+      fallback: OfflineAction.create_item,
+      fallbackName: 'create_item',
     );
   }
 
@@ -565,9 +617,11 @@ enum OfflineStatus {
   failed;
 
   factory OfflineStatus.fromJson(String value) {
-    return OfflineStatus.values.firstWhere(
-      (e) => e.name == value,
-      orElse: () => OfflineStatus.pending,
+    return coerceEnumByName(
+      enumName: 'OfflineStatus',
+      rawValue: value,
+      values: OfflineStatus.values,
+      fallback: OfflineStatus.pending,
     );
   }
 

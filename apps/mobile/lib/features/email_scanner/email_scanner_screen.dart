@@ -299,6 +299,10 @@ class EmailScannerScreen extends ConsumerWidget {
           SnackBar(content: Text(ErrorHandler.getUserMessage(e))),
         );
       }
+    } finally {
+      // H60: release the ValueNotifier so the listener it accrued
+      // doesn't outlive the dialog.
+      progress.dispose();
     }
   }
 
@@ -344,6 +348,9 @@ class _ScanProgressController {
   final ValueNotifier<String> stage =
       ValueNotifier<String>('Preparing…');
   void advance(String label) => stage.value = label;
+  // H60: ValueNotifier holds listener references that block GC. Call
+  // this from the caller's finally{} once the dialog closes.
+  void dispose() => stage.dispose();
 }
 
 class _ScanProgressDialog extends StatelessWidget {

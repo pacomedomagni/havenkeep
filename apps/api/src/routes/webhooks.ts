@@ -6,7 +6,9 @@ import { pool, query, getClient } from '../db';
 import { logger } from '../utils/logger';
 import { invalidateUserCache } from '../middleware/auth';
 import { createStripeClient } from '../utils/stripe-client';
+import { decimalToCents, centsToDecimalString } from '../utils/money';
 import { AuditService } from '../services/audit.service';
+import { EmailService } from '../services/email.service';
 
 /**
  * H-P2 (audit): every webhook-driven plan transition writes an audit
@@ -84,7 +86,8 @@ async function clawbackCommissionForGift(
   proportion = 1,
 ): Promise<void> {
   const original = await client.query(
-    `SELECT id, partner_id, amount, status, stripe_transfer_id
+    `SELECT id, partner_id, amount, commission_rate, status, stripe_transfer_id,
+            partner_id_at_event, partner_company_name_at_event, partner_email_at_event
        FROM partner_commissions
       WHERE reference_id = $1 AND reference_type = 'partner_gift'
         AND status NOT IN ('reversed', 'cancelled')
@@ -92,13 +95,24 @@ async function clawbackCommissionForGift(
     [giftId],
   );
   for (const row of original.rows) {
-    // For partial refunds the reversal is proportional; round to two decimals
-    // so it stays inside DECIMAL(10,2) precision and matches the commission
-    // column shape. Math.round avoids fractional-cent drift on odd splits.
-    const reversalAmount =
-      proportion >= 1
-        ? -Number(row.amount)
-        : -Math.round(Number(row.amount) * proportion * 100) / 100;
+    // C0-8: do the math in integer cents — not float dollars — so a
+    // partial-refund proportion never produces a fractional-cent
+    // residual that the ledger can't sum to zero. The prior shape
+    // `Math.round(Number(row.amount) * proportion * 100) / 100` ran
+    // the multiply in IEEE-754 dollars then re-discretised to cents,
+    // which on certain splits left a `0.0050000000000003` residue
+    // that compounded across refund chains. partner_commissions.amount
+    // is DECIMAL(10,2), so we convert original→cents, multiply by
+    // proportion at the cent boundary, then format back to a 2dp
+    // string for the INSERT (centsToDecimalString preserves
+    // precision without re-entering float-land).
+    let reversalAmount: string;
+    if (proportion >= 1) {
+      reversalAmount = centsToDecimalString(-decimalToCents(row.amount));
+    } else {
+      const reverseCents = Math.round(decimalToCents(row.amount) * proportion);
+      reversalAmount = centsToDecimalString(-reverseCents);
+    }
     const description =
       proportion >= 1
         ? 'Refund clawback for refunded gift'
@@ -109,12 +123,31 @@ async function clawbackCommissionForGift(
       // ledger sums to zero. The actual Stripe transfer reversal is initiated
       // by the operator (admin route), since automated reversal of partner
       // payouts is too dangerous to do in a webhook handler.
+      //
+      // C0-10: forward the original row's partner identity snapshot
+      // onto the reversal so the clawback row remembers which partner
+      // got paid even after a future user-purge clears partner_id.
+      // H34: copy the original row's commission_rate onto the
+      // reversal sibling. Writing 0 was semantically wrong (rate-of-
+      // reversal isn't 0) and forward-incompatible with any future
+      // CHECK that enforces a positive rate.
       await client.query(
         `INSERT INTO partner_commissions (
            partner_id, type, amount, commission_rate, status,
-           reference_id, reference_type, reversal_of_commission_id, description
-         ) VALUES ($1, 'gift', $2, 0, 'reversed', $3, 'partner_gift', $4, $5)`,
-        [row.partner_id, reversalAmount, giftId, row.id, description],
+           reference_id, reference_type, reversal_of_commission_id, description,
+           partner_id_at_event, partner_company_name_at_event, partner_email_at_event
+         ) VALUES ($1, 'gift', $2, $3, 'reversed', $4, 'partner_gift', $5, $6, $7, $8, $9)`,
+        [
+          row.partner_id,
+          reversalAmount,
+          row.commission_rate,
+          giftId,
+          row.id,
+          description,
+          row.partner_id_at_event,
+          row.partner_company_name_at_event,
+          row.partner_email_at_event,
+        ],
       );
       logger.warn(
         { commissionId: row.id, giftId, amount: reversalAmount, proportion },
@@ -125,12 +158,28 @@ async function clawbackCommissionForGift(
       // and add a partial reversal row alongside it. Don't cancel the
       // original — it represents the post-refund residual the partner is
       // still owed.
+      // C0-10: forward partner identity snapshot as above.
+      // H34: copy the original row's commission_rate onto the
+      // reversal sibling. Writing 0 was semantically wrong (rate-of-
+      // reversal isn't 0) and forward-incompatible with any future
+      // CHECK that enforces a positive rate.
       await client.query(
         `INSERT INTO partner_commissions (
            partner_id, type, amount, commission_rate, status,
-           reference_id, reference_type, reversal_of_commission_id, description
-         ) VALUES ($1, 'gift', $2, 0, 'reversed', $3, 'partner_gift', $4, $5)`,
-        [row.partner_id, reversalAmount, giftId, row.id, description],
+           reference_id, reference_type, reversal_of_commission_id, description,
+           partner_id_at_event, partner_company_name_at_event, partner_email_at_event
+         ) VALUES ($1, 'gift', $2, $3, 'reversed', $4, 'partner_gift', $5, $6, $7, $8, $9)`,
+        [
+          row.partner_id,
+          reversalAmount,
+          row.commission_rate,
+          giftId,
+          row.id,
+          description,
+          row.partner_id_at_event,
+          row.partner_company_name_at_event,
+          row.partner_email_at_event,
+        ],
       );
       logger.info(
         { commissionId: row.id, giftId, amount: reversalAmount, proportion },
@@ -337,6 +386,16 @@ stripeWebhookRouter.post(
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error';
       logger.error({ error: message }, 'Stripe webhook signature verification failed');
+      // H30: alert operator. Throttled to one email per 15 min per
+      // process so a misconfigured edge that flips compression on
+      // doesn't flood SendGrid. The Caddyfile in
+      // /opt/staging/infra/Caddyfile must keep `encode none` on
+      // `/api/v1/webhooks/stripe` — compression of the raw body breaks
+      // signature verification.
+      EmailService.sendStripeWebhookSignatureFailureAlert({
+        message,
+        contentEncoding: req.headers['content-encoding'] ?? null,
+      }).catch(() => {});
       return res.status(400).json({ error: 'Webhook signature verification failed' });
     }
 
@@ -407,13 +466,43 @@ stripeWebhookRouter.post(
           await handleChargeSucceeded(event.data.object as Stripe.Charge);
           break;
 
-        case 'charge.failed':
-          await handleChargeFailed(event.data.object as Stripe.Charge);
+        case 'charge.failed': {
+          // H35: drop out-of-order charge.failed deliveries against
+          // the same charge id. Stripe occasionally delivers
+          // succeeded → failed → succeeded out of order; without the
+          // gate, an old failed event arriving after a successful
+          // payment would re-cancel the gift.
+          const charge = event.data.object as Stripe.Charge;
+          const eventAt = new Date(event.created * 1000);
+          if (!(await isEventInOrder('stripe', charge.id, event.id, eventAt))) {
+            logger.info(
+              { chargeId: charge.id, eventId: event.id },
+              'Skipping out-of-order charge.failed',
+            );
+            break;
+          }
+          await handleChargeFailed(charge);
           break;
+        }
 
-        case 'charge.refunded':
-          await handleChargeRefunded(event.data.object as Stripe.Charge, event.id);
+        case 'charge.refunded': {
+          // H35: same out-of-order guard for refunds. The clawback path
+          // is idempotent at the per-row level, but the gift-status
+          // flips it performs aren't — a stale refunded event arriving
+          // after a successful re-charge would mark the now-active
+          // gift as refunded again.
+          const charge = event.data.object as Stripe.Charge;
+          const eventAt = new Date(event.created * 1000);
+          if (!(await isEventInOrder('stripe', charge.id, event.id, eventAt))) {
+            logger.info(
+              { chargeId: charge.id, eventId: event.id },
+              'Skipping out-of-order charge.refunded',
+            );
+            break;
+          }
+          await handleChargeRefunded(charge, event.id);
           break;
+        }
 
         case 'payment_intent.canceled':
           await handlePaymentIntentCanceled(event.data.object as Stripe.PaymentIntent);

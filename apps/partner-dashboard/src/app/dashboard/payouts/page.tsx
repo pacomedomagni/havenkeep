@@ -81,6 +81,16 @@ export default function PayoutsPage() {
     }
   };
 
+  // H28: same Stripe-hosts allowlist the settings page uses for the
+  // Connect onboarding link. A compromised API that handed us an
+  // open-redirect URL would otherwise navigate the partner anywhere.
+  const STRIPE_HOSTS = new Set([
+    'stripe.com',
+    'connect.stripe.com',
+    'dashboard.stripe.com',
+    'checkout.stripe.com',
+  ]);
+
   const openTaxDocs = async () => {
     setTaxLinkLoading(true);
     try {
@@ -88,10 +98,21 @@ export default function PayoutsPage() {
         method: 'POST',
       });
       if (res.success && res.data?.url) {
+        let parsed: URL;
+        try {
+          parsed = new URL(res.data.url);
+        } catch {
+          setError('Invalid tax documents URL');
+          return;
+        }
+        if (parsed.protocol !== 'https:' || !STRIPE_HOSTS.has(parsed.hostname)) {
+          setError('Tax documents URL is not from a recognised Stripe host');
+          return;
+        }
         // The Stripe-hosted Express dashboard is where 1099-NEC forms
         // appear. Open in a new tab so the partner doesn't lose their
         // place here.
-        window.open(res.data.url, '_blank', 'noopener,noreferrer');
+        window.open(parsed.toString(), '_blank', 'noopener,noreferrer');
       } else {
         setError(res.error || 'Could not open tax documents');
       }

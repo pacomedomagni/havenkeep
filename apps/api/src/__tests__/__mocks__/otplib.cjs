@@ -1,12 +1,17 @@
 // Test-time stub for otplib. mfa.service.ts loads this through the Jest
-// moduleNameMapper. None of the test suites exercise TOTP enrollment
-// directly — auth tests use the email+password path — so the stub is
-// shape-only: enough to satisfy `new OTP({...}).method(...)` calls.
+// moduleNameMapper. The default behaviour (`verifySync` always returns
+// {valid:true}) is fine for tests that don't care about TOTP correctness
+// — they just need MFA-typed shapes to compile and run.
 //
-// If a future test needs real TOTP behavior, mock it per-test with
-// `jest.mock('otplib', () => ({...}))` instead of removing this stub
-// (every other suite would then fail to load, since @scure/base's ESM
-// syntax still trips Jest).
+// H20: mfa.test.ts needs to distinguish "right code" from "wrong code".
+// Use `__setExpectedToken(value)` to make verifySync only accept that
+// exact value; reset with `__setExpectedToken(null)` for the next suite.
+
+let _expectedToken = null;
+function __setExpectedToken(value) {
+  _expectedToken = value;
+}
+
 class OTP {
   constructor(_opts) {}
   generateSecret() {
@@ -15,9 +20,10 @@ class OTP {
   generateURI({ issuer, label, secret }) {
     return `otpauth://totp/${encodeURIComponent(label)}?secret=${secret}&issuer=${encodeURIComponent(issuer)}`;
   }
-  verifySync(_args) {
-    return { valid: true };
+  verifySync({ token }) {
+    if (_expectedToken === null) return { valid: true };
+    return { valid: token === _expectedToken };
   }
 }
 
-module.exports = { OTP };
+module.exports = { OTP, __setExpectedToken };

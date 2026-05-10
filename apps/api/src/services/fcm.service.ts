@@ -41,16 +41,20 @@ export interface FcmPayload {
 
 /**
  * F076: FCM error codes we treat as "this token is dead, drop it".
- * - invalid-registration-token: malformed token (probably manual edit)
- * - registration-token-not-registered: app uninstalled / token rotated
- * - sender-id-mismatch: token belongs to a different sender (project switch)
- * - invalid-argument: occasionally surfaced for permanently-bad tokens
+ *
+ * C0-30: `messaging/invalid-argument` is intentionally NOT in this set.
+ * Firebase overloads it for two very different failures: malformed
+ * token OR malformed PAYLOAD. The prior shape treated both as "token
+ * is bad" and deleted the row, so a single payload-too-large bug in
+ * a notification template would silently delete every user's push
+ * tokens on the next send. Surface invalid-argument as transient and
+ * leave the token alone; the operator sees the spike and fixes the
+ * template.
  */
 const DEAD_TOKEN_CODES: ReadonlySet<string> = new Set<string>([
   'messaging/invalid-registration-token',
   'messaging/registration-token-not-registered',
   'messaging/sender-id-mismatch',
-  'messaging/invalid-argument',
 ]);
 
 /** F076: codes that we should back off on but NOT drop the token. */
@@ -58,6 +62,8 @@ const TRANSIENT_CODES: ReadonlySet<string> = new Set<string>([
   'messaging/quota-exceeded',
   'messaging/server-unavailable',
   'messaging/internal-error',
+  // C0-30: see comment above DEAD_TOKEN_CODES.
+  'messaging/invalid-argument',
 ]);
 
 /** F072: Firebase sendEachForMulticast caps per-call at 500 tokens. */

@@ -105,14 +105,12 @@ import Footer from '../components/Footer.astro';
         return;
       }
 
+      // H66: map to fixed marketing-side strings. Never echo upstream
+      // error text — a careless API change would leak schema hints
+      // through this user-visible surface.
       // 400 invalid/expired, 409 email-taken, 429 rate-limit, 5xx server.
-      let serverMessage: string | undefined;
-      try {
-        const body = await response.json();
-        serverMessage = body?.error?.message ?? body?.message;
-      } catch {
-        // ignore — generic message below
-      }
+      // Drain the body so logs aren't surprised by it, but never use it.
+      await response.json().catch(() => null);
       if (response.status === 409) {
         showError('That email is no longer available. Please request a new email change.');
       } else if (response.status === 429) {
@@ -120,7 +118,7 @@ import Footer from '../components/Footer.astro';
       } else if (response.status >= 500) {
         showError('Service temporarily unavailable. Please try again later.');
       } else {
-        showError(serverMessage ?? 'The verification link is invalid or has expired.');
+        showError('The verification link is invalid or has expired.');
       }
     } catch {
       showError('Could not reach the server. Please check your connection and try again.');

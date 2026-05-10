@@ -14,8 +14,11 @@ import { NotificationsService } from './services/notifications.service';
 import { WarrantyPurchasesService } from './services/warranty-purchases.service';
 import { ReconciliationService } from './services/reconciliation.service';
 import { AuditService } from './services/audit.service';
+import { EmailService } from './services/email.service';
 import { pruneExpiredIdempotencyRows } from './middleware/idempotency';
 import { purgeExpiredSoftDeletedAccounts } from './services/account-purge.service';
+import { alertOnDeadLetterWebhooks } from './services/webhook-dead-letter.service';
+import { sendDay25GraceReminders } from './services/grace-reminder.service';
 import { FcmService } from './services/fcm.service';
 import { pool, isDatabaseReady } from './db';
 import { createApp } from './app';
@@ -23,9 +26,13 @@ import { isShuttingDown, markShuttingDown } from './utils/lifecycle';
 
 let server: Server | undefined;
 const PORT = config.port;
-const NOTIFICATION_JOB_LOCK = 93422874;
-const MAINTENANCE_JOB_LOCK = 93422875;
-const WARRANTY_OFFERS_JOB_LOCK = 93422876;
+// H7: lock keys come from the central registry — see db/advisory-locks.ts
+// for why and where each lock is held.
+import { ADVISORY_LOCKS } from './db/advisory-locks';
+
+const NOTIFICATION_JOB_LOCK = ADVISORY_LOCKS.NOTIFICATION_EXPIRATION;
+const MAINTENANCE_JOB_LOCK = ADVISORY_LOCKS.MAINTENANCE_DUE;
+const WARRANTY_OFFERS_JOB_LOCK = ADVISORY_LOCKS.WARRANTY_OFFERS;
 
 // ── Cron jobs ─────────────────────────────────────────────────────────────
 // Each job acquires a Postgres advisory lock so multi-instance deploys only
@@ -61,8 +68,8 @@ const runWarrantyOffersJob = () =>
   runWithAdvisoryLock(WARRANTY_OFFERS_JOB_LOCK, 'warranty-offers',
     () => NotificationsService.checkAndNotifyWarrantyOffers());
 
-const PARTNER_GIFT_EXPIRY_LOCK = 93422877;
-const PARTNER_COMMISSION_AUTO_APPROVE_LOCK = 93422878;
+const PARTNER_GIFT_EXPIRY_LOCK = ADVISORY_LOCKS.PARTNER_GIFT_EXPIRY;
+const PARTNER_COMMISSION_AUTO_APPROVE_LOCK = ADVISORY_LOCKS.PARTNER_COMMISSION_AUTO_APPROVE;
 
 // Number of days a commission must sit in 'pending' before the auto-approve
 // cron flips it to 'approved'. The hold protects the platform from refund
@@ -196,6 +203,15 @@ function scheduleExpirationNotifications() {
       now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(),
       NOTIFICATION_HOUR_UTC, 0, 0, 0,
     ));
+    // H6: if `next` is in the past, but only by less than 60s, prefer
+    // running NOW rather than advancing 24h. The original shape lost
+    // an entire day's notifications when a pod restarted at exactly
+    // 09:00:00.001 UTC — `next.getTime() <= now.getTime()` is true,
+    // so we'd skip to tomorrow.
+    const drift = now.getTime() - next.getTime();
+    if (drift > 0 && drift < 60_000) {
+      return now.getTime();
+    }
     if (next.getTime() <= now.getTime()) {
       next.setUTCDate(next.getUTCDate() + 1);
     }
@@ -230,13 +246,47 @@ function scheduleExpirationNotifications() {
       // S2-K: daily audit log hash-chain check. A break here means a row
       // was tampered with after the fact; we surface as `error` so any
       // log forwarder pages on it.
+      //
+      // H1: when verifyHashChain returns a non-empty list, write a
+      // `system.audit_chain_break` row INTO the audit log AND fire the
+      // EmailService alert to the operator. Without these, the only
+      // signal is a single logger.error line that's trivially missed.
+      // Combined with C0-2/C0-3, an attacker who tampered would leave
+      // no trace at all.
       AuditService.verifyHashChain().then(
-        (broken) => {
+        async (broken) => {
           if (broken.length > 0) {
             logger.error(
               { brokenCount: broken.length, firstBrokenAt: broken[0] },
               'Audit log hash chain INTEGRITY FAILURE — possible tampering',
             );
+            await AuditService.log({
+              action: 'system.audit_chain_break',
+              severity: 'critical',
+              description: `Audit log hash chain verification flagged ${broken.length} broken row(s)`,
+              metadata: {
+                broken_count: broken.length,
+                first_broken_at: broken[0]?.broken_at,
+                first_broken_id: broken[0]?.broken_id,
+              },
+              success: false,
+              errorMessage: 'audit_chain_break',
+            }).catch((auditErr) => {
+              logger.error(
+                { err: auditErr },
+                'Failed to write audit_chain_break audit row',
+              );
+            });
+            EmailService.sendAuditChainBreakAlert({
+              brokenCount: broken.length,
+              firstBrokenAt: broken[0]?.broken_at?.toISOString?.() ?? null,
+              firstBrokenId: broken[0]?.broken_id ?? null,
+            }).catch((mailErr) => {
+              logger.error(
+                { err: mailErr },
+                'Failed to send audit_chain_break operator alert email',
+              );
+            });
           } else {
             logger.info('Audit log hash chain verification passed');
           }
@@ -253,6 +303,27 @@ function scheduleExpirationNotifications() {
           }
         },
         (err) => logger.error({ err }, 'Idempotency prune failed'),
+      ),
+      // H78: nudge soft-deleted users at day 25 (5 days before
+       // hard-delete) with one "you're about to lose your account"
+       // email so a regretted deletion has a clear last-call.
+      sendDay25GraceReminders().then(
+        (result) => {
+          if (result.candidates > 0) {
+            logger.info(result, 'Day-25 grace reminder sweep');
+          }
+        },
+        (err) => logger.error({ err }, 'Day-25 grace reminder cron failed'),
+      ),
+      // H2: alert on any new webhook dead-letter rows so a stuck
+      // refund / dispute handler doesn't sit silently for days.
+      alertOnDeadLetterWebhooks().then(
+        (result) => {
+          if (result.newDeadLetters > 0) {
+            logger.warn(result, 'Webhook dead-letter alert dispatched');
+          }
+        },
+        (err) => logger.error({ err }, 'Webhook dead-letter alert cron failed'),
       ),
       // 1.4: hard-delete users whose 30-day cooling-off window has
       // expired. The DELETE /me handler stamps deletion_scheduled_for =
@@ -311,8 +382,16 @@ function scheduleExpirationNotifications() {
     // cheap (idx_webhook_events_processed_at covers it) and there's
     // no reason to bunch.
     try {
+      // H31: scope the retention sweep to `status = 'processed'`. The
+      // prior shape filtered only on processed_at, so a future change
+      // that ever set processed_at on a dead-letter row (e.g. someone
+      // adds a finalize-on-redrive timestamp) would silently start
+      // deleting forensic evidence after 7 days. Explicit status gate
+      // makes that impossible without an obvious WHERE-clause edit.
       const result = await pool.query(
-        `DELETE FROM webhook_events WHERE processed_at < NOW() - INTERVAL '7 days'`,
+        `DELETE FROM webhook_events
+          WHERE status = 'processed'
+            AND processed_at < NOW() - INTERVAL '7 days'`,
       );
       if (result.rowCount && result.rowCount > 0) {
         logger.info({ deleted: result.rowCount }, 'webhook_events retention sweep');
@@ -467,7 +546,7 @@ function scheduleExpirationNotifications() {
 // flush itself takes. The timer is `unref()`'d so it doesn't hold the
 // process alive on shutdown.
 const DIGEST_TICK_INTERVAL_MS = 60_000;
-const DIGEST_FLUSH_LOCK = 93422878;
+const DIGEST_FLUSH_LOCK = ADVISORY_LOCKS.NOTIFICATION_DIGEST_FLUSH;
 function startDigestTick(): void {
   let timer: NodeJS.Timeout | undefined;
   const tick = async () => {

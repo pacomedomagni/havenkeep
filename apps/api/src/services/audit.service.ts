@@ -57,6 +57,11 @@ export type AuditAction =
   | 'admin.partner_approve'
   | 'admin.partner_reject'
   | 'admin.settings_change'
+  // H76: commission state-change audit trail. DB enum gets these via
+  // migration 104.
+  | 'admin.commission_approve'
+  | 'admin.commission_pay'
+  | 'admin.commission_cancel'
   // Partner actions
   | 'partner.gift_create'
   | 'partner.gift_update'
@@ -72,7 +77,12 @@ export type AuditAction =
   // System events
   | 'system.error'
   | 'system.maintenance_start'
-  | 'system.maintenance_end';
+  | 'system.maintenance_end'
+  // H1: emitted by the daily verify-hash-chain cron when
+  // verify_audit_chain() returns any broken rows. Severity=critical so
+  // any log forwarder pages on it; also fed back into the chain so the
+  // tampering attempt itself leaves a forensic breadcrumb.
+  | 'system.audit_chain_break';
 
 export type AuditSeverity = 'info' | 'warning' | 'error' | 'critical';
 

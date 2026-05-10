@@ -68,19 +68,14 @@ const nextConfig = {
       { protocol: 'https', hostname: 'lh3.googleusercontent.com' }, // partner OAuth avatars
     ],
   },
-  // Proxy API calls to the upstream API. API_UPSTREAM_URL is read at
-  // container start time (not build time), so a single dashboard image
-  // can be pointed at staging or production without rebuilding.
-  async rewrites() {
-    const upstream = process.env.API_UPSTREAM_URL;
-    if (!upstream) return [];
-    return [
-      {
-        source: '/api/v1/:path*',
-        destination: `${upstream.replace(/\/$/, '')}/api/v1/:path*`,
-      },
-    ];
-  },
+  // C0-26: rewrites() is intentionally NOT defined. The only sanctioned
+  // browser → API path is /app/api/v1/[...path]/route.ts, which strips
+  // cookies, enforces CSRF, validates path segments, and proxies under
+  // the same origin. A `rewrites()` rule that forwarded /api/v1/:path*
+  // straight to the upstream would bypass all four protections and ship
+  // every httpOnly cookie (incl. the access token) to whatever URL
+  // API_UPSTREAM_URL happened to point at. The env var is no longer
+  // read anywhere — set NEXT_PUBLIC_API_URL or rely on same-origin.
   async headers() {
     return [
       {

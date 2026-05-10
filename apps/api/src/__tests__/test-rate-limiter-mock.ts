@@ -15,6 +15,7 @@ module.exports = {
   __esModule: true,
   // Auth + session
   authRateLimiter: pass,
+  loginPerEmailRateLimiter: pass,
   refreshRateLimiter: pass,
   passwordResetRateLimiter: pass,
   passwordChangeRateLimiter: pass,
@@ -35,6 +36,7 @@ module.exports = {
   emailScannerWriteRateLimiter: pass,
   // Lifecycle
   initializeRateLimiter: jest.fn().mockResolvedValue(undefined),
+  initializeEndpointRedis: jest.fn().mockResolvedValue(undefined),
   shutdownRateLimiter: jest.fn().mockResolvedValue(undefined),
   closeRateLimiterRedis: jest.fn().mockResolvedValue(undefined),
 };

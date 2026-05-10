@@ -91,7 +91,8 @@ class _HomeDetailScreenState extends ConsumerState<HomeDetailScreen> {
       },
     );
     if (picked != null) {
-      setState(() => _moveInDate = picked);
+      // H59: anchor to local midnight.
+      setState(() => _moveInDate = DateTime(picked.year, picked.month, picked.day));
       _markDirty();
     }
   }

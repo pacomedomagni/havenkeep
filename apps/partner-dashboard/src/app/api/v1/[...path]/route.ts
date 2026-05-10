@@ -17,7 +17,13 @@ import { csrfTokenOk } from '@/lib/csrf';
 // 4. Upstream response headers are reduced to a small allowlist (no
 //    Set-Cookie / CORS leak from upstream).
 
-const SAFE_SEGMENT = /^[A-Za-z0-9._~-]{1,128}$/;
+// C0-25: leading-dot guard. The prior `/^[A-Za-z0-9._~-]{1,128}$/`
+// matched `.` and `..` as full segments, so `/api/v1/admin/users/../analytics`
+// upstream-resolved to `/api/v1/admin/analytics` — a partner-scoped
+// caller could reach admin-scoped endpoints whenever role gating sat
+// only at the role-check layer below. First char must NOT be a dot;
+// subsequent chars may include dots for filenames/uuids.
+const SAFE_SEGMENT = /^[A-Za-z0-9_~-][A-Za-z0-9._~-]{0,127}$/;
 const FORWARDABLE_REQUEST_HEADERS = new Set([
   'content-type',
   'accept',
@@ -126,11 +132,31 @@ async function proxyRequest(request: NextRequest, pathParts: string[]) {
     }
   }
 
+  // H27: cap the request body. The prior shape buffered an unbounded
+  // body into memory via arrayBuffer(); a logged-in attacker could
+  // POST 100MB and pin the dashboard pod's heap. 1MB is generous for
+  // every legitimate dashboard mutation (a gift create body is < 2KB).
+  const MAX_REQUEST_BYTES = 1024 * 1024;
+  const contentLength = parseInt(request.headers.get('content-length') || '0', 10);
+  if (Number.isFinite(contentLength) && contentLength > MAX_REQUEST_BYTES) {
+    return NextResponse.json(
+      { error: 'Payload too large' },
+      { status: 413 },
+    );
+  }
+
   const accessToken = request.cookies.get(ACCESS_TOKEN_COOKIE)?.value;
   const headers = buildForwardedHeaders(request, accessToken);
 
   const body =
     method === 'GET' || method === 'HEAD' ? undefined : await request.arrayBuffer();
+  if (body && body.byteLength > MAX_REQUEST_BYTES) {
+    // Content-Length absent or lied — re-check after read.
+    return NextResponse.json(
+      { error: 'Payload too large' },
+      { status: 413 },
+    );
+  }
 
   try {
     const controller = new AbortController();
@@ -145,7 +171,12 @@ async function proxyRequest(request: NextRequest, pathParts: string[]) {
 
     clearTimeout(timeoutId);
 
-    return new NextResponse(await response.arrayBuffer(), {
+    // H27: stream the response body through to the client instead of
+    // buffering it into memory. The prior `await response.arrayBuffer()`
+    // call would buffer a multi-MB upstream response before we could
+    // forward a single byte — turning every response into a memory
+    // spike.
+    return new NextResponse(response.body, {
       status: response.status,
       headers: reduceUpstreamHeaders(response.headers),
     });

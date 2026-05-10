@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:api_client/api_client.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -15,6 +16,7 @@ import '../../core/utils/apple_sign_in_nonce.dart';
 import '../../core/utils/error_handler.dart';
 import '../../core/widgets/havenkeep_logo.dart';
 import 'forgot_password_screen.dart';
+import 'recover_account_screen.dart';
 import '../../core/widgets/haven_loader.dart';
 import '../../core/utils/haven_haptics.dart';
 
@@ -54,9 +56,8 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
     // before any account is created. Persist the code now so the email
     // sign-up below picks it up just like the handler screen used to.
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      final code = GoRouterState.of(context)
-          .uri
-          .queryParameters['pendingReferral'];
+      final params = GoRouterState.of(context).uri.queryParameters;
+      final code = params['pendingReferral'];
       // Ch05-F079: surface the pending referral in the UI as well — a
       // silent persistence misses the chance to confirm the user
       // landed via the right code, and a failed/garbled code stays
@@ -69,6 +70,15 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
         // Show any code already stored from a prior referral handler
         // visit so the banner stays consistent across cold starts.
         resolved = prefs.getString('referral_code');
+      }
+      // H62: the router rewrites unauthenticated `/gift/<code>` deep
+      // links to `/welcome?pendingGift=$code`. Persist the gift code so
+      // that after sign-up we can resume the activation flow even
+      // though the gift activation screen itself never got a chance to
+      // stash it (cold start lands on /welcome directly).
+      final giftCode = params['pendingGift'];
+      if (giftCode != null && giftCode.isNotEmpty) {
+        await prefs.setString('pending_gift_code', giftCode);
       }
       if (!mounted) return;
       if (resolved != null && resolved.isNotEmpty) {
@@ -87,6 +97,10 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
 
   Future<void> _signInWithApple() async {
     setState(() => _isLoading = true);
+    // Hoisted so the C0-14 catch branch below can pass the email to
+    // the recover screen if Apple surfaced it. Apple only returns
+    // email on first sign-in; subsequent calls leave this empty.
+    String credentialEmail = '';
     try {
       // iOS uses the native Apple Sign-In flow; everything else (Android,
       // web, desktop) goes through Apple's web OAuth flow which needs a
@@ -117,6 +131,7 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
         nonce: appleNonce.hashed,
         webAuthenticationOptions: webOptions,
       );
+      credentialEmail = credential.email ?? '';
 
       final idToken = credential.identityToken;
       if (idToken == null) {
@@ -133,16 +148,36 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
         if (fullName.isEmpty) fullName = null;
       }
 
+      // H63: forward the pending referral code on first-sign-up so the
+      // attribution path matches the email flow. The server ignores it
+      // for returning users; we still wipe it locally below so a second
+      // sign-in doesn't keep re-asserting the same code.
+      final prefs = await SharedPreferences.getInstance();
+      final referralCode = prefs.getString('referral_code');
       await ref.read(currentUserProvider.notifier).signInWithApple(
             idToken: idToken,
             nonce: appleNonce.raw,
             fullName: fullName,
+            referralCode: referralCode,
           );
+      if (referralCode != null) {
+        await prefs.remove('referral_code');
+      }
+      // H62: if the user came in via a `/gift/<code>` deep link, route
+      // them back to activate. Otherwise fall through and let the auth
+      // guard pick the destination.
+      if (await _resumePendingGiftCode()) return;
       // Navigation handled by GoRouter auth guard
     } catch (e) {
       if (e is SignInWithAppleAuthorizationException &&
           e.code == AuthorizationErrorCode.canceled) {
         // User cancelled — do nothing
+        return;
+      }
+      // C0-14: route a within-grace soft-deleted login to the recover
+      // screen. Apple only returns email on first sign-in, so this
+      // may be empty on subsequent attempts — the screen handles that.
+      if (await _handleAccountPendingDeletion(e, credentialEmail)) {
         return;
       }
       if (mounted) _showError(ErrorHandler.getUserMessage(e));
@@ -153,6 +188,9 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
 
   Future<void> _signInWithGoogle() async {
     setState(() => _isLoading = true);
+    // Hoisted so the C0-14 catch branch below can pass the email to
+    // the recover screen.
+    String googleEmail = '';
     try {
       // serverClientId is the Web OAuth client ID Firebase auto-creates in
       // the linked Cloud project. Passing it makes the resulting idToken's
@@ -170,6 +208,7 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
         // User cancelled
         return;
       }
+      googleEmail = account.email;
 
       final auth = await account.authentication;
       final idToken = auth.idToken;
@@ -179,11 +218,24 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
         return;
       }
 
+      // H63: same as the Apple path — forward the pending referral code so
+      // OAuth signups attribute correctly.
+      final prefs = await SharedPreferences.getInstance();
+      final referralCode = prefs.getString('referral_code');
       await ref.read(currentUserProvider.notifier).signInWithGoogle(
             idToken: idToken,
+            referralCode: referralCode,
           );
+      if (referralCode != null) {
+        await prefs.remove('referral_code');
+      }
+      // H62: resume the gift activation flow if we came in via /gift/...
+      if (await _resumePendingGiftCode()) return;
       // Navigation handled by GoRouter auth guard
     } catch (e) {
+      // C0-14: route a within-grace soft-deleted login to the recover
+      // screen instead of showing the generic error toast.
+      if (await _handleAccountPendingDeletion(e, googleEmail)) return;
       if (mounted) _showError(ErrorHandler.getUserMessage(e));
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -217,8 +269,16 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
               password: _passwordController.text,
             );
       }
+      // H62: resume the gift activation flow if we came in via /gift/...
+      if (await _resumePendingGiftCode()) return;
       // Navigation handled by GoRouter auth guard redirect
     } catch (e) {
+      // C0-14: route a within-grace soft-deleted login to the recover
+      // screen. Don't flip _loginFailed in this case — the login
+      // wasn't a "wrong credentials" failure.
+      if (await _handleAccountPendingDeletion(e, _emailController.text.trim())) {
+        return;
+      }
       if (mounted) {
         if (!_isSignUp) setState(() => _loginFailed = true);
         _showError(ErrorHandler.getUserMessage(e));
@@ -226,6 +286,46 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  /// H62: after a successful sign-up/sign-in, resume the gift-activation
+  /// deep link the visitor came in on. The gift activation screen stashes
+  /// the code in `pending_gift_code` whenever an unauthenticated user
+  /// lands on `/gift/<code>`; without this resume, the user signs up and
+  /// drops into the dashboard with no path back to the gift they were
+  /// trying to redeem. Returning true tells the caller to skip the
+  /// default "navigation handled by GoRouter" comment — we just routed.
+  Future<bool> _resumePendingGiftCode() async {
+    final prefs = await SharedPreferences.getInstance();
+    final code = prefs.getString('pending_gift_code');
+    if (code == null || code.isEmpty) return false;
+    // Don't clear the key here — the gift activation screen wipes it on
+    // a successful verify+activate. Clearing now would orphan a partial
+    // flow if the user backed out before activating.
+    if (!mounted) return false;
+    context.go('/gift/${Uri.encodeComponent(code)}');
+    return true;
+  }
+
+  /// C0-14: if the caught exception is the typed
+  /// [ApiAccountPendingDeletionException] thrown by `/auth/login` when a
+  /// soft-deleted user re-authenticates within the 30-day grace window,
+  /// route to [RecoverAccountScreen] and return true so the caller skips
+  /// the generic error path. Returns false otherwise — the caller still
+  /// owns the error UX.
+  Future<bool> _handleAccountPendingDeletion(Object error, String email) async {
+    if (error is! ApiAccountPendingDeletionException) return false;
+    if (!mounted) return true;
+    HavenHaptics.confirm();
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => RecoverAccountScreen(
+          recoveryToken: error.recoveryToken,
+          email: email,
+        ),
+      ),
+    );
+    return true;
   }
 
   void _showError(String message) {

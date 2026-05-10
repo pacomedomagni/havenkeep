@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:api_client/api_client.dart';
 import 'package:shared_models/shared_models.dart' as models;
 
@@ -71,12 +70,21 @@ class AuthRepository {
   }
 
   /// Sign in with Google. Accepts the Google ID token from the platform SDK.
-  Future<models.User?> signInWithGoogle({required String idToken}) async {
+  ///
+  /// H63: forward `referralCode` on first sign-up so OAuth users get the
+  /// same attribution path the email flow gives. The server treats it as
+  /// optional and ignores it on returning-user sign-ins.
+  Future<models.User?> signInWithGoogle({
+    required String idToken,
+    String? referralCode,
+  }) async {
+    final body = <String, dynamic>{'idToken': idToken};
+    if (referralCode != null && referralCode.isNotEmpty) {
+      body['referralCode'] = referralCode;
+    }
     final data = await _client.post(
       pathSegments: const ['api', 'v1', 'auth', 'google'],
-      body: {
-        'idToken': idToken,
-      },
+      body: body,
     );
 
     final user = _extractUserAndTokens(data);
@@ -91,12 +99,18 @@ class AuthRepository {
     required String idToken,
     required String nonce,
     String? fullName,
+    String? referralCode,
   }) async {
     final body = <String, dynamic>{
       'idToken': idToken,
       'nonce': nonce,
     };
     if (fullName != null) body['fullName'] = fullName;
+    // H63: same plumbing as Google so referral attribution survives the
+    // OAuth path on first sign-up.
+    if (referralCode != null && referralCode.isNotEmpty) {
+      body['referralCode'] = referralCode;
+    }
 
     final data = await _client.post(
       pathSegments: const ['api', 'v1', 'auth', 'apple'],
@@ -115,13 +129,15 @@ class AuthRepository {
   /// branch (C111) — a missing refresh token would silently let the
   /// server keep the session live.
   Future<void> signOut() async {
-    const storage = FlutterSecureStorage(
-      aOptions: AndroidOptions(encryptedSharedPreferences: true),
-      iOptions: IOSOptions(accessibility: KeychainAccessibility.first_unlock),
-    );
+    // H51: read the refresh token through the SAME FlutterSecureStorage
+    // instance ApiClient uses. The prior duplicate FlutterSecureStorage
+    // here specified KeychainAccessibility.first_unlock while ApiClient
+    // writes with first_unlock_this_device — on iOS those are separate
+    // keychain items, so the read returned null and the logout request
+    // body was empty (server couldn't revoke that specific token).
     String? refreshToken;
     try {
-      refreshToken = await storage.read(key: 'refresh_token');
+      refreshToken = await _client.readRefreshTokenForLogout();
     } catch (e) {
       debugPrint('[Auth] Reading refresh token before logout failed: $e');
     }

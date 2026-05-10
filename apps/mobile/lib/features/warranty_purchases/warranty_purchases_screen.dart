@@ -83,6 +83,7 @@ class _PurchaseCard extends ConsumerWidget {
     final statusColor = switch (purchase.status) {
       WarrantyPurchaseStatus.active => HavenColors.active,
       WarrantyPurchaseStatus.pending => HavenColors.expiring,
+      WarrantyPurchaseStatus.cancelling => HavenColors.expiring,
       WarrantyPurchaseStatus.expired => HavenColors.expired,
       WarrantyPurchaseStatus.cancelled => HavenColors.textTertiary,
       WarrantyPurchaseStatus.claimed => HavenColors.primary,
@@ -181,9 +182,15 @@ class _PurchaseCard extends ConsumerWidget {
   /// nasty surprise when a user expects "full refund" on a 50%-used plan.
   String _refundEstimate(WarrantyPurchase purchase) {
     if (purchase.price <= 0) return '—';
-    final now = DateTime.now();
-    final totalDays = purchase.expiresAt.difference(purchase.startsAt).inDays;
-    final remainingDays = purchase.expiresAt.difference(now).inDays;
+    // H80: server-side expiresAt is UTC; DateTime.now() returns local
+    // wall-clock. Mixing them gives an off-by-±1-day delta near
+    // midnight in either TZ. Compare in UTC so the count matches the
+    // server's view consistently.
+    final nowUtc = DateTime.now().toUtc();
+    final expiresUtc = purchase.expiresAt.toUtc();
+    final startsUtc = purchase.startsAt.toUtc();
+    final totalDays = expiresUtc.difference(startsUtc).inDays;
+    final remainingDays = expiresUtc.difference(nowUtc).inDays;
     if (totalDays <= 0 || remainingDays <= 0) return Money.format(0);
     final fraction = remainingDays / totalDays;
     final estimate = (purchase.price * fraction).clamp(0, purchase.price);

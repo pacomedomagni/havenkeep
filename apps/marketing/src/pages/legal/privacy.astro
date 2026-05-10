@@ -68,7 +68,7 @@ import Footer from '../../components/Footer.astro';
 
         <h3 class="text-xl font-semibold text-white mb-3 mt-6">Usage events</h3>
         <p class="text-gray-300 mb-4">
-          We log limited usage events (e.g. &ldquo;item created&rdquo;, &ldquo;reminder dismissed&rdquo;) so we know which features get used and where users get stuck. These events are linked to your account, and you can opt out in <em>Settings → Privacy → Telemetry</em>. Aggregated counts are retained indefinitely; per-user events are deleted on account deletion.
+          We keep per-user counters of feature usage (items added, email scans completed, claims filed) so we can measure engagement and reconcile billing. These counters live in a single row per user; per-user data is deleted on account deletion.
         </p>
       </section>
 
@@ -84,7 +84,9 @@ import Footer from '../../components/Footer.astro';
           <li><strong class="text-white">Stripe</strong> — web payments. (App Store and Play Store handle their own billing.)</li>
           <li><strong class="text-white">RevenueCat</strong> — subscription state aggregation across iOS / Android / web.</li>
           <li><strong class="text-white">SendGrid</strong> — transactional email (verification, password reset, deletion confirmation).</li>
-          <li><strong class="text-white">Our own servers</strong> — Postgres for application data, MinIO for receipt photos. Self-hosted, not on a third-party cloud database.</li>
+          <li><strong class="text-white">OpenAI</strong> — receipt OCR + email-scanner parsing. Receipt photos and scanned email bodies are sent to OpenAI's gpt-4o-mini, redacted for PII (credit cards, SSNs, phone numbers) before transmission. OpenAI does not train on our data per their enterprise terms.</li>
+          <li><strong class="text-white">DigitalOcean</strong> — infrastructure host for application servers, Postgres, MinIO object storage, and Redis. Data is encrypted at rest and in transit; access is restricted to our infrastructure team.</li>
+          <li><strong class="text-white">Our own servers</strong> — application logic + database layer run on DigitalOcean droplets we manage directly. We don&apos;t use any third-party managed-database service.</li>
         </ul>
         <p class="text-gray-300">
           We do not sell, rent, or share your data with advertisers or data brokers. We do not have any advertising SDKs in the app.
@@ -94,7 +96,7 @@ import Footer from '../../components/Footer.astro';
       <section class="mb-12">
         <h2 class="text-2xl font-bold text-white mb-4">4. Data security</h2>
         <ul class="list-disc pl-6 text-gray-300 space-y-2">
-          <li><strong class="text-white">In transit:</strong> TLS 1.2+ on every connection. Mobile clients additionally pin the leaf certificate on production builds so a compromised CA can&apos;t intercept HavenKeep traffic.</li>
+          <li><strong class="text-white">In transit:</strong> TLS 1.2+ on every connection.</li>
           <li><strong class="text-white">At rest:</strong> AES-256-GCM for sensitive fields in the database; full-disk encryption on the database host; receipts and photos encrypted in object storage.</li>
           <li><strong class="text-white">Passwords:</strong> bcrypt (work factor 12). We never see plaintext passwords.</li>
           <li><strong class="text-white">Access control:</strong> row-level isolation in the database means one user&apos;s queries can never return another user&apos;s data, even if application code has a bug.</li>
@@ -105,7 +107,7 @@ import Footer from '../../components/Footer.astro';
       <section class="mb-12">
         <h2 class="text-2xl font-bold text-white mb-4">5. Retention and deletion</h2>
         <p class="text-gray-300 mb-4">
-          Your data is retained as long as your account is active. When you delete your account (<a href="/legal/delete-account" class="text-blue-400 hover:text-blue-300">how to delete</a>), we soft-delete immediately, allow a 7-day grace period to cancel, then cryptographically erase the record from active systems. The data ages out of backups within 30 days.
+          Your data is retained as long as your account is active. When you delete your account (<a href="/legal/delete-account" class="text-blue-400 hover:text-blue-300">how to delete</a>), we soft-delete immediately, allow a 30-day grace period to cancel, then cryptographically erase the record from active systems. The data ages out of backups within 30 days.
         </p>
         <p class="text-gray-300">
           We retain the minimum information legally required for fraud prevention and accounting (e.g. an audit-log entry that an account existed and was deleted, without the personal data it contained).
@@ -118,12 +120,11 @@ import Footer from '../../components/Footer.astro';
           Regardless of where you live, HavenKeep gives every user the same rights:
         </p>
         <ul class="list-disc pl-6 text-gray-300 space-y-2 mb-4">
-          <li><strong class="text-white">Access</strong> — request a copy of everything we hold about you.</li>
+          <li><strong class="text-white">Access</strong> — request a copy of everything we hold about you. Email us at <a href="mailto:privacy@havenkeep.com" class="text-blue-400 hover:text-blue-300">privacy@havenkeep.com</a> and we&apos;ll deliver it within 30 days.</li>
           <li><strong class="text-white">Correction</strong> — fix anything inaccurate.</li>
           <li><strong class="text-white">Deletion</strong> — see the <a href="/legal/delete-account" class="text-blue-400 hover:text-blue-300">delete account</a> page.</li>
-          <li><strong class="text-white">Export</strong> — download all your items, warranties, and uploaded documents in a portable format from <em>Settings → Data → Export</em>.</li>
-          <li><strong class="text-white">Restrict / object</strong> — opt out of telemetry or marketing email.</li>
-          <li><strong class="text-white">Withdraw consent</strong> — disconnect the email scanner or revoke OAuth tokens at any time.</li>
+          <li><strong class="text-white">Withdraw consent</strong> — disconnect the email scanner from <em>Settings → Email Scanner</em>; OAuth tokens are revoked locally and at the provider.</li>
+          <li><strong class="text-white">Unsubscribe from marketing email</strong> — every marketing email has an unsubscribe link.</li>
         </ul>
         <p class="text-gray-300">
           California residents have the same rights under CCPA and we do not discriminate against users who exercise them. EU/UK residents can lodge a complaint with their local data protection authority. To exercise any right, email <a href="mailto:privacy@havenkeep.com" class="text-blue-400 hover:text-blue-300">privacy@havenkeep.com</a>.

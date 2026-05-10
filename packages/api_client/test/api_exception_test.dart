@@ -87,6 +87,7 @@ void main() {
   group('Sealed switch exhaustiveness', () {
     String classify(ApiException e) => switch (e) {
           ApiAuthRequiredException() => 'auth',
+          ApiAccountPendingDeletionException() => 'recover',
           ApiForbiddenException() => 'forbidden',
           ApiNotFoundException() => 'notfound',
           ApiValidationException() => 'validation',
@@ -101,6 +102,15 @@ void main() {
     test('every subclass is reachable by an exhaustive switch', () {
       expect(classify(ApiException.fromResponse(401, '')), 'auth');
       expect(classify(ApiException.fromResponse(403, '')), 'forbidden');
+      expect(
+        classify(ApiException.fromResponse(
+          403,
+          '',
+          code: 'ACCOUNT_PENDING_DELETION',
+          recoveryToken: 'token',
+        )),
+        'recover',
+      );
       expect(classify(ApiException.fromResponse(404, '')), 'notfound');
       expect(classify(ApiException.fromResponse(400, '')), 'validation');
       expect(classify(ApiException.fromResponse(409, '')), 'conflict');

@@ -115,6 +115,14 @@ class HavenDatabase extends _$HavenDatabase {
       (update(offlineQueue)..where((t) => t.id.equals(actionId)))
           .write(const OfflineQueueCompanion(status: Value('synced')));
 
+  /// H50: park a queued action when it deferred to user conflict
+  /// resolution (e.g. a 409 from update_item). Distinct from `synced`
+  /// so the clearSyncedActions sweep doesn't delete it while the
+  /// conflict UI is still waiting for the user to choose a side.
+  Future<void> markActionParked(int actionId) =>
+      (update(offlineQueue)..where((t) => t.id.equals(actionId)))
+          .write(const OfflineQueueCompanion(status: Value('parked')));
+
   /// Mark a queued action as permanently failed and record the attempt count.
   Future<void> markActionFailed(int actionId, int attemptCount) =>
       (update(offlineQueue)..where((t) => t.id.equals(actionId)))

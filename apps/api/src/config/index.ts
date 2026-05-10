@@ -85,6 +85,12 @@ export const config = {
       return secret;
     },
     refreshExpiresIn: (process.env.REFRESH_TOKEN_EXPIRES_IN || '7d') as SignOptions['expiresIn'],
+    // H13: bind tokens to this environment via JWT iss/aud so a token
+    // signed in staging can't be replayed against production even if
+    // the secret rotation policy ever lapses. Both sides verify both
+    // claims. Env-derived so docker-compose can override per stack.
+    issuer: process.env.JWT_ISSUER || 'havenkeep-api',
+    audience: process.env.JWT_AUDIENCE || 'havenkeep-mobile',
   },
 
   redis: {

@@ -172,11 +172,17 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
   }
 
   /// Sign in with Google.
-  Future<User?> signInWithGoogle({required String idToken}) async {
+  Future<User?> signInWithGoogle({
+    required String idToken,
+    String? referralCode,
+  }) async {
     final repo = ref.read(authRepositoryProvider);
 
     try {
-      final user = await repo.signInWithGoogle(idToken: idToken);
+      final user = await repo.signInWithGoogle(
+        idToken: idToken,
+        referralCode: referralCode,
+      );
 
       state = AsyncValue.data(user);
 
@@ -204,6 +210,7 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
     required String idToken,
     required String nonce,
     String? fullName,
+    String? referralCode,
   }) async {
     final repo = ref.read(authRepositoryProvider);
 
@@ -212,6 +219,7 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
         idToken: idToken,
         nonce: nonce,
         fullName: fullName,
+        referralCode: referralCode,
       );
 
       state = AsyncValue.data(user);
@@ -294,6 +302,19 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
   /// Request a password reset email.
   Future<void> forgotPassword({required String email}) async {
     await ref.read(authRepositoryProvider).forgotPassword(email: email);
+  }
+
+  /// C0-14: cancel a pending account deletion using the short-lived
+  /// recovery token the API hands back on a within-grace login.
+  ///
+  /// Doesn't go through [AuthRepository] because the repo paths assume
+  /// the client carries the user's normal access token — here the
+  /// recovery JWT is the credential. After a successful recover, the
+  /// user is back to "soft-deleted=false, plan=their-original" on the
+  /// server side; they still need to sign in normally to obtain real
+  /// access/refresh tokens.
+  Future<void> recoverAccount(String recoveryToken) async {
+    await ref.read(apiClientProvider).recoverAccount(recoveryToken);
   }
 
   /// Change password for the current user.

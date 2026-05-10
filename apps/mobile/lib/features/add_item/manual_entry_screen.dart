@@ -5,10 +5,12 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_models/shared_models.dart';
 import 'package:shared_ui/shared_ui.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../core/providers/auth_provider.dart';
 import '../../core/providers/homes_provider.dart';
 import '../../core/providers/items_provider.dart';
+import 'add_item_guard.dart';
 import '../../core/utils/error_handler.dart';
 import '../../core/utils/price_parser.dart';
 import '../../core/widgets/celebration_overlay.dart';
@@ -124,7 +126,12 @@ class _ManualEntryScreenState extends ConsumerState<ManualEntryScreen> {
       final brand = _brand.trim();
 
       final item = Item(
-        id: '',
+        // H53: stamp a client-side UUID so two offline `addItem` calls
+        // don't both write empty-id rows that collapse in selectors
+        // keyed by id. The API accepts caller-supplied UUIDs for items;
+        // server replay sees the same id and short-circuits via
+        // request_idempotency.
+        id: const Uuid().v4(),
         homeId: home.id,
         userId: user.id,
         name: _nameController.text.trim(),
@@ -244,7 +251,10 @@ class _ManualEntryScreenState extends ConsumerState<ManualEntryScreen> {
   Widget build(BuildContext context) {
     final brandsAsync = ref.watch(brandSuggestionsProvider(_category));
 
-    return Scaffold(
+    // H57: gate every direct add-item route on the free-plan limit.
+    // The gateway add_item_screen used to be the only gate; deep links
+    // and push actions bypassed it.
+    return AddItemGuard(child: Scaffold(
       backgroundColor: HavenColors.background,
       appBar: AppBar(
         title: const Text(
@@ -596,7 +606,7 @@ class _ManualEntryScreenState extends ConsumerState<ManualEntryScreen> {
           ),
         ),
       ),
-    );
+    ));
   }
 }
 

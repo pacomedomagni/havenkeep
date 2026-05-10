@@ -3,50 +3,43 @@ import Layout from '../layouts/Layout.astro';
 import Navigation from '../components/Navigation.astro';
 import Footer from '../components/Footer.astro';
 
+// Honest planning bands. We don't commit to specific quarters because
+// we're a small team — but we'll move items between bands as work lands.
 const roadmapItems = [
   {
-    quarter: 'Q1 2026',
+    quarter: 'Working on next',
     status: 'In Progress',
     items: [
-      { title: 'Advanced OCR Improvements', description: 'Enhanced receipt scanning with support for handwritten notes', completed: false },
-      { title: 'Family Sharing', description: 'Share warranties with family members and manage household items together', completed: false },
-      { title: 'Insurance Integration', description: 'Direct integration with major insurance providers for claims', completed: false },
+      { title: 'Data export', description: 'Download a ZIP of items, warranties, claims, and document URLs as CSV + manifest. Honors the data-portability claim in our privacy policy', completed: false },
+      { title: 'Telemetry opt-out', description: 'Settings → Privacy → Telemetry switch to suppress per-user feature-usage counters', completed: false },
+      { title: 'Email scanner reliability', description: 'Pagination across > 50 matched messages, DKIM domain-alignment + DMARC enforcement, scope-downgrade auto-revoke', completed: false },
     ]
   },
   {
-    quarter: 'Q2 2026',
+    quarter: 'Next up',
     status: 'Planned',
     items: [
-      { title: 'Smart Home Integration', description: 'Connect with smart home devices for automated warranty tracking', completed: false },
-      { title: 'Warranty Marketplace', description: 'Buy and sell extended warranties directly in the app', completed: false },
-      { title: 'AI Purchase Recommendations', description: 'Get alerts when better warranty options are available', completed: false },
+      { title: 'Household sharing', description: 'A second phone on the same household can see the same warranties — without account merging', completed: false },
+      { title: 'Warranty offer surfacing', description: 'When you add an item, surface the manufacturer\'s extended-warranty option (cost + duration) so you can make an informed call', completed: false },
+      { title: 'Web app', description: 'Read-only web companion so you can pull receipts from a laptop when a claim comes up', completed: false },
     ]
   },
   {
-    quarter: 'Q3 2026',
-    status: 'Planned',
-    items: [
-      { title: 'Business Pro Plan', description: 'Advanced features for small businesses and professionals', completed: false },
-      { title: 'API Access', description: 'Developer API for custom integrations', completed: false },
-      { title: 'Warranty Concierge', description: 'Premium service to handle warranty claims for you', completed: false },
-    ]
-  },
-  {
-    quarter: 'Q4 2026',
+    quarter: 'Considering',
     status: 'Under Consideration',
     items: [
-      { title: 'Blockchain Verification', description: 'Immutable proof of purchase using blockchain technology', completed: false },
-      { title: 'AR Item Scanning', description: 'Use augmented reality to identify and catalog items', completed: false },
-      { title: 'Global Expansion', description: 'Support for international warranties and currencies', completed: false },
+      { title: 'OCR for handwritten receipts', description: 'Currently we extract printed receipts well; handwritten / faded thermal paper is hit-or-miss', completed: false },
+      { title: 'International support', description: 'Multi-currency, locale-aware date formats, EU VAT receipts. Will need legal review per region', completed: false },
+      { title: 'Public API', description: 'Once we have a stable feature set, a documented API for partner integrations (insurance, retailer order systems)', completed: false },
     ]
   },
 ];
 
 const recentlyCompleted = [
-  { title: 'Dark Mode', description: 'Beautiful dark theme across all platforms', date: 'January 2026' },
-  { title: 'Barcode Scanner Improvements', description: 'Faster and more accurate scanning', date: 'December 2025' },
-  { title: 'PDF Export', description: 'Export warranties to professional PDF reports', date: 'November 2025' },
-  { title: 'Smart Reminders', description: 'Intelligent notifications for expiring warranties', date: 'October 2025' },
+  { title: 'Dark mode by default', description: 'The whole app ships in a dark theme tuned for low-light receipt photography', date: 'Built in' },
+  { title: 'Barcode scanner', description: 'Snap a UPC and the item, brand, and category land prefilled', date: 'Shipped' },
+  { title: 'Smart reminders', description: 'Push and email alerts the configurable number of days before expiry', date: 'Shipped' },
+  { title: 'Partner closing gifts', description: 'Realtors send a Premium gift; clients claim it at the URL on the card', date: 'Shipped' },
 ];
 ---
 
@@ -141,12 +134,9 @@ const recentlyCompleted = [
             <p class="text-gray-300 text-lg mb-8">
               Our roadmap is shaped by your feedback. Have an idea for a feature? We'd love to hear it!
             </p>
-            <div class="flex flex-col sm:flex-row gap-4 justify-center">
+            <div class="flex justify-center">
               <a href="mailto:feedback@havenkeep.com" class="bg-primary hover:bg-secondary text-white font-semibold py-4 px-8 rounded-lg transition-colors duration-200">
                 Submit Feature Request
-              </a>
-              <a href="/contact" class="bg-gray-700 hover:bg-gray-600 text-white font-semibold py-4 px-8 rounded-lg transition-colors duration-200">
-                Join Beta Program
               </a>
             </div>
           </div>

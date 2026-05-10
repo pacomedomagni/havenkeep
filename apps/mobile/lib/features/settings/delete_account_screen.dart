@@ -69,9 +69,13 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
 
     final confirmed = await showHavenConfirmDialog(
       context,
-      title: 'Delete account permanently?',
+      // H72: API soft-deletes with a 30-day cooling-off window. The
+      // prior "permanent / cannot be undone" copy contradicted that —
+      // users didn't know they had a chance to cancel. Wording now
+      // matches the actual API behavior + the deletion email copy.
+      title: 'Delete account?',
       body:
-          'This will permanently delete your account and all your data including items, warranties, documents, and settings. This action cannot be undone.',
+          'Your account will be marked for deletion. You have 30 days to recover it by signing in again — after that, your account and all its data (items, warranties, documents, settings) will be permanently deleted.',
       confirmLabel: 'Delete My Account',
       isDestructive: true,
     );
@@ -106,9 +110,13 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
 
     final confirmed = await showHavenConfirmDialog(
       context,
-      title: 'Delete account permanently?',
+      // H72: API soft-deletes with a 30-day cooling-off window. The
+      // prior "permanent / cannot be undone" copy contradicted that —
+      // users didn't know they had a chance to cancel. Wording now
+      // matches the actual API behavior + the deletion email copy.
+      title: 'Delete account?',
       body:
-          'This will permanently delete your account and all your data including items, warranties, documents, and settings. This action cannot be undone.',
+          'Your account will be marked for deletion. You have 30 days to recover it by signing in again — after that, your account and all its data (items, warranties, documents, settings) will be permanently deleted.',
       confirmLabel: 'Delete My Account',
       isDestructive: true,
     );

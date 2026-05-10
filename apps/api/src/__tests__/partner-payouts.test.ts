@@ -166,7 +166,9 @@ describe('Partner self-service payouts', () => {
         .set('Authorization', `Bearer ${token}`);
       expect(res.status).toBe(200);
       expect(res.body.data.paid_count).toBe(2);
-      expect(res.body.data.paid_total).toBe(35);
+      // Endpoint returns paid_total as a decimal string so clients don't
+      // re-do cents math — `paid_total_cents` is the source of truth.
+      expect(res.body.data.paid_total).toBe('35.00');
       expect(transfersCreate).toHaveBeenCalledTimes(2);
       const updated = await pool.query(
         `SELECT COUNT(*) FROM partner_commissions WHERE partner_id = $1 AND status = 'paid'`,
@@ -183,7 +185,7 @@ describe('Partner self-service payouts', () => {
         .post('/api/v1/partners/me/payouts')
         .set('Authorization', `Bearer ${token}`);
       expect(res.status).toBe(200);
-      expect(res.body.data.paid_total).toBe(10);
+      expect(res.body.data.paid_total).toBe('10.00');
       expect(transfersCreate).toHaveBeenCalledTimes(1);
     });
 

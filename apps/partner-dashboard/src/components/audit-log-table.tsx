@@ -2,6 +2,7 @@
 
 import { Fragment, useState } from 'react'
 import { ChevronDownIcon, ChevronUpIcon } from '@heroicons/react/24/outline'
+import { sanitize } from '@/lib/log-error'
 
 const METADATA_RENDER_LIMIT_BYTES = 4096
 
@@ -9,11 +10,16 @@ const METADATA_RENDER_LIMIT_BYTES = 4096
  * Stringify metadata with a hard cap (audit Ch10-W052). Some entries record
  * full upstream API payloads — rendering megabytes of JSON in a `<pre>` blocks
  * the main thread and silently breaks the audit page.
+ *
+ * H29: run the value through `sanitize` first so authorization headers,
+ * tokens, or password fields that landed in metadata by accident never
+ * reach a human-visible surface. Admins watching the audit log
+ * shouldn't see plaintext secrets — even on their own machines.
  */
 function safeStringifyMetadata(value: unknown): { text: string; truncated: boolean } {
   let text: string
   try {
-    text = JSON.stringify(value, null, 2) ?? ''
+    text = JSON.stringify(sanitize(value), null, 2) ?? ''
   } catch {
     return { text: '<unable to render metadata>', truncated: false }
   }

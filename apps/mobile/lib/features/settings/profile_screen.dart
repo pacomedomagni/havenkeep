@@ -441,6 +441,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     final passwordController = TextEditingController();
     final dialogFormKey = GlobalKey<FormState>();
 
+    try {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -528,7 +529,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           isError: true,
         );
       }
+    }
     } finally {
+      // H60: dispose on every path (including the user-cancelled
+      // path where `confirmed` is false and we early-return above).
+      // The prior shape only disposed inside the request try block.
       emailController.dispose();
       passwordController.dispose();
     }

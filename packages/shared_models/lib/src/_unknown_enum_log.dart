@@ -44,3 +44,52 @@ void logUnknownEnumValue({
     }
   }
 }
+
+/// H56: one-liner factory helper for every fromJson(String).
+///
+/// Looks up [byName] for the raw server string. On hit, returns the
+/// mapped enum value cleanly. On miss, fires the unknown-enum funnel
+/// so the drift shows up in platform logs (and any registered
+/// reporter), then returns [fallback].
+///
+/// Use it instead of the older `firstWhere(orElse:)` pattern — that
+/// shape silently coerced unknown values with no telemetry, so a
+/// server-added enum value would land on older mobile binaries and
+/// nobody would know until users started reporting bugs.
+T coerceEnum<T>({
+  required String enumName,
+  required String rawValue,
+  required Map<String, T> byName,
+  required T fallback,
+  required String fallbackName,
+}) {
+  final mapped = byName[rawValue];
+  if (mapped != null) return mapped;
+  logUnknownEnumValue(
+    enumName: enumName,
+    unknownValue: rawValue,
+    fallback: fallbackName,
+  );
+  return fallback;
+}
+
+/// H56: less-boilerplate variant for enums whose JSON encoding is
+/// just `.name`. Walks the values list once instead of requiring
+/// callers to maintain a static `_byName` map. Identical observable
+/// behaviour to [coerceEnum] otherwise.
+T coerceEnumByName<T extends Enum>({
+  required String enumName,
+  required String rawValue,
+  required List<T> values,
+  required T fallback,
+}) {
+  for (final v in values) {
+    if (v.name == rawValue) return v;
+  }
+  logUnknownEnumValue(
+    enumName: enumName,
+    unknownValue: rawValue,
+    fallback: fallback.name,
+  );
+  return fallback;
+}

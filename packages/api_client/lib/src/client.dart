@@ -61,16 +61,31 @@ sealed class ApiException implements Exception {
 
   /// Mint the right subclass for a given HTTP status. Used by the client
   /// after parsing the response envelope; tests can call it too.
+  ///
+  /// C0-14: 403 with `code == 'ACCOUNT_PENDING_DELETION'` is special — it
+  /// carries a `recovery_token` the UI needs to surface a "Cancel
+  /// deletion" screen. The token rides as an extra constructor arg
+  /// instead of being stuffed into [message] so callers can branch on
+  /// the typed exception without parsing strings.
   factory ApiException.fromResponse(
     int statusCode,
     String message, {
     String? code,
     int? retryAfterSeconds,
+    String? recoveryToken,
   }) {
     if (statusCode == 401) {
       return ApiAuthRequiredException(statusCode, message, code: code);
     }
     if (statusCode == 403) {
+      if (code == 'ACCOUNT_PENDING_DELETION' && recoveryToken != null) {
+        return ApiAccountPendingDeletionException(
+          statusCode,
+          message,
+          recoveryToken: recoveryToken,
+          code: code,
+        );
+      }
       return ApiForbiddenException(statusCode, message, code: code);
     }
     if (statusCode == 404) {
@@ -110,6 +125,26 @@ final class ApiAuthRequiredException extends ApiException {
 /// features hit by free-plan users.
 final class ApiForbiddenException extends ApiException {
   const ApiForbiddenException(super.statusCode, super.message, {super.code});
+}
+
+/// C0-14: 403 with code `ACCOUNT_PENDING_DELETION`. The API mints a
+/// short-lived [recoveryToken] so the client can navigate to a recover
+/// screen and call `/users/me/recover` without first asking the user to
+/// log in again (the soft-delete already burned their refresh tokens).
+///
+/// Treat as a navigation signal, not an error: the user typed the right
+/// password but the account is in the 30-day cooling-off window.
+final class ApiAccountPendingDeletionException extends ApiException {
+  const ApiAccountPendingDeletionException(
+    super.statusCode,
+    super.message, {
+    required this.recoveryToken,
+    super.code,
+  });
+
+  /// Short-lived (15 min) JWT with `purpose: 'account_recover'`. Pass it
+  /// as a Bearer token on POST /users/me/recover.
+  final String recoveryToken;
 }
 
 /// 404 — resource not found.
@@ -199,22 +234,16 @@ String redactSensitive(String input) {
 /// auto-refreshes expired access tokens, and provides typed
 /// convenience methods for REST operations.
 ///
-/// ## TLS pinning (release builds)
+/// ## TLS pinning
 ///
-/// The constructor accepts an injected [http.Client] so release builds can
-/// pass an [IOClient] backed by a [SecurityContext] pinned to the issuer's
-/// SPKI. The default client uses the platform trust store, which is fine
-/// for development but lets a device with a custom CA installed MITM the
-/// API. Mobile bootstrap should construct the pinned client and pass it in:
-///
-/// ```dart
-/// final pinned = IOClient(
-///   HttpClient(context: SecurityContext(withTrustedRoots: false))
-///     ..badCertificateCallback = (cert, host, port) =>
-///         _spkiMatches(cert, expectedSpkiSha256),
-/// );
-/// final client = ApiClient(baseUrl: env.apiBaseUrl, httpClient: pinned);
-/// ```
+/// Not currently shipped. The constructor accepts an injected
+/// [http.Client] so a future release can plug in an [IOClient] backed
+/// by a pinned [SecurityContext], but no production build wires that
+/// up today and the privacy policy no longer advertises pinning. The
+/// default client uses the platform trust store, which is fine against
+/// off-the-shelf CAs but does NOT defend against a device with a
+/// custom root CA installed (corp MDM, intercepting proxy). Audit
+/// C0-21.
 ///
 /// ## URL safety
 ///
@@ -433,6 +462,22 @@ class ApiClient {
     _authStateController.add(ApiAuthState.signedOut);
   }
 
+  /// H51: read the refresh token through the SAME [FlutterSecureStorage]
+  /// instance the rest of the client uses. Callers (e.g.
+  /// `AuthRepository.signOut`) previously instantiated their own
+  /// FlutterSecureStorage with a different KeychainAccessibility — on
+  /// iOS these are separate keychain items, so the read returned null,
+  /// the logout request body was empty, and the server couldn't
+  /// invalidate that specific refresh token. Exposing it here removes
+  /// the divergence.
+  Future<String?> readRefreshTokenForLogout() async {
+    try {
+      return await _storage.read(key: _keyRefreshToken);
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Refresh the access token using the stored refresh token.
   /// Uses a mutex to prevent concurrent refresh requests.
   Future<void> refreshAccessToken() async {
@@ -455,7 +500,24 @@ class ApiClient {
       ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
-        final body = jsonDecode(response.body) as Map<String, dynamic>;
+        // C0-24: a captive-portal hotspot returns 200 OK with HTML
+        // content. jsonDecode throws FormatException; the prior shape
+        // wrapped that under the generic catch and clearTokens()'d.
+        // Treat it as a transient server error instead — the user is
+        // briefly behind a portal, not logged out.
+        Map<String, dynamic> body;
+        try {
+          final decoded = jsonDecode(response.body);
+          if (decoded is! Map<String, dynamic>) {
+            throw const FormatException('refresh response is not a JSON object');
+          }
+          body = decoded;
+        } on FormatException {
+          throw const ApiServerException(
+            200,
+            'Refresh response was not valid JSON (captive portal?). Try again in a moment.',
+          );
+        }
         // Standard envelope `{ success, data: { accessToken, refreshToken } }`
         // with legacy flat fallback.
         final data = body['data'] is Map<String, dynamic>
@@ -476,12 +538,34 @@ class ApiClient {
         }
         _authStateController.add(ApiAuthState.tokenRefreshed);
         _refreshCompleter!.complete();
-      } else {
-        // Refresh failed — force sign out
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        // The refresh token itself is rejected — genuinely signed out.
         await clearTokens();
         const error = ApiAuthRequiredException(
           401,
           'Session expired. Please sign in again.',
+        );
+        _refreshCompleter!.completeError(error);
+        throw error;
+      } else if (response.statusCode >= 500) {
+        // C0-22: a 5xx from /auth/refresh is the server's problem, not
+        // a "session ended" signal. Don't wipe tokens — they might
+        // still be valid; surface a transient error so the caller can
+        // retry. The prior shape clear()'d on every non-200, so a
+        // 30-second API restart kicked every active mobile user out.
+        final error = ApiServerException(
+          response.statusCode,
+          'Token refresh server error (${response.statusCode}); retry shortly',
+        );
+        _refreshCompleter!.completeError(error);
+        throw error;
+      } else {
+        // Other 4xx (malformed body, etc.) — refusal but not necessarily
+        // an expired session. Still don't clear; surface as an
+        // ApiUnknownException so callers see something actionable.
+        final error = ApiUnknownException(
+          response.statusCode,
+          'Token refresh returned ${response.statusCode}',
         );
         _refreshCompleter!.completeError(error);
         throw error;
@@ -572,6 +656,17 @@ class ApiClient {
       } on SocketException catch (e) {
         throw ApiNetworkException('Network error: ${e.message}');
       }
+
+      // C0-23: refresh-then-401 retry loop. If the retried request
+      // STILL returns 401 after we just minted a fresh access token,
+      // the server has revoked the user's entire token family mid-
+      // flight (logout-everywhere, suspension, password reset on
+      // another device). Clearing here turns the next user action
+      // into a clean "please sign in" instead of an infinite refresh/
+      // retry/refresh/retry loop against a dead session.
+      if (response.statusCode == 401) {
+        await clearTokens();
+      }
     }
 
     return response;
@@ -625,11 +720,25 @@ class ApiClient {
       retryAfterSeconds = retryAfter != null ? int.tryParse(retryAfter) : null;
     }
 
+    // C0-14: ACCOUNT_PENDING_DELETION carries a recovery_token in
+    // body.data — pluck it so fromResponse can mint the typed
+    // exception. The token is a JWT, but we never log it raw because
+    // the wider redactSensitive pipeline kicks in if a caller stringifies.
+    String? recoveryToken;
+    if (code == 'ACCOUNT_PENDING_DELETION') {
+      final data = body['data'];
+      if (data is Map<String, dynamic>) {
+        final t = data['recovery_token'];
+        if (t is String && t.isNotEmpty) recoveryToken = t;
+      }
+    }
+
     throw ApiException.fromResponse(
       response.statusCode,
       message,
       code: code ?? (response.statusCode == 429 ? 'rate_limited' : null),
       retryAfterSeconds: retryAfterSeconds,
+      recoveryToken: recoveryToken,
     );
   }
 
@@ -651,9 +760,22 @@ class ApiClient {
 
     final base = Uri.parse(baseUrl);
     if (pathSegments != null) {
+      // H52: reject empty / whitespace-only segments. The prior shape
+      // would happily turn `getItemById('')` into `GET /api/v1/items/`
+      // (the LIST endpoint) — a parked-conflict optimistic-create that
+      // ended up with id='' could then hit the wrong resource entirely.
+      // Throw at the boundary so any caller passing a missing id fails
+      // loudly instead of leaking into a wrong-route GET.
+      for (final s in pathSegments) {
+        if (s.trim().isEmpty) {
+          throw ArgumentError(
+            'pathSegments contains an empty/whitespace segment '
+            '— refusing to build URI (would collapse to a different route)',
+          );
+        }
+      }
       // Merge any segments already on baseUrl (e.g. when baseUrl ends in
-      // `/api`) with the caller-provided segments. Empty strings are
-      // dropped so trailing slashes don't produce `//` in the final URL.
+      // `/api`) with the caller-provided segments.
       final merged = <String>[
         ...base.pathSegments.where((s) => s.isNotEmpty),
         ...pathSegments,
@@ -808,6 +930,30 @@ class ApiClient {
         body: body != null ? jsonEncode(body) : null,
       ).timeout(_defaultTimeout),
     );
+    return _parseResponse(response);
+  }
+
+  /// C0-14: cancel a pending account deletion using the
+  /// [ApiAccountPendingDeletionException.recoveryToken] handed back by
+  /// /auth/login when a soft-deleted user re-authenticates within the
+  /// 30-day grace window.
+  ///
+  /// Bypasses the stored access token + auto-refresh path because the
+  /// soft-delete already burned the user's refresh tokens — the
+  /// recovery JWT is the only credential, single-use, 15-minute TTL.
+  /// On success the API clears `deleted_at`; the caller should then
+  /// route the user back to the normal sign-in flow.
+  Future<Map<String, dynamic>> recoverAccount(String recoveryToken) async {
+    final uri = _buildUri(pathSegments: const ['users', 'me', 'recover']);
+    final requestId = _generateRequestId();
+    final response = await _http.post(
+      uri,
+      headers: <String, String>{
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $recoveryToken',
+        'x-request-id': requestId,
+      },
+    ).timeout(_defaultTimeout);
     return _parseResponse(response);
   }
 

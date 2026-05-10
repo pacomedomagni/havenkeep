@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_models/shared_models.dart';
 import 'package:shared_ui/shared_ui.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../core/providers/auth_provider.dart';
 import '../../core/providers/homes_provider.dart';
@@ -14,6 +15,7 @@ import '../../core/utils/price_parser.dart';
 import '../../core/widgets/celebration_overlay.dart';
 import '../../core/widgets/haven_loader.dart';
 import '../../core/utils/haven_haptics.dart';
+import 'add_item_guard.dart';
 
 /// Quick-Add form screen for a specific category.
 ///
@@ -125,7 +127,8 @@ class _QuickAddScreenState extends ConsumerState<QuickAddScreen> {
       final brand = _brand.trim();
 
       final item = Item(
-        id: '',
+        // H53: client-side UUID (see manual_entry_screen H53 comment).
+        id: const Uuid().v4(),
         homeId: home.id,
         userId: user.id,
         name: _category.displayLabel,
@@ -230,7 +233,8 @@ class _QuickAddScreenState extends ConsumerState<QuickAddScreen> {
       }
     }
 
-    return Scaffold(
+    // H57: gate every direct add-item route on the free-plan limit.
+    return AddItemGuard(child: Scaffold(
       backgroundColor: HavenColors.background,
       appBar: AppBar(
         title: Text(
@@ -522,6 +526,6 @@ class _QuickAddScreenState extends ConsumerState<QuickAddScreen> {
           ),
         ),
       ),
-    );
+    ));
   }
 }

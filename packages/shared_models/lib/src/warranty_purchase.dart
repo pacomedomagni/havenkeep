@@ -1,3 +1,5 @@
+import '_unknown_enum_log.dart';
+
 /// Represents a purchased/extended warranty for an item.
 class WarrantyPurchase {
   final String id;
@@ -159,6 +161,13 @@ enum WarrantyPurchaseStatus {
   active,
   expired,
   cancelled,
+  // C0-31: API mig 098 added `cancelling` as the transient state in
+  // the three-phase cancel flow (status flips to `cancelling` between
+  // the DB reservation and the Stripe refund). Mobile must surface a
+  // distinct state — falling back to `active` left a Cancel button
+  // visible on rows already mid-cancel, leading to a second
+  // /cancel request and duplicate refund attempts.
+  cancelling,
   pending,
   claimed;
 
@@ -166,12 +175,23 @@ enum WarrantyPurchaseStatus {
     'active': WarrantyPurchaseStatus.active,
     'expired': WarrantyPurchaseStatus.expired,
     'cancelled': WarrantyPurchaseStatus.cancelled,
+    'cancelling': WarrantyPurchaseStatus.cancelling,
     'pending': WarrantyPurchaseStatus.pending,
     'claimed': WarrantyPurchaseStatus.claimed,
   };
 
   factory WarrantyPurchaseStatus.fromJson(String value) {
-    return _byName[value] ?? WarrantyPurchaseStatus.active;
+    final mapped = _byName[value];
+    if (mapped != null) return mapped;
+    // Unknown value: log via the shared funnel (Ch08-D018) so an enum
+    // drift between server and client surfaces in platform logs, then
+    // coerce to `active` so the UI keeps rendering.
+    logUnknownEnumValue(
+      enumName: 'WarrantyPurchaseStatus',
+      unknownValue: value,
+      fallback: 'active',
+    );
+    return WarrantyPurchaseStatus.active;
   }
 
   String toJson() => name;
@@ -180,6 +200,7 @@ enum WarrantyPurchaseStatus {
         WarrantyPurchaseStatus.active => 'Active',
         WarrantyPurchaseStatus.expired => 'Expired',
         WarrantyPurchaseStatus.cancelled => 'Cancelled',
+        WarrantyPurchaseStatus.cancelling => 'Cancelling…',
         WarrantyPurchaseStatus.pending => 'Pending',
         WarrantyPurchaseStatus.claimed => 'Claimed',
       };

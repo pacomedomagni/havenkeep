@@ -63,8 +63,28 @@ const stripe = createStripeClient();
 //
 // Configurable via PARTNER_TIER_PRICING env so an operator can adjust
 // without a deploy.
-export const TIER_PRICE_PER_GIFT_USD: Record<string, number> = JSON.parse(
-  process.env.PARTNER_TIER_PRICING || '{"basic":99,"premium":149,"platinum":249}'
+//
+// H38: validate at load time so a typo like `0.99` instead of `99`
+// can't silently undercharge every future gift. Stripe's floor is
+// $0.50 USD; we require >= $1 so any plausible underfloor mistake
+// (decimal-point slip, missing zero) trips immediately on boot.
+function parseTierPricing(raw: string): Record<string, number> {
+  const parsed = JSON.parse(raw);
+  if (typeof parsed !== 'object' || parsed === null) {
+    throw new Error(`PARTNER_TIER_PRICING must be a JSON object, got ${typeof parsed}`);
+  }
+  for (const [tier, value] of Object.entries(parsed)) {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 1) {
+      throw new Error(
+        `PARTNER_TIER_PRICING.${tier} must be a number >= 1 USD; got ${JSON.stringify(value)}`,
+      );
+    }
+  }
+  return parsed as Record<string, number>;
+}
+
+export const TIER_PRICE_PER_GIFT_USD: Record<string, number> = parseTierPricing(
+  process.env.PARTNER_TIER_PRICING || '{"basic":99,"premium":149,"platinum":249}',
 );
 
 /**
@@ -496,6 +516,12 @@ export class PartnersService {
     const reserveClient = await pool.connect();
     let gift: any;
     let partner: any;
+    // C0-10: hoisted so the partner_commissions INSERT in phase 3 can
+    // snapshot the partner's email under the *_at_event columns. The
+    // partner row's CASCADE on user-delete used to wipe the entire
+    // commission ledger; the new SET NULL FK + denorm columns preserve
+    // the 1099-NEC trail.
+    let partnerEmail: string | undefined;
     let amountCharged: number;
     try {
       await reserveClient.query('BEGIN');
@@ -513,7 +539,7 @@ export class PartnersService {
         'SELECT email, stripe_customer_id, referral_code FROM users WHERE id = $1',
         [userId],
       );
-      const partnerEmail = partnerUser.rows[0]?.email?.toLowerCase();
+      partnerEmail = partnerUser.rows[0]?.email?.toLowerCase();
       const homebuyerEmailLower = data.homebuyerEmail.toLowerCase();
 
       if (partnerEmail === homebuyerEmailLower) {
@@ -563,8 +589,10 @@ export class PartnersService {
             partner_id, homebuyer_email, homebuyer_name, homebuyer_phone,
             home_address, closing_date, premium_months, custom_message,
             amount_charged, stripe_charge_id, expires_at, status,
-            activation_code, activation_code_hash, activation_url
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL, $10, 'pending_payment', $11, $12, $13)
+            activation_code, activation_code_hash, activation_url,
+            partner_id_at_event, partner_company_name_at_event, partner_email_at_event
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL, $10, 'pending_payment', $11, $12, $13,
+                    $14, $15, $16)
           RETURNING *`,
           [
             partner.id,
@@ -580,6 +608,12 @@ export class PartnersService {
             activationCode,
             activationCodeHash,
             activationUrl,
+            // C0-10: snapshot partner identity at event time. The
+            // partner row may CASCADE-set-null on user purge; the
+            // denorm columns are the only post-purge trail.
+            partner.id,
+            partner.company_name,
+            partnerEmail,
           ],
         );
       } catch (insertErr: any) {
@@ -670,10 +704,33 @@ export class PartnersService {
       );
       stripeChargeId = paymentIntent.id;
     } catch (stripeError: any) {
+      // H37: don't swallow non-Stripe AppErrors. The Stripe SDK throws
+      // its own error subclass; anything else (e.g. our own "Tier
+      // amount invalid" / "Stripe customer deleted" / "No saved PM"
+      // AppErrors raised inside the try block) should propagate as-is
+      // rather than getting rewritten to a generic 402 "Payment
+      // failed."
+      if (stripeError instanceof AppError) {
+        try {
+          await query(
+            `UPDATE partner_gifts SET status = 'expired', updated_at = NOW() WHERE id = $1`,
+            [gift.id],
+          );
+        } catch (cleanupErr) {
+          logger.error({ err: cleanupErr, giftId: gift.id }, 'Failed to expire pending_payment gift after AppError');
+        }
+        throw stripeError;
+      }
+
+      // H36: prefer the specific Stripe `decline_code` over the broader
+      // `code`. For card declines the generic `code='card_declined'`
+      // matches first today, hiding the actionable
+      // (`insufficient_funds`, `card_velocity_exceeded`, etc.) that
+      // helps the user pick the right fix.
       const declineCode =
-        stripeError?.code ||
         stripeError?.raw?.decline_code ||
         stripeError?.decline_code ||
+        stripeError?.code ||
         'generic_decline';
       logger.error(
         { error: stripeError?.message, declineCode, giftId: gift.id, userId },
@@ -722,9 +779,19 @@ export class PartnersService {
       );
       await promoteClient.query(
         `INSERT INTO partner_commissions (
-          partner_id, type, amount, commission_rate, status, reference_id, reference_type
-        ) VALUES ($1, 'gift', $2, $3, 'pending', $4, 'partner_gift')`,
-        [partner.id, commissionAmountStr, commissionRate, gift.id],
+          partner_id, type, amount, commission_rate, status, reference_id, reference_type,
+          partner_id_at_event, partner_company_name_at_event, partner_email_at_event
+        ) VALUES ($1, 'gift', $2, $3, 'pending', $4, 'partner_gift', $5, $6, $7)`,
+        [
+          partner.id,
+          commissionAmountStr,
+          commissionRate,
+          gift.id,
+          // C0-10: see partner_gifts INSERT above for rationale.
+          partner.id,
+          partner.company_name,
+          partnerEmail,
+        ],
       );
       await promoteClient.query('COMMIT');
     } catch (dbErr) {

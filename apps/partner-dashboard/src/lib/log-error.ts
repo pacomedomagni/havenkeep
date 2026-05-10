@@ -18,7 +18,10 @@ const SENSITIVE_KEYS = new Set([
   'x-csrf-token',
 ]);
 
-function sanitize(value: unknown, depth = 0): unknown {
+// H29: exported so the audit-log table can scrub metadata before
+// rendering it. Reusing the same allowlist keeps "what counts as
+// sensitive" in one place.
+export function sanitize(value: unknown, depth = 0): unknown {
   if (value == null) return value;
   if (depth > 4) return '[truncated]';
   if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {

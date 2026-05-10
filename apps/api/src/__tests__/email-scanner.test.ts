@@ -151,6 +151,14 @@ describe('Email Scanner Routes', () => {
     });
 
     it('should initiate a scan and return 202 for a premium user', async () => {
+      // H47: mint a state token first; /scan now requires it.
+      const stateRes = await request(app)
+        .post('/api/v1/email-scanner/state-token')
+        .set('Authorization', `Bearer ${premiumToken}`);
+      expect(stateRes.status).toBe(200);
+      const state = stateRes.body.data.state as string;
+      expect(state).toBeTruthy();
+
       const res = await request(app)
         .post('/api/v1/email-scanner/scan')
         .set('Authorization', `Bearer ${premiumToken}`)
@@ -158,6 +166,7 @@ describe('Email Scanner Routes', () => {
           provider: 'gmail',
           code: 'authorization-code-from-google',
           redirect_uri: 'https://example.com/cb',
+          state,
         });
 
       expect(res.status).toBe(202);

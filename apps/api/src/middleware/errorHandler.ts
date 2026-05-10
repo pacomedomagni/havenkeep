@@ -11,6 +11,13 @@ interface ErrorEnvelope {
   requestId?: string;
   /** Validation details — present only on 400/VALIDATION_ERROR. */
   details?: Array<{ field: string; message: string }>;
+  /**
+   * Structured data the client must branch on for specific error codes
+   * (e.g. `recovery_token` on ACCOUNT_PENDING_DELETION). Sourced from
+   * AppError.responseData. Stays narrow to discourage debug-payload
+   * stuffing — see errors.ts for the policy.
+   */
+  data?: Record<string, string>;
   /** Dev-only: extra context for triage. Stripped in production. */
   message?: string;
   stack?: string;
@@ -81,6 +88,7 @@ export function errorHandler(
       requestId,
     };
     if (err instanceof ValidationError) body.details = err.details;
+    if (err.responseData) body.data = err.responseData;
     return res.status(err.statusCode).json(body);
   }
 

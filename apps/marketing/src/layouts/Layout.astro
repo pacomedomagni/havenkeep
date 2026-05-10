@@ -55,12 +55,24 @@ const _resolvedOgImage =
 // Audit Ch10-W077: title format is "<page> • HavenKeep" — the bullet
 // reads better than a pipe and the brand never appears twice.
 const fullTitle = title.includes('HavenKeep') ? title : `${title} • HavenKeep`;
+
+// H65: derive the canonical origin from PUBLIC_SITE_URL (set per
+// environment via astro.config.mjs `site:` or the env). Falling back
+// to havenkeep.com produced production canonical URLs from staging
+// builds — Googlebot indexed staging pages under prod, or refused to
+// index them entirely. Astro.site is populated when site: is set in
+// astro.config; we honour it first.
+const _siteOrigin = (
+  Astro.site?.origin ??
+  import.meta.env.PUBLIC_SITE_URL ??
+  'https://havenkeep.com'
+).replace(/\/$/, '');
 const canonicalUrl = canonicalPath
-  ? `https://havenkeep.com${canonicalPath}`
-  : `https://havenkeep.com${Astro.url.pathname}`;
+  ? `${_siteOrigin}${canonicalPath}`
+  : `${_siteOrigin}${Astro.url.pathname}`;
 const absoluteOgImage = _resolvedOgImage.startsWith('http')
   ? _resolvedOgImage
-  : `https://havenkeep.com${_resolvedOgImage}`;
+  : `${_siteOrigin}${_resolvedOgImage}`;
 ---
 
 <!doctype html>

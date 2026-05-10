@@ -160,7 +160,8 @@ class _AddWarrantyPurchaseScreenState
           lastDate: DateTime.now().add(const Duration(days: 365)),
         );
         if (picked != null) {
-          setState(() => _startDate = picked);
+          // H59: anchor to local midnight.
+          setState(() => _startDate = DateTime(picked.year, picked.month, picked.day));
         }
       },
       child: InputDecorator(
@@ -210,7 +211,11 @@ class _AddWarrantyPurchaseScreenState
       validator: (value) {
         if (!requiredField) return null;
         if (value == null || value.trim().isEmpty) return 'Required';
-        final parsed = double.tryParse(value);
+        // H58: use the same Money parser the submit handler uses, so
+        // a user typing "$1,234.50" is accepted by validation rather
+        // than rejected and then accepted at parse time (the F124
+        // bug's exact inverse).
+        final parsed = Money.parseToDouble(value.trim());
         if (parsed == null) return 'Enter a number';
         return null;
       },

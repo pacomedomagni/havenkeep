@@ -122,7 +122,10 @@ class _LogMaintenanceScreenState extends ConsumerState<LogMaintenanceScreen> {
         child: child!,
       ),
     );
-    if (picked != null) setState(() => _completedDate = picked);
+    if (picked != null) {
+      // H59: anchor to local midnight.
+      setState(() => _completedDate = DateTime(picked.year, picked.month, picked.day));
+    }
   }
 
   Future<void> _submit() async {

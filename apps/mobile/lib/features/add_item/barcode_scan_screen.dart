@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:shared_models/shared_models.dart';
 import 'package:shared_ui/shared_ui.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../core/providers/auth_provider.dart';
 import '../../core/providers/homes_provider.dart';
@@ -15,6 +16,7 @@ import '../../core/utils/error_handler.dart';
 import '../../core/utils/haven_haptics.dart';
 import '../../core/widgets/haven_image.dart';
 import '../../core/widgets/haven_loader.dart';
+import 'add_item_guard.dart';
 
 /// Barcode scan screen — uses the camera to detect barcodes,
 /// looks up product info, and creates a new item.
@@ -179,7 +181,8 @@ class _BarcodeScanScreenState extends ConsumerState<BarcodeScanScreen>
       final purchaseDate = DateTime(now.year, now.month, now.day);
       const warrantyMonths = 12;
       final item = Item(
-        id: '',
+        // H53: client-side UUID (see manual_entry_screen H53 comment).
+        id: const Uuid().v4(),
         homeId: home.id,
         userId: user.id,
         name: _lookupResult!.productName ?? category.displayLabel,
@@ -225,7 +228,8 @@ class _BarcodeScanScreenState extends ConsumerState<BarcodeScanScreen>
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    // H57: gate every direct add-item route on the free-plan limit.
+    return AddItemGuard(child: Scaffold(
       backgroundColor: HavenColors.background,
       appBar: AppBar(
         title: const Text(
@@ -251,7 +255,7 @@ class _BarcodeScanScreenState extends ConsumerState<BarcodeScanScreen>
         ],
       ),
       body: _lookupResult != null ? _buildResultView() : _buildScannerView(),
-    );
+    ));
   }
 
   Widget _buildScannerView() {

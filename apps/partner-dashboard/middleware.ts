@@ -96,6 +96,10 @@ function redirectToLogin(request: NextRequest): NextResponse {
   response.cookies.delete(ACCESS_TOKEN_COOKIE)
   response.cookies.delete(REFRESH_TOKEN_COOKIE)
   response.cookies.delete(CSRF_COOKIE)
+  // H26: the role-check cache cookie also needs to die on every
+  // login redirect — otherwise a logout-then-login-as-different-user
+  // flow briefly renders the previous user's role.
+  response.cookies.delete(ROLE_COOKIE)
   return response
 }
 
@@ -149,7 +153,25 @@ function writeRoleCookie(response: NextResponse, cached: CachedRole) {
  * Edge middleware's network ceiling — we'd rather skip role caching
  * than block navigation on a slow API.
  */
-async function fetchFreshRole(accessToken: string): Promise<CachedRole | null> {
+/**
+ * H24: tri-state return so the caller can distinguish a transient
+ * failure (5xx, timeout, network) from a definitive "not allowed"
+ * answer. Transient failures must fail CLOSED at the route guard —
+ * falling back to the unverified JWT body for routing decisions
+ * defeats the entire point of fetchFreshRole.
+ *
+ * - `{kind: 'ok', role}` — role-check returned cleanly.
+ * - `{kind: 'transient'}` — API was reachable-or-not but the answer
+ *   isn't a usable role state. Caller fails closed.
+ * - `{kind: 'unauthorized'}` — 401/403 from role-check; token is no
+ *   longer valid. Caller redirects to /login.
+ */
+type FetchFreshRoleResult =
+  | { kind: 'ok'; role: CachedRole }
+  | { kind: 'transient' }
+  | { kind: 'unauthorized' }
+
+async function fetchFreshRole(accessToken: string): Promise<FetchFreshRoleResult> {
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), ROLE_CHECK_TIMEOUT_MS)
   try {
@@ -158,7 +180,12 @@ async function fetchFreshRole(accessToken: string): Promise<CachedRole | null> {
       headers: { Authorization: `Bearer ${accessToken}` },
       signal: controller.signal,
     }).finally(() => clearTimeout(timeoutId))
-    if (!response.ok) return null
+    if (response.status === 401 || response.status === 403) {
+      return { kind: 'unauthorized' }
+    }
+    if (!response.ok) {
+      return { kind: 'transient' }
+    }
     const body = (await response.json().catch(() => null)) as
       | { data?: { is_admin?: boolean; is_partner?: boolean } }
       | null
@@ -168,15 +195,18 @@ async function fetchFreshRole(accessToken: string): Promise<CachedRole | null> {
       typeof data.is_admin !== 'boolean' ||
       typeof data.is_partner !== 'boolean'
     ) {
-      return null
+      return { kind: 'transient' }
     }
     return {
-      isAdmin: data.is_admin,
-      isPartner: data.is_partner,
-      cachedAt: Date.now(),
+      kind: 'ok',
+      role: {
+        isAdmin: data.is_admin,
+        isPartner: data.is_partner,
+        cachedAt: Date.now(),
+      },
     }
   } catch {
-    return null
+    return { kind: 'transient' }
   }
 }
 
@@ -309,21 +339,36 @@ export async function middleware(request: NextRequest) {
 
   // H-A8: derive is_admin / is_partner from the API's fresh DB-derived
   // role-check, not from the unverified JWT body. Cached for
-  // ROLE_CHECK_TTL_SECONDS so we don't hit the API on every nav. On
-  // fetch failure we fall back to the JWT-claim values so a single
-  // API hiccup doesn't lock everyone out — but the failure is
-  // structurally bounded: every API call still re-derives via
-  // requireAdmin / requirePartner middleware.
+  // ROLE_CHECK_TTL_SECONDS so we don't hit the API on every nav.
+  //
+  // H24: on transient API failure (5xx / timeout / network) we now
+  // fail CLOSED — redirect to a `/unauthorized` page. The prior
+  // shape fell back to `payload.isAdmin === true` (the unverified
+  // JWT body), defeating the H-A8 invariant: an attacker who flipped
+  // is_admin in a forged token could navigate the admin shell during
+  // any API blip. API routes themselves still gate per-call, but the
+  // nav shell rendering is the wrong place to trust the JWT body.
   let cachedRole = readRoleCookie(request)
   let roleCookieToWrite: CachedRole | null = null
   if (!cachedRole && currentAccessToken) {
-    cachedRole = await fetchFreshRole(currentAccessToken)
-    if (cachedRole) {
-      roleCookieToWrite = cachedRole
+    const fresh = await fetchFreshRole(currentAccessToken)
+    if (fresh.kind === 'ok') {
+      cachedRole = fresh.role
+      roleCookieToWrite = fresh.role
+    } else if (fresh.kind === 'unauthorized') {
+      return redirectToLogin(request)
+    } else {
+      // Transient: fail closed. The user will see the unauthorized
+      // page; refreshing once the API is back will fetch a fresh
+      // role and let them in.
+      if (pathname.startsWith('/admin') || pathname.startsWith('/dashboard')) {
+        return NextResponse.redirect(new URL('/unauthorized', request.url))
+      }
+      // For public routes, just continue — they're accessible anyway.
     }
   }
-  const isAdmin = cachedRole?.isAdmin ?? payload.isAdmin === true
-  const isPartner = cachedRole?.isPartner ?? payload.isPartner === true
+  const isAdmin = cachedRole?.isAdmin ?? false
+  const isPartner = cachedRole?.isPartner ?? false
 
   // Non-admin/non-partner users cannot access the dashboard
   if (!isAdmin && !isPartner) {

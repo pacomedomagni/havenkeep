@@ -240,7 +240,14 @@ export async function initializeEndpointRedis() {
       sharedRedisClient = await getRedisClient();
       logger.info('Endpoint rate limiters bound to shared Redis');
     } catch (error) {
-      logger.error({ err: error }, 'Failed to initialize Redis for endpoint rate limiters, using in-memory store');
+      // H8: fail-closed. The prior shape logged + swallowed and let the
+      // per-endpoint limiters fall back to in-memory — which on a
+      // multi-replica deploy silently multiplied every effective budget
+      // by the replica count (login limit 10/15min → 30/15min on 3
+      // replicas). Mirror initializeRateLimiter()'s behavior and crash
+      // the process so the LB keeps healthy targets.
+      logger.fatal({ err: error }, 'Redis required for endpoint rate limiters; refusing to start');
+      throw error;
     }
   }
 }
@@ -260,6 +267,32 @@ export const authRateLimiter = createEndpointRateLimiter({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 10,
   message: 'Too many attempts, please try again later.',
+});
+
+// H9: per-account login limiter. The IP limiter at `authRateLimiter`
+// caps 10/15min per IP — a botnet across 1000 IPs trivially defeats it
+// against a single targeted account. Layer a per-email limit on top so
+// credential-stuffing one account is rate-limited regardless of source
+// IP. Mount BOTH on /auth/login; either trip returns generic 429.
+//
+// 20/15min per email: high enough that a user fat-fingering their
+// password isn't blocked, low enough that an attacker can't run a
+// 100-IP password-list against one account in under a working day.
+export const loginPerEmailRateLimiter = createEndpointRateLimiter({
+  bucket: 'loginEmail',
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  message: 'Too many sign-in attempts for this account, please try again later.',
+  // The /auth/login body schema lowercases `email`; fall back to ip
+  // when body is missing/malformed (validate() runs AFTER rate limiters
+  // because we want to throttle parse-failure floods too).
+  keyGenerator: (req) => {
+    const email = req.body?.email;
+    if (typeof email === 'string' && email.length > 0) {
+      return `email:${email.toLowerCase()}`;
+    }
+    return `ip:${req.ip ?? 'unknown'}`;
+  },
 });
 
 // Refresh rate limiter: 10 requests per 15 minutes.

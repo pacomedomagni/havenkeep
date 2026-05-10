@@ -21,10 +21,18 @@ export function getAuthToken(
   claims: { email: string; isAdmin?: boolean; isPartner?: boolean; [k: string]: any }
 ) {
   const { email, isAdmin = false, isPartner = false, ...rest } = claims;
+  // H13: production auth middleware pins iss + aud. Mint tokens here
+  // with the same claims so middleware accepts them — otherwise every
+  // authed route returns 401 in tests.
   return jwt.sign(
     { userId, email, isAdmin, isPartner, ...rest },
     config.jwt.secret,
-    { expiresIn: '1h' }
+    {
+      expiresIn: '1h',
+      issuer: config.jwt.issuer,
+      audience: config.jwt.audience,
+      jwtid: crypto.randomUUID(),
+    }
   );
 }
 

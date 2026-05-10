@@ -7,9 +7,19 @@ import { decodeJwtPayload, isTokenExpired, looksLikeJwt } from './jwt';
 
 const ACCESS_TOKEN_COOKIE = 'hk_access_token';
 const REFRESH_TOKEN_COOKIE = 'hk_refresh_token';
+// C0-27: short-lived (5 min) cookie that carries the API's
+// `mfa_token` between /login submit and /login/mfa code submit.
+// httpOnly so client JS never touches it; the user-side state is
+// just "you're on the MFA page now."
+const MFA_TOKEN_COOKIE = 'hk_mfa_token';
 const CSRF_COOKIE = 'csrf_token';
 // Audit Ch10-W045: every cookie the dashboard sets gets cleared on logout.
-const CLEARABLE_COOKIES = [ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE, CSRF_COOKIE] as const;
+// H26: include the role-check cache. Without this, signing out and
+// signing in as a different user would briefly render the previous
+// user's role-based nav shell (30s TTL) before the next request
+// refreshed the cookie.
+const ROLE_CHECK_COOKIE = 'hk_role_check';
+const CLEARABLE_COOKIES = [ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE, CSRF_COOKIE, MFA_TOKEN_COOKIE, ROLE_CHECK_COOKIE] as const;
 
 export interface AuthUser {
   id: string;
@@ -168,6 +178,34 @@ export function clearAuthCookies(cookieStore: Awaited<ReturnType<typeof cookies>
   }
 }
 
+// C0-27: helpers for the MFA hand-off cookie. /login → /login/mfa
+// flow only.
+export function setMfaTokenCookie(
+  token: string,
+  cookieStore: Awaited<ReturnType<typeof cookies>>,
+) {
+  const isProduction = process.env.NODE_ENV === 'production';
+  cookieStore.set(MFA_TOKEN_COOKIE, token, {
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: 'lax',
+    path: '/',
+    maxAge: 5 * 60, // 5 min — matches the API's CHALLENGE_TTL_SECONDS.
+  });
+}
+
+export function readMfaTokenCookie(
+  cookieStore: Awaited<ReturnType<typeof cookies>>,
+): string | undefined {
+  return cookieStore.get(MFA_TOKEN_COOKIE)?.value;
+}
+
+export function clearMfaTokenCookie(
+  cookieStore: Awaited<ReturnType<typeof cookies>>,
+) {
+  cookieStore.delete(MFA_TOKEN_COOKIE);
+}
+
 /**
  * Server-side API client that automatically includes JWT from cookies.
  *
@@ -207,11 +245,24 @@ export async function serverApiClient<T = unknown>(
   const tokens = await getTokens();
   const { method = 'GET', body, headers = {} } = options;
 
+  // H25: forward an idempotency key on every mutation so a retry from
+  // the Next.js server action layer can't double-write. The dashboard
+  // owns the lifecycle of these calls; the API's idempotency
+  // middleware then transparently replays the cached response.
+  // crypto.randomUUID is available on globalThis in both Node 18+
+  // and Edge runtimes.
+  const isMutation = method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS';
+  const autoIdempotencyKey =
+    isMutation && !headers['Idempotency-Key'] && !headers['idempotency-key']
+      ? globalThis.crypto.randomUUID()
+      : undefined;
+
   const fetchOptions: RequestInit = {
     method,
     headers: {
       'Content-Type': 'application/json',
       ...(tokens ? { Authorization: `Bearer ${tokens.accessToken}` } : {}),
+      ...(autoIdempotencyKey ? { 'Idempotency-Key': autoIdempotencyKey } : {}),
       ...headers,
     },
     cache: 'no-store',

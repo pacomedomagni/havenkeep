@@ -74,10 +74,42 @@ export async function authenticate(
     // already pins ['RS256']; do the same for our HS256 access tokens so a
     // future JWT_SECRET swap to RSA-public-key material can't be exploited
     // via HS256 forgery.
-    const decoded = jwt.verify(token, config.jwt.secret, { algorithms: ['HS256'] }) as {
+    // H13: verify iss + aud so a token signed in another environment is
+    // rejected even if secret material ever crosses environments.
+    // Skip iss/aud for purpose-tagged tokens (mfa challenge, account
+    // recover) — those mint with the same iss/aud, so the pin still
+    // applies, but it's the C0-11 purpose check that gates them.
+    const decoded = jwt.verify(token, config.jwt.secret, {
+      algorithms: ['HS256'],
+      issuer: config.jwt.issuer,
+      audience: config.jwt.audience,
+    }) as {
       userId: string;
       email: string;
+      purpose?: string;
+      iat?: number;
     };
+
+    // C0-11: access tokens carry no `purpose` claim. Single-use tokens
+    // (MFA challenge, account recover) share the same JWT_SECRET and
+    // algorithm but mark themselves with `purpose` so the middleware
+    // can refuse them as general bearer credentials. The MFA challenge
+    // is consumed only by /auth/mfa/challenge (which calls
+    // verifyMfaChallengeToken directly, bypassing this middleware), so
+    // we reject every purpose-tagged token here EXCEPT
+    // `account_recover` on POST /users/me/recover — that endpoint runs
+    // under authenticate() so the soft-deleted user reaches it through
+    // the same code path everyone else does.
+    if (decoded.purpose) {
+      const isRecoverPath =
+        req.method === 'POST' &&
+        (req.path === '/me/recover' ||
+          req.path.endsWith('/me/recover') ||
+          req.originalUrl?.endsWith('/users/me/recover'));
+      if (decoded.purpose !== 'account_recover' || !isRecoverPath) {
+        throw new AppError('Invalid token type', 401);
+      }
+    }
 
     const userCacheKey = `user:${decoded.userId}`;
     let userRow: any = null;
@@ -101,7 +133,7 @@ export async function authenticate(
       // exception for POST /me/recover during the cooling-off window.
       const result = await query(
         `SELECT u.id, u.email, u.plan, u.is_admin, u.plan_expires_at, u.email_verified,
-                u.deleted_at, u.deletion_scheduled_for,
+                u.deleted_at, u.deletion_scheduled_for, u.tokens_invalidated_at,
                 (EXISTS(SELECT 1 FROM partners p WHERE p.user_id = u.id AND p.status = 'active')) as is_partner
          FROM users u WHERE u.id = $1`,
         [decoded.userId],
@@ -152,6 +184,34 @@ export async function authenticate(
     // Collapse to one generic 401 "Authentication failed" with the
     // actual reason logged server-side via pino. The attacker still
     // sees the same body for all three cases.
+    // H18/H19: tokens_invalidated_at — reject any access token issued
+    // before the user's last token-invalidation event (password change,
+    // verified email change, admin suspend). Without this, those flows
+    // delete refresh tokens but leave existing access tokens alive
+    // for up to JWT_EXPIRES_IN (1h). decoded.iat is the JWT-issued-at
+    // claim in seconds; tokens_invalidated_at is a timestamptz. Compare
+    // both as milliseconds.
+    if (userRow.tokens_invalidated_at && decoded.iat) {
+      const invalidatedMs = new Date(userRow.tokens_invalidated_at).getTime();
+      const tokenIssuedMs = decoded.iat * 1000;
+      // -1s slack for clock skew between signer and DB; a token issued
+      // at exactly the same second as the invalidation event was minted
+      // by the post-event flow itself (e.g. the new tokens from
+      // /me/password's createAuthSession call).
+      if (tokenIssuedMs + 1000 < invalidatedMs) {
+        logger.warn(
+          {
+            userId: userRow.id,
+            reason: 'tokens_invalidated_at',
+            tokenIssuedMs,
+            invalidatedMs,
+          },
+          'authenticate: user state-deny',
+        );
+        throw new AppError('Authentication failed', 401);
+      }
+    }
+
     if (userRow.deleted_at && !recoverBypass) {
       logger.warn(
         { userId: userRow.id, reason: 'deleted_at' },

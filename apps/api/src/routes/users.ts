@@ -398,7 +398,7 @@ router.post('/me/change-email', changeEmailRateLimiter, validate(changeEmailSche
 
   // Get current user
   const userResult = await query(
-    `SELECT email, password_hash, full_name FROM users WHERE id = $1`,
+    `SELECT email, password_hash, full_name, email_verified FROM users WHERE id = $1`,
     [req.user!.id]
   );
 
@@ -416,6 +416,18 @@ router.post('/me/change-email', changeEmailRateLimiter, validate(changeEmailSche
   const valid = await bcrypt.compare(preHashForBcrypt(password), user.password_hash);
   if (!valid) {
     throw new AppError('Incorrect password', 401);
+  }
+
+  // H15: require the CURRENT email to be verified before allowing a
+  // change. Without this an attacker who registers `victim@example.com`
+  // (no verify), then immediately changes-email to `attacker@evil.com`
+  // and verifies on the new side, takes over the account on first
+  // login — no proof of original-email ownership ever required.
+  if (!user.email_verified) {
+    throw new AppError(
+      'Please verify your current email address before changing it. Check your inbox for a verification link.',
+      400,
+    );
   }
 
   // Ensure new email is different from current
@@ -488,26 +500,31 @@ router.post('/me/change-email', changeEmailRateLimiter, validate(changeEmailSche
     [req.user!.id]
   );
 
-  // Store the hashed token with new_email metadata
+  // H14: store the normalized (lowercase) email in token metadata so
+  // verify-email-change consumes the same shape we compare against
+  // in the existence check. The prior code stored mixed-case `newEmail`
+  // and the consumer used `LOWER(email)` — drift was masked by the
+  // ON CONFLICT path but produced a silent 409 in edge cases.
   await query(
     `INSERT INTO email_verification_tokens (user_id, token, metadata, expires_at)
      VALUES ($1, $2, $3, NOW() + INTERVAL '24 hours')`,
     [
       req.user!.id,
       hashedToken,
-      JSON.stringify({ type: 'change_email', new_email: newEmail }),
+      JSON.stringify({ type: 'change_email', new_email: newEmailLower }),
     ]
   );
 
   // Build verification URL
   const verifyUrl = `${config.app.frontendUrl}/verify-email-change?token=${token}`;
 
-  // Send verification email to the NEW address
+  // Send verification email to the NEW address (display form to user,
+  // canonical form already stored above).
   await EmailService.sendEmailChangeVerificationEmail({
-    to: newEmail,
+    to: newEmailLower,
     user_name: user.full_name || 'there',
     verify_url: verifyUrl,
-    new_email: newEmail,
+    new_email: newEmailLower,
   });
 
   // Audit log
@@ -556,10 +573,13 @@ router.put('/me/password', passwordChangeRateLimiter, validate(changePasswordSch
     throw new AppError('New password must be different from current password', 400);
   }
 
-  // Hash and update new password
+  // Hash and update new password. H18: stamp tokens_invalidated_at
+  // in the SAME UPDATE so the authenticate middleware rejects every
+  // access token issued before this moment — closes the "other-device
+  // access token survives password change for up to 1h" hole.
   const newHash = await bcrypt.hash(preHashForBcrypt(newPassword), 12);
   await query(
-    `UPDATE users SET password_hash = $1 WHERE id = $2`,
+    `UPDATE users SET password_hash = $1, tokens_invalidated_at = NOW() WHERE id = $2`,
     [newHash, req.user!.id]
   );
 
@@ -575,6 +595,11 @@ router.put('/me/password', passwordChangeRateLimiter, validate(changePasswordSch
     `DELETE FROM refresh_tokens WHERE user_id = $1`,
     [req.user!.id]
   );
+
+  // Drop the cached user row so the new tokens_invalidated_at lands
+  // in every replica's cache by the time the user's other devices
+  // hit their next request.
+  await invalidateUserCache(req.user!.id);
 
   // Audit log: password changed
   await AuditService.logFromRequest(req, 'user.update', {
@@ -633,7 +658,11 @@ router.delete('/me', validate(deleteAccountSchema), asyncHandler(async (req, res
     // expression matches the target column. Without the cast PG raises
     // 42804 ("CASE types character varying and user_plan cannot be
     // matched") and account-soft-delete returns 500.
-    await client.query(
+    // C0-9: guard on `deleted_at IS NULL` so a retried DELETE from an
+    // already-soft-deleted user (Redis user cache hasn't expired yet, or a
+    // pre-grace access token still validates) can't reset the 30-day clock
+    // by sliding `deletion_scheduled_for` forward.
+    const updateResult = await client.query(
       `UPDATE users
           SET plan_before_delete = CASE
                                      WHEN plan <> 'suspended' THEN plan::text
@@ -643,12 +672,25 @@ router.delete('/me', validate(deleteAccountSchema), asyncHandler(async (req, res
               deletion_scheduled_for = NOW() + INTERVAL '30 days',
               plan = 'suspended',
               updated_at = NOW()
-        WHERE id = $1`,
+        WHERE id = $1 AND deleted_at IS NULL`,
       [req.user!.id],
     );
 
+    if (updateResult.rowCount === 0) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw new AppError('Account is already scheduled for deletion', 409);
+    }
+
     // Invalidate all refresh tokens to log the user out everywhere
     await client.query(`DELETE FROM refresh_tokens WHERE user_id = $1`, [req.user!.id]);
+
+    // C0-29: drop device push tokens. Hard-delete handles this through
+    // FK CASCADE when the row finally disappears 30 days later; here we
+    // need an explicit DELETE so a soft-deleted user stops receiving
+    // pushes immediately. Without this they'd keep getting reminders /
+    // 1099 notifications for the entire 30-day grace window. Privacy-
+    // policy text promises we delete push tokens on account deletion.
+    await client.query(`DELETE FROM user_push_tokens WHERE user_id = $1`, [req.user!.id]);
 
     await client.query('COMMIT');
   } catch (txError) {
@@ -701,39 +743,57 @@ router.delete('/me', validate(deleteAccountSchema), asyncHandler(async (req, res
 
 // Recover a soft-deleted account during the cooling-off period
 router.post('/me/recover', asyncHandler(async (req, res) => {
-  const userResult = await query(
-    `SELECT id, deleted_at, deletion_scheduled_for FROM users WHERE id = $1`,
-    [req.user!.id]
-  );
+  // H10: take FOR UPDATE on the user row first so a concurrent purge
+  // cron can't slip in between our existence check and the UPDATE.
+  // The purge cron also takes FOR UPDATE; whichever side gets the
+  // lock first commits, the other reads the post-commit state and
+  // surfaces a clean error.
+  const client = await getClient();
+  let recoveredPlan: string | undefined;
+  try {
+    await client.query('BEGIN');
+    const lockRow = await client.query<{
+      deleted_at: Date | null;
+      deletion_scheduled_for: Date | null;
+    }>(
+      `SELECT deleted_at, deletion_scheduled_for FROM users
+        WHERE id = $1 FOR UPDATE`,
+      [req.user!.id],
+    );
+    if (lockRow.rows.length === 0) {
+      await client.query('ROLLBACK').catch(() => {});
+      // 410 Gone: the purge cron already deleted the row.
+      throw new AppError('Account has already been deleted', 410);
+    }
+    if (!lockRow.rows[0].deleted_at) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw new AppError('Account is not scheduled for deletion', 400);
+    }
 
-  if (userResult.rows.length === 0) {
-    throw new AppError('User not found', 404);
+    // Clear soft-delete markers and restore the prior plan captured at delete
+    // time. Falls back to 'free' only when no prior plan was captured (e.g.
+    // user soft-deleted before plan_before_delete shipped).
+    // COALESCE returns VARCHAR (plan_before_delete's type); cast to
+    // user_plan enum so the assignment to `plan` succeeds.
+    const recovered = await client.query(
+      `UPDATE users
+          SET deleted_at = NULL,
+              deletion_scheduled_for = NULL,
+              plan = COALESCE(plan_before_delete, 'free')::user_plan,
+              plan_before_delete = NULL,
+              updated_at = NOW()
+        WHERE id = $1
+        RETURNING plan`,
+      [req.user!.id],
+    );
+    await client.query('COMMIT');
+    recoveredPlan = recovered.rows[0]?.plan;
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
   }
-
-  const user = userResult.rows[0];
-
-  if (!user.deleted_at) {
-    throw new AppError('Account is not scheduled for deletion', 400);
-  }
-
-  // Clear soft-delete markers and restore the prior plan captured at delete
-  // time. Falls back to 'free' only when no prior plan was captured (e.g.
-  // user soft-deleted before plan_before_delete shipped).
-  // COALESCE returns VARCHAR (plan_before_delete's type); cast to
-  // user_plan enum so the assignment to `plan` succeeds. Without the
-  // cast PG raises 42804 ("column plan is of type user_plan but
-  // expression is of type character varying").
-  const recovered = await query(
-    `UPDATE users
-        SET deleted_at = NULL,
-            deletion_scheduled_for = NULL,
-            plan = COALESCE(plan_before_delete, 'free')::user_plan,
-            plan_before_delete = NULL,
-            updated_at = NOW()
-      WHERE id = $1
-      RETURNING plan`,
-    [req.user!.id],
-  );
 
   // 2.3: cache still has deleted_at + plan='suspended' from soft-delete.
   await invalidateUserCache(req.user!.id);
@@ -744,7 +804,7 @@ router.post('/me/recover', asyncHandler(async (req, res) => {
     description: 'User recovered account from scheduled deletion',
   });
 
-  sendMessage(res, `Account recovered successfully. Your plan has been restored to ${recovered.rows[0]?.plan || 'free'}.`);
+  sendMessage(res, `Account recovered successfully. Your plan has been restored to ${recoveredPlan || 'free'}.`);
 }));
 
 // ─────────────────────────── Linked sign-in providers ───────────────────────────
