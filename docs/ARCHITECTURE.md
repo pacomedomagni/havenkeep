@@ -88,13 +88,20 @@ Workspace tooling is hybrid: the JS/TS half uses pnpm/npm workspaces, the Dart h
 
 [`apps/api/src/app.ts`](../apps/api/src/app.ts) wires the middleware chain in this order: helmet (CSP locked to `api.stripe.com` + `api.revenuecat.com`), CORS (function-form so unknown origins are explicitly rejected, not silently allowed), pino-http, raw-body-mounted Stripe + RevenueCat webhook routes (raw body must reach Stripe's signature verifier untouched), JSON parser, then every feature router under `/api/v1/*`.
 
-[`apps/api/src/index.ts`](../apps/api/src/index.ts) does the actual `listen()` and starts the cron scheduler. Every job runs through `pg_advisory_lock` so two replicas can never double-fire. Locks:
+[`apps/api/src/index.ts`](../apps/api/src/index.ts) does the actual `listen()` and starts the cron scheduler. Locks are declared in one place — [`apps/api/src/db/advisory-locks.ts`](../apps/api/src/db/advisory-locks.ts) — so two replicas can never double-fire and a reviewer can spot the next collision before it ships:
 
-- `93422874` — notification job (digest + warranty reminders)
-- `93422875` — maintenance reminder job
-- `93422876` — partner gift expiry sweep (`COMMISSION_AUTO_APPROVE_HOLD_DAYS=30`)
-- `93422877` — webhook dead-letter retry
-- `93422878` — daily audit-chain verification (`AuditService.verifyHashChain`)
+- `93422874` `NOTIFICATION_EXPIRATION` — expiration-notifications, daily 09:00 UTC
+- `93422875` `MAINTENANCE_DUE` — maintenance-due, daily
+- `93422876` `WARRANTY_OFFERS` — warranty-offers, daily
+- `93422877` `PARTNER_GIFT_EXPIRY` — `expireUnactivatedPartnerGifts`, daily
+- `93422878` `PARTNER_COMMISSION_AUTO_APPROVE` — `autoApproveAgedPendingCommissions`, daily (`COMMISSION_AUTO_APPROVE_HOLD_DAYS=30`)
+- `93422879` `NOTIFICATION_DIGEST_FLUSH` — digest outbox flush, every 60s (H7: was sharing `93422878` with the daily auto-approve before the registry was introduced)
+
+Also fire-and-forget every day inside the daily `Promise.allSettled` batch (no advisory lock — these are idempotent on the column they stamp):
+
+- `AuditService.verifyHashChain()` — verifies the audit hash chain and pages if it can't.
+- `alertOnDeadLetterWebhooks()` — pages once per dead-letter row via the `webhook_events.alerted_at` stamp (mig 105).
+- `sendDay25GraceReminders()` — H78 day-25 deletion-grace nudge, stamps `users.last_grace_reminder_sent_at` on success (mig 111).
 
 The scheduler is drift-resilient: it computes "minutes until next run" from `getUTCHours/getUTCMinutes` rather than `setInterval`, so a server clock that ticks off-rhythm doesn't accumulate skew.
 
@@ -121,20 +128,23 @@ Every mutation passes through `requestIdempotency` (mig 078: `request_idempotenc
 
 ### 3.4 Services
 
-13 services under `apps/api/src/services/`:
+Services under `apps/api/src/services/`. Heavy hitters first; the rest are listed at the end.
 
-- `auth.service` — token mint/verify, refresh family, MFA verify, ACCOUNT_PENDING_DELETION code path during the 30-day cooling-off window, S-M1 generic 401 to defend against state-deny enumeration.
-- `partners.service` — gift creation as a 3-phase flow (reserve `pending_payment` row → create Stripe PaymentIntent outside the transaction → promote to `created` + commission insert; phase-3 failure triggers a refund-compensation step). Activation is rate-limited via Redis (5 attempts/hour, 15-min lockout). Handles partner-onboarding state machine (`pending` → `active` | `rejected`) and Stripe Connect `enabled` status before allowing payouts.
+- `auth.service` — token mint/verify, refresh family, MFA verify, ACCOUNT_PENDING_DELETION code path during the 30-day cooling-off window, S-M1 generic 401 to defend against state-deny enumeration. JWTs are pinned on iss + aud + jti (H13); the password-change / suspend paths bump `users.tokens_invalidated_at` (mig 107) so every previously-issued JWT becomes invalid in one shot.
+- `mfa.service` — TOTP via otplib, AES-GCM-wrapped backup codes (mig 084 + 108), MFA challenge JWT minted on the first step of two-factor login.
+- `partners.service` — gift creation as a 3-phase flow (reserve `pending_payment` row → create Stripe PaymentIntent outside the transaction → promote to `created` + commission insert; phase-3 failure triggers a refund-compensation step). Activation is rate-limited via Redis (5 attempts/hour, 15-min lockout). Handles partner-onboarding state machine (`pending` → `active` | `rejected`) and Stripe Connect `enabled` status before allowing payouts. Commission identity is snapshotted on insert (mig 102 `partner_*_at_event` columns) so 1099-NEC history survives a partner purge.
 - `warranty-purchases.service` — three-phase cancel that uses the `cancelling` transient enum value (mig 098). Prorated refund computed via `proratedRefundCents`; idempotency key `warranty-refund-{purchaseId}`.
-- `email-scanner.service` — `TRUSTED_RETAILER_DOMAINS` allowlist, `AUTO_CREATE_CONFIDENCE_THRESHOLD=0.85`, S-ME-07 DKIM gate (parses `Authentication-Results`), `OPENAI_DAILY_CAP_MICROS` budget enforced by querying the `openai_user_daily_cost` view before calling Vision. OAuth tokens encrypted AES-256-GCM with key-rotation legacy list.
-- `notifications.service` — daily digest, warranty-expiry cascade, push delivery via FCM/APNs.
-- `audit.service` — append-only writes that go through the mig 065 hash-chain trigger, plus `verifyHashChain()` reading the `verify_audit_chain()` Postgres function.
+- `email-scanner.service` — `TRUSTED_RETAILER_DOMAINS` allowlist, `AUTO_CREATE_CONFIDENCE_THRESHOLD=0.85`, H42 DKIM-alignment gate (parses `Authentication-Results`, requires DMARC=pass or `header.d` / `header.i` matching the From: domain), H46 pulls `internetMessageHeaders` on Outlook so the same gate is evaluable, H41 paginates via Gmail `pageToken` / Outlook `@odata.nextLink` with `PER_SCAN_PROCESS_CAP=500`, H43 wraps the user body in `BODY_DELIM` and tells the system prompt to treat it as data only, H44 routes a JSON.parse failure to a sentinel `parseFailed: true` row so the scan lands in the review queue instead of being silently dropped. `OPENAI_DAILY_CAP_MICROS` budget enforced by querying the `openai_user_daily_cost` view before calling Vision. OAuth tokens encrypted AES-256-GCM with key-rotation legacy list (mig 109 adds `key_version` + AAD).
+- `notifications.service` — daily digest, single warranty-expiry reminder at `first_reminder_days` (default 30), push delivery via FCM/APNs, digest outbox flushed every 60s.
+- `audit.service` — append-only writes that go through the hash-chain trigger (mig 065, hardened by mig 101: trigger owned by `audit_cleaner` so the API role can't drop it; trigger payload uses `to_char(... AT TIME ZONE 'UTC')` so the chain is TZ-stable across writer/verifier sessions). `verifyHashChain()` reads the `verify_audit_chain()` Postgres function and pages on drift.
 - `account-purge.service` — `ADVISORY_LOCK_KEY=0xa00d_4a13`, `MAX_PER_RUN=100`, anonymizes `warranty_purchases.user_email_at_purchase` before the cascade-delete.
-- Plus: `homes.service`, `items.service`, `maintenance.service`, `documents.service`, `referrals.service`, `tips.service`.
+- `grace-reminder.service` — H78 day-25 nudge during the 30-day deletion grace window. Queries `users` where `deletion_scheduled_for - NOW() BETWEEN 4d AND 5d`, sends one email per row, stamps `last_grace_reminder_sent_at` on success so the cron can't re-send tomorrow (mig 111).
+- `webhook-dead-letter.service` — `alertOnDeadLetterWebhooks()` pages once per dead-lettered row via the `webhook_events.alerted_at` stamp (mig 105). Stripe webhook signature-verification failures also page via `EmailService.sendStripeWebhookSignatureFailureAlert()` with a 15-min throttle (H30).
+- Plus: `email.service` (SendGrid templates), `homes.service`, `items.service`, `maintenance.service`, `documents.service`, `referrals.service`, `tips.service`, `fcm.service`.
 
 ### 3.5 Database
 
-PostgreSQL 16. Schema lives in `apps/api/src/db/schema.sql` (base tables) plus 100+ forward-only migrations under `apps/api/src/db/migrations/`. Key migrations:
+PostgreSQL 16. Schema lives in `apps/api/src/db/schema.sql` (base tables) plus 111 forward-only migrations under `apps/api/src/db/migrations/`. Key migrations:
 
 - **028–039** — security/data-loss criticals (refresh-token hashing, audit logging, etc.)
 - **040–045** — DB foundation (pool config, advisory locks, schema_version table)
@@ -151,6 +161,17 @@ PostgreSQL 16. Schema lives in `apps/api/src/db/schema.sql` (base tables) plus 1
 - **097** — the `warranty_claim_state_history` immutable trigger now allows FK CASCADE delete from the parent claim
 - **098** — `warranty_purchase_status` enum gains `cancelling` for the three-phase cancel flow's transient state
 - **099/100** — `cleanup_old_audit_logs()` rewritten as `SECURITY DEFINER` under the `audit_cleaner` role; SELECT grant added because PG needs SELECT to evaluate the WHERE clause for DELETE
+- **101** — `audit_logs` + trigger functions re-owned by `audit_cleaner` so the API role can't `DROP TRIGGER trg_audit_logs_immutable` and rewrite history; revoke ALL from API, re-grant SELECT+INSERT; trigger payload now uses `to_char(... AT TIME ZONE 'UTC')` so the hash is TZ-stable across writer/verifier sessions.
+- **102** — `partner_gifts` / `partner_commissions` partner_id → SET NULL on partner delete; new `partner_id_at_event`, `partner_company_name_at_event`, `partner_email_at_event` columns snapshot identity at INSERT so 1099-NEC commission history survives a user purge (same pattern as mig 083 for warranty rows).
+- **103** — `request_idempotency` claim-placeholder row so `INSERT...ON CONFLICT DO NOTHING` distinguishes "first writer wins" from "duplicate replay."
+- **104** — `audit_action` enum: new values for admin + MFA + payout flows.
+- **105** — `webhook_events.alerted_at` so H30 ops alerts mark a row "we paged on this" and a retry doesn't re-page.
+- **106** — functional unique index on `LOWER(email)` so case-variant duplicate accounts can't be created.
+- **107** — `users.tokens_invalidated_at`; password change / suspend bumps it so every previously-issued JWT becomes invalid without per-row deletes.
+- **108** — partial unique index on `user_mfa_factors` so a single user can only have one *unverified* TOTP enrollment in flight at a time.
+- **109** — OAuth integration columns: `key_version` + AAD so AES-GCM rewrap surfaces the right key at decrypt time.
+- **110** — `newsletter_subscribers.confirmation_expires_at` so H77 single-use confirm tokens carry a 7-day TTL the `/confirm` gate honours.
+- **111** — `users.last_grace_reminder_sent_at` + partial index; H78 day-25 grace nudge marks rows once-sent so the cron can't re-send tomorrow.
 
 The runner auto-detects `ALTER TYPE ADD VALUE` and `CREATE INDEX CONCURRENTLY` and runs those files outside transactions. `main()` is wrapped in `pg_advisory_lock` (H-D1) so two replicas booting simultaneously can't race on the same DDL. The `schema_version` table tracks bootstrap completion.
 

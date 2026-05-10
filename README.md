@@ -73,23 +73,26 @@ cd havenkeep
 
 ### 3.2 Start local infra
 
-The simplest way to bring up Postgres + Redis + MinIO is the docker-compose file in `apps/api/docker-compose.dev.yml` (if you have one — otherwise spin them up however you prefer):
+The repo root has a docker-compose stack for local dev. Bring it up from the repo root:
 
 ```sh
-docker compose -f apps/api/docker-compose.dev.yml up -d
+docker compose up -d postgres redis minio
 ```
 
-This brings up:
-- Postgres on `localhost:5432` with database `havenkeep`, user `havenkeep`, password `havenkeep`.
-- Redis on `localhost:6379` (no auth in dev).
-- MinIO on `localhost:9000` (console at `localhost:9001`, root user `minioadmin` / `minioadmin`).
+`docker-compose.override.yml` is gitignored (so each developer can pick their own port assignments) but the checked-in one in this repo binds:
+
+- Postgres on `localhost:5434` (container name `havenkeep-postgres`), database `havenkeep`, user `havenkeep`, password `havenkeep_dev_2026`. Port `:5432` on the host machine is typically held by another local stack — that's why we map to `:5434`.
+- Redis on `localhost:6380` (`havenkeep-redis`), no auth. Same reason — `:6379` is usually taken.
+- MinIO on `localhost:9000` (console at `localhost:9011`, root user `minioadmin` / password from `.env`). The console port collides with another local app at `:9001` on most developer machines.
+
+If you don't have a docker-compose.override.yml and the default ports collide with another local stack, create one mirroring the layout shown in `docker-compose.override.yml.example` (or just stop the colliding container first).
 
 ### 3.3 Configure the API
 
 Copy the example env file and fill in the values:
 
 ```sh
-cp apps/api/.env.example apps/api/.env
+cp .env.example apps/api/.env
 ```
 
 Required at minimum:
@@ -98,8 +101,8 @@ Required at minimum:
 NODE_ENV=development
 PORT=3000
 
-DATABASE_URL=postgres://havenkeep:havenkeep@localhost:5432/havenkeep
-REDIS_URL=redis://localhost:6379
+DATABASE_URL=postgresql://havenkeep:havenkeep_dev_2026@localhost:5434/havenkeep
+REDIS_URL=redis://localhost:6380
 
 JWT_SECRET=<32+ char random string>
 REFRESH_TOKEN_SECRET=<32+ char random string, different from JWT_SECRET>
@@ -131,11 +134,17 @@ MINIO_BUCKET=havenkeep-dev
 
 ```sh
 cd apps/api
-npm run migrate          # runs every numbered migration under src/db/migrations/
-npm run seed             # category_defaults, brand_suggestions, maintenance_schedules, tips
+npm run db:migrate       # runs every numbered migration under src/db/migrations/
+npm run db:seed          # category_defaults, brand_suggestions, maintenance_schedules, tips
 ```
 
 The migration runner wraps `main()` in a Postgres advisory lock, so you can run it multiple times without races. It also auto-detects `ALTER TYPE ADD VALUE` and `CREATE INDEX CONCURRENTLY` and runs those outside transactions.
+
+If your local Postgres lives on a non-default port (the override file ships with `:5434`), pass `DATABASE_URL` inline:
+
+```sh
+DATABASE_URL=postgresql://havenkeep:havenkeep_dev_2026@localhost:5434/havenkeep npm run db:migrate
+```
 
 ### 3.5 Start the API
 
@@ -148,11 +157,8 @@ The API is now running at `http://localhost:3000`. Health check: `curl http://lo
 
 ### 3.6 Start the partner dashboard
 
-```sh
-cp apps/partner-dashboard/.env.example apps/partner-dashboard/.env.local
-```
+Create `apps/partner-dashboard/.env.local`:
 
-Set:
 ```env
 API_URL=http://localhost:3000
 NEXT_PUBLIC_API_URL=
@@ -199,23 +205,24 @@ If your local API is at `http://localhost:3000` and you're running on a physical
 ### 4.1 Backend (`apps/api`)
 
 ```sh
-npm run dev              # watch mode
+npm run dev              # watch mode (tsx watch)
 npm run build            # tsc → dist/
 npm start                # run dist/
 
-npm test                 # Jest, 305+ tests
-npm run typecheck        # tsc --noEmit, must be clean before commit
-npm run migrate          # run pending migrations
-npm run migrate:make     # scaffold a new migration file (numbered next)
-npm run seed             # idempotent reseed of reference tables
+npm test                 # Jest. Needs a running test DB — see § 4.4.
+npx tsc --noEmit         # typecheck gate. Must be clean before commit. (No package.json alias by design — `npm run build` already runs tsc, so the explicit form keeps gates obvious.)
+npm run db:migrate       # run pending migrations
+npm run db:seed          # idempotent reseed of reference tables
 ```
+
+New migrations are added by hand: create `apps/api/src/db/migrations/<NNN>_<short_name>.sql` with the next free number and put your DDL inside. The runner picks them up automatically.
 
 ### 4.2 Partner dashboard (`apps/partner-dashboard`)
 
 ```sh
 npm run dev              # Next.js dev server on :3001
-npm run build            # production build
-npm run typecheck        # tsc --noEmit
+npm run build            # production build (runs tsc + Next compile)
+npx tsc --noEmit         # standalone typecheck (no package.json alias — `npm run build` is the gate)
 npm test                 # vitest
 ```
 
@@ -260,15 +267,37 @@ Per CLAUDE.md Rule 5 ("Ship with zero errors and zero warnings"), the final stat
 
 | Surface | Command | Pass threshold |
 |---|---|---|
-| Backend | `cd apps/api && npx tsc --noEmit` | clean |
-| Backend tests | `cd apps/api && npm test` | 305+ green |
-| Partner dashboard typecheck | `cd apps/partner-dashboard && npm run typecheck` | clean |
+| Backend typecheck | `cd apps/api && npx tsc --noEmit` | clean |
+| Backend tests | `cd apps/api && npm test` (see § 4.4 below) | 319+ green |
+| Partner dashboard typecheck | `cd apps/partner-dashboard && npx tsc --noEmit` | clean |
 | Partner dashboard build | `cd apps/partner-dashboard && npm run build` | clean |
 | Marketing build | `cd apps/marketing && npm run build` | clean |
 | Mobile analyze | `cd apps/mobile && flutter analyze` | clean |
 | Mobile tests | `cd apps/mobile && flutter test` | 444+ green |
 | Mobile debug build | `cd apps/mobile && flutter build apk --debug` | clean |
 | Dart packages | `( cd packages/shared_models && flutter analyze && flutter test )` etc. | clean |
+
+### 4.4 Running `npm test` against the local DB
+
+The API jest suite truncates the schema between suites, so it refuses to run against any DB whose name doesn't contain `test`. Bootstrap a sibling test DB once:
+
+```sh
+docker exec havenkeep-postgres psql -U havenkeep -c "CREATE DATABASE havenkeep_test;"
+DATABASE_URL=postgresql://havenkeep:havenkeep_dev_2026@localhost:5434/havenkeep_test \
+  DB_HOST=localhost DB_PORT=5434 DB_NAME=havenkeep_test \
+  DB_USER=havenkeep DB_PASSWORD=havenkeep_dev_2026 \
+  npx tsx src/db/migrations/run-migration.ts
+```
+
+Then every run:
+
+```sh
+DB_USER=havenkeep DB_PASSWORD=havenkeep_dev_2026 \
+  TEST_DB_PORT=5434 TEST_REDIS_URL=redis://localhost:6380 \
+  npm test
+```
+
+`TEST_DB_PORT` and `TEST_REDIS_URL` are the harness's hooks for the non-default ports the docker-compose.override.yml ships with. Without them, the harness defaults to `:5432` / `:6379` and you get cryptic "password authentication failed" or "TCPWRAP" errors.
 
 If you encounter pre-existing errors or warnings in files you're touching (or adjacent to your work), you fix them. "Warnings that were already there" is not an acceptable excuse.
 
@@ -319,10 +348,12 @@ Configure each Services ID with the corresponding redirect URL (`staging.havenke
 
 ### 8.1 Reset the dev database
 
+From the repo root:
+
 ```sh
-docker compose -f apps/api/docker-compose.dev.yml down -v   # nukes the volume
-docker compose -f apps/api/docker-compose.dev.yml up -d
-( cd apps/api && npm run migrate && npm run seed )
+docker compose down -v                                      # nukes the postgres + redis + minio volumes
+docker compose up -d postgres redis minio
+( cd apps/api && npm run db:migrate && npm run db:seed )    # set DATABASE_URL inline if your port isn't :5432
 ```
 
 ### 8.2 Forward Stripe webhooks to local API

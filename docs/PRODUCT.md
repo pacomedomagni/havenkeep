@@ -65,7 +65,7 @@ Items belong to a `Home`. A user can have multiple homes (a primary residence, a
 
 The notification system is what justifies the app's existence. Three layers:
 
-- **Cascade reminders** — by default 30 days, 14 days, 7 days, day-of. User-configurable in [`NotificationPreferences`](../packages/shared_models/lib/src/notification_preferences.dart). The cron job in [`apps/api/src/index.ts`](../apps/api/src/index.ts) wakes daily at 09:00 UTC and queries items whose warranty crosses any of the configured thresholds.
+- **Expiry reminder** — one reminder per item, fired at `first_reminder_days` days before expiry (default 30, range 1–365). User-configurable per-account in [`NotificationPreferences`](../packages/shared_models/lib/src/notification_preferences.dart). The cron job in [`apps/api/src/index.ts`](../apps/api/src/index.ts) wakes daily at 09:00 UTC and queries items whose `warranty_end_date` is exactly the configured number of days out for each user. Multi-milestone cascades (90/60/30/14/7) are on the roadmap — not yet shipped.
 - **Daily digest** — opt-in. Groups every reminder into a single 09:00 push so the user doesn't get five separate notifications when three appliances expire the same week.
 - **Quiet hours** — opt-in. Suppresses local notifications during the window (defaults 22:00–08:00).
 
@@ -167,21 +167,23 @@ Realtors hand keys to homebuyers. That's the moment HavenKeep wants to be presen
 | Plan | Price | Items | OCR | Export | Support |
 |---|---|---|---|---|---|
 | **Free** | $0 forever | Up to 5 | — | — | Community |
-| **Premium** | $2.99/mo or $24/yr (33% annual savings) | Unlimited | AI receipt scanning | PDF + CSV + email | Priority |
+| **Premium** | $2.99/mo or $24/yr (33% annual savings) | Unlimited | AI receipt scanning | CSV + PDF + per-item share | Priority |
 
 Premium is sold via App Store IAP, Play Billing, or web (Stripe). RevenueCat unifies subscription state across the three platforms — the API treats RevenueCat as the source of truth via webhook (`INITIAL_PURCHASE` / `RENEWAL` / `EXPIRATION` / `TRANSFER`). Cancellation runs through the platform — App Store, Google Play, or Stripe — per their published policies. We don't operate a separate web refund flow.
 
-Partner gifts grant Premium for 6 / 12 / 24 months depending on the partner tier (Basic / Premium / Platinum). The grant stacks on any existing subscription — a user already on Premium who redeems a gift gets the gift period added to their expiry, not replacing it.
+Partner gifts grant Premium for a partner-chosen window between 1 and 12 months (validator: [`partners.validator.ts`](../apps/api/src/validators/partners.validator.ts) `premiumMonths: 1..12`; dashboard UI exposes 3 / 6 / 12 in the gift composer). The grant stacks on any existing subscription — a user already on Premium who redeems a gift gets the gift period added to their expiry, not replacing it.
 
 ### 5.2 Partner
 
-| Tier | Per-gift | Commission | Premium grant |
-|---|---|---|---|
-| **Basic** | $99 | 10% on warranty sales | 6 months |
-| **Premium** | $149 | 15% | 12 months |
-| **Platinum** | $249 | 20% | 24 months |
+| Tier | Per-gift | Commission |
+|---|---|---|
+| **Basic** | $99 | 10% on warranty sales |
+| **Premium** | $149 | 15% |
+| **Platinum** | $249 | 20% |
 
 No monthly fee, no contract. Tier upgrades happen automatically based on quarterly gift volume — no paperwork. Volume thresholds are published in the partner agreement.
+
+Premium-grant length is the same 1–12-month window across all three tiers — the difference between tiers is the price per gift and the commission rate, not the grant length. A longer-grant differentiator for Platinum is on the roadmap (it would need both a validator bump and a UI option).
 
 The numbers above come from `apps/api/src/services/partners.service.ts` (`TIER_PRICE_PER_GIFT_USD`, `TIER_COMMISSION_RATES`). The marketing site reads them from the same place to avoid drift between the public price and the price at gift creation.
 
@@ -209,7 +211,7 @@ HavenKeep stores a lot of personal data: email, photos of receipts, warranty car
 
 ### 6.3 What deletion actually does
 
-- **In-app**: Settings → Delete Account. Soft-delete is immediate; cooling-off window is 7 days during which sign-in cancels the deletion. After 7 days, cryptographic erasure from active systems. (Note: the privacy policy says 30 days; the in-app code currently uses a 7-day grace per [`delete-account.astro`](../apps/marketing/src/pages/legal/delete-account.astro). The 30-day version was an earlier draft. **TODO: align these two.**)
+- **In-app**: Settings → Delete Account. Soft-delete is immediate; cooling-off window is 30 days during which sign-in cancels the deletion and routes the user to [`RecoverAccountScreen`](../apps/mobile/lib/features/onboarding/recover_account_screen.dart). At day 25 a single grace-reminder email goes out via [`grace-reminder.service.ts`](../apps/api/src/services/grace-reminder.service.ts) so a user who clicked Delete in frustration has a clear chance to recover. After day 30, [`account-purge.service.ts`](../apps/api/src/services/account-purge.service.ts) cryptographically erases the row from active systems.
 - **By email**: required by Google Play. Email `support@havenkeep.com` from the address on the account; processed within 5 business days.
 - **What's deleted**: profile, items, receipts, warranty records, documents, maintenance reminders, OAuth tokens (revoked at the provider too), push tokens, partner relationships.
 - **What survives**: anonymised usage events older than 30 days that have already been aggregated into product analytics; audit-log entries we're legally required to retain. Neither contains personal data after deletion.
@@ -219,11 +221,13 @@ HavenKeep stores a lot of personal data: email, photos of receipts, warranty car
 
 ## 7. Notifications, reminders, and other tactical details
 
-### 7.1 Reminder cascade
+### 7.1 Expiry reminder
 
-Default cascade: 90 / 60 / 30 / 14 / 7 days before expiry. User can toggle individual milestones on/off and add custom intervals. Persisted locally in `NotificationPrefsLocal` plus server-side in `NotificationPreferences`.
+One reminder per item, fired at `first_reminder_days` days before `warranty_end_date`. Default is 30 days; user-configurable per account (range 1–365). Persisted server-side in the `notification_preferences` table and mirrored locally in `NotificationPrefsLocal`.
 
-The cron job that mints reminders runs daily at 09:00 UTC under an advisory lock so two replicas can't double-fire. It queries items whose `warranty_end_date` is exactly N days out (N for each enabled cascade milestone), inserts `notification_history` rows, and pushes via FCM/APNs.
+The cron job that mints reminders runs daily at 09:00 UTC under advisory lock `NOTIFICATION_EXPIRATION` (`93422874`) so two replicas can't double-fire. It queries items whose `warranty_end_date` is exactly each user's configured lead-time out, inserts `notification_history` rows, and pushes via FCM/APNs.
+
+A multi-milestone cascade (90/60/30/14/7) is on the roadmap. When that ships, this section will describe per-user milestone toggles and the schema change that comes with them.
 
 ### 7.2 Quiet hours
 
@@ -256,7 +260,7 @@ Use cases:
 - Helping an aging parent track their home.
 - A landlord with a small portfolio (large portfolios should use the partner-as-property-manager flow instead).
 
-Free plan: 1 home. Premium: unlimited homes.
+Home creation isn't capped by plan today. The free-plan gate is the 5-item limit (`FREE_PLAN_ITEM_LIMIT` in `apps/api/src/config/index.ts`); both Free and Premium can register multiple homes. A per-plan home cap would need an API-level check in `apps/api/src/routes/homes.ts` plus mobile gating before it could be advertised.
 
 ---
 
