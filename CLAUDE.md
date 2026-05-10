@@ -11,10 +11,6 @@ Other markdown files allowed in the repo:
 - `README.md` — root runbook: prereqs, first-run setup for all four apps, daily commands, test gates, troubleshooting.
 - `docs/ARCHITECTURE.md` — technical architecture reference (system overview, stacks, auth, DB, security model).
 - `docs/PRODUCT.md` — product spec (who it's for, the five core jobs, the two flagship flows, pricing, trust contract).
-- `docs/AUDIT_REPORT.md` — v1 consolidated audit findings (shallow pass; superseded by v2).
-- `docs/audit-runs/0[1-8]-*.md` — v1 per-surface audit reports with full file:line citations.
-- `docs/AUDIT_REPORT_V2.md` — v2 consolidated audit (deep per-file pass with explicit checklists; ~450 findings, ~60 Criticals).
-- `docs/audit-runs-v2/0[1-9]-*.md` and `1[0-2]-*.md` — v2 per-surface audit reports with code excerpts pasted inline. Twelve files, one per audit agent.
 - `apps/mobile/IOS_DEPLOYMENT.md` — iOS → TestFlight runbook lives next to the app it deploys.
 - `apps/mobile/store/STORE_LISTING.md` — App Store + Play Store listing copy (titles, descriptions, keywords, privacy questionnaires).
 - `apps/mobile/store/PLAY_CONSOLE_ANSWERS.md` — Pre-filled answers for Play Console's App Content + Data Safety forms.
@@ -131,7 +127,7 @@ Logs: `https://logs.staging.kouakoudomagni.com` (Dozzle, basic auth — ask Doma
 
 ## Part 3 — Outstanding work
 
-Every gate is currently green: api tsc + 305/305 jest tests, dashboard tsc + build, marketing build, both Dart packages analyze, mobile analyze, 444 flutter tests, debug APK build all pass. The 2026-04-29 audit-remediation arc is closed (145 findings → 145 dispositions; see `git log --oneline` if you need the per-finding history).
+Every gate is currently green: api tsc + 319/319 jest tests, dashboard tsc + build, marketing build, both Dart packages analyze, mobile analyze, 444 flutter tests, debug APK build all pass. The 2026-04-29 → 2026-05-10 audit-remediation arc is closed; see `git log --oneline` if you need the per-finding history.
 
 **No outstanding code-level work.** All in-repo follow-ups (S-M7 public CSRF mint, Phase-5 activation-code wipe) shipped on `main`. **Staging Stripe is verified-green** — `./scripts/stripe/check-staging.sh` and `./scripts/stripe/e2e-staging.sh` both pass; a real $9.90 transfer landed on a Connect account during phase 6. The only outstanding work is mobile build prep below — production is months away and intentionally not documented here yet.
 
