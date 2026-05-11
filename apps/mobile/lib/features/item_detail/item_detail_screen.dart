@@ -837,10 +837,15 @@ class _DocumentTabsCardState extends ConsumerState<DocumentTabsCard>
               HavenSpacing.md,
               0,
             ),
+            // SectionHeader is itself a Row with a Spacer inside. Putting
+            // it bare in another Row caused the inner Spacer (Expanded) to
+            // try to fill an unbounded width and the whole detail page
+            // failed to lay out — that's the "blank screen on tap" we hit
+            // on the seeded user. Wrap in Expanded so the inner Spacer has
+            // a finite width to fill.
             child: Row(
               children: [
-                const SectionHeader(title: 'DOCUMENTS'),
-                const Spacer(),
+                const Expanded(child: SectionHeader(title: 'DOCUMENTS')),
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: HavenSpacing.sm,
@@ -1033,10 +1038,13 @@ class RecentMaintenanceCard extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Same SectionHeader-inside-Row trap as DocumentTabsCard:
+          // SectionHeader already wraps a Row+Spacer, so wrap it in
+          // Expanded so the inner Spacer has a finite width and the
+          // detail body doesn't blank-render on the simulator.
           Row(
             children: [
-              const SectionHeader(title: 'RECENT MAINTENANCE'),
-              const Spacer(),
+              const Expanded(child: SectionHeader(title: 'RECENT MAINTENANCE')),
               IconButton(
                 tooltip: 'Customize schedule',
                 icon: const Icon(Icons.tune,

@@ -27,7 +27,16 @@ require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelpe
 flutter_ios_podfile_setup
 
 target 'Runner' do
-  use_frameworks! :linkage => :static
+  # Dynamic frameworks by default. Firebase pods opt-in to static via
+  # `s.static_framework = true` in their own podspecs, so they're fine.
+  # Reason for not using `:linkage => :static` globally: SQLCipher then
+  # gets statically linked into Runner, the system `-lsqlite3` brought
+  # in by sqflite_darwin wins the global symbol lookup, and Drift's
+  # `PRAGMA cipher_version;` guard fires "sqlite3 is not SQLCipher".
+  # Dynamic linkage puts SQLCipher.framework in Runner.app/Frameworks/
+  # so Dart can `DynamicLibrary.open` it explicitly and route Drift
+  # there only — without disturbing sqflite_darwin's plain sqlite3.
+  use_frameworks!
   use_modular_headers!
 
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
@@ -37,11 +46,58 @@ target 'Runner' do
 end
 
 post_install do |installer|
+  # The sqlcipher_flutter_libs 0.6.8 podspec hard-pins
+  #   VALID_ARCHS[sdk=iphonesimulator*] = x86_64
+  # which on Apple Silicon Macs means cocoapods generates an Xcode target
+  # that compiles the plugin's Swift module ONLY for x86_64. The
+  # resulting -Swift.h header guards every type behind
+  #   #elif defined(__x86_64__)
+  # and ends with `#error unsupported Swift architecture` for everything
+  # else. The arm64-simulator app target then can't compile against the
+  # header and Xcode fails with "Unsupported Swift architecture".
+  #
+  # Cocoapods loads pod_target_xcconfig into the pod's *.xcconfig files
+  # BEFORE post_install runs, but the build_settings on the generated
+  # Xcode targets still control the actual compile, so this works:
+  # mutate VALID_ARCHS (and remove ONLY_ACTIVE_ARCH constraints) on the
+  # affected targets BEFORE the project is saved.
+  installer.pods_project.targets.each do |t|
+    next unless ['sqlcipher_flutter_libs', 'SQLCipher'].include?(t.name)
+    t.build_configurations.each do |bc|
+      bc.build_settings.delete 'VALID_ARCHS'
+      bc.build_settings.delete 'VALID_ARCHS[sdk=iphonesimulator*]'
+      bc.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = ''
+      bc.build_settings['ONLY_ACTIVE_ARCH'] = 'NO'
+    end
+  end
+  # Also wipe the VALID_ARCHS line that cocoapods already wrote into the
+  # pod's .xcconfig files — Xcode reads those at compile time and they
+  # win over project-level overrides for arch resolution.
+  Dir.glob(File.join(__dir__, 'Pods', 'Target Support Files', 'sqlcipher_flutter_libs', '*.xcconfig')).each do |xcfg|
+    body = File.read(xcfg)
+    next unless body.include?('VALID_ARCHS')
+    File.write(xcfg, body.gsub(/^VALID_ARCHS.*$/m, ''))
+    puts "[Podfile] Stripped VALID_ARCHS from #{File.basename(xcfg)}"
+  end
+
+
   installer.pods_project.targets.each do |target|
     flutter_additional_ios_build_settings(target)
     target.build_configurations.each do |config|
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
     end
+  end
+
+  # Strip any leftover -force_load SQLCipher hack from prior attempts.
+  # The cleaner fix is on the Dart side: Drift now opens the SQLCipher
+  # framework via DynamicLibrary.open(<framework path>) instead of relying
+  # on DynamicLibrary.process() and a force_load, so the static linker
+  # can keep sqflite_darwin's system SQLite happy (no duplicate symbols)
+  # while SQLCipher lives in its own loaded image.
+  Dir.glob(File.join(__dir__, 'Pods', 'Target Support Files', 'Pods-Runner', 'Pods-Runner.*.xcconfig')).each do |xcfg|
+    body = File.read(xcfg)
+    cleaned = body.gsub(/\n+\/\/ Force-load SQLCipher.*?-force_load[^\n]+\n/m, "\n")
+    File.write(xcfg, cleaned) if cleaned != body
   end
 
   # Fix objective_c.framework: patch MinimumOSVersion and strip simulator platform

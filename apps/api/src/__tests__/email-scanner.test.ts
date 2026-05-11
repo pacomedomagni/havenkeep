@@ -105,10 +105,20 @@ describe('Email Scanner Routes', () => {
     });
 
     it('should return 403 for a non-premium user', async () => {
+      // The premium gate fires before the state-token verification. Send
+      // a fake state string that satisfies Joi's `.min(20)` so we clear
+      // body validation and the premium gate is what gets exercised.
+      // (Both /scan and /state-token are premium-gated; we couldn't
+      // legitimately mint a state token as a free user anyway.)
       const res = await request(app)
         .post('/api/v1/email-scanner/scan')
         .set('Authorization', `Bearer ${freeToken}`)
-        .send({ provider: 'gmail', code: 'auth-code', redirect_uri: 'https://example.com/cb' });
+        .send({
+          provider: 'gmail',
+          code: 'auth-code',
+          redirect_uri: 'havenkeep://oauth-callback',
+          state: 'a'.repeat(40),
+        });
 
       expect(res.status).toBe(403);
     });
@@ -129,7 +139,7 @@ describe('Email Scanner Routes', () => {
         .send({
           provider: 'gmail',
           code: 'auth-code',
-          redirect_uri: 'https://example.com/cb',
+          redirect_uri: 'havenkeep://oauth-callback',
           access_token: 'should-be-rejected',
         });
 
@@ -143,7 +153,7 @@ describe('Email Scanner Routes', () => {
         .send({
           provider: 'gmail',
           code: 'auth-code',
-          redirect_uri: 'https://example.com/cb',
+          redirect_uri: 'havenkeep://oauth-callback',
           accessToken: 'should-be-rejected',
         });
 
@@ -165,7 +175,7 @@ describe('Email Scanner Routes', () => {
         .send({
           provider: 'gmail',
           code: 'authorization-code-from-google',
-          redirect_uri: 'https://example.com/cb',
+          redirect_uri: 'havenkeep://oauth-callback',
           state,
         });
 

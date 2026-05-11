@@ -24,6 +24,21 @@
 	<string>????</string>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<!-- Google Sign-In: the iOS SDK needs both keys read at startup. Without
+	     them, -[GIDSignIn signInWithOptions:] throws NSInvalidArgumentException
+	     ("No active configuration. Make sure GIDClientID is set in Info.plist.")
+	     and the OS terminates the process the moment the user taps "Continue
+	     with Google" — that's the crash that bit us on the first dev launch.
+	     - GIDClientID is the iOS OAuth client (matches CLIENT_ID +
+	       REVERSED_CLIENT_ID in GoogleService-Info.plist).
+	     - GIDServerClientID is the Web client used by the backend
+	       /auth/google audience check — the same value the Dart layer
+	       passes as `serverClientId`. Keeping both means the idToken's
+	       `aud` claim matches what the API verifies. -->
+	<key>GIDClientID</key>
+	<string>452180570234-9dk44rfr9t8ungu0lk5cq3h6vk3fvk9v.apps.googleusercontent.com</string>
+	<key>GIDServerClientID</key>
+	<string>452180570234-i7olfif08g9ij3ta27nm5ds4j9650oeb.apps.googleusercontent.com</string>
 	<!-- Export compliance: declares this app uses only encryption exempt
 	     under 15 CFR §740.17(b) (TLS, AES-256-GCM at rest, SHA-256/HMAC).
 	     With this set to false, every TestFlight upload auto-clears the

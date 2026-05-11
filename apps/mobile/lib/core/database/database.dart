@@ -319,10 +319,21 @@ LazyDatabase _openConnection({String? userId}) {
   });
 }
 
-/// iOS ships SQLCipher via the dynamically-linked framework bundled in
-/// the sqlcipher_flutter_libs pod, so we just resolve the symbol from the
-/// process address space.
-DynamicLibrary _openCipherOnIos() => DynamicLibrary.process();
+/// iOS ships SQLCipher via the `sqlcipher_flutter_libs` pod. The
+/// Podfile uses dynamic framework linkage so SQLCipher.framework lands
+/// inside the app bundle at runtime as a real .dylib — Dart's
+/// `DynamicLibrary.open` resolves the bare framework name against the
+/// app's @rpath search list.
+///
+/// We can NOT use `DynamicLibrary.process()` here because that performs
+/// a global symbol lookup that also sees the system `-lsqlite3` linked
+/// by `sqflite_darwin` (pulled in transitively via flutter_cache_manager).
+/// The system sqlite3 wins the global lookup, Drift ends up calling
+/// system sqlite3, `PRAGMA cipher_version;` returns empty, and the
+/// SQLCipher guard throws "sqlite3 is not SQLCipher" — the splash-
+/// stuck bug we hit on the iOS simulator.
+DynamicLibrary _openCipherOnIos() =>
+    DynamicLibrary.open('SQLCipher.framework/SQLCipher');
 
 String _bytesToHex(List<int> bytes) {
   final buf = StringBuffer();

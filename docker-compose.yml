@@ -86,9 +86,29 @@ services:
       MINIO_BUCKET: ${MINIO_BUCKET:-havenkeep}
       CORS_ORIGINS: http://localhost:3001,http://localhost:4321
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3001}
+      DASHBOARD_URL: ${DASHBOARD_URL:-http://localhost:3001}
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
       SENDGRID_API_KEY: ${SENDGRID_API_KEY:-}
+      SENDGRID_FROM_EMAIL: ${SENDGRID_FROM_EMAIL:-noreply@havenkeep.com}
+      SENDGRID_REPLY_TO_EMAIL: ${SENDGRID_REPLY_TO_EMAIL:-support@havenkeep.com}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_AUDIENCES: ${GOOGLE_AUDIENCES:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       APPLE_BUNDLE_ID: ${APPLE_BUNDLE_ID:-app.havenkeep.mobile}
+      # Stripe + Stripe webhook secret. Dev defaults are obviously-fake
+      # placeholders so the SDK constructor doesn't crash at boot;
+      # mutating calls will fail at the network if you try to use them,
+      # which is what we want for local dev.
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-sk_test_local_dev_placeholder}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-whsec_test_local_dev_placeholder}
+      STRIPE_PRICE_ID_PREMIUM: ${STRIPE_PRICE_ID_PREMIUM:-}
+      # OpenAI + RevenueCat + OAuth-token-at-rest encryption.
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-sk-local-dev-placeholder}
+      REVENUECAT_SECRET_API_KEY: ${REVENUECAT_SECRET_API_KEY:-local_dev_placeholder}
+      REVENUECAT_WEBHOOK_SECRET: ${REVENUECAT_WEBHOOK_SECRET:-local_dev_placeholder}
+      OAUTH_TOKEN_ENCRYPTION_SECRET: ${OAUTH_TOKEN_ENCRYPTION_SECRET:-local-dev-oauth-encryption-secret-32bytes!}
+      OAUTH_REDIRECT_URI_PREFIXES: ${OAUTH_REDIRECT_URI_PREFIXES:-havenkeep://oauth-callback,http://localhost:3000/oauth-callback}
+      FIREBASE_SERVICE_ACCOUNT_JSON: ${FIREBASE_SERVICE_ACCOUNT_JSON:-}
     ports:
       - "3000:3000"
     volumes:

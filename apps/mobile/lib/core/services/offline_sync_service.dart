@@ -567,7 +567,14 @@ class OfflineSyncService {
 final offlineSyncServiceProvider = Provider<OfflineSyncService>((ref) {
   final db = ref.read(localDatabaseProvider);
   final service = OfflineSyncService(db, ref);
-  service.start();
+  // Defer start() to the next microtask. start() registers a
+  // listener with fireImmediately: true; the immediate firing then
+  // calls syncPendingChanges() which writes to isSyncingProvider.
+  // Riverpod forbids writing to other providers during a provider's
+  // build — without this deferral every cold boot throws
+  // "Providers are not allowed to modify other providers during
+  // their initialization" and the splash gets stuck.
+  Future.microtask(service.start);
   // Hydrate the conflict count from disk so the settings banner is
   // accurate the moment the user opens the app, not just after the
   // first 409 lands this session.
