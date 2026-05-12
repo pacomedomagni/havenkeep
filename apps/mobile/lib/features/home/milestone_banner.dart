@@ -5,7 +5,6 @@ import 'package:shared_ui/shared_ui.dart';
 
 import '../../core/providers/auth_provider.dart';
 import '../../core/providers/items_provider.dart';
-import '../../core/utils/money_formatter.dart';
 
 /// Pulls the current user's signup date and item count to pick a
 /// milestone banner, if any. Each banner is only shown once per user.
@@ -33,13 +32,15 @@ final milestoneBannerProvider = FutureProvider<_MilestoneView?>((ref) async {
   final prefs = await SharedPreferences.getInstance();
   final seen = prefs.getStringList('milestones_seen') ?? const <String>[];
 
-  final totalValue =
-      items.fold<double>(0, (sum, i) => sum + (i.price ?? 0));
   final count = items.length;
   final ageDays = user?.createdAt != null
       ? DateTime.now().difference(user!.createdAt).inDays
       : 0;
 
+  // A "value protected" milestone was intentionally dropped — the
+  // dashboard hero already shows that figure, so a banner repeating it is
+  // pure redundancy. Milestones are about *engagement* moments the hero
+  // doesn't surface (item count, tenure).
   final candidates = <_Milestone>[
     if (count >= 25 && count < 100)
       const _Milestone(
@@ -51,23 +52,16 @@ final milestoneBannerProvider = FutureProvider<_MilestoneView?>((ref) async {
     if (count >= 100)
       const _Milestone(
         id: 'items_100',
-        icon: Icons.emoji_events_outlined,
+        icon: Icons.workspace_premium_outlined,
         title: '100 warranties tracked',
-        subtitle: 'Power user status unlocked.',
+        subtitle: 'Power-user territory.',
       ),
     if (ageDays >= 365)
       const _Milestone(
         id: 'year_1',
-        icon: Icons.cake_outlined,
-        title: '1 year with HavenKeep',
+        icon: Icons.celebration_outlined,
+        title: 'One year with HavenKeep',
         subtitle: 'Thanks for trusting us with your home.',
-      ),
-    if (totalValue >= 10000)
-      _Milestone(
-        id: 'value_10k',
-        icon: Icons.shield_outlined,
-        title: '${Money.formatWhole(totalValue)} protected',
-        subtitle: "That's serious coverage. Nice work.",
       ),
   ];
 
@@ -95,19 +89,22 @@ class MilestoneBanner extends ConsumerWidget {
     return async.when(
       data: (view) {
         if (view == null) return const SizedBox.shrink();
-        return _MilestoneCard(
-          view: view,
-          onDismiss: () async {
-            final prefs = await SharedPreferences.getInstance();
-            // Use Set semantics so a double-tap can't write a duplicated
-            // id list (F045).
-            final seen = <String>{
-              ...?prefs.getStringList('milestones_seen'),
-              view.milestone.id,
-            };
-            await prefs.setStringList('milestones_seen', seen.toList());
-            ref.invalidate(milestoneBannerProvider);
-          },
+        return Padding(
+          padding: const EdgeInsets.only(bottom: HavenSpacing.lg),
+          child: _MilestoneCard(
+            view: view,
+            onDismiss: () async {
+              final prefs = await SharedPreferences.getInstance();
+              // Use Set semantics so a double-tap can't write a duplicated
+              // id list (F045).
+              final seen = <String>{
+                ...?prefs.getStringList('milestones_seen'),
+                view.milestone.id,
+              };
+              await prefs.setStringList('milestones_seen', seen.toList());
+              ref.invalidate(milestoneBannerProvider);
+            },
+          ),
         );
       },
       loading: () => const SizedBox.shrink(),
@@ -125,51 +122,29 @@ class _MilestoneCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final m = view.milestone;
-    return Container(
-      padding: const EdgeInsets.all(HavenSpacing.md),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            HavenColors.gold.withValues(alpha: 0.18),
-            HavenColors.secondary.withValues(alpha: 0.12),
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(HavenRadius.card),
-        border: Border.all(color: HavenColors.gold.withValues(alpha: 0.4)),
-      ),
+    return HavenCard(
+      width: double.infinity,
+      borderColor: HavenColors.gold.withValues(alpha: 0.35),
       child: Row(
         children: [
           Container(
             padding: const EdgeInsets.all(HavenSpacing.sm),
             decoration: BoxDecoration(
-              color: HavenColors.gold.withValues(alpha: 0.15),
+              color: HavenColors.gold.withValues(alpha: 0.14),
               borderRadius: BorderRadius.circular(HavenRadius.button),
             ),
-            child: Icon(m.icon, color: HavenColors.gold, size: 24),
+            child: Icon(m.icon, color: HavenColors.gold, size: 22),
           ),
           const SizedBox(width: HavenSpacing.md),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  m.title,
-                  style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                    color: HavenColors.textPrimary,
-                  ),
-                ),
+                Text(m.title,
+                    style: HavenText.titleMedium
+                        .copyWith(fontWeight: FontWeight.w700)),
                 const SizedBox(height: 2),
-                Text(
-                  m.subtitle,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: HavenColors.textSecondary,
-                  ),
-                ),
+                Text(m.subtitle, style: HavenText.caption),
               ],
             ),
           ),

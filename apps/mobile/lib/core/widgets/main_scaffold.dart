@@ -1,13 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_ui/shared_ui.dart';
+
 import '../router/router.dart';
+import '../utils/haven_haptics.dart';
 import 'connectivity_banner.dart';
 
-/// Main scaffold with bottom navigation bar, centered FAB, and connectivity banner.
+/// App shell for the three primary tabs (Home / Warranties / Maintenance)
+/// plus the centered "+" FAB that opens the add-item flow.
 ///
-/// This is the shell for the two main tabs: Home (Dashboard) and Items.
-/// The FAB ("+") opens the Add Item flow.
+/// The nav bar is hand-built — Material's [BottomNavigationBar] is too
+/// flat for the look we want. Instead: a frosted bar that floats slightly
+/// off the canvas edge, a pill that slides behind the active tab, the
+/// label cross-fading in only for the active item, and a gradient FAB with
+/// a soft indigo glow that notches into the bar.
 class MainScaffold extends StatelessWidget {
   final Widget child;
 
@@ -16,134 +22,195 @@ class MainScaffold extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      extendBody: true,
       body: Column(
         children: [
           const ConnectivityBanner(),
           Expanded(child: child),
         ],
       ),
-      bottomNavigationBar: _BottomNav(),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => context.push(AppRoutes.addItem),
-        tooltip: 'Add warranty',
-        backgroundColor: HavenColors.primary,
-        foregroundColor: Colors.white,
-        elevation: 4,
-        shape: const CircleBorder(),
-        child: const Icon(Icons.add, size: 28),
-      ),
+      bottomNavigationBar: const _HavenBottomNav(),
+      floatingActionButton: const _HavenFab(),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
     );
   }
 }
 
-class _BottomNav extends StatelessWidget {
+// ---------------------------------------------------------------------------
+// FAB
+// ---------------------------------------------------------------------------
+
+class _HavenFab extends StatelessWidget {
+  const _HavenFab();
+
   @override
   Widget build(BuildContext context) {
-    final location = GoRouterState.of(context).matchedLocation;
-    final currentIndex = location.startsWith(AppRoutes.maintenance)
-        ? 2
-        : location.startsWith(AppRoutes.items)
-            ? 1
-            : 0;
-
-    return BottomAppBar(
-      color: HavenColors.surface,
-      shape: const CircularNotchedRectangle(),
-      notchMargin: 8,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          // Home tab
-          Expanded(
-            child: _NavItem(
-              icon: Icons.home_outlined,
-              activeIcon: Icons.home,
-              label: 'Home',
-              isSelected: currentIndex == 0,
-              onTap: () => context.go(AppRoutes.dashboard),
-            ),
+    return Container(
+      width: 58,
+      height: 58,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: HavenGradients.brand,
+        boxShadow: HavenElevation.glow(HavenColors.primary, strength: 1.4),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        shape: const CircleBorder(),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () {
+            HavenHaptics.tap();
+            context.push(AppRoutes.addItem);
+          },
+          splashColor: Colors.white.withValues(alpha: 0.18),
+          highlightColor: Colors.white.withValues(alpha: 0.08),
+          child: Semantics(
+            button: true,
+            label: 'Add warranty',
+            child: const Icon(Icons.add_rounded, size: 28, color: Colors.white),
           ),
-
-          // Warranties tab
-          Expanded(
-            child: _NavItem(
-              icon: Icons.inventory_2_outlined,
-              activeIcon: Icons.inventory_2,
-              label: 'Warranties',
-              isSelected: currentIndex == 1,
-              onTap: () => context.go(AppRoutes.items),
-            ),
-          ),
-
-          // Spacer for centered FAB
-          const SizedBox(width: 48),
-
-          // Maintenance tab
-          Expanded(
-            child: _NavItem(
-              icon: Icons.build_outlined,
-              activeIcon: Icons.build,
-              label: 'Maintenance',
-              isSelected: currentIndex == 2,
-              onTap: () => context.go(AppRoutes.maintenance),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
 }
 
-class _NavItem extends StatelessWidget {
-  final IconData icon;
-  final IconData activeIcon;
-  final String label;
-  final bool isSelected;
-  final VoidCallback onTap;
+// ---------------------------------------------------------------------------
+// Bottom nav
+// ---------------------------------------------------------------------------
 
-  const _NavItem({
-    required this.icon,
-    required this.activeIcon,
-    required this.label,
-    required this.isSelected,
-    required this.onTap,
-  });
+const _navItems = <({IconData icon, IconData activeIcon, String label, String route})>[
+  (icon: Icons.home_outlined, activeIcon: Icons.home_rounded, label: 'Home', route: AppRoutes.dashboard),
+  (icon: Icons.inventory_2_outlined, activeIcon: Icons.inventory_2_rounded, label: 'Warranties', route: AppRoutes.items),
+  (icon: Icons.build_outlined, activeIcon: Icons.build_rounded, label: 'Maintenance', route: AppRoutes.maintenance),
+];
+
+class _HavenBottomNav extends StatelessWidget {
+  const _HavenBottomNav();
+
+  int _indexFor(String location) {
+    if (location.startsWith(AppRoutes.maintenance)) return 2;
+    if (location.startsWith(AppRoutes.items)) return 1;
+    return 0;
+  }
 
   @override
   Widget build(BuildContext context) {
-    final color = isSelected ? HavenColors.primary : HavenColors.textTertiary;
+    final location = GoRouterState.of(context).matchedLocation;
+    final current = _indexFor(location);
+
+    return Container(
+      // Float the bar a hair off the canvas so the FAB glow has room and
+      // the bar reads as a distinct surface, not the screen edge.
+      margin: const EdgeInsets.fromLTRB(HavenSpacing.md, 0, HavenSpacing.md, 0),
+      decoration: BoxDecoration(
+        color: HavenColors.surfaceElevated,
+        borderRadius: const BorderRadius.vertical(
+          top: Radius.circular(HavenRadius.card + 6),
+        ),
+        border: const Border(
+          top: BorderSide(color: HavenColors.borderHairline),
+          left: BorderSide(color: HavenColors.borderHairline),
+          right: BorderSide(color: HavenColors.borderHairline),
+        ),
+        boxShadow: HavenElevation.shadowFor(2),
+      ),
+      child: SafeArea(
+        top: false,
+        child: SizedBox(
+          height: 60,
+          child: Row(
+            children: [
+              Expanded(child: _NavSlot(item: _navItems[0], selected: current == 0)),
+              Expanded(child: _NavSlot(item: _navItems[1], selected: current == 1)),
+              // Spacer under the docked FAB.
+              const SizedBox(width: 64),
+              Expanded(child: _NavSlot(item: _navItems[2], selected: current == 2)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _NavSlot extends StatelessWidget {
+  final ({IconData icon, IconData activeIcon, String label, String route}) item;
+  final bool selected;
+
+  const _NavSlot({required this.item, required this.selected});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = selected ? HavenColors.primary : HavenColors.textTertiary;
 
     return Semantics(
-      label: label,
-      selected: isSelected,
-      child: InkWell(
-        onTap: onTap,
-        // Tighter vertical rhythm so a 24px icon + 12px label + spacer
-        // fit inside BottomAppBar's default 60px height. Previous 8/4
-        // padding overflowed by ~5px on iOS 26 — visible as a red
-        // "BOTTOM OVERFLOWED" indicator in debug builds + a faint hairline
-        // in release.
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                isSelected ? activeIcon : icon,
-                color: color,
-                size: 22,
-              ),
-              const SizedBox(height: 2),
-              Text(
-                label,
-                style: TextStyle(
-                  color: color,
-                  fontSize: 11,
-                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
+      label: item.label,
+      selected: selected,
+      button: true,
+      excludeSemantics: true,
+      child: InkResponse(
+        onTap: () {
+          if (!selected) HavenHaptics.tap();
+          context.go(item.route);
+        },
+        radius: 36,
+        highlightShape: BoxShape.rectangle,
+        containedInkWell: true,
+        child: Center(
+          child: AnimatedContainer(
+            duration: HavenMotion.medium,
+            curve: Curves.easeOutCubic,
+            padding: EdgeInsets.symmetric(
+              horizontal: selected ? 14 : 10,
+              vertical: 8,
+            ),
+            decoration: BoxDecoration(
+              color: selected
+                  ? HavenColors.primary.withValues(alpha: 0.14)
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(HavenRadius.chip),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                AnimatedSwitcher(
+                  duration: HavenMotion.fast,
+                  transitionBuilder: (c, a) =>
+                      ScaleTransition(scale: a, child: c),
+                  child: Icon(
+                    selected ? item.activeIcon : item.icon,
+                    key: ValueKey(selected),
+                    color: color,
+                    size: 22,
+                  ),
                 ),
-              ),
-            ],
+                // Label slides in only for the active tab.
+                ClipRect(
+                  child: AnimatedAlign(
+                    duration: HavenMotion.medium,
+                    curve: Curves.easeOutCubic,
+                    alignment: Alignment.centerLeft,
+                    widthFactor: selected ? 1 : 0,
+                    child: Padding(
+                      padding: const EdgeInsets.only(left: 6),
+                      child: AnimatedOpacity(
+                        duration: HavenMotion.fast,
+                        opacity: selected ? 1 : 0,
+                        child: Text(
+                          item.label,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: HavenColors.primary,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),

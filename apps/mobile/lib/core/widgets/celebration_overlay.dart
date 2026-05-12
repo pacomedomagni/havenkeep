@@ -346,13 +346,13 @@ class CelebrationTrigger {
     switch (type) {
       case CelebrationType.firstItem:
         return (
-          '🎉 Great start!',
+          'Great start',
           'Your first item is protected. Keep adding to build your warranty vault.'
         );
 
       case CelebrationType.milestone:
         return (
-          '🏆 $itemCount Items Protected!',
+          '$itemCount items protected',
           "You're building an impressive warranty collection. Keep it up!"
         );
 

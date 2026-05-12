@@ -291,156 +291,136 @@ class _ItemDetailBody extends ConsumerWidget {
       WarrantyStatus.expired => HavenColors.expired,
     };
 
+    final statusIcon = switch (status) {
+      WarrantyStatus.active => Icons.verified_outlined,
+      WarrantyStatus.expiring => Icons.schedule_outlined,
+      WarrantyStatus.expired => Icons.error_outline,
+    };
+    final expiryLine = status == WarrantyStatus.expired
+        ? 'Expired ${_formatDate(item.warrantyEndDate)}'
+        : 'Expires ${_formatDate(item.warrantyEndDate)}';
+
     return ResponsiveBox(
       child: SingleChildScrollView(
       padding: const EdgeInsets.all(HavenSpacing.md),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ----------------------------------------------------------------
-          // Hero section (always visible)
-          // ----------------------------------------------------------------
-
-          // Hero section with category icon + warranty status integrated
-          Container(
+          // ── Hero — category chip ┊ name + warranty status, one unit ──
+          HavenCard.elevated(
             width: double.infinity,
-            decoration: BoxDecoration(
-              color: HavenColors.elevated,
-              borderRadius: BorderRadius.circular(HavenRadius.card),
-            ),
+            glow: statusColor,
+            padding: const EdgeInsets.all(HavenSpacing.lg),
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Category icon
-                Padding(
-                  padding: const EdgeInsets.only(top: HavenSpacing.xl),
-                  child: Hero(
-                    tag: 'item-icon-${item.id}',
-                    child: CategoryIcon.widget(item.category, size: 64),
-                  ),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Hero(
+                      tag: 'item-icon-${item.id}',
+                      child: CategoryIcon.widget(item.category, size: 30),
+                    ),
+                    const SizedBox(width: HavenSpacing.md),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            [if (item.brand != null) item.brand!, item.name]
+                                .join(' '),
+                            style: theme.textTheme.headlineMedium,
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            item.modelNumber?.isNotEmpty == true
+                                ? item.modelNumber!
+                                : item.category.displayLabel,
+                            style: HavenText.meta,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: HavenSpacing.md),
-
-                // Warranty status badge (prominent)
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: HavenSpacing.md,
-                    vertical: HavenSpacing.sm,
-                  ),
-                  decoration: BoxDecoration(
-                    color: statusColor.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(HavenRadius.chip),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        status == WarrantyStatus.active
-                            ? Icons.check_circle
-                            : status == WarrantyStatus.expiring
-                                ? Icons.schedule
-                                : Icons.cancel,
-                        size: 16,
-                        color: statusColor,
+                const Divider(height: 1, color: HavenColors.borderHairline),
+                const SizedBox(height: HavenSpacing.md),
+                // Warranty status row — pill + expiry date.
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: HavenSpacing.sm + 4, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: statusColor.withValues(alpha: 0.16),
+                        borderRadius: BorderRadius.circular(HavenRadius.chip),
+                        border: Border.all(
+                            color: statusColor.withValues(alpha: 0.3)),
                       ),
-                      const SizedBox(width: HavenSpacing.xs),
-                      Text(
-                        _buildTimeRemainingText(status, days),
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: statusColor,
-                        ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(statusIcon, size: 14, color: statusColor),
+                          const SizedBox(width: 5),
+                          Text(
+                            _buildTimeRemainingText(status, days),
+                            style: HavenText.caption.copyWith(
+                              color: statusColor,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
+                    ),
+                    const SizedBox(width: HavenSpacing.sm),
+                    Expanded(
+                      child: Text(expiryLine,
+                          style: HavenText.caption,
+                          textAlign: TextAlign.right,
+                          overflow: TextOverflow.ellipsis),
+                    ),
+                  ],
                 ),
-
-                // Expiry date (always visible — generated NOT NULL on the API
-                // side after Ch08-Item-D010).
-                const SizedBox(height: HavenSpacing.sm),
-                Text(
-                  status == WarrantyStatus.expired
-                      ? 'Expired ${_formatDate(item.warrantyEndDate)}'
-                      : 'Expires ${_formatDate(item.warrantyEndDate)}',
-                  style: const TextStyle(
-                    fontSize: 13,
-                    color: HavenColors.textSecondary,
-                  ),
-                ),
-
-                // 3.1: archived pill — make the state visually obvious so
-                // the user knows why edit/maintenance/claim controls are
-                // disabled. The pill comes after the warranty row so the
-                // most important info (warranty status) is still on top.
                 if (item.isArchived) ...[
-                  const SizedBox(height: HavenSpacing.sm),
+                  const SizedBox(height: HavenSpacing.sm + 2),
                   Container(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: HavenSpacing.md,
-                      vertical: HavenSpacing.xs,
-                    ),
+                        horizontal: HavenSpacing.sm + 2, vertical: 5),
                     decoration: BoxDecoration(
-                      color: HavenColors.textTertiary.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(HavenRadius.chip),
+                      color: HavenColors.textTertiary.withValues(alpha: 0.14),
+                      borderRadius: BorderRadius.circular(HavenRadius.pill),
                     ),
                     child: const Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(
-                          Icons.archive_outlined,
-                          size: 14,
-                          color: HavenColors.textTertiary,
-                        ),
-                        SizedBox(width: HavenSpacing.xs),
-                        Text(
-                          'Archived',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: HavenColors.textTertiary,
-                          ),
-                        ),
+                        Icon(Icons.archive_outlined,
+                            size: 12, color: HavenColors.textTertiary),
+                        SizedBox(width: 4),
+                        Text('Archived',
+                            style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: HavenColors.textTertiary)),
                       ],
                     ),
                   ),
                 ],
-
-                const SizedBox(height: HavenSpacing.lg),
               ],
             ),
           ),
 
-          const SizedBox(height: HavenSpacing.md),
-
-          // Item name
-          Text(
-            [if (item.brand != null) item.brand!, item.name]
-                .join(' '),
-            style: theme.textTheme.headlineMedium,
-          ),
-
-          // Model number
-          if (item.modelNumber != null) ...[
-            const SizedBox(height: HavenSpacing.xs),
-            Text(
-              item.modelNumber!,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: HavenColors.textSecondary,
-              ),
-            ),
-          ],
-
-          const SizedBox(height: HavenSpacing.md),
+          const SizedBox(height: HavenSpacing.lg),
 
           // 3.1: archived items can't have new claims filed (the server
           // rejects with 400), so swap the primary action for "Restore item".
           // After unarchive the item flips to active and the standard claim
           // flow becomes available again.
           Padding(
-            padding: const EdgeInsets.only(bottom: HavenSpacing.md),
+            padding: const EdgeInsets.only(bottom: HavenSpacing.lg),
             child: SizedBox(
               width: double.infinity,
-              height: 48,
+              height: 50,
               child: item.isArchived
                   ? OutlinedButton.icon(
                       onPressed: () async {
@@ -469,16 +449,12 @@ class _ItemDetailBody extends ConsumerWidget {
                         side: const BorderSide(color: HavenColors.primary),
                       ),
                     )
-                  : OutlinedButton.icon(
+                  : FilledButton.icon(
                       onPressed: () {
                         context.push('/warranty-claims/create/$itemId');
                       },
-                      icon: const Icon(Icons.support_agent, size: 20),
-                      label: const Text('Start a Warranty Claim'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: HavenColors.primary,
-                        side: const BorderSide(color: HavenColors.primary),
-                      ),
+                      icon: const Icon(Icons.support_agent_outlined, size: 20),
+                      label: const Text('Start a warranty claim'),
                     ),
             ),
           ),

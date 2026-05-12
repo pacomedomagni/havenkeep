@@ -251,18 +251,16 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
     final sortMode = ref.watch(itemsSortProvider);
 
     return Scaffold(
-      backgroundColor: HavenColors.background,
+      backgroundColor: HavenColors.canvas,
       appBar: AppBar(
-        title: const Text(
-          'My Warranties',
-          style: TextStyle(fontWeight: FontWeight.bold),
-        ),
+        title: const Text('Warranties'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.sort, size: 22),
+            icon: const Icon(Icons.sort_rounded, size: 22),
             tooltip: 'Sort',
             onPressed: _showSortPicker,
           ),
+          const SizedBox(width: HavenSpacing.xs),
         ],
       ),
       body: itemsAsync.when(
@@ -298,98 +296,66 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
                   ),
                 ),
 
-              // Search bar
+              // Search bar — flush flat field on the canvas.
               Padding(
                 padding: const EdgeInsets.fromLTRB(
                   HavenSpacing.md,
                   HavenSpacing.sm,
                   HavenSpacing.md,
-                  HavenSpacing.sm,
+                  HavenSpacing.sm + 2,
                 ),
                 child: TextField(
                   controller: _searchController,
-                  style: const TextStyle(color: HavenColors.textPrimary),
+                  style: HavenText.body,
                   decoration: InputDecoration(
-                    hintText: 'Search items...',
-                    hintStyle:
-                        const TextStyle(color: HavenColors.textTertiary),
-                    prefixIcon: const Icon(
-                      Icons.search,
-                      color: HavenColors.textTertiary,
-                    ),
+                    hintText: 'Search by name, brand, model…',
+                    prefixIcon: const Icon(Icons.search, size: 20),
                     suffixIcon: _searchQuery.isNotEmpty
                         ? IconButton(
-                            icon: const Icon(
-                              Icons.clear,
-                              color: HavenColors.textTertiary,
-                            ),
-                            onPressed: () {
-                              _searchController.clear();
-                            },
+                            icon: const Icon(Icons.close_rounded, size: 18),
+                            onPressed: _searchController.clear,
                           )
                         : null,
-                    filled: true,
-                    fillColor: HavenColors.surface,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(HavenRadius.input),
-                      borderSide:
-                          const BorderSide(color: HavenColors.border),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(HavenRadius.input),
-                      borderSide:
-                          const BorderSide(color: HavenColors.border),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(HavenRadius.input),
-                      borderSide: const BorderSide(
-                          color: HavenColors.primary, width: 2),
-                    ),
+                    isDense: true,
                   ),
                 ),
               ),
 
               // Filter chips
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: HavenSpacing.md,
-                ),
-                child: SizedBox(
-                  height: 40,
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-                    children: [
-                      _FilterChip(
-                        label: 'All',
-                        isActive: activeFilters.isEmpty,
-                        onTap: _selectAll,
-                      ),
-                      const SizedBox(width: HavenSpacing.sm),
-                      _FilterChip(
-                        label: 'Active',
-                        isActive:
-                            activeFilters.contains(WarrantyStatus.active),
-                        dotColor: HavenColors.active,
-                        onTap: () => _toggleFilter(WarrantyStatus.active),
-                      ),
-                      const SizedBox(width: HavenSpacing.sm),
-                      _FilterChip(
-                        label: 'Expiring',
-                        isActive:
-                            activeFilters.contains(WarrantyStatus.expiring),
-                        dotColor: HavenColors.expiring,
-                        onTap: () => _toggleFilter(WarrantyStatus.expiring),
-                      ),
-                      const SizedBox(width: HavenSpacing.sm),
-                      _FilterChip(
-                        label: 'Expired',
-                        isActive:
-                            activeFilters.contains(WarrantyStatus.expired),
-                        dotColor: HavenColors.expired,
-                        onTap: () => _toggleFilter(WarrantyStatus.expired),
-                      ),
-                    ],
-                  ),
+              SizedBox(
+                height: 36,
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: HavenSpacing.md),
+                  children: [
+                    _FilterChip(
+                      label: 'All',
+                      isActive: activeFilters.isEmpty,
+                      onTap: _selectAll,
+                    ),
+                    const SizedBox(width: HavenSpacing.sm),
+                    _FilterChip(
+                      label: 'Active',
+                      isActive: activeFilters.contains(WarrantyStatus.active),
+                      dotColor: HavenColors.active,
+                      onTap: () => _toggleFilter(WarrantyStatus.active),
+                    ),
+                    const SizedBox(width: HavenSpacing.sm),
+                    _FilterChip(
+                      label: 'Expiring',
+                      isActive: activeFilters.contains(WarrantyStatus.expiring),
+                      dotColor: HavenColors.expiring,
+                      onTap: () => _toggleFilter(WarrantyStatus.expiring),
+                    ),
+                    const SizedBox(width: HavenSpacing.sm),
+                    _FilterChip(
+                      label: 'Expired',
+                      isActive: activeFilters.contains(WarrantyStatus.expired),
+                      dotColor: HavenColors.expired,
+                      onTap: () => _toggleFilter(WarrantyStatus.expired),
+                    ),
+                  ],
                 ),
               ),
               const SizedBox(height: HavenSpacing.sm),
@@ -431,6 +397,8 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
         loading: () => ListView(
           padding: const EdgeInsets.all(HavenSpacing.md),
           children: const [
+            SkeletonCard(),
+            SizedBox(height: HavenSpacing.sm),
             SkeletonCard(),
             SizedBox(height: HavenSpacing.sm),
             SkeletonCard(),
@@ -553,7 +521,13 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
     }
 
     return ListView.builder(
-      padding: const EdgeInsets.symmetric(horizontal: HavenSpacing.md),
+      padding: EdgeInsets.fromLTRB(
+        HavenSpacing.md,
+        0,
+        HavenSpacing.md,
+        // Clear the floating nav + docked FAB.
+        HavenSpacing.xxl + HavenSpacing.lg + MediaQuery.paddingOf(context).bottom,
+      ),
       itemCount: flat.length,
       itemBuilder: (context, index) {
         final row = flat[index];
@@ -714,81 +688,55 @@ class _ItemCardTapTarget extends StatelessWidget {
   Widget build(BuildContext context) {
     final displayName = '${item.brand ?? ''} ${item.name}'.trim();
     final semanticLabel = '$displayName, ${_semanticStatus(item)}';
+    final subtitle = (item.modelNumber != null && item.modelNumber!.isNotEmpty)
+        ? item.modelNumber!
+        : item.category.displayLabel;
 
-    return Semantics(
-      button: true,
-      label: semanticLabel,
-      // Children are decorative for SR purposes once the rolled-up label
-      // exists — flatten the subtree so VoiceOver doesn't repeat each
-      // line.
-      excludeSemantics: true,
-      child: Material(
-        color: HavenColors.surface,
-        borderRadius: BorderRadius.circular(HavenRadius.button),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(HavenRadius.button),
-          onTap: () {
-            HavenHaptics.tap();
-            context.push('/items/${item.id}');
-          },
-          child: Container(
-            padding: const EdgeInsets.all(HavenSpacing.md),
-            constraints: const BoxConstraints(minHeight: 56),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(HavenRadius.button),
-              border: Border.all(color: HavenColors.border),
-            ),
-            child: Row(
+    return HavenCard(
+      radius: HavenRadius.button,
+      padding: const EdgeInsets.symmetric(
+          horizontal: HavenSpacing.md, vertical: HavenSpacing.sm + 2),
+      semanticLabel: semanticLabel,
+      onTap: () {
+        HavenHaptics.tap();
+        context.push('/items/${item.id}');
+      },
+      child: Row(
+        children: [
+          Hero(
+            tag: 'item-icon-${item.id}',
+            child: CategoryIcon.widget(item.category, size: 20),
+          ),
+          const SizedBox(width: HavenSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Hero(
-                  tag: 'item-icon-${item.id}',
-                  child: CategoryIcon.widget(item.category),
+                Text(
+                  displayName,
+                  style: HavenText.body.copyWith(fontWeight: FontWeight.w600),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
-                const SizedBox(width: HavenSpacing.md),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        displayName,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: HavenColors.textPrimary,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      if (item.modelNumber != null &&
-                          item.modelNumber!.isNotEmpty) ...[
-                        const SizedBox(height: 2),
-                        Text(
-                          item.modelNumber!,
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: HavenColors.textSecondary,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
-                      const SizedBox(height: HavenSpacing.xs),
-                      WarrantyStatusBadge(
-                        status: item.computedWarrantyStatus,
-                        compact: true,
-                      ),
-                    ],
-                  ),
-                ),
-                const Icon(
-                  Icons.chevron_right,
-                  color: HavenColors.textTertiary,
-                  size: 20,
+                const SizedBox(height: 1),
+                Text(
+                  subtitle,
+                  style: HavenText.caption,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ],
             ),
           ),
-        ),
+          const SizedBox(width: HavenSpacing.sm),
+          WarrantyStatusBadge(
+            status: item.computedWarrantyStatus,
+            compact: true,
+          ),
+          const SizedBox(width: HavenSpacing.xs),
+          const Icon(Icons.chevron_right,
+              color: HavenColors.textTertiary, size: 18),
+        ],
       ),
     );
   }
@@ -829,62 +777,58 @@ class _FilterChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 3.6: a11y pass for filter chips.
-    // - `Semantics.selected` flips the SR announcement between
-    //   "$label, selected" and "$label" so users can hear which filter
-    //   is currently active.
-    // - Material+InkWell replaces GestureDetector for the focus ring +
-    //   tap ripple.
-    // - `minHeight: 48` (the Material guideline) is enforced via
-    //   ConstrainedBox; vertical padding alone was 32px which is too
-    //   small for users with motor impairments.
+    // Compact pill: 36px tall row, but the InkWell hit-target stretches
+    // the full slot height so it still clears the touch-target guideline
+    // in practice (the surrounding ListView is 36, padded). `selected`
+    // drives both the visual fill and the SR announcement.
+    final fg = isActive ? Colors.white : HavenColors.textSecondary;
     return Semantics(
       button: true,
       selected: isActive,
       label: label,
       excludeSemantics: true,
       child: Material(
-        color: isActive ? HavenColors.primary : HavenColors.surface,
-        borderRadius: BorderRadius.circular(HavenRadius.chip),
+        color: Colors.transparent,
         child: InkWell(
           borderRadius: BorderRadius.circular(HavenRadius.chip),
           onTap: () {
             HavenHaptics.tap();
             onTap();
           },
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(minHeight: 48),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: HavenSpacing.md,
-                vertical: HavenSpacing.sm,
+          child: AnimatedContainer(
+            duration: HavenMotion.fast,
+            padding: const EdgeInsets.symmetric(
+                horizontal: HavenSpacing.md, vertical: HavenSpacing.sm),
+            decoration: BoxDecoration(
+              color: isActive ? HavenColors.primary : HavenColors.surface,
+              borderRadius: BorderRadius.circular(HavenRadius.chip),
+              border: Border.all(
+                color: isActive ? HavenColors.primary : HavenColors.border,
               ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (dotColor != null) ...[
-                    Container(
-                      width: 8,
-                      height: 8,
-                      decoration: BoxDecoration(
-                        color: isActive ? Colors.white : dotColor,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    const SizedBox(width: HavenSpacing.sm),
-                  ],
-                  Text(
-                    label,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                      color: isActive
-                          ? Colors.white
-                          : HavenColors.textSecondary,
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (dotColor != null) ...[
+                  Container(
+                    width: 7,
+                    height: 7,
+                    decoration: BoxDecoration(
+                      color: isActive ? Colors.white : dotColor,
+                      shape: BoxShape.circle,
                     ),
                   ),
+                  const SizedBox(width: 6),
                 ],
-              ),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: fg,
+                  ),
+                ),
+              ],
             ),
           ),
         ),

@@ -364,128 +364,146 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: HavenColors.background,
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: HavenSpacing.lg),
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              minHeight: MediaQuery.of(context).size.height -
-                  MediaQuery.of(context).padding.top -
-                  MediaQuery.of(context).padding.bottom,
-            ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const SizedBox(height: HavenSpacing.xxl),
-
-                // Logo
-                const HavenKeepLogo(
-                  size: 72,
-                  showWordmark: true,
-                  wordmarkColor: HavenColors.textPrimary,
-                ),
-                const SizedBox(height: HavenSpacing.xs),
-                const Text(
-                  'Your Warranties. Protected.',
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: HavenColors.textSecondary,
+      backgroundColor: HavenColors.canvas,
+      body: Stack(
+        children: [
+          // A soft indigo glow bleeding down from the top — gives the dark
+          // canvas depth instead of being a flat black wall.
+          Positioned(
+            top: -160,
+            left: 0,
+            right: 0,
+            child: IgnorePointer(
+              child: Container(
+                height: 360,
+                decoration: BoxDecoration(
+                  gradient: RadialGradient(
+                    center: Alignment.topCenter,
+                    radius: 1.0,
+                    colors: [
+                      HavenColors.primary.withValues(alpha: 0.22),
+                      HavenColors.canvas.withValues(alpha: 0.0),
+                    ],
                   ),
                 ),
-
-                const SizedBox(height: HavenSpacing.xxl),
-
-                // Hero headline
-                Text(
-                  _isSignUp
-                      ? 'Never forget a\nwarranty again'
-                      : 'Welcome back',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                    color: HavenColors.textPrimary,
-                    height: 1.2,
-                  ),
-                ),
-                const SizedBox(height: HavenSpacing.sm),
-                Text(
-                  _isSignUp
-                      ? 'Track every appliance. Get reminders\nbefore they expire. Save money.'
-                      : 'Sign in to access your warranties.',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    color: HavenColors.textSecondary,
-                    height: 1.4,
-                  ),
-                ),
-
-                // Ch05-F079: confirm the pending referral up front so the
-                // user knows the deep link landed and can keep the
-                // attribution honest if they hand off devices.
-                if (_pendingReferralCode != null) ...[
-                  const SizedBox(height: HavenSpacing.md),
-                  _buildReferralBanner(_pendingReferralCode!),
-                ],
-
-                const SizedBox(height: HavenSpacing.xl),
-
-                // Auth buttons. Apple Sign-In is shown on every platform —
-                // iOS uses the native flow, Android (and web/desktop) use
-                // Apple's web OAuth flow. Both feed into the same backend
-                // /auth/apple endpoint that accepts either audience.
-                _buildAppleButton(),
-                const SizedBox(height: HavenSpacing.sm),
-                _buildGoogleButton(),
-                const SizedBox(height: HavenSpacing.sm),
-                _buildEmailButton(),
-
-                // Expandable email form
-                AnimatedCrossFade(
-                  firstChild: const SizedBox.shrink(),
-                  secondChild: _buildEmailForm(),
-                  crossFadeState: _showEmailForm
-                      ? CrossFadeState.showSecond
-                      : CrossFadeState.showFirst,
-                  duration: const Duration(milliseconds: 300),
-                ),
-
-                const SizedBox(height: HavenSpacing.lg),
-
-                // Toggle sign-up / sign-in
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      _isSignUp
-                          ? 'Already have an account? '
-                          : "Don't have an account? ",
-                      style: const TextStyle(
-                        color: HavenColors.textSecondary,
-                        fontSize: 14,
-                      ),
-                    ),
-                    GestureDetector(
-                      onTap: _toggleMode,
-                      child: Text(
-                        _isSignUp ? 'Sign in' : 'Sign up',
-                        style: const TextStyle(
-                          color: HavenColors.primary,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-
-                const SizedBox(height: HavenSpacing.xxl),
-              ],
+              ),
             ),
           ),
-        ),
+          SafeArea(
+            child: SingleChildScrollView(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: HavenSpacing.lg),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  minHeight: MediaQuery.of(context).size.height -
+                      MediaQuery.of(context).padding.top -
+                      MediaQuery.of(context).padding.bottom,
+                ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const SizedBox(height: HavenSpacing.xl),
+
+                    // Logo — with a faint glow ring.
+                    Container(
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        boxShadow:
+                            HavenElevation.glow(HavenColors.primary, strength: 0.7),
+                      ),
+                      child: const HavenKeepLogo(
+                        size: 64,
+                        showWordmark: false,
+                      ),
+                    ),
+                    const SizedBox(height: HavenSpacing.xl),
+
+                    // Hero headline — the moment.
+                    Text(
+                      _isSignUp
+                          ? 'Never forget a\nwarranty again'
+                          : 'Welcome back',
+                      textAlign: TextAlign.center,
+                      style: HavenText.hero.copyWith(fontSize: 30, height: 1.15),
+                    ),
+                    const SizedBox(height: HavenSpacing.sm + 2),
+                    Text(
+                      _isSignUp
+                          ? 'Track every appliance. Get reminders before they expire. Save money.'
+                          : 'Sign in to access your warranties.',
+                      textAlign: TextAlign.center,
+                      style: HavenText.bodySecondary.copyWith(fontSize: 15),
+                    ),
+
+                    if (_pendingReferralCode != null) ...[
+                      const SizedBox(height: HavenSpacing.md),
+                      _buildReferralBanner(_pendingReferralCode!),
+                    ],
+
+                    const SizedBox(height: HavenSpacing.xl),
+
+                    // Auth buttons — Apple is the prominent CTA (white,
+                    // glow); Google + email are quiet outlined alternates.
+                    _buildAppleButton(),
+                    const SizedBox(height: HavenSpacing.sm + 2),
+                    Row(
+                      children: [
+                        Expanded(child: _buildGoogleButton()),
+                        if (!_showEmailForm) ...[
+                          const SizedBox(width: HavenSpacing.sm + 2),
+                          _buildEmailIconButton(),
+                        ],
+                      ],
+                    ),
+
+                    // Expandable email form
+                    AnimatedCrossFade(
+                      firstChild: const SizedBox.shrink(),
+                      secondChild: _buildEmailForm(),
+                      crossFadeState: _showEmailForm
+                          ? CrossFadeState.showSecond
+                          : CrossFadeState.showFirst,
+                      duration: HavenMotion.slow,
+                    ),
+
+                    const SizedBox(height: HavenSpacing.lg),
+
+                    // Toggle sign-up / sign-in
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          _isSignUp
+                              ? 'Already have an account? '
+                              : "Don't have an account? ",
+                          style: HavenText.meta,
+                        ),
+                        GestureDetector(
+                          onTap: _toggleMode,
+                          child: Text(
+                            _isSignUp ? 'Sign in' : 'Sign up',
+                            style: const TextStyle(
+                              color: HavenColors.primary,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: HavenSpacing.lg),
+                    const Text(
+                      'Your Warranties. Protected.',
+                      style: HavenText.caption,
+                    ),
+                    const SizedBox(height: HavenSpacing.xl),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -533,18 +551,26 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
   }
 
   Widget _buildAppleButton() {
-    return SizedBox(
+    return Container(
       width: double.infinity,
-      height: 52,
-      child: ElevatedButton.icon(
-        onPressed: _isLoading ? null : _signInWithApple,
-        icon: const Icon(Icons.apple, size: 24),
-        label: Text(_isSignUp ? 'Continue with Apple' : 'Sign in with Apple'),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.white,
-          foregroundColor: Colors.black,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(HavenRadius.button),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(HavenRadius.button),
+        boxShadow: HavenElevation.glow(Colors.white, strength: 0.18),
+      ),
+      child: SizedBox(
+        height: 54,
+        child: ElevatedButton.icon(
+          onPressed: _isLoading ? null : _signInWithApple,
+          icon: const Icon(Icons.apple, size: 22),
+          label:
+              Text(_isSignUp ? 'Continue with Apple' : 'Sign in with Apple'),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.white,
+            foregroundColor: Colors.black,
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(HavenRadius.button),
+            ),
           ),
         ),
       ),
@@ -553,52 +579,40 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
 
   Widget _buildGoogleButton() {
     return SizedBox(
-      width: double.infinity,
       height: 52,
       child: OutlinedButton.icon(
         onPressed: _isLoading ? null : _signInWithGoogle,
         icon: const Text(
           'G',
           style: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
             color: HavenColors.textPrimary,
           ),
         ),
         label:
             Text(_isSignUp ? 'Continue with Google' : 'Sign in with Google'),
-        style: OutlinedButton.styleFrom(
-          foregroundColor: HavenColors.textPrimary,
-          side: const BorderSide(color: HavenColors.border),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(HavenRadius.button),
-          ),
-        ),
       ),
     );
   }
 
-  Widget _buildEmailButton() {
-    if (_showEmailForm) return const SizedBox.shrink();
-
+  /// A compact square outlined button for the email path — pairs beside
+  /// the Google button so the auth area stays two rows, not four.
+  Widget _buildEmailIconButton() {
     return SizedBox(
-      width: double.infinity,
+      width: 52,
       height: 52,
-      child: OutlinedButton.icon(
+      child: OutlinedButton(
         onPressed: _isLoading
             ? null
             : () => setState(() => _showEmailForm = true),
-        icon: const Icon(Icons.email_outlined, size: 20),
-        label: Text(
-          _isSignUp ? 'Sign up with Email' : 'Sign in with Email',
-        ),
         style: OutlinedButton.styleFrom(
-          foregroundColor: HavenColors.textPrimary,
-          side: const BorderSide(color: HavenColors.border),
+          padding: EdgeInsets.zero,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(HavenRadius.button),
           ),
         ),
+        child: const Icon(Icons.email_outlined, size: 20),
       ),
     );
   }

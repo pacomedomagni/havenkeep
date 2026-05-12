@@ -11,28 +11,25 @@ import '../../core/providers/homes_provider.dart';
 import '../../core/providers/items_provider.dart';
 import '../../core/providers/maintenance_provider.dart';
 import '../../core/providers/notifications_provider.dart';
-import '../../core/providers/warranty_claims_provider.dart';
+import '../../core/providers/warranty_claims_provider.dart' show savingsFeedProvider;
 import '../../core/router/router.dart';
-import '../../core/utils/money_formatter.dart';
 import '../../core/widgets/value_dashboard_card.dart';
 import '../../core/widgets/haven_illustration.dart';
 import '../../core/widgets/haven_image.dart';
-import '../../core/widgets/haven_loader.dart';
 import '../../core/widgets/responsive_box.dart';
 import '../premium/premium_teaser_card.dart';
 import 'milestone_banner.dart';
 import 'recent_activity_card.dart';
 import '../../core/utils/haven_haptics.dart';
+import '../../core/utils/money_formatter.dart';
 import '../settings/settings_screen.dart' show failedSyncCountProvider;
 
 /// Home dashboard — the main screen (Screen 3.1).
 ///
-/// Shows:
-/// - Time-based greeting
-/// - Warranty summary card (active / expiring / expired counts)
-/// - Needs Attention section (max 3 items)
-/// - Tip card (contextual, dismissible)
-/// - Empty state when no items
+/// Top of the screen answers "what's the state of things, and what needs me"
+/// — the value hero (which now carries the active/expiring/expired
+/// breakdown so there's no duplicate stats card) followed by Needs
+/// Attention. Everything below the fold is supporting context.
 class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({super.key});
 
@@ -80,30 +77,30 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     return 'Good evening';
   }
 
+  void _navigateToItemsWithFilter(String filter) {
+    context.go(AppRoutes.items, extra: {'filter': filter});
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = ref.watch(currentUserProvider);
     final stats = ref.watch(warrantyStatsProvider);
     final needsAttention = ref.watch(needsAttentionProvider);
     final items = ref.watch(itemsProvider);
-    final firstName =
-        user.value?.fullName.split(' ').first ?? 'there';
+    final firstName = user.value?.fullName.split(' ').first ?? 'there';
 
-    final hasItems =
-        items.valueOrNull?.isNotEmpty ?? false;
+    final hasItems = items.valueOrNull?.isNotEmpty ?? false;
 
     return Scaffold(
-      backgroundColor: HavenColors.background,
+      backgroundColor: HavenColors.canvas,
       appBar: AppBar(
+        titleSpacing: HavenSpacing.md,
         title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            SvgPicture.asset(
-              'assets/images/logo-icon.svg',
-              width: 28,
-              height: 28,
-            ),
-            const SizedBox(width: 8),
+            SvgPicture.asset('assets/images/logo-icon.svg',
+                width: 26, height: 26),
+            const SizedBox(width: HavenSpacing.sm),
             const _HomeSwitcher(),
           ],
         ),
@@ -113,124 +110,127 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             tooltip: 'Search warranties',
             onPressed: () => context.push(AppRoutes.search),
           ),
-          // Notification bell with unread badge
           _NotificationBell(),
           IconButton(
             icon: const Icon(Icons.settings_outlined),
             onPressed: () => context.push(AppRoutes.settings),
           ),
+          const SizedBox(width: HavenSpacing.xs),
         ],
       ),
       body: RefreshIndicator(
         onRefresh: () async {
           ref.invalidate(itemsProvider);
           // Await the new future so the spinner stays visible until data
-          // is actually loaded; otherwise RefreshIndicator resolves immediately.
+          // is actually loaded; otherwise RefreshIndicator resolves
+          // immediately.
           await ref.read(itemsProvider.future);
         },
         color: HavenColors.primary,
+        backgroundColor: HavenColors.surfaceHigh,
         child: ResponsiveBox(
           maxWidth: 720,
           child: ListView(
-            padding: const EdgeInsets.all(HavenSpacing.md),
-            children: [
-            // Greeting with avatar
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    '${_getGreeting()}, $firstName',
-                    style: HavenText.displayLarge,
-                  ),
-                ),
-                _UserAvatar(user: user.value),
-              ],
+            // Generous bottom inset — the body extends under the floating
+            // nav bar + docked FAB (extendBody), so content needs to clear
+            // ~96px before the safe-area inset adds its own.
+            padding: EdgeInsets.fromLTRB(
+              HavenSpacing.md,
+              HavenSpacing.sm,
+              HavenSpacing.md,
+              HavenSpacing.xxl + HavenSpacing.lg +
+                  MediaQuery.paddingOf(context).bottom,
             ),
-            const SizedBox(height: HavenSpacing.lg),
-
-            // Empty state
-            if (!hasItems && items.hasValue) ...[
-              _buildEmptyState(context),
-            ] else ...[
-              // Value dashboard card
-              stats.when(
-                data: (data) {
-                  final totalValue = items.value?.fold<double>(
-                        0,
-                        (sum, item) => sum + (item.price ?? 0),
-                      ) ??
-                      0;
-                  final totalItems = items.value?.length ?? 0;
-                  final active = data['active'] ?? 0;
-                  final expiring = data['expiring'] ?? 0;
-                  final expired = data['expired'] ?? 0;
-                  final totalWithWarranty = active + expiring + expired;
-                  final warrantyHealth = totalWithWarranty > 0
-                      ? (active / totalWithWarranty * 100).round()
-                      : 0;
-
-                  return ValueDashboardCard(
-                    totalValue: totalValue,
-                    warrantyHealth: warrantyHealth,
-                    totalItems: totalItems,
-                    activeWarranties: active,
-                    onTap: () => context.push(AppRoutes.items),
-                  );
-                },
-                loading: () => Container(
-                  height: 280,
-                  decoration: BoxDecoration(
-                    color: HavenColors.surface,
-                    borderRadius: BorderRadius.circular(HavenRadius.chip),
+            children: [
+              // Greeting with avatar.
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '${_getGreeting()}, $firstName',
+                      style: HavenText.displayLarge,
+                    ),
                   ),
-                ),
-                error: (error, _) => Center(
-                  child: TextButton.icon(
-                    onPressed: () => ref.invalidate(itemsProvider),
-                    icon: const Icon(Icons.refresh, size: 16),
-                    label: const Text('Retry'),
-                  ),
-                ),
+                  _UserAvatar(user: user.value),
+                ],
               ),
               const SizedBox(height: HavenSpacing.lg),
 
-              // 3.14: failed-offline-sync banner (auto-hides at count=0).
-              const _FailedSyncBanner(),
+              if (!hasItems && items.hasValue)
+                _buildEmptyState(context)
+              else ...[
+                // ---- Hero: value + warranty health + status breakdown ---
+                stats.when(
+                  data: (data) {
+                    final totalValue = items.value?.fold<double>(
+                          0,
+                          (sum, item) => sum + (item.price ?? 0),
+                        ) ??
+                        0;
+                    final totalItems = items.value?.length ?? 0;
+                    final active = data['active'] ?? 0;
+                    final expiring = data['expiring'] ?? 0;
+                    final expired = data['expired'] ?? 0;
+                    final totalWithWarranty = active + expiring + expired;
+                    final warrantyHealth = totalWithWarranty > 0
+                        ? (active / totalWithWarranty * 100).round()
+                        : 0;
 
-              // Maturity milestone banner (auto-hides when none applies)
-              const MilestoneBanner(),
+                    return ValueDashboardCard(
+                      totalValue: totalValue,
+                      warrantyHealth: warrantyHealth,
+                      totalItems: totalItems,
+                      activeWarranties: active,
+                      expiringWarranties: expiring,
+                      expiredWarranties: expired,
+                      onTap: () => context.push(AppRoutes.items),
+                      onStatusTap: _navigateToItemsWithFilter,
+                    );
+                  },
+                  loading: () => const _HeroSkeleton(),
+                  error: (_, __) => HavenCard(
+                    child: Center(
+                      child: TextButton.icon(
+                        onPressed: () => ref.invalidate(itemsProvider),
+                        icon: const Icon(Icons.refresh, size: 16),
+                        label: const Text('Retry'),
+                      ),
+                    ),
+                  ),
+                ),
+                // Hero gets the most air beneath it — it's the anchor.
+                const SizedBox(height: HavenSpacing.xl),
 
-              // Warranty summary card
-              _buildWarrantySummary(stats),
-              const SizedBox(height: HavenSpacing.lg),
+                // 3.14: failed-offline-sync banner (auto-hides at count=0).
+                const _FailedSyncBanner(),
 
-              // Needs attention section
-              _buildNeedsAttention(needsAttention),
+                // Maturity milestone banner (auto-hides when none applies).
+                const MilestoneBanner(),
 
-              // Maintenance card
-              const SizedBox(height: HavenSpacing.lg),
-              const _MaintenanceCard(),
+                // ---- Needs attention -----------------------------------
+                _buildNeedsAttention(needsAttention),
 
-              // Recent activity feed — "what just happened" surface fed
-              // by the user-scoped audit log.
-              const SizedBox(height: HavenSpacing.lg),
-              const RecentActivityCard(),
+                // ---- Maintenance (auto-hides when nothing due) ----------
+                const _MaintenanceCard(),
 
-              // Tip card
-              if (!_tipDismissed) ...[
-                const SizedBox(height: HavenSpacing.lg),
-                _buildTipCard(),
+                // ---- Recent activity -----------------------------------
+                const SizedBox(height: HavenSpacing.xl),
+                const RecentActivityCard(),
+
+                // ---- Premium teaser ------------------------------------
+                const SizedBox(height: HavenSpacing.xl),
+                const PremiumTeaserCard(),
+
+                // ---- Tip (subtle one-liner) ---------------------------
+                if (!_tipDismissed) ...[
+                  const SizedBox(height: HavenSpacing.md),
+                  _buildTipCard(),
+                ],
+
+                // ---- Community savings (auto-hides when empty) ---------
+                const _CommunitySavingsCard(),
               ],
-
-              // Premium teaser (contextual — appears before the wall)
-              const SizedBox(height: HavenSpacing.lg),
-              const PremiumTeaserCard(),
-
-              // Community Savings feed
-              const SizedBox(height: HavenSpacing.lg),
-              const _CommunitySavingsCard(),
             ],
-          ],
           ),
         ),
       ),
@@ -251,99 +251,27 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             const SizedBox(height: HavenSpacing.md),
             const Text('Your vault is empty', style: HavenText.displayMedium),
             const SizedBox(height: HavenSpacing.sm),
-            Text(
-              'Add your first warranty to\nstart protecting your purchases.',
+            const Text(
+              'Add your first warranty to start protecting your purchases.',
               textAlign: TextAlign.center,
-              style: HavenText.bodySecondary.copyWith(height: 1.4),
+              style: HavenText.bodySecondary,
             ),
             const SizedBox(height: HavenSpacing.lg),
             SizedBox(
-              width: 220,
-              child: ElevatedButton.icon(
+              width: 240,
+              child: FilledButton.icon(
                 onPressed: () => context.push(AppRoutes.addItem),
                 icon: const Icon(Icons.add),
                 label: const Text('Add Your First Warranty'),
               ),
             ),
-            const SizedBox(height: HavenSpacing.sm),
+            const SizedBox(height: HavenSpacing.xs),
             TextButton(
               onPressed: () => context.go(AppRoutes.homeSetup),
-              child: const Text(
-                'Just moved in? Set Up Your Home',
-                style: TextStyle(color: HavenColors.secondary),
-              ),
+              child: const Text('Just moved in? Set up your home'),
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _buildWarrantySummary(AsyncValue<Map<String, int>> stats) {
-    return Container(
-      padding: const EdgeInsets.all(HavenSpacing.md),
-      decoration: BoxDecoration(
-        color: HavenColors.elevated,
-        borderRadius: BorderRadius.circular(HavenRadius.card),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'YOUR WARRANTIES',
-            style: HavenText.badge.copyWith(
-              color: HavenColors.textTertiary,
-              letterSpacing: 1.2,
-            ),
-          ),
-          const SizedBox(height: HavenSpacing.md),
-          stats.when(
-            data: (data) => Row(
-              children: [
-                _StatCard(
-                  count: data['active'] ?? 0,
-                  label: 'Active',
-                  color: HavenColors.active,
-                  onTap: () => _navigateToItemsWithFilter('active'),
-                ),
-                const SizedBox(width: HavenSpacing.sm),
-                _StatCard(
-                  count: data['expiring'] ?? 0,
-                  label: 'Expiring',
-                  color: HavenColors.expiring,
-                  onTap: () => _navigateToItemsWithFilter('expiring'),
-                ),
-                const SizedBox(width: HavenSpacing.sm),
-                _StatCard(
-                  count: data['expired'] ?? 0,
-                  label: 'Expired',
-                  color: HavenColors.expired,
-                  onTap: () => _navigateToItemsWithFilter('expired'),
-                ),
-              ],
-            ),
-            loading: () => Row(
-              children: List.generate(
-                3,
-                (_) => Expanded(
-                  child: Container(
-                    height: 80,
-                    margin:
-                        const EdgeInsets.symmetric(horizontal: HavenSpacing.xs),
-                    decoration: BoxDecoration(
-                      color: HavenColors.surface,
-                      borderRadius: BorderRadius.circular(HavenRadius.card),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            error: (_, __) => const Text(
-              'Could not load stats',
-              style: TextStyle(color: HavenColors.expired),
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -352,63 +280,63 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          '⚠️  NEEDS ATTENTION',
-          style: HavenText.badge.copyWith(
-            color: HavenColors.textTertiary,
-            letterSpacing: 1.2,
-          ),
+        const _SectionLabel(
+          icon: Icons.priority_high_rounded,
+          text: 'NEEDS ATTENTION',
         ),
-        const SizedBox(height: HavenSpacing.md),
+        const SizedBox(height: HavenSpacing.sm + 2),
         needsAttention.when(
-          data: (items) {
-            if (items.isEmpty) {
-              return Container(
+          data: (attentionItems) {
+            if (attentionItems.isEmpty) {
+              return HavenCard(
                 width: double.infinity,
-                padding: const EdgeInsets.all(HavenSpacing.md),
-                decoration: BoxDecoration(
-                  color: HavenColors.surface,
-                  borderRadius: BorderRadius.circular(HavenRadius.button),
-                  border: Border.all(color: HavenColors.border),
-                ),
-                child: const Text(
-                  'All clear! No warranties need\nyour attention right now. ✓',
-                  textAlign: TextAlign.center,
-                  style: HavenText.bodySecondary,
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(HavenSpacing.xs + 2),
+                      decoration: BoxDecoration(
+                        color: HavenColors.active.withValues(alpha: 0.12),
+                        borderRadius:
+                            BorderRadius.circular(HavenRadius.button),
+                      ),
+                      child: const Icon(Icons.check_circle_outline,
+                          size: 18, color: HavenColors.active),
+                    ),
+                    const SizedBox(width: HavenSpacing.sm + 2),
+                    const Expanded(
+                      child: Text(
+                        'All clear — no warranties need your attention right now.',
+                        style: HavenText.bodySecondary,
+                      ),
+                    ),
+                  ],
                 ),
               );
             }
 
             return Column(
               children: [
-                ...items.map((item) => _buildAttentionCard(item)),
-                if (items.length >= 3) ...[
+                for (final item in attentionItems) ...[
+                  _AttentionCard(item: item),
                   const SizedBox(height: HavenSpacing.sm),
-                  GestureDetector(
-                    onTap: () => _navigateToItemsWithFilter('expiring'),
-                    child: Text(
-                      'View all warranties →',
-                      style: HavenText.body.copyWith(
-                        color: HavenColors.secondary,
-                        fontWeight: FontWeight.w500,
-                      ),
+                ],
+                if (attentionItems.length >= 3)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton(
+                      onPressed: () => _navigateToItemsWithFilter('expiring'),
+                      child: const Text('View all warranties'),
                     ),
                   ),
-                ],
               ],
             );
           },
           loading: () => Column(
             children: List.generate(
               2,
-              (_) => Container(
-                width: double.infinity,
-                height: 72,
-                margin: const EdgeInsets.only(bottom: HavenSpacing.sm),
-                decoration: BoxDecoration(
-                  color: HavenColors.surface,
-                  borderRadius: BorderRadius.circular(HavenRadius.button),
-                ),
+              (_) => const Padding(
+                padding: EdgeInsets.only(bottom: HavenSpacing.sm),
+                child: SkeletonCard(),
               ),
             ),
           ),
@@ -418,130 +346,180 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     );
   }
 
-  Widget _buildAttentionCard(Item item) {
-    final status = item.computedWarrantyStatus;
-    final days = item.computedDaysRemaining;
-    final isExpired = status == WarrantyStatus.expired;
-    final color = isExpired ? HavenColors.expired : HavenColors.expiring;
-
-    String timeText;
-    if (isExpired) {
-      final absDays = (-days).abs();
-      timeText = absDays == 1 ? 'Expired 1 day ago' : 'Expired $absDays days ago';
-    } else {
-      timeText = days == 1 ? '1 day remaining' : '$days days remaining';
-    }
-
-    return GestureDetector(
-      onTap: () {
-        HavenHaptics.tap();
-        context.push('/items/${item.id}');
-      },
-      child: Container(
-        width: double.infinity,
-        margin: const EdgeInsets.only(bottom: HavenSpacing.sm),
-        padding: const EdgeInsets.all(HavenSpacing.md),
-        decoration: BoxDecoration(
-          color: HavenColors.surface,
-          borderRadius: BorderRadius.circular(HavenRadius.button),
-          border: Border.all(color: HavenColors.border),
-        ),
-        child: Row(
-          children: [
-            // Status dot
-            Container(
-              width: 10,
-              height: 10,
-              decoration: BoxDecoration(
-                color: color,
-                shape: BoxShape.circle,
-              ),
-            ),
-            const SizedBox(width: HavenSpacing.md),
-            // Item info
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '${item.brand ?? ''} ${item.name}'.trim(),
-                    style: HavenText.body.copyWith(fontWeight: FontWeight.w600),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    timeText,
-                    style: HavenText.caption.copyWith(
-                      color: color,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const Icon(
-              Icons.chevron_right,
-              color: HavenColors.textTertiary,
-              size: 20,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
+  /// A subtle one-line hint, not a full card — sits quietly above the
+  /// premium teaser. Dismissible.
   Widget _buildTipCard() {
-    return Container(
-      padding: const EdgeInsets.all(HavenSpacing.md),
-      decoration: BoxDecoration(
-        color: HavenColors.surface,
-        borderRadius: BorderRadius.circular(HavenRadius.button),
-        border: Border.all(color: HavenColors.border),
-      ),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: HavenSpacing.xs),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('💡', style: TextStyle(fontSize: 20)),
+          const Icon(Icons.lightbulb_outline,
+              size: 14, color: HavenColors.textTertiary),
           const SizedBox(width: HavenSpacing.sm),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'TIP',
-                  style: HavenText.badge.copyWith(
-                    color: HavenColors.textTertiary,
-                    letterSpacing: 1,
-                  ),
-                ),
-                const SizedBox(height: HavenSpacing.xs),
-                Text(
-                  'Add receipts to your warranties so you have proof of purchase ready for claims.',
-                  style: HavenText.meta.copyWith(height: 1.4),
-                ),
-              ],
+          const Expanded(
+            child: Text(
+              'Tip — add receipts to your warranties so you have proof of purchase ready for claims.',
+              style: HavenText.caption,
             ),
           ),
           GestureDetector(
             onTap: _dismissTip,
-            child: const Icon(
-              Icons.close,
-              size: 18,
-              color: HavenColors.textTertiary,
+            behavior: HitTestBehavior.opaque,
+            child: const Padding(
+              padding: EdgeInsets.all(HavenSpacing.xs),
+              child: Icon(Icons.close, size: 14, color: HavenColors.textTertiary),
             ),
           ),
         ],
       ),
     );
   }
+}
 
-  void _navigateToItemsWithFilter(String filter) {
-    context.go(AppRoutes.items, extra: {'filter': filter});
+// ---------------------------------------------------------------------------
+// Section label — small-caps overline with a leading icon, used for the
+// dashboard's grouped sections.
+// ---------------------------------------------------------------------------
+
+class _SectionLabel extends StatelessWidget {
+  final IconData icon;
+  final String text;
+
+  const _SectionLabel({required this.icon, required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, size: 14, color: HavenColors.textTertiary),
+        const SizedBox(width: HavenSpacing.xs + 2),
+        Text(text, style: HavenText.overline),
+      ],
+    );
   }
 }
 
-/// Maintenance summary card for the dashboard.
+// ---------------------------------------------------------------------------
+// Hero skeleton — placeholder while the value card's data resolves.
+// ---------------------------------------------------------------------------
+
+class _HeroSkeleton extends StatelessWidget {
+  const _HeroSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 196,
+      decoration: BoxDecoration(
+        gradient: HavenGradients.brandSoft,
+        borderRadius: BorderRadius.circular(HavenRadius.card),
+        boxShadow: HavenElevation.glow(HavenColors.primary, strength: 0.6),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Needs-attention row.
+// ---------------------------------------------------------------------------
+
+class _AttentionCard extends StatelessWidget {
+  final Item item;
+  const _AttentionCard({required this.item});
+
+  @override
+  Widget build(BuildContext context) {
+    final status = item.computedWarrantyStatus;
+    final days = item.computedDaysRemaining;
+    final isExpired = status == WarrantyStatus.expired;
+    final color = isExpired ? HavenColors.expired : HavenColors.expiring;
+
+    final String timeText;
+    if (isExpired) {
+      final absDays = (-days).abs();
+      timeText = absDays == 1 ? 'Expired 1 day ago' : 'Expired $absDays days ago';
+    } else {
+      timeText = days == 1 ? '1 day left' : '$days days left';
+    }
+    final displayName = '${item.brand ?? ''} ${item.name}'.trim();
+
+    // Left accent stripe in the status color, then the category chip, then
+    // the text. The stripe is the hierarchy cue — the eye reads "warning"
+    // before it reads anything else.
+    return HavenCard(
+      radius: HavenRadius.button,
+      width: double.infinity,
+      padding: EdgeInsets.zero,
+      semanticLabel: '$displayName, $timeText',
+      onTap: () {
+        HavenHaptics.tap();
+        context.push('/items/${item.id}');
+      },
+      child: IntrinsicHeight(
+        child: Row(
+          children: [
+            Container(width: 3, color: color),
+            const SizedBox(width: HavenSpacing.md - 3),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: HavenSpacing.sm + 2),
+              child: CategoryIcon.widget(item.category, size: 18),
+            ),
+            const SizedBox(width: HavenSpacing.sm + 2),
+            Expanded(
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(vertical: HavenSpacing.sm + 2),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      displayName,
+                      style:
+                          HavenText.body.copyWith(fontWeight: FontWeight.w600),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        Icon(
+                          isExpired
+                              ? Icons.error_outline
+                              : Icons.schedule_outlined,
+                          size: 12,
+                          color: color,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          timeText,
+                          style: HavenText.caption.copyWith(
+                            color: color,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const Padding(
+              padding: EdgeInsets.only(right: HavenSpacing.md),
+              child: Icon(Icons.chevron_right,
+                  color: HavenColors.textTertiary, size: 20),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Maintenance summary card.
+// ---------------------------------------------------------------------------
+
 class _MaintenanceCard extends ConsumerWidget {
   const _MaintenanceCard();
 
@@ -556,35 +534,37 @@ class _MaintenanceCard extends ConsumerWidget {
         if (summary.totalDue == 0 && summary.totalOverdue == 0) {
           return const SizedBox.shrink();
         }
+        final hasOverdue = summary.totalOverdue > 0;
+        final accent = hasOverdue ? HavenColors.expired : HavenColors.expiring;
 
-        return GestureDetector(
-          onTap: () {
-            HavenHaptics.tap();
-            context.push(AppRoutes.maintenance);
-          },
-          child: Container(
-            padding: const EdgeInsets.all(HavenSpacing.md),
-            decoration: BoxDecoration(
-              color: HavenColors.surface,
-              borderRadius: BorderRadius.circular(HavenRadius.card),
-              border: Border.all(color: HavenColors.border),
-            ),
+        return Padding(
+          padding: const EdgeInsets.only(top: HavenSpacing.lg),
+          child: HavenCard(
+            width: double.infinity,
+            // Overdue gets a tinted border + glow so it visibly reads as
+            // "this needs you now" — upcoming-only stays a plain card.
+            borderColor:
+                hasOverdue ? HavenColors.expired.withValues(alpha: 0.45) : null,
+            glow: hasOverdue ? HavenColors.expired : null,
+            semanticLabel: hasOverdue
+                ? '${summary.totalOverdue} maintenance tasks overdue'
+                : '${summary.totalDue} maintenance tasks coming up',
+            onTap: () {
+              HavenHaptics.tap();
+              context.push(AppRoutes.maintenance);
+            },
             child: Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.all(HavenSpacing.sm),
+                  padding: const EdgeInsets.all(HavenSpacing.sm + 2),
                   decoration: BoxDecoration(
-                    color: (summary.totalOverdue > 0
-                            ? HavenColors.expired
-                            : HavenColors.expiring)
-                        .withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(HavenRadius.card),
+                    color: accent.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(HavenRadius.button),
+                    border: Border.all(color: accent.withValues(alpha: 0.18)),
                   ),
                   child: Icon(
-                    Icons.build_outlined,
-                    color: summary.totalOverdue > 0
-                        ? HavenColors.expired
-                        : HavenColors.expiring,
+                    hasOverdue ? Icons.warning_amber_rounded : Icons.build_outlined,
+                    color: accent,
                     size: 22,
                   ),
                 ),
@@ -594,28 +574,25 @@ class _MaintenanceCard extends ConsumerWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Maintenance',
-                        style: HavenText.body.copyWith(fontWeight: FontWeight.w600),
+                        hasOverdue ? 'Maintenance overdue' : 'Maintenance',
+                        style: HavenText.titleMedium.copyWith(
+                          color:
+                              hasOverdue ? HavenColors.expired : null,
+                        ),
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        summary.totalOverdue > 0
-                            ? '${summary.totalOverdue} overdue, ${summary.totalDue - summary.totalOverdue} upcoming'
-                            : '${summary.totalDue} tasks coming up',
-                        style: HavenText.caption.copyWith(
-                          color: summary.totalOverdue > 0
-                              ? HavenColors.expired
-                              : HavenColors.textSecondary,
-                        ),
+                        hasOverdue
+                            ? '${summary.totalOverdue} ${summary.totalOverdue == 1 ? "task is" : "tasks are"} past due'
+                                '${summary.totalDue - summary.totalOverdue > 0 ? ' · ${summary.totalDue - summary.totalOverdue} upcoming' : ''}'
+                            : '${summary.totalDue} ${summary.totalDue == 1 ? "task" : "tasks"} coming up',
+                        style: HavenText.caption,
                       ),
                     ],
                   ),
                 ),
-                const Icon(
-                  Icons.chevron_right,
-                  color: HavenColors.textTertiary,
-                  size: 20,
-                ),
+                const Icon(Icons.chevron_right,
+                    color: HavenColors.textTertiary, size: 20),
               ],
             ),
           ),
@@ -625,103 +602,56 @@ class _MaintenanceCard extends ConsumerWidget {
   }
 }
 
-/// Community savings feed card — shows anonymized savings from other users.
+// ---------------------------------------------------------------------------
+// Community-savings feed — hides itself entirely when there's no data
+// (matching the maintenance card's "no row" behaviour).
+// ---------------------------------------------------------------------------
+
 class _CommunitySavingsCard extends ConsumerWidget {
   const _CommunitySavingsCard();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final feedAsync = ref.watch(savingsFeedProvider);
+    final feed = feedAsync.valueOrNull;
+    // Nothing to show (loading, error, or empty) → render nothing. The
+    // dashboard shouldn't carry a "no data yet" placeholder.
+    if (feed == null || feed.isEmpty) return const SizedBox.shrink();
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Section header
-        Row(
-          children: [
-            const Icon(
-              Icons.emoji_events_outlined,
-              size: 18,
-              color: HavenColors.active,
-            ),
-            const SizedBox(width: HavenSpacing.xs),
-            Text(
-              'COMMUNITY SAVINGS',
-              style: HavenText.badge.copyWith(
-                color: HavenColors.textTertiary,
-                letterSpacing: 1.2,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: HavenSpacing.md),
-
-        // Feed card
-        Container(
-          width: double.infinity,
-          decoration: BoxDecoration(
-            color: HavenColors.surface,
-            borderRadius: BorderRadius.circular(HavenRadius.card),
-            border: Border.all(color: HavenColors.border),
+    return Padding(
+      padding: const EdgeInsets.only(top: HavenSpacing.lg),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const _SectionLabel(
+            icon: Icons.emoji_events_outlined,
+            text: 'COMMUNITY SAVINGS',
           ),
-          child: feedAsync.when(
-            data: (feed) {
-              if (feed.isEmpty) {
-                return const Padding(
-                  padding: EdgeInsets.all(HavenSpacing.lg),
-                  child: Center(
-                    child: Text(
-                      'No community savings data yet',
-                      style: HavenText.meta,
-                    ),
+          const SizedBox(height: HavenSpacing.sm + 2),
+          HavenCard(
+            width: double.infinity,
+            padding: EdgeInsets.zero,
+            child: Column(
+              children: [
+                for (var i = 0; i < feed.take(5).length; i++) ...[
+                  if (i > 0)
+                    const Divider(
+                        height: 1, indent: HavenSpacing.md, endIndent: HavenSpacing.md),
+                  _SavingsEntry(
+                    itemName: feed[i]['item_name'] as String? ?? 'their item',
+                    amount: _parseAmount(feed[i]['amount']),
                   ),
-                );
-              }
-              return _buildEntries(feed.take(5).toList());
-            },
-            loading: () => const Padding(
-              padding: EdgeInsets.all(HavenSpacing.lg),
-              child: Center(
-                child: SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: HavenLoader(),
-                ),
-              ),
-            ),
-            error: (_, __) => const Padding(
-              padding: EdgeInsets.all(HavenSpacing.lg),
-              child: Center(
-                child: Text(
-                  'Unable to load community savings',
-                  style: HavenText.meta,
-                ),
-              ),
+                ],
+              ],
             ),
           ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildEntries(List<Map<String, dynamic>> entries) {
-    return Column(
-      children: [
-        for (int i = 0; i < entries.length; i++) ...[
-          _SavingsEntry(
-            itemName: entries[i]['item_name'] as String? ?? 'their item',
-            amount: _parseAmount(entries[i]['amount']),
-          ),
-          if (i < entries.length - 1)
-            const Divider(height: 1, color: HavenColors.border),
         ],
-      ],
+      ),
     );
   }
 
   // Single-pass amount parse with explicit fallthrough — the previous
-  // double-parse (`is num` *and* `tryParse`) silently rendered "$0" when
-  // payload shape drifted (F042).
+  // double-parse silently rendered "$0" when payload shape drifted (F042).
   static double _parseAmount(Object? raw) {
     if (raw is num) return raw.toDouble();
     if (raw is String) {
@@ -733,7 +663,6 @@ class _CommunitySavingsCard extends ConsumerWidget {
   }
 }
 
-/// A single savings feed entry row.
 class _SavingsEntry extends StatelessWidget {
   final String itemName;
   final double amount;
@@ -743,7 +672,6 @@ class _SavingsEntry extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final formatted = Money.formatCompact(amount);
-
     return Padding(
       padding: const EdgeInsets.symmetric(
         horizontal: HavenSpacing.md,
@@ -754,21 +682,19 @@ class _SavingsEntry extends StatelessWidget {
           Container(
             width: 32,
             height: 32,
+            alignment: Alignment.center,
             decoration: BoxDecoration(
               color: HavenColors.active.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(HavenRadius.pill),
             ),
-            child: const Icon(
-              Icons.attach_money,
-              size: 18,
-              color: HavenColors.active,
-            ),
+            child: const Icon(Icons.savings_outlined,
+                size: 17, color: HavenColors.active),
           ),
-          const SizedBox(width: HavenSpacing.sm),
+          const SizedBox(width: HavenSpacing.sm + 2),
           Expanded(
             child: Text(
               'A homeowner saved $formatted on their $itemName',
-              style: HavenText.meta.copyWith(height: 1.3),
+              style: HavenText.meta,
             ),
           ),
         ],
@@ -777,7 +703,10 @@ class _SavingsEntry extends StatelessWidget {
   }
 }
 
-/// Shows "HavenKeep" when user has one home, or a dropdown to switch homes.
+// ---------------------------------------------------------------------------
+// Home switcher in the app bar.
+// ---------------------------------------------------------------------------
+
 class _HomeSwitcher extends ConsumerWidget {
   const _HomeSwitcher();
 
@@ -785,46 +714,46 @@ class _HomeSwitcher extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final homesAsync = ref.watch(homesProvider);
     final currentHome = ref.watch(currentHomeProvider);
-
     final homesList = homesAsync.valueOrNull ?? [];
 
-    // Single home or loading: just show the home name or "HavenKeep"
     if (homesList.length <= 1) {
       return Text(
         currentHome?.name ?? 'HavenKeep',
-        style: const TextStyle(fontWeight: FontWeight.bold),
+        style: const TextStyle(
+          fontWeight: FontWeight.w700,
+          letterSpacing: -0.2,
+          color: HavenColors.textPrimary,
+        ),
       );
     }
 
-    // Multiple homes: show dropdown
     return PopupMenuButton<String>(
       onSelected: (homeId) {
         HavenHaptics.tap();
         ref.read(selectedHomeIdProvider.notifier).state = homeId;
       },
       offset: const Offset(0, 40),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(HavenRadius.button),
-      ),
-      color: HavenColors.elevated,
       itemBuilder: (context) => homesList.map((home) {
         final isSelected = home.id == currentHome?.id;
         return PopupMenuItem<String>(
           value: home.id,
           child: Row(
             children: [
-              Icon(
-                Icons.home_outlined,
-                size: 18,
-                color: isSelected ? HavenColors.primary : HavenColors.textSecondary,
-              ),
-              const SizedBox(width: 8),
+              Icon(Icons.home_outlined,
+                  size: 18,
+                  color: isSelected
+                      ? HavenColors.primary
+                      : HavenColors.textSecondary),
+              const SizedBox(width: HavenSpacing.sm),
               Expanded(
                 child: Text(
                   home.name,
                   style: TextStyle(
-                    color: isSelected ? HavenColors.primary : HavenColors.textPrimary,
-                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                    color: isSelected
+                        ? HavenColors.primary
+                        : HavenColors.textPrimary,
+                    fontWeight:
+                        isSelected ? FontWeight.w700 : FontWeight.w400,
                   ),
                 ),
               ),
@@ -840,71 +769,29 @@ class _HomeSwitcher extends ConsumerWidget {
           Flexible(
             child: Text(
               currentHome?.name ?? 'HavenKeep',
-              style: const TextStyle(fontWeight: FontWeight.bold),
+              style: const TextStyle(
+                fontWeight: FontWeight.w700,
+                letterSpacing: -0.2,
+                color: HavenColors.textPrimary,
+              ),
               overflow: TextOverflow.ellipsis,
             ),
           ),
-          const SizedBox(width: 4),
-          const Icon(Icons.arrow_drop_down, size: 20),
+          const SizedBox(width: 2),
+          const Icon(Icons.arrow_drop_down,
+              size: 20, color: HavenColors.textSecondary),
         ],
       ),
     );
   }
 }
 
-/// Tappable stat card for the warranty summary.
-class _StatCard extends StatelessWidget {
-  final int count;
-  final String label;
-  final Color color;
-  final VoidCallback? onTap;
+// ---------------------------------------------------------------------------
+// User avatar.
+// ---------------------------------------------------------------------------
 
-  const _StatCard({
-    required this.count,
-    required this.label,
-    required this.color,
-    this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: GestureDetector(
-        onTap: () {
-          HavenHaptics.tap();
-          onTap?.call();
-        },
-        child: Container(
-          padding: const EdgeInsets.all(HavenSpacing.md),
-          decoration: BoxDecoration(
-            color: HavenColors.surface,
-            borderRadius: BorderRadius.circular(HavenRadius.card),
-          ),
-          child: Column(
-            children: [
-              Text(
-                '$count',
-                style: HavenText.stat.copyWith(color: color),
-              ),
-              const SizedBox(height: HavenSpacing.xs),
-              Text(
-                label,
-                style: HavenText.caption.copyWith(
-                  color: HavenColors.textSecondary,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// User avatar with initials fallback.
 class _UserAvatar extends StatelessWidget {
   final User? user;
-
   const _UserAvatar({this.user});
 
   @override
@@ -932,13 +819,16 @@ class _UserAvatar extends StatelessWidget {
   }
 }
 
-/// Notification bell with unread badge.
+// ---------------------------------------------------------------------------
+// Notification bell with unread badge.
+// ---------------------------------------------------------------------------
+
 class _NotificationBell extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final unreadCount = ref.watch(unreadNotificationCountProvider).valueOrNull ?? 0;
+    final unreadCount =
+        ref.watch(unreadNotificationCountProvider).valueOrNull ?? 0;
 
-    // Surface the badge count to screen readers (F043).
     return IconButton(
       tooltip: unreadCount > 0
           ? '$unreadCount unread notifications'
@@ -953,14 +843,13 @@ class _NotificationBell extends ConsumerWidget {
               top: -4,
               child: Container(
                 padding: const EdgeInsets.all(3),
-                decoration: const BoxDecoration(
+                decoration: BoxDecoration(
                   color: HavenColors.expired,
                   shape: BoxShape.circle,
+                  border: Border.all(color: HavenColors.canvas, width: 1.5),
                 ),
-                constraints: const BoxConstraints(
-                  minWidth: 16,
-                  minHeight: 16,
-                ),
+                constraints:
+                    const BoxConstraints(minWidth: 16, minHeight: 16),
                 child: Text(
                   unreadCount > 9 ? '9+' : '$unreadCount',
                   style: const TextStyle(
@@ -980,12 +869,10 @@ class _NotificationBell extends ConsumerWidget {
   }
 }
 
-/// 3.14: dashboard banner that surfaces N>0 failed offline-queue
-/// entries. Tapping the banner routes to the settings → sync conflicts
-/// screen which already supports per-row retry / discard. Watching the
-/// FutureProvider keeps it in sync with the offline-sync service —
-/// every time the service marks a row failed (or the user retries one)
-/// the count refreshes on the next dashboard render.
+// ---------------------------------------------------------------------------
+// 3.14: failed-offline-sync banner. Tap → settings → conflicts screen.
+// ---------------------------------------------------------------------------
+
 class _FailedSyncBanner extends ConsumerWidget {
   const _FailedSyncBanner();
 
@@ -999,48 +886,44 @@ class _FailedSyncBanner extends ConsumerWidget {
         : '$count changes failed to sync';
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: HavenSpacing.md),
-      child: Material(
-        color: HavenColors.expired.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(HavenRadius.card),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(HavenRadius.card),
-          onTap: () => context.push(AppRoutes.conflicts),
-          child: Padding(
-            padding: const EdgeInsets.all(HavenSpacing.md),
-            child: Row(
-              children: [
-                const Icon(Icons.cloud_off,
-                    size: 20, color: HavenColors.expired),
-                const SizedBox(width: HavenSpacing.sm),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        label,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: HavenColors.expired,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      const Text(
-                        'Tap to review and retry or discard',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: HavenColors.textSecondary,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const Icon(Icons.chevron_right,
-                    size: 18, color: HavenColors.textTertiary),
-              ],
+      padding: const EdgeInsets.only(bottom: HavenSpacing.lg),
+      child: HavenCard(
+        width: double.infinity,
+        borderColor: HavenColors.expired.withValues(alpha: 0.4),
+        semanticLabel: '$label. Tap to review.',
+        onTap: () => context.push(AppRoutes.conflicts),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(HavenSpacing.xs + 2),
+              decoration: BoxDecoration(
+                color: HavenColors.expired.withValues(alpha: 0.14),
+                borderRadius: BorderRadius.circular(HavenRadius.button),
+              ),
+              child: const Icon(Icons.cloud_off,
+                  size: 18, color: HavenColors.expired),
             ),
-          ),
+            const SizedBox(width: HavenSpacing.sm + 2),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: HavenText.body.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: HavenColors.expired,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  const Text('Tap to review and retry or discard',
+                      style: HavenText.caption),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right,
+                size: 18, color: HavenColors.textTertiary),
+          ],
         ),
       ),
     );

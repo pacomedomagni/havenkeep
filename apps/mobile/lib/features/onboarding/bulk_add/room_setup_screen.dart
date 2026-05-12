@@ -214,17 +214,24 @@ class _RoomSetupScreenState extends ConsumerState<RoomSetupScreen> {
               children: [
                 Row(
                   children: [
-                    Text(
-                      room.icon,
-                      style: const TextStyle(fontSize: 28),
+                    Container(
+                      padding: const EdgeInsets.all(HavenSpacing.sm),
+                      decoration: BoxDecoration(
+                        color: HavenColors.primary.withValues(alpha: 0.12),
+                        borderRadius:
+                            BorderRadius.circular(HavenRadius.button),
+                        border: Border.all(
+                          color: HavenColors.primary.withValues(alpha: 0.16),
+                        ),
+                      ),
+                      child: Icon(room.icon,
+                          size: 22, color: HavenColors.primary),
                     ),
                     const SizedBox(width: HavenSpacing.sm),
-                    Text(
-                      room.name,
-                      style: const TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: HavenColors.textPrimary,
+                    Expanded(
+                      child: Text(
+                        room.name,
+                        style: HavenText.displayLarge,
                       ),
                     ),
                   ],
@@ -339,48 +346,61 @@ class _RoomSetupScreenState extends ConsumerState<RoomSetupScreen> {
         final appliance = room.appliances[index];
         final selected = _isSelected(appliance);
 
-        return GestureDetector(
-          onTap: () => _toggleAppliance(appliance),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            decoration: BoxDecoration(
-              color: HavenColors.elevated,
+        return Semantics(
+          button: true,
+          selected: selected,
+          label: appliance.name,
+          excludeSemantics: true,
+          child: Material(
+            color: HavenColors.surfaceElevated,
+            borderRadius: BorderRadius.circular(HavenRadius.button),
+            child: InkWell(
+              onTap: () => _toggleAppliance(appliance),
               borderRadius: BorderRadius.circular(HavenRadius.button),
-              border: Border.all(
-                color: selected ? HavenColors.primary : HavenColors.border,
-                width: selected ? 2 : 1,
-              ),
-            ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  appliance.icon,
-                  style: TextStyle(
-                    fontSize: selected ? 30 : 28,
-                  ),
-                ),
-                const SizedBox(height: HavenSpacing.xs),
-                Text(
-                  appliance.name,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 11,
+              child: AnimatedContainer(
+                duration: HavenMotion.fast,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(HavenRadius.button),
+                  border: Border.all(
                     color: selected
-                        ? HavenColors.textPrimary
-                        : HavenColors.textSecondary,
-                    fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+                        ? HavenColors.primary
+                        : HavenColors.border,
+                    width: selected ? 1.5 : 1,
                   ),
                 ),
-                if (selected) ...[
-                  const SizedBox(height: 2),
-                  const Icon(
-                    Icons.check_circle,
-                    size: 16,
-                    color: HavenColors.primary,
-                  ),
-                ],
-              ],
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      appliance.icon,
+                      size: 26,
+                      color: selected
+                          ? HavenColors.primary
+                          : HavenColors.textSecondary,
+                    ),
+                    const SizedBox(height: HavenSpacing.xs),
+                    Text(
+                      appliance.name,
+                      textAlign: TextAlign.center,
+                      style: HavenText.caption.copyWith(
+                        color: selected
+                            ? HavenColors.textPrimary
+                            : HavenColors.textSecondary,
+                        fontWeight:
+                            selected ? FontWeight.w600 : FontWeight.w400,
+                      ),
+                    ),
+                    if (selected) ...[
+                      const SizedBox(height: 2),
+                      const Icon(
+                        Icons.check_circle,
+                        size: 16,
+                        color: HavenColors.primary,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
             ),
           ),
         );
@@ -417,10 +437,7 @@ class _RoomSetupScreenState extends ConsumerState<RoomSetupScreen> {
           // Item header
           Row(
             children: [
-              Text(
-                CategoryIcon.get(item.category),
-                style: const TextStyle(fontSize: 20),
-              ),
+              CategoryIcon.widget(item.category, size: 18),
               const SizedBox(width: HavenSpacing.sm),
               Expanded(
                 child: Text(

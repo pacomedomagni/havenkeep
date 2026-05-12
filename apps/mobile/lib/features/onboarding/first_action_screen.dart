@@ -20,7 +20,7 @@ class FirstActionScreen extends ConsumerWidget {
     final firstName = user.value?.fullName.split(' ').first ?? 'there';
 
     return Scaffold(
-      backgroundColor: HavenColors.background,
+      backgroundColor: HavenColors.canvas,
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(HavenSpacing.lg),
@@ -30,50 +30,38 @@ class FirstActionScreen extends ConsumerWidget {
               const SizedBox(height: HavenSpacing.xxl),
 
               // Greeting
-              Text(
-                'Welcome, $firstName!',
-                style: const TextStyle(
-                  fontSize: 28,
-                  fontWeight: FontWeight.bold,
-                  color: HavenColors.textPrimary,
-                ),
-              ),
+              Text('Welcome, $firstName', style: HavenText.displayLarge),
               const SizedBox(height: HavenSpacing.sm),
-              const Text(
+              Text(
                 'What would you like to do first?',
-                style: TextStyle(
-                  fontSize: 18,
-                  color: HavenColors.textSecondary,
-                ),
+                style: HavenText.bodySecondary.copyWith(fontSize: 16),
               ),
 
               const SizedBox(height: HavenSpacing.xl),
 
               // Option 1: Set up home (bulk-add)
               _ActionCard(
-                icon: '🏠',
+                icon: Icons.home_outlined,
                 title: 'Set up my new home',
                 description:
                     'Walk through each room and add your appliances in minutes.',
                 onTap: () => context.go(AppRoutes.homeSetup),
               ),
-
               const SizedBox(height: HavenSpacing.md),
 
               // Option 2: Scan receipt
               _ActionCard(
-                icon: '📷',
+                icon: Icons.photo_camera_outlined,
                 title: 'Scan a receipt',
                 description:
-                    'Snap a photo and we\'ll extract the details automatically.',
+                    "Snap a photo and we'll extract the details automatically.",
                 onTap: () => context.push(AppRoutes.scanReceipt),
               ),
-
               const SizedBox(height: HavenSpacing.md),
 
               // Option 3: Add item manually
               _ActionCard(
-                icon: '✏️',
+                icon: Icons.edit_outlined,
                 title: 'Add an item manually',
                 description: 'Enter all the details yourself.',
                 onTap: () => context.push(AppRoutes.addItem),
@@ -83,15 +71,12 @@ class FirstActionScreen extends ConsumerWidget {
 
               // Skip link
               Center(
-                child: GestureDetector(
-                  onTap: () => context.go(AppRoutes.dashboard),
-                  child: const Text(
-                    "I'll explore first →",
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: HavenColors.textSecondary,
-                    ),
+                child: TextButton(
+                  onPressed: () => context.go(AppRoutes.dashboard),
+                  style: TextButton.styleFrom(
+                    foregroundColor: HavenColors.textSecondary,
                   ),
+                  child: const Text("I'll explore first"),
                 ),
               ),
 
@@ -106,7 +91,7 @@ class FirstActionScreen extends ConsumerWidget {
 
 /// A tappable option card for the first action screen.
 class _ActionCard extends StatelessWidget {
-  final String icon;
+  final IconData icon;
   final String title;
   final String description;
   final VoidCallback onTap;
@@ -120,63 +105,39 @@ class _ActionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return HavenCard.elevated(
+      padding: const EdgeInsets.all(HavenSpacing.lg),
+      semanticLabel: '$title. $description',
       onTap: () {
         HavenHaptics.confirm();
         onTap();
       },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.all(HavenSpacing.lg),
-        decoration: BoxDecoration(
-          color: HavenColors.elevated,
-          borderRadius: BorderRadius.circular(HavenRadius.card),
-          border: Border.all(
-            color: HavenColors.border,
-          ),
-        ),
-        child: Row(
-          children: [
-            // Icon
-            Text(
-              icon,
-              style: const TextStyle(fontSize: 32),
-            ),
-            const SizedBox(width: HavenSpacing.md),
-
-            // Text
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: HavenColors.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: HavenSpacing.xs),
-                  Text(
-                    description,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      color: HavenColors.textSecondary,
-                      height: 1.3,
-                    ),
-                  ),
-                ],
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(HavenSpacing.sm + 2),
+            decoration: BoxDecoration(
+              color: HavenColors.primary.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(HavenRadius.button),
+              border: Border.all(
+                color: HavenColors.primary.withValues(alpha: 0.16),
               ),
             ),
-
-            // Chevron
-            const Icon(
-              Icons.chevron_right,
-              color: HavenColors.textTertiary,
+            child: Icon(icon, size: 24, color: HavenColors.primary),
+          ),
+          const SizedBox(width: HavenSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: HavenText.titleLarge),
+                const SizedBox(height: HavenSpacing.xs),
+                Text(description, style: HavenText.meta),
+              ],
             ),
-          ],
-        ),
+          ),
+          const Icon(Icons.chevron_right, color: HavenColors.textTertiary),
+        ],
       ),
     );
   }

@@ -4,6 +4,7 @@ import 'package:shared_ui/shared_ui.dart';
 
 import '../../core/providers/recent_activity_provider.dart';
 import '../../core/services/audit_log_repository.dart';
+import '../../core/widgets/haven_loader.dart';
 
 /// "What just happened" feed on the dashboard. Hydrates from the
 /// `audit_log` projection — the same rows admin tooling sees, scoped to
@@ -19,39 +20,33 @@ class RecentActivityCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(recentActivityProvider);
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(HavenSpacing.md),
-      decoration: BoxDecoration(
-        color: HavenColors.elevated,
-        borderRadius: BorderRadius.circular(HavenRadius.card),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const SectionHeader(title: 'RECENT ACTIVITY'),
-          const SizedBox(height: HavenSpacing.sm),
-          async.when(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SectionHeader(title: 'RECENT ACTIVITY'),
+        HavenCard.flat(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(
+            horizontal: HavenSpacing.md,
+            vertical: HavenSpacing.xs,
+          ),
+          child: async.when(
             loading: () => const Padding(
               padding: EdgeInsets.symmetric(vertical: HavenSpacing.md),
-              child: Center(
-                child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
-              ),
+              child: Center(child: HavenLoader.small()),
             ),
             error: (_, __) => const Padding(
               padding: EdgeInsets.symmetric(vertical: HavenSpacing.sm),
-              child: Text(
-                "Couldn't load recent activity",
-                style: TextStyle(color: HavenColors.textTertiary, fontSize: 12),
-              ),
+              child: Text("Couldn't load recent activity",
+                  style: HavenText.caption),
             ),
             data: (events) {
               if (events.isEmpty) {
                 return const Padding(
                   padding: EdgeInsets.symmetric(vertical: HavenSpacing.sm),
                   child: Text(
-                    "Nothing yet — your first add or claim will show up here.",
-                    style: TextStyle(color: HavenColors.textTertiary, fontSize: 12),
+                    'Nothing yet — your first add or claim will show up here.',
+                    style: HavenText.caption,
                   ),
                 );
               }
@@ -62,15 +57,14 @@ class RecentActivityCard extends ConsumerWidget {
                 children: [
                   for (var i = 0; i < shown.length; i++) ...[
                     _ActivityRow(event: shown[i]),
-                    if (i != shown.length - 1)
-                      const Divider(height: 1, color: HavenColors.border),
+                    if (i != shown.length - 1) const Divider(height: 1),
                   ],
                 ],
               );
             },
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
@@ -90,26 +84,43 @@ class _ActivityRow extends StatelessWidget {
     if (action.startsWith('warranty.')) return Icons.shield_outlined;
     if (action.startsWith('partner.')) return Icons.handshake_outlined;
     if (action.startsWith('user.')) return Icons.person_outline;
-    if (action.startsWith('auth.')) return Icons.lock_outline;
+    if (action.startsWith('auth.')) return Icons.login_rounded;
     return Icons.event_note_outlined;
   }
 
-  /// "added an item", "filed a warranty claim" — produces a friendlier
-  /// label than raw `item.created` for the dashboard surface. Falls back
-  /// to the description when the action verb isn't pretty-printed.
+  /// A human label. Prefer the server-provided description; otherwise map
+  /// the action verb to friendly copy. The fallback is a Title-Cased,
+  /// space-separated render of the verb (e.g. `partner.gift_claimed` →
+  /// "Partner gift claimed") so raw `auth.login`-style strings never leak
+  /// into the UI.
   String _label() {
     final desc = event.description?.trim();
     if (desc != null && desc.isNotEmpty) return desc;
-    return switch (event.action) {
+    final mapped = switch (event.action) {
       'item.created' => 'Added an item',
       'item.updated' => 'Updated an item',
       'item.deleted' => 'Deleted an item',
+      'item.archived' => 'Archived an item',
+      'item.unarchived' => 'Restored an item',
       'claim.created' => 'Filed a warranty claim',
       'claim.updated' => 'Updated a claim',
       'document.uploaded' => 'Uploaded a document',
+      'document.deleted' => 'Removed a document',
       'maintenance.completed' => 'Logged maintenance',
-      _ => event.action,
+      'auth.login' => 'Signed in',
+      'auth.logout' => 'Signed out',
+      'auth.register' => 'Created your account',
+      'auth.password_change' => 'Changed your password',
+      'user.updated' => 'Updated your profile',
+      'home.created' => 'Added a home',
+      'home.updated' => 'Updated a home',
+      _ => null,
     };
+    if (mapped != null) return mapped;
+    // Generic fall-through: "partner.gift_claimed" → "Partner gift claimed".
+    final words = event.action.replaceAll('.', ' ').replaceAll('_', ' ').trim();
+    if (words.isEmpty) return 'Activity';
+    return words[0].toUpperCase() + words.substring(1);
   }
 
   String _ago(DateTime ts) {
@@ -125,31 +136,22 @@ class _ActivityRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: HavenSpacing.sm),
+      padding: const EdgeInsets.symmetric(vertical: HavenSpacing.sm + 2),
       child: Row(
         children: [
           Icon(_iconFor(event.action),
               size: 16, color: HavenColors.textSecondary),
-          const SizedBox(width: HavenSpacing.sm),
+          const SizedBox(width: HavenSpacing.sm + 2),
           Expanded(
             child: Text(
               _label(),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: HavenColors.textPrimary,
-                fontSize: 13,
-              ),
+              style: HavenText.meta.copyWith(color: HavenColors.textPrimary),
             ),
           ),
           const SizedBox(width: HavenSpacing.sm),
-          Text(
-            _ago(event.createdAt),
-            style: const TextStyle(
-              color: HavenColors.textTertiary,
-              fontSize: 11,
-            ),
-          ),
+          Text(_ago(event.createdAt), style: HavenText.caption),
         ],
       ),
     );

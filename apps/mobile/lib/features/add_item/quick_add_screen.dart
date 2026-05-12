@@ -163,7 +163,7 @@ class _QuickAddScreenState extends ConsumerState<QuickAddScreen> {
           CelebrationOverlay.show(
             context,
             type: CelebrationType.firstItem,
-            title: '🎉 Great start!',
+            title: 'Great start',
             subtitle: 'Your first item is protected. Keep adding to build your warranty vault.',
             onDismiss: () {
               context.go('/add-item/success/${newItem.id}', extra: newItem);
@@ -171,13 +171,11 @@ class _QuickAddScreenState extends ConsumerState<QuickAddScreen> {
           );
         } else {
           // Subtle success feedback for subsequent items
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('✓ ${newItem.name} added successfully'),
-              duration: const Duration(seconds: 2),
-              behavior: SnackBarBehavior.floating,
-              backgroundColor: HavenColors.active,
-            ),
+          showHavenSnackBar(
+            context,
+            message: '${newItem.name} added',
+            isSuccess: true,
+            duration: const Duration(seconds: 2),
           );
           context.go('/add-item/success/${newItem.id}', extra: newItem);
         }

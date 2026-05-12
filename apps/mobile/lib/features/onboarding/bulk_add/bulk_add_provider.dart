@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_models/shared_models.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -53,7 +54,7 @@ class BulkAddItem {
 /// Definition of a room in the bulk-add walkthrough.
 class BulkAddRoom {
   final String name;
-  final String icon;
+  final IconData icon;
   final ItemRoom room;
   final List<BulkAddAppliance> appliances;
 
@@ -68,7 +69,7 @@ class BulkAddRoom {
 /// An appliance option that can be selected in a room.
 class BulkAddAppliance {
   final String name;
-  final String icon;
+  final IconData icon;
   final ItemCategory category;
   final int defaultWarrantyMonths;
 
@@ -80,94 +81,112 @@ class BulkAddAppliance {
   });
 }
 
+/// One row of the post-setup summary: which room, its icon, how many items.
+class BulkAddRoomSummary {
+  final IconData icon;
+  final String name;
+  final int count;
+
+  const BulkAddRoomSummary({
+    required this.icon,
+    required this.name,
+    required this.count,
+  });
+}
+
 /// The 6 rooms with their appliance options.
+///
+/// Icons are Material outlined glyphs (matching `CategoryIcon`'s set) — no
+/// emoji. Where an appliance maps to a real [ItemCategory] the icon mirrors
+/// `CategoryIcon.iconData(category)`; the few that don't (toilet, faucet,
+/// fireplace, chest freezer) get a sensible hand-picked icon.
 const kBulkAddRooms = <BulkAddRoom>[
   BulkAddRoom(
     name: 'Kitchen',
-    icon: '🍳',
+    icon: Icons.countertops_outlined,
     room: ItemRoom.kitchen,
     appliances: [
       BulkAddAppliance(
         name: 'Refrigerator',
-        icon: '🧊',
+        icon: Icons.kitchen_outlined,
         category: ItemCategory.refrigerator,
       ),
       BulkAddAppliance(
         name: 'Dishwasher',
-        icon: '🍽️',
+        icon: Icons.countertops_outlined,
         category: ItemCategory.dishwasher,
       ),
       BulkAddAppliance(
         name: 'Oven / Range',
-        icon: '🔥',
+        icon: Icons.local_fire_department_outlined,
         category: ItemCategory.oven_range,
       ),
       BulkAddAppliance(
         name: 'Microwave',
-        icon: '📡',
+        icon: Icons.microwave_outlined,
         category: ItemCategory.microwave,
       ),
       BulkAddAppliance(
         name: 'Garbage Disposal',
-        icon: '♻️',
+        icon: Icons.delete_sweep_outlined,
         category: ItemCategory.garbage_disposal,
       ),
       BulkAddAppliance(
         name: 'Range Hood',
-        icon: '🌬️',
+        icon: Icons.air_outlined,
         category: ItemCategory.range_hood,
       ),
     ],
   ),
   BulkAddRoom(
     name: 'Laundry',
-    icon: '👕',
+    icon: Icons.local_laundry_service_outlined,
     room: ItemRoom.laundry,
     appliances: [
       BulkAddAppliance(
         name: 'Washer',
-        icon: '👕',
+        icon: Icons.local_laundry_service_outlined,
         category: ItemCategory.washer,
       ),
       BulkAddAppliance(
         name: 'Dryer',
-        icon: '💨',
+        icon: Icons.dry_cleaning_outlined,
         category: ItemCategory.dryer,
       ),
     ],
   ),
   BulkAddRoom(
     name: 'HVAC / Utility',
-    icon: '❄️',
+    icon: Icons.ac_unit_outlined,
     room: ItemRoom.hvac_utility,
     appliances: [
       BulkAddAppliance(
         name: 'A/C Unit',
-        icon: '❄️',
+        icon: Icons.ac_unit_outlined,
         category: ItemCategory.hvac,
         defaultWarrantyMonths: 60,
       ),
       BulkAddAppliance(
         name: 'Furnace',
-        icon: '🔥',
+        icon: Icons.local_fire_department_outlined,
         category: ItemCategory.furnace,
         defaultWarrantyMonths: 60,
       ),
       BulkAddAppliance(
         name: 'Water Heater',
-        icon: '🚿',
+        icon: Icons.water_drop_outlined,
         category: ItemCategory.water_heater,
         defaultWarrantyMonths: 60,
       ),
       BulkAddAppliance(
         name: 'Water Softener',
-        icon: '💧',
+        icon: Icons.opacity_outlined,
         category: ItemCategory.water_softener,
         defaultWarrantyMonths: 24,
       ),
       BulkAddAppliance(
         name: 'Sump Pump',
-        icon: '🌊',
+        icon: Icons.waves_outlined,
         category: ItemCategory.sump_pump,
         defaultWarrantyMonths: 24,
       ),
@@ -175,66 +194,66 @@ const kBulkAddRooms = <BulkAddRoom>[
   ),
   BulkAddRoom(
     name: 'Bathroom',
-    icon: '🚿',
+    icon: Icons.bathtub_outlined,
     room: ItemRoom.bathroom,
     appliances: [
       BulkAddAppliance(
         name: 'Toilet',
-        icon: '🚽',
+        icon: Icons.wc_outlined,
         category: ItemCategory.plumbing,
       ),
       BulkAddAppliance(
         name: 'Faucet',
-        icon: '🚰',
+        icon: Icons.water_outlined,
         category: ItemCategory.plumbing,
       ),
       BulkAddAppliance(
         name: 'Exhaust Fan',
-        icon: '🌀',
+        icon: Icons.mode_fan_off_outlined,
         category: ItemCategory.electrical,
       ),
     ],
   ),
   BulkAddRoom(
     name: 'Living Areas',
-    icon: '🛋️',
+    icon: Icons.weekend_outlined,
     room: ItemRoom.living_room,
     appliances: [
       BulkAddAppliance(
         name: 'TV',
-        icon: '📺',
+        icon: Icons.tv_outlined,
         category: ItemCategory.tv,
       ),
       BulkAddAppliance(
         name: 'Smart Home Hub',
-        icon: '🏠',
+        icon: Icons.home_outlined,
         category: ItemCategory.smart_home,
       ),
       BulkAddAppliance(
         name: 'Fireplace',
-        icon: '🔥',
+        icon: Icons.fireplace_outlined,
         category: ItemCategory.furniture,
       ),
     ],
   ),
   BulkAddRoom(
     name: 'Garage',
-    icon: '🏗️',
+    icon: Icons.garage_outlined,
     room: ItemRoom.garage,
     appliances: [
       BulkAddAppliance(
         name: 'Garage Door Opener',
-        icon: '🚪',
+        icon: Icons.garage_outlined,
         category: ItemCategory.doors,
       ),
       BulkAddAppliance(
         name: 'Chest Freezer',
-        icon: '🧊',
+        icon: Icons.kitchen_outlined,
         category: ItemCategory.other,
       ),
       BulkAddAppliance(
         name: 'Power Tools',
-        icon: '⚡',
+        icon: Icons.handyman_outlined,
         category: ItemCategory.electrical,
       ),
     ],
@@ -261,16 +280,22 @@ class BulkAddState {
   int get roomsWithItemsCount =>
       roomSelections.values.where((items) => items.isNotEmpty).length;
 
-  /// Summary of items per room (room name → count), only non-empty rooms.
-  Map<String, int> get roomSummary {
-    final summary = <String, int>{};
+  /// Per-room summary (icon + name + count), only non-empty rooms, in room
+  /// order.
+  List<BulkAddRoomSummary> get roomSummary {
+    final out = <BulkAddRoomSummary>[];
     for (final entry in roomSelections.entries) {
       if (entry.value.isNotEmpty) {
         final room = kBulkAddRooms[entry.key];
-        summary['${room.icon} ${room.name}'] = entry.value.length;
+        out.add(BulkAddRoomSummary(
+          icon: room.icon,
+          name: room.name,
+          count: entry.value.length,
+        ));
       }
     }
-    return summary;
+    out.sort((a, b) => a.name.compareTo(b.name));
+    return out;
   }
 
   /// All items flattened.

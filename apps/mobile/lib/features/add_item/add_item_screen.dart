@@ -238,7 +238,6 @@ class AddItemScreen extends ConsumerWidget {
                   _CategoryTile(
                     category: ItemCategory.other,
                     label: 'Other',
-                    customEmoji: '\u{00B7}\u{00B7}\u{00B7}',
                     onTap: () {
                       HavenHaptics.tap();
                       context.push('/add-item/quick/${ItemCategory.other.name}');
@@ -250,21 +249,16 @@ class AddItemScreen extends ConsumerWidget {
               const SizedBox(height: HavenSpacing.lg),
 
               // Divider with "or"
-              const Row(
+              Row(
                 children: [
-                  Expanded(child: Divider(color: HavenColors.border)),
+                  const Expanded(child: Divider()),
                   Padding(
-                    padding: EdgeInsets.symmetric(
+                    padding: const EdgeInsets.symmetric(
                         horizontal: HavenSpacing.md),
-                    child: Text(
-                      'or',
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: HavenColors.textTertiary,
-                      ),
-                    ),
+                    child: Text('or',
+                        style: HavenText.caption.copyWith(letterSpacing: 1)),
                   ),
-                  Expanded(child: Divider(color: HavenColors.border)),
+                  const Expanded(child: Divider()),
                 ],
               ),
 
@@ -311,55 +305,44 @@ class AddItemScreen extends ConsumerWidget {
 class _CategoryTile extends StatelessWidget {
   final ItemCategory category;
   final String label;
-  final String? customEmoji;
   final VoidCallback onTap;
 
   const _CategoryTile({
     required this.category,
     required this.label,
-    this.customEmoji,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
     // Ch05 a11y: every quick-add tile is a button; expose the label so
-    // VoiceOver/TalkBack reads "Fridge button" instead of "image".
-    return Semantics(
-      button: true,
-      label: 'Add $label',
-      child: Material(
-        color: HavenColors.elevated,
-        borderRadius: BorderRadius.circular(HavenRadius.button),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(HavenRadius.button),
-          child: Container(
-            constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                customEmoji != null
-                    ? Text(
-                        customEmoji!,
-                        style: const TextStyle(fontSize: 28),
-                      )
-                    : CategoryIcon.widget(category, size: 28),
-                const SizedBox(height: HavenSpacing.sm),
-                Text(
-                  label,
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: HavenColors.textSecondary,
-                    fontWeight: FontWeight.w500,
-                  ),
-                  textAlign: TextAlign.center,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+    // VoiceOver/TalkBack reads "Add Fridge button" instead of "image".
+    return HavenCard.elevated(
+      padding: EdgeInsets.zero,
+      semanticLabel: 'Add $label',
+      onTap: onTap,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CategoryIcon.widget(category, size: 24, boxed: false),
+            const SizedBox(height: HavenSpacing.sm),
+            Padding(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: HavenSpacing.xs),
+              child: Text(
+                label,
+                style: HavenText.caption.copyWith(
+                  color: HavenColors.textSecondary,
+                  fontWeight: FontWeight.w500,
                 ),
-              ],
+                textAlign: TextAlign.center,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
-          ),
+          ],
         ),
       ),
     );
@@ -384,57 +367,44 @@ class _MethodCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: isDisabled ? null : onTap,
-      child: Opacity(
-        opacity: isDisabled ? 0.5 : 1.0,
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(HavenSpacing.md),
-          decoration: BoxDecoration(
-            color: HavenColors.surface,
-            borderRadius: BorderRadius.circular(HavenRadius.button),
-            border: Border.all(color: HavenColors.border),
-          ),
-          child: Row(
-            children: [
-              Icon(
-                icon,
-                color: HavenColors.textSecondary,
-                size: 24,
-              ),
-              const SizedBox(width: HavenSpacing.md),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                        color: HavenColors.textPrimary,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      subtitle,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: HavenColors.textTertiary,
-                      ),
-                    ),
-                  ],
+    return Opacity(
+      opacity: isDisabled ? 0.5 : 1.0,
+      child: HavenCard(
+        radius: HavenRadius.button,
+        width: double.infinity,
+        semanticLabel: '$title. $subtitle',
+        onTap: isDisabled ? null : onTap,
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(HavenSpacing.sm + 2),
+              decoration: BoxDecoration(
+                color: HavenColors.primary.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(HavenRadius.button),
+                border: Border.all(
+                  color: HavenColors.primary.withValues(alpha: 0.16),
                 ),
               ),
-              if (!isDisabled)
-                const Icon(
-                  Icons.chevron_right,
-                  color: HavenColors.textTertiary,
-                  size: 20,
-                ),
-            ],
-          ),
+              child: Icon(icon, color: HavenColors.primary, size: 22),
+            ),
+            const SizedBox(width: HavenSpacing.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: HavenText.titleMedium),
+                  const SizedBox(height: 2),
+                  Text(subtitle, style: HavenText.caption),
+                ],
+              ),
+            ),
+            if (!isDisabled)
+              const Icon(
+                Icons.chevron_right,
+                color: HavenColors.textTertiary,
+                size: 20,
+              ),
+          ],
         ),
       ),
     );

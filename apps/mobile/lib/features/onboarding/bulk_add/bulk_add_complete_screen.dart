@@ -364,41 +364,31 @@ class _BulkAddCompleteScreenState
               const SizedBox(height: HavenSpacing.lg),
 
               // Room breakdown
-              Container(
+              HavenCard(
                 width: double.infinity,
-                padding: const EdgeInsets.all(HavenSpacing.md),
-                decoration: BoxDecoration(
-                  color: HavenColors.surface,
-                  borderRadius: BorderRadius.circular(HavenRadius.card),
-                  border: Border.all(color: HavenColors.border),
-                ),
                 child: Column(
-                  children: summary.entries.map((entry) {
-                    return Padding(
-                      padding:
-                          const EdgeInsets.symmetric(vertical: HavenSpacing.xs),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    for (var i = 0; i < summary.length; i++) ...[
+                      if (i > 0)
+                        const Divider(height: HavenSpacing.md),
+                      Row(
                         children: [
-                          Text(
-                            entry.key,
-                            style: const TextStyle(
-                              fontSize: 14,
-                              color: HavenColors.textPrimary,
-                            ),
+                          Icon(summary[i].icon,
+                              size: 18, color: HavenColors.textSecondary),
+                          const SizedBox(width: HavenSpacing.sm),
+                          Expanded(
+                            child: Text(summary[i].name, style: HavenText.body),
                           ),
                           Text(
-                            '${entry.value}',
-                            style: const TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                              color: HavenColors.textPrimary,
+                            '${summary[i].count}',
+                            style: HavenText.body.copyWith(
+                              fontWeight: FontWeight.w700,
                             ),
                           ),
                         ],
                       ),
-                    );
-                  }).toList(),
+                    ],
+                  ],
                 ),
               ),
 

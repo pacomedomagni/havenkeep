@@ -6,10 +6,16 @@ import 'package:shared_ui/shared_ui.dart';
 import '../../core/router/router.dart';
 import '../../core/widgets/havenkeep_logo.dart';
 
-/// Two-page first-launch intro that pitches the app's value before the
-/// user hits the welcome / sign-in screen. Shown only on the very first
-/// cold-start after install — gated by [introSeenPrefsKey] in
-/// SharedPreferences. Returning users skip straight to /welcome.
+/// Three-page, photo-backed first-launch intro. Shown only on the very
+/// first cold-start after install — gated by [introSeenPrefsKey] in
+/// SharedPreferences; returning users skip straight to /welcome.
+///
+/// Each page is a full-bleed photograph (bundled, ~590 KB total — see
+/// assets/images/onboarding/CREDITS.md) under a dark gradient scrim and a
+/// faint indigo wash, with a small icon chip + headline + body anchored to
+/// the bottom over the darkest part. The photo crossfades + does a slow
+/// Ken-Burns drift between pages. If a photo asset is ever missing the
+/// page falls back to a brand-gradient fill, so onboarding never breaks.
 class OnboardingIntroScreen extends StatefulWidget {
   const OnboardingIntroScreen({super.key});
 
@@ -25,26 +31,35 @@ class _OnboardingIntroScreenState extends State<OnboardingIntroScreen> {
   final PageController _pageController = PageController();
   int _currentPage = 0;
 
-  // Two pages — kept short on purpose. Apple/Google design guidance both
-  // recommend ≤3 intro screens before the first interactive surface.
+  // Three pages — own it / inbox→warranties / stay covered. Apple & Google
+  // both recommend ≤3 intro screens before the first interactive surface.
   static const List<_IntroPage> _pages = [
     _IntroPage(
-      gradient: [HavenColors.primary, HavenColors.secondary],
-      icon: Icons.mark_email_read_outlined,
-      title: 'Receipts arrive in your inbox.\nYour warranties live here.',
+      asset: 'assets/images/onboarding/1.jpg',
+      fallbackGradient: [HavenColors.primary, HavenColors.secondary],
+      icon: Icons.home_outlined,
+      title: 'Everything you own,\nin one place.',
       body:
-          'Connect Gmail or Outlook and HavenKeep auto-imports every '
-          'purchase receipt. No data entry — just a complete library of '
-          'everything you own and what it cost.',
+          'Your fridge, your TV, the new roof — HavenKeep keeps a complete '
+          'record of what you own, what it cost, and how long it\'s covered.',
     ),
     _IntroPage(
-      gradient: [HavenColors.secondary, HavenColors.accent],
-      icon: Icons.shield_outlined,
-      title: 'Required maintenance keeps\nyour warranties valid.',
+      asset: 'assets/images/onboarding/2.jpg',
+      fallbackGradient: [HavenColors.secondary, HavenColors.accent],
+      icon: Icons.mark_email_read_outlined,
+      title: 'Receipts in your inbox\nbecome warranties here.',
       body:
-          'Skip a service interval, void the coverage. We schedule the '
-          'right tasks per item, send reminders before they\'re due, and '
-          'log every claim so you see exactly how much HavenKeep saved you.',
+          'Connect Gmail or Outlook and HavenKeep imports every purchase '
+          'receipt automatically. No data entry — your library builds itself.',
+    ),
+    _IntroPage(
+      asset: 'assets/images/onboarding/3.jpg',
+      fallbackGradient: [HavenColors.accent, HavenColors.accentSecondary],
+      icon: Icons.verified_outlined,
+      title: 'Stay covered.\nNever miss a beat.',
+      body:
+          'We schedule the maintenance that keeps coverage valid, remind you '
+          'before anything\'s due, and log every claim — so your home is handled.',
     ),
   ];
 
@@ -69,7 +84,7 @@ class _OnboardingIntroScreenState extends State<OnboardingIntroScreen> {
   void _nextPage() {
     if (_currentPage < _pages.length - 1) {
       _pageController.nextPage(
-        duration: const Duration(milliseconds: 300),
+        duration: HavenMotion.slow,
         curve: Curves.easeOutCubic,
       );
     } else {
@@ -82,168 +97,285 @@ class _OnboardingIntroScreenState extends State<OnboardingIntroScreen> {
     final isLastPage = _currentPage == _pages.length - 1;
 
     return Scaffold(
-      backgroundColor: HavenColors.background,
-      body: SafeArea(
-        child: Column(
-          children: [
-            // Top bar — small wordmark + Skip on non-final pages.
-            Padding(
-              padding: const EdgeInsets.fromLTRB(
-                HavenSpacing.lg,
-                HavenSpacing.md,
-                HavenSpacing.lg,
-                0,
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const HavenKeepLogo(size: 28, showWordmark: true),
-                  AnimatedOpacity(
-                    duration: const Duration(milliseconds: 200),
-                    opacity: isLastPage ? 0 : 1,
-                    child: TextButton(
-                      onPressed: isLastPage ? null : _markSeenAndContinue,
-                      style: TextButton.styleFrom(
-                        foregroundColor: HavenColors.textSecondary,
-                      ),
-                      child: const Text('Skip'),
-                    ),
-                  ),
-                ],
+      backgroundColor: HavenColors.canvas,
+      body: Stack(
+        children: [
+          // ── The photo layer — crossfades between pages ───────────────
+          // We paint the *current* page's photo full-bleed under everything.
+          // PageView (transparent) rides on top for the swipe gesture +
+          // the text content; AnimatedSwitcher dissolves the photo when
+          // _currentPage changes so the swipe slides the text but the
+          // background fades — feels more cinematic than a hard slide.
+          Positioned.fill(
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 600),
+              switchInCurve: Curves.easeOut,
+              switchOutCurve: Curves.easeIn,
+              child: _PhotoBackdrop(
+                key: ValueKey(_currentPage),
+                page: _pages[_currentPage],
               ),
             ),
+          ),
 
-            // PageView — the meat.
-            Expanded(
-              child: PageView.builder(
-                controller: _pageController,
-                onPageChanged: (i) => setState(() => _currentPage = i),
-                itemCount: _pages.length,
-                itemBuilder: (_, i) => _IntroPageView(page: _pages[i]),
-              ),
-            ),
-
-            // Indicator + CTA.
-            Padding(
-              padding: const EdgeInsets.fromLTRB(
-                HavenSpacing.lg,
-                HavenSpacing.md,
-                HavenSpacing.lg,
-                HavenSpacing.xl,
-              ),
-              child: Column(
-                children: [
-                  _PageIndicator(
-                    pageCount: _pages.length,
-                    currentPage: _currentPage,
-                  ),
-                  const SizedBox(height: HavenSpacing.xl),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 56,
-                    child: ElevatedButton(
-                      onPressed: _nextPage,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: HavenColors.primary,
-                        foregroundColor: Colors.white,
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(HavenRadius.card),
+          // ── Foreground: top bar + swipeable text + indicator + CTA ───
+          SafeArea(
+            child: Column(
+              children: [
+                // Top bar — small wordmark + Skip on non-final pages.
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                      HavenSpacing.lg, HavenSpacing.md, HavenSpacing.lg, 0),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const HavenKeepLogo(size: 26, showWordmark: true),
+                      AnimatedOpacity(
+                        duration: HavenMotion.fast,
+                        opacity: isLastPage ? 0 : 1,
+                        child: TextButton(
+                          onPressed: isLastPage ? null : _markSeenAndContinue,
+                          style: TextButton.styleFrom(
+                            foregroundColor:
+                                Colors.white.withValues(alpha: 0.85),
+                          ),
+                          child: const Text('Skip'),
                         ),
                       ),
-                      child: AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 200),
-                        child: Text(
-                          isLastPage ? 'Get started' : 'Next',
-                          key: ValueKey(isLastPage),
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
+                    ],
+                  ),
+                ),
+
+                // Swipeable text content. The PageView itself is
+                // transparent — only the headline/body live here; the
+                // photo is the AnimatedSwitcher layer behind.
+                Expanded(
+                  child: PageView.builder(
+                    controller: _pageController,
+                    onPageChanged: (i) => setState(() => _currentPage = i),
+                    itemCount: _pages.length,
+                    itemBuilder: (_, i) => _IntroPageText(page: _pages[i]),
+                  ),
+                ),
+
+                // Indicator + CTA over the darkest part of the scrim.
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(HavenSpacing.lg,
+                      HavenSpacing.md, HavenSpacing.lg, HavenSpacing.xl),
+                  child: Column(
+                    children: [
+                      _PageIndicator(
+                        pageCount: _pages.length,
+                        currentPage: _currentPage,
+                      ),
+                      const SizedBox(height: HavenSpacing.xl),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 54,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(HavenRadius.card),
+                            boxShadow:
+                                HavenElevation.glow(HavenColors.primary),
+                          ),
+                          child: FilledButton(
+                            onPressed: _nextPage,
+                            style: FilledButton.styleFrom(
+                              shape: RoundedRectangleBorder(
+                                borderRadius:
+                                    BorderRadius.circular(HavenRadius.card),
+                              ),
+                            ),
+                            child: AnimatedSwitcher(
+                              duration: HavenMotion.fast,
+                              child: Text(
+                                isLastPage ? 'Get started' : 'Continue',
+                                key: ValueKey(isLastPage),
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
                           ),
                         ),
                       ),
-                    ),
+                    ],
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 }
 
 class _IntroPage {
-  final List<Color> gradient;
+  final String asset;
+  final List<Color> fallbackGradient;
   final IconData icon;
   final String title;
   final String body;
 
   const _IntroPage({
-    required this.gradient,
+    required this.asset,
+    required this.fallbackGradient,
     required this.icon,
     required this.title,
     required this.body,
   });
 }
 
-class _IntroPageView extends StatelessWidget {
+/// Full-bleed photo (or gradient fallback) + a slow Ken-Burns drift + the
+/// dark scrim that makes the bottom-anchored text legible + a faint indigo
+/// brand wash.
+class _PhotoBackdrop extends StatefulWidget {
   final _IntroPage page;
-  const _IntroPageView({required this.page});
+  const _PhotoBackdrop({super.key, required this.page});
+
+  @override
+  State<_PhotoBackdrop> createState() => _PhotoBackdropState();
+}
+
+class _PhotoBackdropState extends State<_PhotoBackdrop>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ken;
+
+  @override
+  void initState() {
+    super.initState();
+    // Slow zoom + pan over ~14s, ping-ponging so it never snaps.
+    _ken = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 14),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _ken.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        // The photo, gently scaled + nudged.
+        AnimatedBuilder(
+          animation: _ken,
+          builder: (context, child) {
+            final t = Curves.easeInOut.transform(_ken.value);
+            return Transform.scale(
+              scale: 1.06 + 0.06 * t, // 1.06 → 1.12
+              alignment: Alignment.lerp(
+                Alignment.topCenter,
+                Alignment.bottomCenter,
+                t,
+              )!,
+              child: child,
+            );
+          },
+          child: Image.asset(
+            widget.page.asset,
+            fit: BoxFit.cover,
+            // If the asset is ever missing (e.g. a fresh checkout before
+            // the photos are committed), fall back to the brand gradient
+            // so the page still renders.
+            errorBuilder: (_, __, ___) => DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: widget.page.fallbackGradient,
+                ),
+              ),
+            ),
+          ),
+        ),
+
+        // Dark gradient scrim — transparent up top (photo breathes),
+        // ramping to near-black at the bottom where the headline + CTA sit.
+        DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                HavenColors.canvas.withValues(alpha: 0.20),
+                HavenColors.canvas.withValues(alpha: 0.10),
+                HavenColors.canvas.withValues(alpha: 0.55),
+                HavenColors.canvas.withValues(alpha: 0.94),
+              ],
+              stops: const [0.0, 0.32, 0.62, 1.0],
+            ),
+          ),
+        ),
+
+        // A faint indigo brand wash so the photos read as "ours".
+        DecoratedBox(
+          decoration: BoxDecoration(
+            color: HavenColors.primary.withValues(alpha: 0.06),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// The text content of one intro page — icon chip + headline + body,
+/// anchored to the bottom over the scrim. (The photo lives in
+/// [_PhotoBackdrop], rendered behind the whole PageView.)
+class _IntroPageText extends StatelessWidget {
+  final _IntroPage page;
+  const _IntroPageText({required this.page});
+
+  static const _textShadow = [
+    Shadow(color: Color(0xCC000000), blurRadius: 16, offset: Offset(0, 2)),
+  ];
 
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: HavenSpacing.xl),
       child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisAlignment: MainAxisAlignment.end,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Hero — gradient circle with the icon. Premium look without
-          // requiring a custom illustration per page.
-          Center(
-            child: Container(
-              width: 200,
-              height: 200,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: page.gradient,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: page.gradient.first.withValues(alpha: 0.35),
-                    blurRadius: 60,
-                    spreadRadius: 4,
-                  ),
-                ],
-              ),
-              child: Icon(page.icon, size: 96, color: Colors.white),
+          // Small frosted icon chip.
+          Container(
+            padding: const EdgeInsets.all(HavenSpacing.sm + 2),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.16),
+              borderRadius: BorderRadius.circular(HavenRadius.button),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
             ),
+            child: Icon(page.icon, size: 22, color: Colors.white),
           ),
-          const SizedBox(height: HavenSpacing.xxl),
+          const SizedBox(height: HavenSpacing.md + 2),
           Text(
             page.title,
-            style: const TextStyle(
-              fontSize: 28,
-              fontWeight: FontWeight.w700,
-              color: HavenColors.textPrimary,
-              height: 1.2,
-              letterSpacing: -0.5,
+            style: HavenText.hero.copyWith(
+              fontSize: 30,
+              height: 1.15,
+              color: Colors.white,
+              shadows: _textShadow,
             ),
           ),
-          const SizedBox(height: HavenSpacing.md),
+          const SizedBox(height: HavenSpacing.sm + 2),
           Text(
             page.body,
-            style: const TextStyle(
-              fontSize: 16,
-              color: HavenColors.textSecondary,
+            style: HavenText.body.copyWith(
+              fontSize: 15,
               height: 1.5,
+              color: Colors.white.withValues(alpha: 0.9),
+              shadows: _textShadow,
             ),
           ),
+          const SizedBox(height: HavenSpacing.lg),
         ],
       ),
     );
@@ -254,10 +386,7 @@ class _PageIndicator extends StatelessWidget {
   final int pageCount;
   final int currentPage;
 
-  const _PageIndicator({
-    required this.pageCount,
-    required this.currentPage,
-  });
+  const _PageIndicator({required this.pageCount, required this.currentPage});
 
   @override
   Widget build(BuildContext context) {
@@ -266,18 +395,18 @@ class _PageIndicator extends StatelessWidget {
       children: [
         for (int i = 0; i < pageCount; i++) ...[
           AnimatedContainer(
-            duration: const Duration(milliseconds: 240),
+            duration: HavenMotion.medium,
             curve: Curves.easeOutCubic,
-            width: i == currentPage ? 28 : 8,
-            height: 8,
+            width: i == currentPage ? 26 : 7,
+            height: 7,
             decoration: BoxDecoration(
               color: i == currentPage
-                  ? HavenColors.primary
-                  : HavenColors.border,
+                  ? Colors.white
+                  : Colors.white.withValues(alpha: 0.35),
               borderRadius: BorderRadius.circular(4),
             ),
           ),
-          if (i != pageCount - 1) const SizedBox(width: 8),
+          if (i != pageCount - 1) const SizedBox(width: 7),
         ],
       ],
     );

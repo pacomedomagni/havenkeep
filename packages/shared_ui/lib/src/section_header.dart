@@ -28,12 +28,7 @@ class SectionHeader extends StatelessWidget {
   /// Optional tap handler; when provided, wraps the header in an [InkWell].
   final VoidCallback? onTap;
 
-  static const _labelStyle = TextStyle(
-    fontSize: 12,
-    fontWeight: FontWeight.bold,
-    color: HavenColors.textTertiary,
-    letterSpacing: 1.2,
-  );
+  static const _labelStyle = HavenText.overline;
 
   @override
   Widget build(BuildContext context) {

@@ -70,7 +70,9 @@ Future<void> main() async {
       const flavorString = String.fromEnvironment('FLAVOR', defaultValue: 'development');
       final environment = Environment.fromString(flavorString);
       try {
-        await dotenv.load(fileName: '.env.${environment.name}');
+        // Only `.env.bundled` is shipped under `assets:` (see
+        // scripts/prepare-env.sh) — load that, matching main.dart.
+        await dotenv.load(fileName: '.env.bundled');
       } catch (e) {
         debugPrint('[Screenshot] dotenv load skipped: $e');
       }
@@ -236,6 +238,13 @@ class _ScreenshotDriverGateState extends ConsumerState<_ScreenshotDriverGate> {
     } else {
       _emit('[SCREENSHOT_PHASE] no Refrigerator in items — skipping detail');
     }
+
+    // Land back on the dashboard so a manual screenshot after the walk
+    // captures the home screen.
+    router.go('/dashboard');
+    await Future<void>.delayed(const Duration(milliseconds: 1500));
+    _emit('[SCREENSHOT_READY] 09-dashboard-final');
+    await Future<void>.delayed(const Duration(milliseconds: 900));
 
     _emit('[SCREENSHOT_DONE]');
   }

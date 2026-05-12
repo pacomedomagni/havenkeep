@@ -184,22 +184,19 @@ class _AddItemWizardScreenState extends ConsumerState<AddItemWizardScreen> {
           CelebrationOverlay.show(
             context,
             type: CelebrationType.firstItem,
-            title: '🎉 Great start!',
+            title: 'Great start',
             subtitle: 'Your first item is protected. Keep adding to build your warranty vault.',
             onDismiss: () {
               context.go('/add-item/success/${newItem.id}', extra: newItem);
             },
           );
         } else {
-          // Subtle success feedback for subsequent items (Ch05-F026: route
-          // through HavenColors so the snackbar tracks the active theme).
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('✓ ${newItem.name} added successfully'),
-              duration: const Duration(seconds: 2),
-              behavior: SnackBarBehavior.floating,
-              backgroundColor: HavenColors.active,
-            ),
+          // Subtle success feedback for subsequent items.
+          showHavenSnackBar(
+            context,
+            message: '${newItem.name} added',
+            isSuccess: true,
+            duration: const Duration(seconds: 2),
           );
           context.go('/add-item/success/${newItem.id}', extra: newItem);
         }

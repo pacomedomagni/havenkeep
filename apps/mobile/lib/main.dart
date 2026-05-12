@@ -407,7 +407,17 @@ class _AppBootstrapState extends ConsumerState<AppBootstrap> {
   @override
   void initState() {
     super.initState();
-    _initializeServices();
+    // `enterDemoMode()` writes a provider synchronously; doing it inside
+    // initState would mutate `ProviderScope` mid-build (`!_dirty`). Defer
+    // it — and the rest of bootstrap — to after the first frame.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (_kDemoModeFlag && !ref.read(demoModeProvider).isEnabled) {
+        ref.read(demoModeProvider.notifier).enterDemoMode();
+        LoggingService.info('Demo mode auto-enabled via --dart-define', {});
+      }
+      _initializeServices();
+    });
   }
 
   /// Build-time toggle for demo mode (`--dart-define=DEMO_MODE=true`).
@@ -418,11 +428,6 @@ class _AppBootstrapState extends ConsumerState<AppBootstrap> {
       bool.fromEnvironment('DEMO_MODE', defaultValue: false);
 
   Future<void> _initializeServices() async {
-    if (_kDemoModeFlag && !ref.read(demoModeProvider).isEnabled) {
-      ref.read(demoModeProvider.notifier).enterDemoMode();
-      LoggingService.info('Demo mode auto-enabled via --dart-define', {});
-    }
-
     try {
       await ref.read(premiumServiceProvider).initialize();
     } catch (e) {

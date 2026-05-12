@@ -260,24 +260,34 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
   }
 
   Widget _buildHeroSection() {
-    return const Column(
-      children: [
-        Icon(
-          Icons.star,
-          size: 80,
-          color: HavenColors.gold,
-        ),
-        SizedBox(height: HavenSpacing.md),
-        Text(
-          'Unlock HavenKeep Premium',
-          style: TextStyle(
-            fontSize: 22,
-            fontWeight: FontWeight.bold,
-            color: HavenColors.textPrimary,
+    return HavenCard.highlight(
+      width: double.infinity,
+      glow: HavenColors.primary,
+      padding: const EdgeInsets.symmetric(
+          vertical: HavenSpacing.xl, horizontal: HavenSpacing.lg),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(HavenSpacing.md),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.16),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.workspace_premium_rounded,
+                size: 36, color: Colors.white),
           ),
-          textAlign: TextAlign.center,
-        ),
-      ],
+          const SizedBox(height: HavenSpacing.md),
+          Text('HavenKeep Premium',
+              style: HavenText.displayMedium.copyWith(color: Colors.white)),
+          const SizedBox(height: HavenSpacing.xs),
+          Text(
+            'Unlimited items, smart capture, PDF export, priority support.',
+            textAlign: TextAlign.center,
+            style: HavenText.bodySecondary
+                .copyWith(color: Colors.white.withValues(alpha: 0.9)),
+          ),
+        ],
+      ),
     );
   }
 
@@ -314,59 +324,69 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
     required List<_FeatureItem> features,
     required bool isFree,
   }) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(HavenSpacing.lg),
-      decoration: BoxDecoration(
-        color: HavenColors.surface,
-        borderRadius: BorderRadius.circular(HavenRadius.card),
-        border: Border.all(
-          color: isFree ? HavenColors.border : HavenColors.gold,
-          width: isFree ? 1 : 2,
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: isFree ? HavenColors.textPrimary : HavenColors.gold,
+    final card = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text(
+              title,
+              style: HavenText.titleLarge.copyWith(
+                color: isFree ? HavenColors.textSecondary : HavenColors.gold,
+              ),
             ),
-          ),
-          const SizedBox(height: HavenSpacing.md),
-          ...features.map((feature) => _buildFeatureRow(feature, isFree)),
-        ],
-      ),
+            if (!isFree) ...[
+              const Spacer(),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: HavenColors.gold.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(HavenRadius.pill),
+                ),
+                child: Text('RECOMMENDED',
+                    style: HavenText.badge.copyWith(color: HavenColors.gold)),
+              ),
+            ],
+          ],
+        ),
+        const SizedBox(height: HavenSpacing.md),
+        ...features.map((feature) => _buildFeatureRow(feature, isFree)),
+      ],
+    );
+
+    if (isFree) {
+      return HavenCard.flat(width: double.infinity, child: card);
+    }
+    return HavenCard(
+      width: double.infinity,
+      borderColor: HavenColors.gold.withValues(alpha: 0.45),
+      glow: HavenColors.gold,
+      child: card,
     );
   }
 
   Widget _buildFeatureRow(_FeatureItem feature, bool isFree) {
+    final available = feature.isPremium;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: HavenSpacing.sm / 2),
+      padding: const EdgeInsets.symmetric(vertical: 5),
       child: Row(
         children: [
-          Icon(
-            feature.icon,
-            size: 20,
-            color: HavenColors.textSecondary,
-          ),
-          const SizedBox(width: HavenSpacing.sm),
+          Icon(feature.icon, size: 18, color: HavenColors.textTertiary),
+          const SizedBox(width: HavenSpacing.sm + 2),
           Expanded(
-            child: Text(
-              feature.text,
-              style: const TextStyle(
-                fontSize: 14,
-                color: HavenColors.textSecondary,
-              ),
-            ),
+            child: Text(feature.text,
+                style: HavenText.body.copyWith(
+                    color: available
+                        ? HavenColors.textPrimary
+                        : HavenColors.textSecondary)),
           ),
           Icon(
-            feature.isPremium ? Icons.check_circle : Icons.cancel,
-            size: 20,
-            color: feature.isPremium ? HavenColors.active : HavenColors.expired,
+            available ? Icons.check_circle : Icons.remove_circle_outline,
+            size: 18,
+            color: available
+                ? HavenColors.active
+                : HavenColors.textTertiary,
           ),
         ],
       ),

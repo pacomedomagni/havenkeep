@@ -86,26 +86,37 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final config = ref.watch(environmentConfigProvider);
 
     return Scaffold(
-      backgroundColor: HavenColors.background,
+      backgroundColor: HavenColors.canvas,
       appBar: AppBar(
         title: const Text('Settings'),
       ),
       body: ListView(
-        padding: const EdgeInsets.all(HavenSpacing.md),
+        padding: EdgeInsets.fromLTRB(
+          HavenSpacing.md,
+          HavenSpacing.md,
+          HavenSpacing.md,
+          HavenSpacing.xl + MediaQuery.paddingOf(context).bottom,
+        ),
         children: [
-          // Profile card
+          // Profile card — the hero of this screen.
           user.when(
-            data: (u) => GestureDetector(
+            data: (u) => HavenCard.elevated(
               onTap: () => context.push(AppRoutes.profile),
-              child: Container(
-                padding: const EdgeInsets.all(HavenSpacing.md),
-                decoration: BoxDecoration(
-                  color: HavenColors.elevated,
-                  borderRadius: BorderRadius.circular(HavenRadius.card),
-                ),
-                child: Row(
-                  children: [
-                    HavenAvatar(
+              glow: HavenColors.primary,
+              padding: const EdgeInsets.all(HavenSpacing.md + 2),
+              semanticLabel:
+                  '${u?.fullName ?? "User"}, ${u?.email ?? ""}. Edit profile.',
+              child: Row(
+                children: [
+                  Container(
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                          color: HavenColors.primary.withValues(alpha: 0.4),
+                          width: 1.5),
+                    ),
+                    padding: const EdgeInsets.all(2),
+                    child: HavenAvatar(
                       url: u?.avatarUrl,
                       radius: 24,
                       fallback: Text(
@@ -115,36 +126,28 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         ),
                       ),
                     ),
-                    const SizedBox(width: HavenSpacing.md),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            u?.fullName ?? 'User',
-                            style: HavenText.titleLarge,
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            u?.email ?? '',
-                            style: HavenText.meta,
-                          ),
-                        ],
-                      ),
+                  ),
+                  const SizedBox(width: HavenSpacing.md),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(u?.fullName ?? 'User', style: HavenText.titleLarge),
+                        const SizedBox(height: 2),
+                        Text(u?.email ?? '', style: HavenText.meta),
+                      ],
                     ),
-                    const Icon(
-                      Icons.chevron_right,
-                      color: HavenColors.textTertiary,
-                    ),
-                  ],
-                ),
+                  ),
+                  const Icon(Icons.chevron_right,
+                      color: HavenColors.textTertiary),
+                ],
               ),
             ),
             loading: () => const SizedBox.shrink(),
             error: (_, __) => const SizedBox.shrink(),
           ),
 
-          const SizedBox(height: HavenSpacing.lg),
+          const SizedBox(height: HavenSpacing.xl),
 
           // HOME section
           const SectionHeader(title: 'HOME'),
@@ -532,45 +535,43 @@ class _SettingsTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return HavenCard(
       onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(HavenSpacing.md),
-        decoration: BoxDecoration(
-          color: HavenColors.surface,
-          borderRadius: BorderRadius.circular(HavenRadius.card),
-          border: Border.all(color: HavenColors.border),
-        ),
-        child: Row(
-          children: [
-            Icon(icon, color: HavenColors.textSecondary, size: 22),
-            const SizedBox(width: HavenSpacing.md),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: HavenText.titleMedium.copyWith(
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  if (subtitle != null) ...[
-                    const SizedBox(height: 2),
-                    Text(subtitle!, style: HavenText.caption),
-                  ],
-                ],
-              ),
+      semanticLabel: subtitle != null ? '$title. $subtitle' : title,
+      padding: const EdgeInsets.symmetric(
+          horizontal: HavenSpacing.md, vertical: HavenSpacing.sm + 4),
+      child: Row(
+        children: [
+          Container(
+            width: 32,
+            height: 32,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: HavenColors.primary.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(HavenRadius.pill),
+              border: Border.all(
+                  color: HavenColors.primary.withValues(alpha: 0.16)),
             ),
-            if (trailing != null) trailing!,
-            if (onTap != null && trailing == null)
-              const Icon(
-                Icons.chevron_right,
-                color: HavenColors.textTertiary,
-                size: 20,
-              ),
-          ],
-        ),
+            child: Icon(icon, color: HavenColors.primary, size: 18),
+          ),
+          const SizedBox(width: HavenSpacing.md - 2),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: HavenText.titleMedium),
+                if (subtitle != null) ...[
+                  const SizedBox(height: 1),
+                  Text(subtitle!, style: HavenText.caption),
+                ],
+              ],
+            ),
+          ),
+          if (trailing != null) trailing!,
+          if (onTap != null && trailing == null)
+            const Icon(Icons.chevron_right,
+                color: HavenColors.textTertiary, size: 20),
+        ],
       ),
     );
   }
