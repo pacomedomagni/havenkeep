@@ -79,7 +79,12 @@ export class PartnersService {
         [userId],
       );
       if (existing.rows.length > 0) {
-        throw new AppError('User is already registered as a partner', 400);
+        // 409 is the semantic match — duplicate resource creation, not a
+        // bad-request shape problem. The dashboard's /recover-profile
+        // server action branches on 409 to redirect a racing user to
+        // /dashboard instead of stranding them with a generic error
+        // (audit H1 second-pass).
+        throw new AppError('User is already registered as a partner', 409);
       }
 
       const result = await client.query(

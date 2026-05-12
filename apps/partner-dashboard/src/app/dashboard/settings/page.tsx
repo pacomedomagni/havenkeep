@@ -81,7 +81,7 @@ export default function SettingsPage() {
     if (logoUrl && !isSafeLogoUrl(logoUrl)) {
       // Audit Ch10-W024: reject the logo URL on the way in rather than
       // rendering an unsafe `<img src>` later.
-      setError('Logo URL must be an http or https URL.');
+      setError('Logo URL must be an https URL.');
       setLoading(false);
       return;
     }

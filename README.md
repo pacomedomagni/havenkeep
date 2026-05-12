@@ -398,7 +398,7 @@ Per-app routing (Caddy at `/opt/staging/infra/Caddyfile`):
 
 Staging secrets live on the droplet, not in this repo:
 - `/opt/staging/havenkeep/.env` — just `IMAGE_TAG=<tag>`, read by compose.
-- `/opt/staging/havenkeep/.env.api` — API runtime env: `APP_BASE_URL`, `FRONTEND_URL`, `DASHBOARD_URL`, `CORS_ORIGINS`, `STRIPE_*`, `JWT_SECRET`, etc.
+- `/opt/staging/havenkeep/.env.api` — API runtime env: `APP_BASE_URL`, `FRONTEND_URL`, `DASHBOARD_URL`, `CORS_ORIGINS`, `JWT_SECRET`, `REFRESH_TOKEN_SECRET`, `OAUTH_TOKEN_ENCRYPTION_SECRET`, OAuth client IDs/secrets, SendGrid + OpenAI + RevenueCat keys, etc.
 - `/opt/staging/havenkeep/.env.dashboard` — Next.js runtime env.
 - `/opt/staging/infra/.env` — shared infra (postgres root password, per-app DB passwords, MinIO root + 6 per-app keypairs, Redis password).
 

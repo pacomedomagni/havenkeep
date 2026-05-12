@@ -95,7 +95,8 @@ const TABLES = [
   'user_oauth_integrations',
   'user_mfa_backup_codes',
   'user_mfa_factors',
-  // Phase 6 tables — keep before `users` so the FK CASCADE order holds.
+  // Tables with FK to users — listed before `users` so the explicit
+  // TRUNCATE order matches the FK CASCADE direction.
   'openai_usage',
   'receipt_scan_idempotency',
   'items',

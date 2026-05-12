@@ -20,7 +20,7 @@ export async function recoverPartnerProfile(formData: FormData) {
     : 'realtor';
 
   if (!companyName) {
-    return { error: 'Company or business name is required.' };
+    return { error: 'Company or business name is required' };
   }
 
   try {

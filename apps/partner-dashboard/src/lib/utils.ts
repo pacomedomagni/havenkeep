@@ -54,8 +54,11 @@ export function isSafeActivationUrl(value: string | null | undefined): value is 
 
 /**
  * Validate a logo URL before rendering it as an `<img src>`. Rejects
- * `javascript:` / `data:` / `file:` / opaque-origin URLs (audit Ch10-W024).
- * Allowed protocols: http, https.
+ * `javascript:` / `data:` / `file:` / `http:` / opaque-origin URLs
+ * (audit Ch10-W024 + 2nd-pass H3). https-only because:
+ *   1. The settings page UI explicitly tells partners "Must be an https URL".
+ *   2. The production CSP `img-src` directive allows only `https:` —
+ *      an http URL set here would render in dev but fail in prod.
  */
 export function isSafeLogoUrl(value: string | null | undefined): value is string {
   if (typeof value !== 'string' || value.length === 0) return false;
@@ -66,5 +69,5 @@ export function isSafeLogoUrl(value: string | null | undefined): value is string
   } catch {
     return false;
   }
-  return url.protocol === 'https:' || url.protocol === 'http:';
+  return url.protocol === 'https:';
 }

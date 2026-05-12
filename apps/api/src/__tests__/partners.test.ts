@@ -76,7 +76,7 @@ describe('Partners Routes', () => {
       });
     });
 
-    it('should return 400 when the user tries to register as a partner a second time', async () => {
+    it('should return 409 when the user tries to register as a partner a second time', async () => {
       await request(app)
         .post('/api/v1/partners/register')
         .set('Authorization', `Bearer ${token}`)
@@ -87,7 +87,10 @@ describe('Partners Routes', () => {
         .set('Authorization', `Bearer ${token}`)
         .send(REGISTER_PAYLOAD);
 
-      expect(res.status).toBe(400);
+      // Audit H1 (second pass): duplicate-create is a CONFLICT, not a
+      // bad request. /recover-profile branches on 409 to route to
+      // /dashboard when a race writes the row from another tab.
+      expect(res.status).toBe(409);
     });
   });
 

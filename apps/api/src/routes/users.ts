@@ -35,15 +35,9 @@ async function presignAvatar<T extends { avatar_url?: string | null }>(row: T): 
 const router = Router();
 router.use(authenticate);
 
-// Get current user profile.
-//
-// Ch08-User-D003 / D004: deleted_at + deletion_scheduled_for are returned so
-// the client can render the "your account is scheduled for deletion in N days"
-// banner and the recover button. They're NULL outside the cooling-off window.
-//
-// The `stripe_customer_id` column referenced by older versions of this file
-// no longer exists — migration 115 dropped it as part of the partner-program
-// simplification.
+// Get current user profile. `deleted_at` + `deletion_scheduled_for` drive the
+// "your account is scheduled for deletion in N days" banner — they're NULL
+// outside the cooling-off window.
 router.get('/me', asyncHandler(async (req, res) => {
   // email_change_pending / email_change_target are derived from the most
   // recent active change-email token (the change-email route stores the new

@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:developer' as developer;
 import 'dart:io';
 import 'dart:math' as math;
 
@@ -21,6 +20,7 @@ import '../providers/documents_provider.dart';
 import '../providers/items_provider.dart';
 import '../providers/notifications_provider.dart';
 import '../utils/conflict_resolver.dart';
+import 'crashlytics_breadcrumb.dart';
 
 /// Maximum number of retry attempts for a single queued action.
 const _kMaxRetries = 3;
@@ -191,16 +191,16 @@ class OfflineSyncService {
     required Map<String, dynamic> payload,
   }) async {
     // Limit queue to _kMaxQueueSize entries to prevent unbounded growth.
-    // Audit M7: log via `dart:developer.log` (not debugPrint) so the
-    // eviction surfaces as a Crashlytics breadcrumb in release builds —
-    // without that signal we can't tell how many users silently lost
+    // Audit M2 (2nd pass): emit via the Crashlytics breadcrumb helper —
+    // `dart:developer.log` does NOT make it into Crashlytics breadcrumbs.
+    // Without this routing the eviction was invisible in production
+    // and on-call had no signal for how many users silently lost
     // long-offline changes.
     final queueSize = await _db.getQueueSize();
     if (queueSize >= _kMaxQueueSize) {
-      developer.log(
-        '[OfflineSync] queue eviction — size=$queueSize limit=$_kMaxQueueSize evicted=$_kQueueEvictionCount',
-        name: 'offline_sync',
-        level: 900, // WARNING
+      CrashlyticsBreadcrumb.log(
+        'offline_sync',
+        'queue eviction — size=$queueSize limit=$_kMaxQueueSize evicted=$_kQueueEvictionCount',
       );
       await _db.removeOldestEntries(_kQueueEvictionCount);
     }

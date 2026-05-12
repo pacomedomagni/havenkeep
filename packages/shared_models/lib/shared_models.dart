@@ -1,16 +1,17 @@
 /// HavenKeep shared data models.
 ///
-/// This package contains all data models used across the HavenKeep app:
+/// Data shapes used across the mobile app and any other Dart consumer:
 /// - User, Home, Item, Document
 /// - AppNotification, NotificationPreferences
-/// - ReferralPartner, Referral, AffiliateConversion
 /// - CategoryDefault, BrandSuggestion, Tip
-/// - Partner, PartnerGift, PartnerCommission
 /// - WarrantyClaim, WarrantyPurchase
-/// - MaintenanceSchedule + history
+/// - MaintenanceSchedule + history + due summaries
 /// - EmailScan, ContactSubmission
+/// - PartnerGift
+/// - ReceiptScanResult, BarcodeLookupResult
 /// - OfflineQueueEntry
-/// - All enums (Category, Room, WarrantyType, WarrantyStatus, etc.)
+/// - All enums (Category, Room, WarrantyType, ClaimStatus, etc.) plus the
+///   shared unknown-enum drift reporter.
 library shared_models;
 
 export 'src/enums.dart';

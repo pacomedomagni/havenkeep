@@ -198,7 +198,11 @@ Future<void> main() async {
           // has the breadcrumbs that fired during the ~50-200ms window
           // before _crashlyticsReady flipped. If the buffer overflowed
           // during that window, emit one explicit signal so on-call
-          // knows some drift was silently dropped.
+          // knows some drift was silently dropped. We intentionally
+          // don't reset `_enumDriftBufferOverflowed` after flushing —
+          // there's only one boot per process, so re-arming it would
+          // be dead code, and leaving it set is a useful "this process
+          // dropped breadcrumbs at boot" marker for later forensics.
           if (_enumDriftBufferOverflowed) {
             FirebaseCrashlytics.instance.log(
               'enum_drift_buffer_overflow: dropped events before Crashlytics was ready',
