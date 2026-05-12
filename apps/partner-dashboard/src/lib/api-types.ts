@@ -56,27 +56,22 @@ export interface AdminPartnerListItem {
   user_id: string;
   company_name: string | null;
   partner_type: string | null;
-  status?: 'pending' | 'active' | 'rejected';
-  is_active: boolean;
-  has_stripe_account: boolean;
   email: string;
   full_name: string;
   referral_code?: string | null;
+  count_gifts?: number;
+  count_activated_gifts?: number;
   created_at: string;
 }
 
 export interface AdminPartnerDetail extends AdminPartnerListItem {
   phone: string | null;
-  license_number: string | null;
   service_areas: string[] | string | null;
   brand_color: string | null;
   logo_url: string | null;
-  stripe_onboarded: boolean;
-  stripe_account_id: string | null;
   updated_at: string;
   gift_count?: number;
   referral_count?: number;
-  total_paid_amount?: number | string;
 }
 
 export interface AdminCommissionStats {

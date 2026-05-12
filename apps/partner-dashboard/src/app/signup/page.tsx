@@ -64,6 +64,41 @@ export default function SignUpPage() {
         </div>
 
         <div>
+          <label htmlFor="companyName" className="block text-sm font-medium text-haven-text-secondary mb-1.5">
+            Company or business name
+          </label>
+          <input
+            id="companyName"
+            name="companyName"
+            type="text"
+            required
+            className="input-field"
+            placeholder="e.g. Domagni Real Estate"
+          />
+          <p className="text-xs text-haven-text-tertiary mt-1">
+            Shown on the gift email to homebuyers.
+          </p>
+        </div>
+
+        <div>
+          <label htmlFor="partnerType" className="block text-sm font-medium text-haven-text-secondary mb-1.5">
+            What do you do?
+          </label>
+          <select
+            id="partnerType"
+            name="partnerType"
+            defaultValue="realtor"
+            className="input-field"
+          >
+            <option value="realtor">Realtor</option>
+            <option value="builder">Builder</option>
+            <option value="contractor">Contractor</option>
+            <option value="property_manager">Property Manager</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+
+        <div>
           <label htmlFor="email" className="block text-sm font-medium text-haven-text-secondary mb-1.5">
             Email
           </label>

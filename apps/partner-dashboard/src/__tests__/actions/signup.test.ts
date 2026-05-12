@@ -71,6 +71,8 @@ const VALID_FIELDS = {
   password: 'Secret1!',
   confirmPassword: 'Secret1!',
   fullName: 'Jane Doe',
+  companyName: 'Doe Realty',
+  partnerType: 'realtor',
 };
 
 describe('signUp', () => {
@@ -129,17 +131,20 @@ describe('signUp', () => {
     expect(result).toEqual({ error: 'Unable to connect to the server' });
   });
 
-  it('calls setAuthCookies and redirects to /onboarding on success', async () => {
-    mockFetch.mockResolvedValueOnce(
-      makeResponse(201, { success: true, data: { accessToken: 'at', refreshToken: 'rt' } })
-    );
+  it('calls setAuthCookies and redirects to /dashboard on success', async () => {
+    // Two fetch calls: /auth/register, then /partners/register.
+    mockFetch
+      .mockResolvedValueOnce(
+        makeResponse(201, { success: true, data: { accessToken: 'at', refreshToken: 'rt' } })
+      )
+      .mockResolvedValueOnce(makeResponse(201, { success: true, data: {} }));
     const fd = makeFormData(VALID_FIELDS);
 
     await expect(signUp(fd)).rejects.toThrow('NEXT_REDIRECT');
 
     expect(mockSetAuthCookies).toHaveBeenCalledOnce();
     expect(mockSetAuthCookies).toHaveBeenCalledWith('at', 'rt', mockCookieStore);
-    expect(mockRedirect).toHaveBeenCalledWith('/onboarding');
+    expect(mockRedirect).toHaveBeenCalledWith('/dashboard');
   });
 
   // Audit Ch10-W013: explicit fullName is required — we no longer auto-derive
@@ -151,9 +156,23 @@ describe('signUp', () => {
       email: 'janedoe@example.com',
       password: 'Secret1!',
       confirmPassword: 'Secret1!',
+      companyName: 'Doe Realty',
+      partnerType: 'realtor',
     });
     const result = await signUp(fd);
     expect(result).toEqual({ error: 'Full name is required' });
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('rejects signup when companyName is missing', async () => {
+    const fd = makeFormData({
+      email: 'janedoe@example.com',
+      password: 'Secret1!',
+      confirmPassword: 'Secret1!',
+      fullName: 'Jane Doe',
+    });
+    const result = await signUp(fd);
+    expect(result).toEqual({ error: 'Company or business name is required' });
     expect(mockFetch).not.toHaveBeenCalled();
   });
 });

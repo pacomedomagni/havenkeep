@@ -14,8 +14,8 @@ interface AuditPageStats {
 
 async function getAuditLogs(page: number = 1) {
   try {
-    const result = await serverApiClient<{ data: AuditLogEntry[]; pagination: PaginationMeta }>(`/api/v1/audit/logs?page=${page}&limit=50`)
-    return { data: { logs: result.data || [], pagination: result.pagination }, error: false }
+    const result = await serverApiClient<{ data: AuditLogEntry[]; meta?: { pagination?: PaginationMeta } }>(`/api/v1/audit/logs?page=${page}&limit=50`)
+    return { data: { logs: result.data || [], pagination: result.meta?.pagination ?? null }, error: false }
   } catch {
     return { data: { logs: [] as AuditLogEntry[], pagination: null }, error: true }
   }

@@ -76,9 +76,10 @@ vi.stubGlobal('fetch', mockFetch);
 
 // ---------------------------------------------------------------------------
 // Import the middleware after mocks are installed.
-// The file lives at the project root (apps/partner-dashboard/middleware.ts).
+// File lives at apps/partner-dashboard/src/middleware.ts — the only path
+// Next 14 looks at when the project uses src/app.
 // ---------------------------------------------------------------------------
-import { middleware } from '../../middleware';
+import { middleware } from '../middleware';
 
 // ---------------------------------------------------------------------------
 // Constants (must match those in middleware.ts)
@@ -159,6 +160,17 @@ describe('middleware', () => {
       isPartner: true,
     });
 
+    // H-A8: middleware no longer trusts the unverified JWT for role gating —
+    // it asks the API every ~30 seconds. Each test in this block must mock
+    // the `/auth/role-check` response so the middleware can derive isPartner.
+    beforeEach(() => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ data: { is_admin: false, is_partner: true } }),
+      });
+    });
+
     it('passes through to /dashboard for a partner', async () => {
       const req = createNextRequest('http://localhost:3001/dashboard', {
         [ACCESS_TOKEN_COOKIE]: partnerToken,
@@ -199,6 +211,14 @@ describe('middleware', () => {
       exp: Math.floor(Date.now() / 1000) + 3600,
       iat: Math.floor(Date.now() / 1000),
       isAdmin: true,
+    });
+
+    beforeEach(() => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ data: { is_admin: true, is_partner: false } }),
+      });
     });
 
     it('passes through to /admin for an admin', async () => {
@@ -297,13 +317,20 @@ describe('middleware', () => {
         exp: Math.floor(Date.now() / 1000) + 7 * 24 * 3600,
         iat: Math.floor(Date.now() / 1000),
       });
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          success: true,
-          data: { accessToken: freshToken, refreshToken: newRefreshToken },
-        }),
-      });
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            success: true,
+            data: { accessToken: freshToken, refreshToken: newRefreshToken },
+          }),
+        })
+        // H-A8: after refresh, middleware fetches /auth/role-check.
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { is_admin: false, is_partner: true } }),
+        });
 
       const req = createNextRequest('http://localhost:3001/dashboard', {
         [ACCESS_TOKEN_COOKIE]: expiredToken,
@@ -354,6 +381,13 @@ describe('middleware', () => {
     });
 
     it('redirects to /login when accessing /dashboard', async () => {
+      // H-A8: role-check confirms the user has no role — middleware redirects
+      // to /login (clearing cookies en route).
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ data: { is_admin: false, is_partner: false } }),
+      });
       const req = createNextRequest('http://localhost:3001/dashboard', {
         [ACCESS_TOKEN_COOKIE]: regularUserToken,
         [REFRESH_TOKEN_COOKIE]: 'rt',

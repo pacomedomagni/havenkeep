@@ -43,7 +43,6 @@ You need:
 - **PostgreSQL 16** running locally (or a cloud Postgres connection string).
 - **Redis 7+** for rate limits, the user cache, and webhook idempotency cursors.
 - **MinIO** (or any S3-compatible object store) for receipt photos. Optional for backend-only work; required for upload flows.
-- **Stripe CLI** (optional) for forwarding webhooks to your local API.
 - **Xcode 15+** if you want to run the iOS app locally.
 - **Android Studio + JDK 17** if you want to run the Android app locally.
 
@@ -71,132 +70,106 @@ cd havenkeep
 ( cd packages/shared_ui && flutter pub get )
 ```
 
-### 3.2 Start local infra
+### 3.2 Bring the whole stack up in Docker
 
-The repo root has a docker-compose stack for local dev. Bring it up from the repo root:
-
-```sh
-docker compose up -d postgres redis minio
-```
-
-`docker-compose.override.yml` is gitignored (so each developer can pick their own port assignments) but the checked-in one in this repo binds:
-
-- Postgres on `localhost:5434` (container name `havenkeep-postgres`), database `havenkeep`, user `havenkeep`, password `havenkeep_dev_2026`. Port `:5432` on the host machine is typically held by another local stack — that's why we map to `:5434`.
-- Redis on `localhost:6380` (`havenkeep-redis`), no auth. Same reason — `:6379` is usually taken.
-- MinIO on `localhost:9000` (console at `localhost:9011`, root user `minioadmin` / password from `.env`). The console port collides with another local app at `:9001` on most developer machines.
-
-If you don't have a docker-compose.override.yml and the default ports collide with another local stack, create one mirroring the layout shown in `docker-compose.override.yml.example` (or just stop the colliding container first).
-
-### 3.3 Configure the API
-
-Copy the example env file and fill in the values:
+Everything except the mobile app runs in `docker-compose` — Postgres, Redis, MinIO, the API, the partner dashboard, and the marketing site. From the repo root:
 
 ```sh
-cp .env.example apps/api/.env
+docker compose up -d --build
 ```
 
-Required at minimum:
+That brings up six containers and publishes them on the **40xx port range** (chosen to avoid clashing with other local stacks on `:3000`/`:5432`/`:9001` etc.):
 
-```env
-NODE_ENV=development
-PORT=3000
+| Service | Host URL | In-container target |
+|---|---|---|
+| **API** (`havenkeep-api`) | `http://localhost:4000` | `api:3000` |
+| **Postgres** (`havenkeep-postgres`) | `localhost:4001` | `postgres:5432` |
+| **Redis** (`havenkeep-redis`) | `localhost:4002` | `redis:6379` |
+| **MinIO S3 API** (`havenkeep-minio`) | `http://localhost:4003` | `minio:9000` |
+| **MinIO console** | `http://localhost:4004` | `minio:9001` |
+| **Partner dashboard** (`havenkeep-partner-dashboard`) | `http://localhost:4005` | `partner-dashboard:3001` |
+| **Marketing site** (`havenkeep-marketing`) | `http://localhost:4006` | `marketing:4321` |
 
-DATABASE_URL=postgresql://havenkeep:havenkeep_dev_2026@localhost:5434/havenkeep
-REDIS_URL=redis://localhost:6380
+The port-remap lives in `docker-compose.override.yml` (gitignored). The base `docker-compose.yml` uses the default ports for everything; the override exists so this repo can run alongside other projects that already squat the defaults on the same machine.
 
-JWT_SECRET=<32+ char random string>
-REFRESH_TOKEN_SECRET=<32+ char random string, different from JWT_SECRET>
+Wait for healthchecks (`docker compose ps` — `havenkeep-postgres / redis / minio` should be `healthy`; `api` is `running` once `/health` returns ok):
 
-# OAuth (optional in dev — leave blank if you don't need email scanner / Google / Apple sign-in)
-GOOGLE_CLIENT_ID=
-GOOGLE_CLIENT_SECRET=
-GOOGLE_AUDIENCES=
-APPLE_BUNDLE_ID=app.havenkeep.mobile
-APPLE_SERVICES_IDS=
-MICROSOFT_CLIENT_ID=
-MICROSOFT_CLIENT_SECRET=
-
-# Stripe (optional in dev unless you're working on payments)
-STRIPE_SECRET_KEY=sk_test_...
-STRIPE_WEBHOOK_SECRET=whsec_...
-
-# OpenAI (optional — needed only for receipt OCR + email scanner)
-OPENAI_API_KEY=
-
-# MinIO
-MINIO_ENDPOINT=http://localhost:9000
-MINIO_ACCESS_KEY=minioadmin
-MINIO_SECRET_KEY=minioadmin
-MINIO_BUCKET=havenkeep-dev
+```sh
+curl http://localhost:4000/health
+# → {"status":"ok","timestamp":"...","uptime":...,"environment":"development"}
 ```
+
+### 3.3 The local env file
+
+The root `.env` is the only env file you need to touch for local. It's checked in with placeholder values for everything that has a real key (OpenAI / OAuth / Firebase / SendGrid all blank); the secrets that *are* set (JWT, refresh token, OAuth encryption, DB / Redis / MinIO passwords) were freshly generated for local-dev only.
+
+Code paths that need an external service no-op gracefully when the key is absent:
+- **OpenAI blank** → receipt-scan + email-scanner Vision return 501. Quick-add / manual / barcode all work without it.
+- **Google/Apple/Microsoft OAuth blank** → email/password sign-in works; the social buttons hide and the OAuth-only routes return 501.
+- **SendGrid blank** → outbound mail logs + no-ops; the in-app inbox + push (if Firebase is set up) still work.
+- **Firebase blank** → no system push; the cron still writes `notification_history` rows so the in-app inbox and unread badge are correct.
 
 ### 3.4 Run migrations and seed data
 
-```sh
-cd apps/api
-npm run db:migrate       # runs every numbered migration under src/db/migrations/
-npm run db:seed          # category_defaults, brand_suggestions, maintenance_schedules, tips
-```
-
-The migration runner wraps `main()` in a Postgres advisory lock, so you can run it multiple times without races. It also auto-detects `ALTER TYPE ADD VALUE` and `CREATE INDEX CONCURRENTLY` and runs those outside transactions.
-
-If your local Postgres lives on a non-default port (the override file ships with `:5434`), pass `DATABASE_URL` inline:
+The API container does NOT auto-migrate at boot (so a deploy can roll back a bad migration cleanly). Run them once after the stack is up:
 
 ```sh
-DATABASE_URL=postgresql://havenkeep:havenkeep_dev_2026@localhost:5434/havenkeep npm run db:migrate
+docker compose exec api npm run db:migrate
+docker compose exec api npm run db:seed
 ```
 
-### 3.5 Start the API
+Migrations apply under a Postgres advisory lock so running this twice is a no-op. The seed creates two users (see § 3.5).
+
+### 3.5 Seeded local accounts
+
+After `db:seed` you can log in to the API / dashboard / mobile app with either of these:
+
+| Email | Password | Plan | Notes |
+|---|---|---|---|
+| `dev@havenkeep.com` | `DevPass1234!` | premium (10y) | Home pre-created with seed items + maintenance — drop into the dashboard with data. |
+| `onboarding@havenkeep.com` | `OnboardPass1234!` | free | No home, no items — exercises the first-action / bulk-add walkthrough. |
+
+Quick sanity check:
 
 ```sh
-cd apps/api
-npm run dev              # tsx watch, restarts on changes
+curl -s -X POST http://localhost:4000/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"dev@havenkeep.com","password":"DevPass1234!"}'
 ```
 
-The API is now running at `http://localhost:3000`. Health check: `curl http://localhost:3000/health`.
+### 3.6 Run the mobile app
 
-### 3.6 Start the partner dashboard
-
-Create `apps/partner-dashboard/.env.local`:
-
-```env
-API_URL=http://localhost:3000
-NEXT_PUBLIC_API_URL=
-```
-
-(`NEXT_PUBLIC_API_URL` is empty so the browser uses the same-origin proxy at `/api/v1/[...path]`. The proxy forwards to `API_URL`.)
-
-```sh
-cd apps/partner-dashboard
-npm run dev              # http://localhost:3001
-```
-
-### 3.7 Start the marketing site
-
-```sh
-cd apps/marketing
-npm run dev              # http://localhost:4321
-```
-
-### 3.8 Run the mobile app
-
-The mobile app reads env from `.env` (loaded by `flutter_dotenv`). We have flavor-specific env files; pick one with `scripts/prepare-env.sh`:
+The mobile app reads env from a bundled file (`flutter_dotenv`); `scripts/prepare-env.sh` selects the flavor:
 
 ```sh
 cd apps/mobile
-./scripts/prepare-env.sh development     # copies .env.development → .env
+bash scripts/prepare-env.sh development
 flutter pub get
-flutter run                              # picks the connected device or emulator
+flutter run                          # picks the connected device / emulator
 ```
 
 For a specific platform:
 
 ```sh
-flutter run -d "iPhone 15 Pro"           # iOS simulator (need Xcode)
-flutter run -d emulator-5554             # Android emulator
+flutter run -d "iPhone 16 Pro"       # iOS simulator (need Xcode)
+flutter run -d emulator-5554         # Android emulator
 ```
 
-If your local API is at `http://localhost:3000` and you're running on a physical device, replace `localhost` in `.env.development` with your machine's LAN IP (e.g. `http://192.168.1.42:3000`) — the device can't see `localhost` of your laptop.
+`.env.development` already points the app at `http://127.0.0.1:4000` (the docker API's host port). For a **physical device** on your LAN, swap `127.0.0.1` for your laptop's LAN IP — the phone can't see your loopback.
+
+### 3.7 Stop, reset, restart
+
+```sh
+docker compose stop                                 # pause everything, keep data
+docker compose start                                # resume
+docker compose down                                 # stop + remove containers (data persists)
+docker compose down -v                              # nuke containers + volumes (fresh DB/MinIO next boot)
+docker compose logs -f api                          # tail one service
+docker compose exec api npm run db:migrate          # re-apply migrations after pulling new code
+docker compose restart api                          # quick API restart (after touching code in dev mode)
+```
+
+The `havenkeep-api` container mounts `./apps/api/src` so saving a file triggers `tsx watch` and hot-restarts inside the container — you usually don't need to rebuild the image for code changes.
 
 ---
 
@@ -279,25 +252,25 @@ Per CLAUDE.md Rule 5 ("Ship with zero errors and zero warnings"), the final stat
 
 ### 4.4 Running `npm test` against the local DB
 
-The API jest suite truncates the schema between suites, so it refuses to run against any DB whose name doesn't contain `test`. Bootstrap a sibling test DB once:
+The API jest suite truncates the schema between suites, so it refuses to run against any DB whose name doesn't contain `test`. Bootstrap a sibling `havenkeep_test` DB once (DB password from the root `.env`'s `POSTGRES_PASSWORD`):
 
 ```sh
 docker exec havenkeep-postgres psql -U havenkeep -c "CREATE DATABASE havenkeep_test;"
-DATABASE_URL=postgresql://havenkeep:havenkeep_dev_2026@localhost:5434/havenkeep_test \
-  DB_HOST=localhost DB_PORT=5434 DB_NAME=havenkeep_test \
-  DB_USER=havenkeep DB_PASSWORD=havenkeep_dev_2026 \
-  npx tsx src/db/migrations/run-migration.ts
+
+# Migrate the test DB. The migration runner reads DATABASE_URL.
+DATABASE_URL=postgresql://havenkeep:$POSTGRES_PASSWORD@localhost:4001/havenkeep_test \
+  npm --prefix apps/api run db:migrate
 ```
 
 Then every run:
 
 ```sh
-DB_USER=havenkeep DB_PASSWORD=havenkeep_dev_2026 \
-  TEST_DB_PORT=5434 TEST_REDIS_URL=redis://localhost:6380 \
-  npm test
+DB_USER=havenkeep DB_PASSWORD=$POSTGRES_PASSWORD \
+  TEST_DB_PORT=4001 TEST_REDIS_URL=$REDIS_URL_HOST \
+  npm --prefix apps/api test
 ```
 
-`TEST_DB_PORT` and `TEST_REDIS_URL` are the harness's hooks for the non-default ports the docker-compose.override.yml ships with. Without them, the harness defaults to `:5432` / `:6379` and you get cryptic "password authentication failed" or "TCPWRAP" errors.
+`TEST_DB_PORT` and `TEST_REDIS_URL` are the harness's hooks for the 40xx ports the override ships with. `$REDIS_URL_HOST` is set in the root `.env` to a redis URL that goes via `localhost:4002` with the host-side password (the container's `REDIS_URL` points at the in-network hostname instead).
 
 If you encounter pre-existing errors or warnings in files you're touching (or adjacent to your work), you fix them. "Warnings that were already there" is not an acceptable excuse.
 
@@ -309,7 +282,7 @@ The mobile app supports three build flavors, each with its own `.env` file:
 
 | Flavor | env file | API base URL | Bundle suffix |
 |---|---|---|---|
-| development | `.env.development` | `http://localhost:3000` (or LAN IP) | `app.havenkeep.mobile.dev` |
+| development | `.env.development` | `http://localhost:4000` (or LAN IP) | `app.havenkeep.mobile.dev` |
 | staging | `.env.staging` | `https://api.staging.havenkeep.app` | `app.havenkeep.mobile.staging` |
 | production | `.env.production` | `https://api.havenkeep.com` | `app.havenkeep.mobile` |
 
@@ -356,28 +329,21 @@ docker compose up -d postgres redis minio
 ( cd apps/api && npm run db:migrate && npm run db:seed )    # set DATABASE_URL inline if your port isn't :5432
 ```
 
-### 8.2 Forward Stripe webhooks to local API
-
-```sh
-stripe listen --forward-to localhost:3000/api/v1/webhooks/stripe
-# copy the whsec_... it prints into apps/api/.env as STRIPE_WEBHOOK_SECRET
-```
-
-### 8.3 Tail the API logs in pretty form
+### 8.2 Tail the API logs in pretty form
 
 ```sh
 cd apps/api
 npm run dev | npx pino-pretty -t -i pid,hostname
 ```
 
-### 8.4 Connect to staging Postgres
+### 8.3 Connect to staging Postgres
 
 ```sh
 ssh root@206.189.26.12
 docker exec -it infra-postgres psql -U havenkeep -d havenkeep
 ```
 
-### 8.5 Tail staging logs
+### 8.4 Tail staging logs
 
 Browser: `https://logs.staging.kouakoudomagni.com` (Dozzle, basic auth — ask Domagni for credentials).
 
@@ -387,7 +353,7 @@ CLI:
 ssh root@206.189.26.12 'docker logs havenkeep-api -f'
 ```
 
-### 8.6 Verify the audit hash chain locally
+### 8.5 Verify the audit hash chain locally
 
 ```sh
 docker exec -it infra-postgres psql -U havenkeep -d havenkeep \
@@ -460,19 +426,15 @@ docker exec -it infra-postgres psql -U havenkeep -d havenkeep \
   -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE state = 'idle in transaction';"
 ```
 
-### 10.2 "Stripe webhook signatures keep failing locally"
-
-You're forwarding the webhook through `ngrok` or a CDN that compresses request bodies. Stripe's signature is computed over the raw body — any compression breaks it. Use `stripe listen --forward-to` (which preserves raw body) and make sure Express receives it via the raw-body matcher mounted before the JSON parser in [`apps/api/src/app.ts`](./apps/api/src/app.ts).
-
-### 10.3 "Mobile app says 'Unknown enum value'"
+### 10.2 "Mobile app says 'Unknown enum value'"
 
 The server is returning an enum value the client doesn't recognise. Check Crashlytics for the `enum_drift: ...` breadcrumb — it includes the enum name, the unknown value, and the fallback. Either the server shipped a new value before the mobile binary did (need a coordinated deploy) or you missed adding a case to the Dart enum (`packages/shared_models/lib/src/enums.dart` or the per-feature enums in `packages/shared_models/lib/src/*.dart`).
 
-### 10.4 "OAuth code redemption returns 'invalid_grant'"
+### 10.3 "OAuth code redemption returns 'invalid_grant'"
 
 The redirect URI must match between the OAuth client config (Google Cloud / Microsoft Azure / Apple Developer portal) and the value the API sends in the token-exchange POST. The mobile app passes its `redirect_uri` to `/api/v1/email-scanner/scan`; the API replays it verbatim. Mismatch → `invalid_grant`.
 
-### 10.5 "Mobile build fails on `pod install`"
+### 10.4 "Mobile build fails on `pod install`"
 
 ```sh
 cd apps/mobile/ios
@@ -483,13 +445,13 @@ pod install
 
 If still failing, check that `flutter doctor -v` shows the correct Xcode and that you've accepted the Xcode license: `sudo xcodebuild -license accept`.
 
-### 10.6 "I get 'CORS error' from the dashboard"
+### 10.5 "I get 'CORS error' from the dashboard"
 
-The dashboard's browser bundle ships with `NEXT_PUBLIC_API_URL=''` so calls go through the same-origin proxy at `/api/v1/[...path]`. If you've set `NEXT_PUBLIC_API_URL=http://localhost:3000`, the browser will make a cross-origin request and CORS will block it (the API only allows the dashboard's origin, not arbitrary origins). Unset that env var and let the proxy do its job.
+The dashboard's browser bundle ships with `NEXT_PUBLIC_API_URL=''` so calls go through the same-origin proxy at `/api/v1/[...path]`. If you've set `NEXT_PUBLIC_API_URL=http://localhost:4000`, the browser will make a cross-origin request and CORS will block it (the API only allows the dashboard's origin, not arbitrary origins). Unset that env var and let the proxy do its job.
 
-### 10.7 "Helmet says my CSP is broken"
+### 10.6 "Helmet says my CSP is broken"
 
-Helmet's CSP is locked to `api.stripe.com` + `api.revenuecat.com` plus the dashboard's own origin. If you're loading Stripe.js, RevenueCat SDK, or anything else from a different origin, you'll see a CSP violation. Don't relax the CSP — bring the dependency on-host or add the specific origin to the allowlist in [`apps/api/src/app.ts`](./apps/api/src/app.ts) (and document it).
+Helmet's CSP is locked to `api.revenuecat.com` plus the dashboard's own origin. If you're loading anything from a different origin, you'll see a CSP violation. Don't relax the CSP — bring the dependency on-host or add the specific origin to the allowlist in [`apps/api/src/app.ts`](./apps/api/src/app.ts) (and document it).
 
 ---
 

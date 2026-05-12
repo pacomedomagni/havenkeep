@@ -85,15 +85,20 @@ Per-environment Services IDs follow the convention:
 - Both `google-services.json` and `GoogleService-Info.plist` are gitignored — each developer downloads the latest from Firebase Console for their environment.
 
 ### Telemetry
-- Server: pino → Loki. Redact paths cover bearer tokens, refresh tokens, OAuth access tokens, base64 image bodies, password hashes, Stripe webhook secrets.
+- Server: pino → Loki. Redact paths cover bearer tokens, refresh tokens, OAuth access tokens, base64 image bodies, password hashes.
 - Mobile: `dart:developer.log` is the always-on transport. **Firebase Crashlytics is wired** in [main.dart](apps/mobile/lib/main.dart) — release builds enable collection, debug builds skip it. `FlutterError.onError` forwards fatal framework errors via `recordFlutterFatalError`; `PlatformDispatcher.instance.onError` records platform errors as fatal; the outer `runZonedGuarded` catch records anything else as non-fatal. `registerUnknownEnumReporter` in `shared_models` writes a Crashlytics breadcrumb (`enum_drift: …`) for every unknown server enum — useful for "we shipped a server change, then it crashed five seconds later" forensics. All Crashlytics calls are gated on a `_crashlyticsReady` flag so a developer build with no Firebase API key still works.
 - Webhook events table tracks delivery + retries with dead-letter at attempt 8.
 
 ### DB migrations
 Numbered migrations live in `apps/api/src/db/migrations/`: 028–039 (security/data-loss criticals), 040–045 (DB foundation), 050–051 (payments + uploads), 060–067 (services), 070 (drift constraints), 071 (partner status enum), 072–074 (digest outbox / welcome email open / category repair-cost defaults), 075–081 (audit-chain casts, request idempotency, MinIO object keys, audit-chain advisory lock, audit-logs description cap), 082 (re-applies audit-trigger casts + advisory lock together — fixes audit C1 where 080 regressed 075's enum/UUID casts), 083 (warranty_*.user_id RESTRICT→SET NULL + denormalized email columns for purge anonymization — audit C4), 084 (user_mfa_factors + user_mfa_backup_codes for TOTP enrollment — audit S-C2), 085 (drop dead documents.deleted_at column — H-D3), 086 (drop redundant plaintext partner_gifts.activation_code UNIQUE — H-D4), 087 (webhook_events.id → bigint — H-D5), 088 (email_scans.completion_message — H-D7), 089 (chargeback_status regex CHECK — H-D8), 090 (category_defaults.lifespan_years seeded from items.ts hardcoded map — H-C2), 091 (audit_logs.user_email → VARCHAR(320) — M-D2), 092 (partners is_active/status invariant CHECK — M-D4), 093 (documents.file_size non-negative CHECK — M-NEW-5), 094 (drop redundant idx_newsletter_subscribers_email — M-NEW-6), 095 (partial index on partner_commissions for the 30-day auto-approve sweep + columns for self-service payouts), 096 (audit_action enum: add `partner.payout_request` so the new payout endpoint can audit-log without 22P02), 097 (warranty_claim_state_history immutable trigger now allows FK CASCADE delete from the parent claim), 098 (warranty_purchase_status enum: add `cancelling` for the three-phase cancel flow's transient state), 099 (cleanup_old_audit_logs() rewritten as SECURITY DEFINER under audit_cleaner role — newer Postgres rejects mid-function `SET LOCAL ROLE` inside a SECURITY DEFINER body), 100 (grant SELECT on audit_logs to audit_cleaner — DELETE alone wasn't enough; PG needs SELECT to evaluate the WHERE clause), 101 (audit C0-2/C0-4: re-own audit_logs + trigger functions to audit_cleaner so the API role can't `DROP TRIGGER trg_audit_logs_immutable` and rewrite history; revoke ALL from API, re-grant SELECT+INSERT; trigger payload now uses `to_char(... AT TIME ZONE 'UTC')` so the hash is TZ-stable across writer/verifier sessions), 102 (audit C0-10: partner_gifts / partner_commissions partner_id → SET NULL on partner delete; new `partner_id_at_event`, `partner_company_name_at_event`, `partner_email_at_event` columns snapshot identity at INSERT so 1099-NEC commission history survives a user purge — same pattern mig 083 used for warranty rows), 103 (request_idempotency claim placeholder so INSERT…ON CONFLICT DO NOTHING distinguishes "first writer wins" from "duplicate replay"), 104 (audit_action enum: new values for admin + MFA + payout flows), 105 (webhook_events.alerted_at — H30 ops alerts mark a row "we paged on this" so a retry doesn't re-page), 106 (functional unique index on `LOWER(email)` so case-variant duplicate accounts can't be created), 107 (users.tokens_invalidated_at — bumped on password change / suspend so every existing JWT becomes invalid in one shot), 108 (partial unique index on user_mfa_factors: at most one *unverified* TOTP enrollment in flight per user), 109 (oauth integration columns: key_version + AAD so AES-GCM rewrap surfaces the right key at decrypt time), 110 (newsletter_subscribers.confirmation_expires_at — H77 single-use confirm token has a 7-day TTL the /confirm gate honours), 111 (users.last_grace_reminder_sent_at + partial index — H78 day-25 grace nudge marks rows once-sent so the cron can't re-send tomorrow). Runner auto-detects `ALTER TYPE ADD VALUE` and `CREATE INDEX CONCURRENTLY` and runs those files outside transactions; the runner also wraps `main()` in `pg_advisory_lock` (H-D1) so two replicas booting simultaneously can't race on the same DDL. `schema_version` table tracks bootstrap completion.
 
-### Stripe SDK pin
-`stripe@^21.0.1` with `apiVersion: '2026-03-25.dahlia'` (see [apps/api/src/utils/stripe-client.ts](apps/api/src/utils/stripe-client.ts)). NOT v22 — v22 ships a CJS-typing regression that breaks `Stripe.Charge` / `Stripe.PaymentIntent` / `Stripe.Event` resolution under our `tsconfig.module=commonjs`. v21 carries the same API version pin and runtime surface. Bump to v22+ once Stripe ships the CJS fix or we migrate the API to ESM.
+### Partner program
+The partner program is gift-only: a realtor signs up, customizes their
+gift email (company name + brand color + logo), and creates gifts for
+homebuyers. Each gift grants the homebuyer 6 months of premium, free.
+No Stripe, no commissions, no payouts, no admin approval. The constant
+`GIFT_PREMIUM_MONTHS = 6` in [partners.service.ts](apps/api/src/services/partners.service.ts) is the single source of
+truth for gift length.
 
 ### Staging deployment
 Staging lives on a shared Digital Ocean droplet at **`206.189.26.12`** (Ubuntu 24.04, 8 GB / 2 vCPU). Eight apps share the box (havenkeep, loni, restorae, platform, bquick, legalci, fortify, hge-men) plus shared infra (Postgres, MinIO, Redis, Caddy, Dozzle). HavenKeep does NOT run its own Postgres/Redis/MinIO — it consumes the shared infra-postgres / infra-redis / infra-minio containers on the `staging-net` Docker network.
@@ -116,11 +121,16 @@ What `ship.sh` does: builds `havenkeep-api`, `havenkeep-dashboard`, `havenkeep-m
 
 **Where staging secrets live** (NOT in this repo — they live on the droplet):
 - `/opt/staging/havenkeep/.env` — just `IMAGE_TAG=<tag>`, read by compose
-- `/opt/staging/havenkeep/.env.api` — API runtime env: `APP_BASE_URL`, `FRONTEND_URL`, `DASHBOARD_URL`, `CORS_ORIGINS`, `STRIPE_*`, `JWT_SECRET`, etc.
+- `/opt/staging/havenkeep/.env.api` — API runtime env: `APP_BASE_URL`, `FRONTEND_URL`, `DASHBOARD_URL`, `CORS_ORIGINS`, `JWT_SECRET`, etc.
 - `/opt/staging/havenkeep/.env.dashboard` — Next.js runtime env
 - `/opt/staging/infra/.env` — shared infra (postgres root password, per-app DB passwords, MinIO root + 6 per-app keypairs, Redis password)
 
-Per-app Caddy routing lives in `/opt/staging/infra/Caddyfile`. The havenkeep block already has a raw-body matcher for `/api/v1/webhooks/stripe` and `/api/v1/webhooks/revenuecat` (Stripe signature verification needs the raw body unmolested by Caddy compression).
+Per-app Caddy routing lives in `/opt/staging/infra/Caddyfile`. The
+havenkeep block must keep a raw-body / `encode none` matcher for
+`/api/v1/webhooks/revenuecat` so RevenueCat's signed payload isn't
+mutated by Caddy compression. The matcher for `/api/v1/webhooks/stripe`
+on the live Caddyfile is stale — there's no Stripe webhook endpoint in
+the API anymore. Drop it next time you edit the file.
 
 Logs: `https://logs.staging.kouakoudomagni.com` (Dozzle, basic auth — ask Domagni for credentials). Or `ssh root@206.189.26.12 'docker logs havenkeep-api -f'`.
 
@@ -130,7 +140,11 @@ Logs: `https://logs.staging.kouakoudomagni.com` (Dozzle, basic auth — ask Doma
 
 Every gate is currently green: api tsc + 319/319 jest tests, dashboard tsc + build, marketing build, both Dart packages analyze, mobile analyze, 444 flutter tests, debug APK build all pass. The 2026-04-29 → 2026-05-10 audit-remediation arc is closed; see `git log --oneline` if you need the per-finding history.
 
-**No outstanding code-level work.** All in-repo follow-ups (S-M7 public CSRF mint, Phase-5 activation-code wipe) shipped on `main`. **Staging Stripe is verified-green** — `./scripts/stripe/check-staging.sh` and `./scripts/stripe/e2e-staging.sh` both pass; a real $9.90 transfer landed on a Connect account during phase 6. The only outstanding work is mobile build prep below — production is months away and intentionally not documented here yet.
+**No outstanding code-level work.** The 2026-05 partner-program
+simplification arc is closed: Stripe / commissions / payouts / admin
+approval all removed. See migrations 114 + 115 for the schema delta. The
+only outstanding work is mobile build prep below — production is months
+away and intentionally not documented here yet.
 
 ### A. Mobile build prep (when you're ready to ship a TestFlight / Play Internal build)
 

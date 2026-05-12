@@ -73,7 +73,11 @@ services:
       DB_NAME: ${POSTGRES_DB:-havenkeep}
       DB_USER: ${POSTGRES_USER:-havenkeep}
       DB_PASSWORD: ${POSTGRES_PASSWORD:-havenkeep_dev_2026}
-      REDIS_URL: redis://redis:6379
+      # REDIS_URL must embed the AUTH password — the override.yml starts
+      # Redis with `--requirepass`, so a passwordless URL fails NOAUTH on
+      # the first cache call. Source from .env so the password component
+      # tracks REDIS_PASSWORD.
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       JWT_SECRET: ${JWT_SECRET:-dev_jwt_secret_minimum_32_characters_long}
       JWT_EXPIRES_IN: 1h
       REFRESH_TOKEN_SECRET: ${REFRESH_TOKEN_SECRET:-dev_refresh_secret_minimum_32_chars_long}
@@ -84,7 +88,15 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
       MINIO_BUCKET: ${MINIO_BUCKET:-havenkeep}
-      CORS_ORIGINS: http://localhost:3001,http://localhost:4321
+      # Browser-reachable MinIO host. Presigned URLs are minted with the
+      # internal hostname (minio:9000) which a browser can't resolve; the
+      # API rewrites the host to MINIO_PUBLIC_URL before returning them.
+      MINIO_PUBLIC_URL: ${MINIO_PUBLIC_URL:-http://localhost:4003}
+      # Allowed CORS origins. Must include every host:port the dashboard or
+      # marketing site is reachable on — local-dev publishes them in the
+      # 40xx range (see docker-compose.override.yml), not the in-container
+      # 3001 / 4321 ports.
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:4005,http://localhost:4006}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3001}
       DASHBOARD_URL: ${DASHBOARD_URL:-http://localhost:3001}
       APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
@@ -95,13 +107,6 @@ services:
       GOOGLE_AUDIENCES: ${GOOGLE_AUDIENCES:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       APPLE_BUNDLE_ID: ${APPLE_BUNDLE_ID:-app.havenkeep.mobile}
-      # Stripe + Stripe webhook secret. Dev defaults are obviously-fake
-      # placeholders so the SDK constructor doesn't crash at boot;
-      # mutating calls will fail at the network if you try to use them,
-      # which is what we want for local dev.
-      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-sk_test_local_dev_placeholder}
-      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-whsec_test_local_dev_placeholder}
-      STRIPE_PRICE_ID_PREMIUM: ${STRIPE_PRICE_ID_PREMIUM:-}
       # OpenAI + RevenueCat + OAuth-token-at-rest encryption.
       OPENAI_API_KEY: ${OPENAI_API_KEY:-sk-local-dev-placeholder}
       REVENUECAT_SECRET_API_KEY: ${REVENUECAT_SECRET_API_KEY:-local_dev_placeholder}

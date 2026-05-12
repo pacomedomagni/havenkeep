@@ -69,34 +69,17 @@ const runWarrantyOffersJob = () =>
     () => NotificationsService.checkAndNotifyWarrantyOffers());
 
 const PARTNER_GIFT_EXPIRY_LOCK = ADVISORY_LOCKS.PARTNER_GIFT_EXPIRY;
-const PARTNER_COMMISSION_AUTO_APPROVE_LOCK = ADVISORY_LOCKS.PARTNER_COMMISSION_AUTO_APPROVE;
-
-// Number of days a commission must sit in 'pending' before the auto-approve
-// cron flips it to 'approved'. The hold protects the platform from refund
-// clawback: if a customer refunds the warranty within this window, the
-// reversal already wrote a row with status='reversed' (and a paired
-// negative-amount sibling) by the time the cron runs, so the original
-// pending row is excluded by the EXISTS subquery below.
-//
-// 30 days matches Stripe's typical chargeback dispute window and the audit's
-// "ApprovalHold" guidance from H-P6 (proportional commission clawback for
-// partial refunds shipped in P1.4 alongside C8).
-const COMMISSION_AUTO_APPROVE_HOLD_DAYS = parseInt(
-  process.env.COMMISSION_AUTO_APPROVE_HOLD_DAYS || '30',
-  10,
-);
 
 /**
- * Auto-expire unactivated partner gifts whose expires_at is in the past
- * and cancel any matching pending commission (Ch03-F097). Runs daily under
- * an advisory lock so a multi-instance deploy doesn't race the same row.
+ * Auto-expire unactivated partner gifts whose `expires_at` is in the past.
+ * Runs daily under an advisory lock so a multi-instance deploy doesn't race
+ * the same row. Plaintext `activation_code` + `activation_url` are nulled
+ * at the terminal transition — no further sends or redemptions are valid
+ * for an expired gift, so retaining plaintext is exfil risk with zero
+ * functional value (verifyActivationCode lookups go through the hash).
  */
 async function expireUnactivatedPartnerGifts(): Promise<void> {
   await runWithAdvisoryLock(PARTNER_GIFT_EXPIRY_LOCK, 'partner-gift-auto-expiry', async () => {
-    // Null plaintext activation_code + activation_url at the terminal
-     // transition — no further sends or redemptions are valid for an
-     // expired gift, so retaining plaintext is exfil risk with zero
-     // functional value (verifyActivationCode lookups go through the hash).
     const expired = await pool.query(
       `UPDATE partner_gifts
           SET status = 'expired',
@@ -107,72 +90,11 @@ async function expireUnactivatedPartnerGifts(): Promise<void> {
           AND is_activated = FALSE
           AND expires_at IS NOT NULL
           AND expires_at < NOW()
-        RETURNING id, partner_id`,
+        RETURNING id`,
     );
     if (expired.rowCount === 0) return;
-    const giftIds = expired.rows.map((r: { id: string }) => r.id);
-    const cancelled = await pool.query(
-      `UPDATE partner_commissions
-          SET status = 'cancelled', updated_at = NOW()
-        WHERE reference_type = 'partner_gift'
-          AND reference_id = ANY($1::uuid[])
-          AND status = 'pending'
-        RETURNING id`,
-      [giftIds],
-    );
-    logger.info(
-      { expiredGifts: expired.rowCount, cancelledCommissions: cancelled.rowCount },
-      'Partner gifts auto-expired and pending commissions cancelled',
-    );
+    logger.info({ expiredGifts: expired.rowCount }, 'Partner gifts auto-expired');
   });
-}
-
-/**
- * Auto-approve partner commissions that have aged past the refund-clawback
- * hold window. Approved commissions are eligible for the partner's
- * on-demand payout (POST /partners/me/payouts).
- *
- * Skipped:
- *   - rows that already have a reversal sibling (refund clawback wrote one)
- *   - rows whose partner is not in stripe_account_status='enabled' — the
- *     row stays 'pending' so an unverified partner doesn't accumulate
- *     payable commissions before passing KYC. The /me/payouts endpoint
- *     already gates on the same field, but auto-approving here would
- *     mislead the dashboard's "approved (eligible for payout)" total.
- */
-async function autoApproveAgedPendingCommissions(): Promise<void> {
-  await runWithAdvisoryLock(
-    PARTNER_COMMISSION_AUTO_APPROVE_LOCK,
-    'commission-auto-approve',
-    async () => {
-      const result = await pool.query(
-        `UPDATE partner_commissions pc
-            SET status = 'approved',
-                approved_at = NOW(),
-                updated_at = NOW()
-           FROM partners p
-          WHERE pc.partner_id = p.id
-            AND pc.status = 'pending'
-            AND pc.created_at < NOW() - ($1::int || ' days')::interval
-            AND p.stripe_account_status = 'enabled'
-            AND NOT EXISTS (
-              SELECT 1 FROM partner_commissions r
-               WHERE r.reversal_of_commission_id = pc.id
-            )
-          RETURNING pc.id, pc.partner_id, pc.amount`,
-        [COMMISSION_AUTO_APPROVE_HOLD_DAYS],
-      );
-      if (result.rowCount && result.rowCount > 0) {
-        logger.info(
-          {
-            approvedCount: result.rowCount,
-            holdDays: COMMISSION_AUTO_APPROVE_HOLD_DAYS,
-          },
-          'Aged pending commissions auto-approved',
-        );
-      }
-    },
-  );
 }
 
 // ── Daily scheduler ───────────────────────────────────────────────────────
@@ -229,19 +151,11 @@ function scheduleExpirationNotifications() {
         () => undefined,
         (err) => logger.error({ err }, 'Warranty auto-expiry job failed'),
       ),
-      // Auto-expire unactivated partner gifts past their expires_at and
-      // cancel the pending commission (Ch03-F097). A single SQL statement
-      // moves every stale row in one trip; commission cancellation runs as
-      // a follow-up so partners stop seeing pending commissions for gifts
-      // the homebuyer never redeemed.
+      // Auto-expire unactivated partner gifts past their expires_at
+      // (Ch03-F097). A single SQL statement moves every stale row in one
+      // trip, with the plaintext wipe described in the function header.
       expireUnactivatedPartnerGifts().catch((err) =>
         logger.error({ err }, 'Partner gift auto-expiry job failed'),
-      ),
-      // Auto-approve partner commissions past the 30-day refund clawback
-      // window. Approved rows are what the partner-facing `/me/payouts`
-      // endpoint sweeps when a partner clicks "Request payout".
-      autoApproveAgedPendingCommissions().catch((err) =>
-        logger.error({ err }, 'Commission auto-approve job failed'),
       ),
       // S2-K: daily audit log hash-chain check. A break here means a row
       // was tampered with after the fact; we surface as `error` so any
@@ -398,24 +312,6 @@ function scheduleExpirationNotifications() {
       }
     } catch (err) {
       logger.error({ err }, 'webhook_events retention sweep failed');
-    }
-
-    // M-D-extra (audit): webhook_event_high_water retains forever
-    // — one row per (source, subject_id). For Stripe that's per-charge,
-    // for RC that's per-user. RC rows are intentionally kept (one per
-    // active user); Stripe rows for charges no longer referenced
-    // accumulate unboundedly. Prune Stripe rows > 90 days untouched.
-    try {
-      const result = await pool.query(
-        `DELETE FROM webhook_event_high_water
-          WHERE source = 'stripe'
-            AND last_event_at < NOW() - INTERVAL '90 days'`,
-      );
-      if (result.rowCount && result.rowCount > 0) {
-        logger.info({ deleted: result.rowCount }, 'webhook_event_high_water Stripe retention sweep');
-      }
-    } catch (err) {
-      logger.error({ err }, 'webhook_event_high_water retention sweep failed');
     }
 
     // M-NEW-1 (audit): email_scanner_seen_messages retains forever.

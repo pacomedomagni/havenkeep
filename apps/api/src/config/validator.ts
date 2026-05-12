@@ -95,14 +95,6 @@ function checkSecretStrength(ctx: ValidationContext) {
   // Ch11-I054: provider keys carry well-known prefixes. We don't fail on
   // mismatch in dev (you might be using a fake), only in production.
   if (ctx.env === 'production') {
-    const stripeKey = process.env.STRIPE_SECRET_KEY || '';
-    if (stripeKey && !/^(sk_live|rk_live)_/.test(stripeKey)) {
-      ctx.errors.push('STRIPE_SECRET_KEY does not look like a live key (sk_live_… expected in production)');
-    }
-    const stripeWh = process.env.STRIPE_WEBHOOK_SECRET || '';
-    if (stripeWh && !stripeWh.startsWith('whsec_')) {
-      ctx.errors.push('STRIPE_WEBHOOK_SECRET does not look like a Stripe webhook secret (whsec_…)');
-    }
     const sendgridKey = process.env.SENDGRID_API_KEY || '';
     if (sendgridKey && !sendgridKey.startsWith('SG.')) {
       ctx.errors.push('SENDGRID_API_KEY does not look like a SendGrid key (SG.…)');

@@ -34,14 +34,14 @@ Free plan caps usage at 5 items so a curious user can try it without a paywall s
 Realtors, builders, contractors, and property managers who hand keys to homebuyers and want to stay in the homebuyer's life past closing. They:
 
 - Are looking for a closing gift that isn't a fruit basket.
-- Pay per gift sent ($99 / $149 / $249 by tier — Basic / Premium / Platinum), no monthly fee, no contract.
-- Earn a 10–20% commission (by tier) on each gift they send.
+- Sign up for free. No card, no contract, no commission, no payouts.
+- Send HavenKeep premium as a closing gift — six months, free for the homebuyer, free for the partner.
 
-Partners get a dashboard ([apps/partner-dashboard](../apps/partner-dashboard)) with gift-creation flows, real-time commission tracking, Stripe Connect onboarding, payout requests, and 1099-NEC handling via Stripe.
+Partners get a dashboard ([apps/partner-dashboard](../apps/partner-dashboard)) with a gift-creation flow, a list of gifts they've sent, and a settings screen for customising the gift email's branding (company name, brand color, logo).
 
 ### 2.3 Tertiary users — the business
 
-Admin tooling lives in the same dashboard at `/admin/*`. Admins approve / reject partner applications, suspend or hard-delete user accounts, monitor audit logs, view system health, and track conversion / signup / DAU metrics. The audit log is hash-chained so even an admin can't tamper with the history without leaving a verifiable break.
+Admin tooling lives in the same dashboard at `/admin/*`. Admins can list partners and inspect activity, suspend or hard-delete user accounts, monitor audit logs, view system health, and track conversion / signup / DAU metrics. The audit log is hash-chained so even an admin can't tamper with the history without leaving a verifiable break.
 
 ---
 
@@ -127,35 +127,28 @@ The hardest part of warranty tracking is the cold start. A new user might own 30
 
 **Privacy**: read-only scope only. We do not send mail, modify the inbox, change folders, or read messages outside the purchase-confirmation pattern. The user can revoke at any time from Google/Microsoft account settings; the app deletes our copy when they remove the integration.
 
-### 4.2 Partner program — closing gifts and commission
+### 4.2 Partner program — closing gifts
 
 Realtors hand keys to homebuyers. That's the moment HavenKeep wants to be present.
 
 **Partner side**:
-1. Realtor signs up at the partner dashboard, completes the 2-step onboarding (company name + partner type + license number + service areas).
-2. Application is `pending` until an admin approves at `/admin/partners`. (Mig 071: `partner_status` enum is `pending | active | rejected`. Mig 092: invariant CHECK keeps `is_active` and `status` aligned.)
-3. Approved partner connects Stripe Connect Express. Stripe collects banking + tax info; HavenKeep never sees raw financial data.
-4. Realtor opens the gift form, enters homebuyer name + email + closing date + premium duration (3/6/12 months) + custom message. Submits.
+1. Realtor signs up at the partner dashboard. The signup form is one screen — full name, email, password, company name, what they do (realtor / builder / contractor / property manager / other). The partner row is created in the same submit.
+2. There is no admin approval, no license verification, no Stripe onboarding. They land on `/dashboard` and can send a gift immediately.
+3. Realtor opens the gift form, enters homebuyer name + email + (optional) phone + (optional) home address + (optional) closing date + (optional) custom message. Submits.
 
-**Server side (3-phase flow)**:
-1. **Reserve** — INSERT a `partner_gifts` row with `status='pending_payment'`, generated activation code (16 hex with dashes, hashed before storage), reserved outside the Stripe transaction so a Stripe failure doesn't poison the connection.
-2. **Charge** — `stripe.paymentIntents.create({ amount, customer, payment_method, confirm: true, off_session: true })`. Tier-based amounts: $99 (Basic), $149 (Premium), $249 (Platinum). The `payment_method` is passed explicitly because Stripe's default-PM resolution is unreliable.
-3. **Promote** — UPDATE the gift row to `status='created'`, INSERT a `partner_commissions` row with `status='pending'`. If the promote fails, the API issues a refund-compensation step so the partner isn't charged for a gift that doesn't exist.
+**Server side**:
+1. Generate a unique activation code (16 hex chars with dashes, hashed before storage).
+2. Single INSERT into `partner_gifts` with `status='created'`, `premium_months=6` (the [`GIFT_PREMIUM_MONTHS`](../apps/api/src/services/partners.service.ts) constant), and `expires_at = now() + 6 months`.
+3. Send the activation email via SendGrid (fire-and-forget — delivery failure doesn't roll the gift back; the partner can resend from the dashboard).
+
+There is no charge, no commission, no payout. The gift is free to the partner; the homebuyer gets six months of HavenKeep premium, free.
 
 **Homebuyer side**:
-1. They get an email with a branded landing page (partner's logo, brand color, custom message) and an activation link.
+1. They get an email branded with the partner's logo, brand color, and custom message + an activation link.
 2. The activation link is a universal/deep link: `havenkeep.com/gift/<code>` → `havenkeep://gift/<code>`. Tapping opens the app to the activation screen with the code pre-filled.
 3. Activation requires the email the gift was sent to (closes the enumeration oracle — guessing a code without the email gets a generic error).
-4. Activation is rate-limited (5/hr per `(activation_code_hash, ip)`, 15-min lockout on the 6th attempt).
-5. Successful activation extends `users.plan_expires_at` by `premium_months`, stacking on any existing expiry.
-
-**Commission and payout**:
-1. The commission row sits at `pending` for 30 days (`COMMISSION_AUTO_APPROVE_HOLD_DAYS=30`) — the refund-protection window. A `charge.refunded` webhook within 30 days triggers a clawback (sibling reversal row with negative amount).
-2. After 30 days, the daily cron promotes `pending` → `approved`.
-3. Partner taps "Request payout" in the dashboard. The API calls `stripe.transfers.create` against the partner's Connect account and updates the commission to `paid` with the Stripe Transfer ID.
-4. Stripe issues 1099-NEC each January for partners who earn $600+ in a year. The dashboard's "Tax documents" button opens the Stripe Express dashboard (`stripe.accounts.createLoginLink`).
-
-Commission is earned on the **gifts a partner sends** — the per-gift commission rate is set by tier (see §5.2). A "lifetime commission on extended-warranty purchases by the partner's referred users" was previously described here; that depends on an extended-warranty marketplace that isn't built — see [DEFERRED.md](../docs/DEFERRED.md). It should not appear in marketing or the partner agreement.
+4. Activation is rate-limited (5 attempts/hr per gift, 15-min lockout on the 6th).
+5. Successful activation extends `users.plan_expires_at` by 6 months, stacking on any existing expiry.
 
 ---
 
@@ -170,21 +163,11 @@ Commission is earned on the **gifts a partner sends** — the per-gift commissio
 
 Premium is sold via App Store IAP, Play Billing, or web (Stripe). RevenueCat unifies subscription state across the three platforms — the API treats RevenueCat as the source of truth via webhook (`INITIAL_PURCHASE` / `RENEWAL` / `EXPIRATION` / `TRANSFER`). Cancellation runs through the platform — App Store, Google Play, or Stripe — per their published policies. We don't operate a separate web refund flow.
 
-Partner gifts grant Premium for a partner-chosen window between 1 and 12 months (validator: [`partners.validator.ts`](../apps/api/src/validators/partners.validator.ts) `premiumMonths: 1..12`; dashboard UI exposes 3 / 6 / 12 in the gift composer). The grant stacks on any existing subscription — a user already on Premium who redeems a gift gets the gift period added to their expiry, not replacing it.
+Partner gifts grant Premium for a fixed 6 months (the [`GIFT_PREMIUM_MONTHS`](../apps/api/src/services/partners.service.ts) constant). The grant stacks on any existing subscription — a user already on Premium who redeems a gift gets six months added to their expiry, not replacing it.
 
 ### 5.2 Partner
 
-| Tier | Per-gift | Commission per gift |
-|---|---|---|
-| **Basic** | $99 | 10% |
-| **Premium** | $149 | 15% |
-| **Platinum** | $249 | 20% |
-
-No monthly fee, no contract. Tier upgrades happen automatically based on quarterly gift volume — no paperwork. Volume thresholds are published in the partner agreement.
-
-Premium-grant length is the same 1–12-month window across all three tiers — the difference between tiers is the price per gift and the commission rate, not the grant length. A longer-grant differentiator for Platinum is on the roadmap (it would need both a validator bump and a UI option).
-
-The numbers above come from `apps/api/src/services/partners.service.ts` (`TIER_PRICE_PER_GIFT_USD`, `TIER_COMMISSION_RATES`). The marketing site reads them from the same place to avoid drift between the public price and the price at gift creation.
+The partner program is free. A realtor pays nothing to send a gift; HavenKeep eats the premium cost (six months of compute + storage per recipient, a few dollars at most). There are no tiers, no per-gift price, no commissions, no payouts. Abuse pressure is low — re-creating a HavenKeep account every six months to extend a free gift means re-entering every item, warranty, and photo by hand, which is hours of work to save the $24/yr subscription. The economics make abuse irrational at our price point.
 
 ---
 
@@ -285,7 +268,7 @@ To keep the product focused, here is what HavenKeep deliberately does NOT do:
 - **It is not a home-inventory app for insurance.** Some overlap (we have photos and receipts), but we don't generate insurance-specific reports or integrate with policy providers. (Yet — it's a roadmap candidate.)
 - **It is not a marketplace.** We don't sell appliances, repairs, or services. We refer to manufacturers/retailers via affiliate-tracked links where appropriate.
 - **It is not a budget tracker.** We track purchase price for warranty value, not for spending categorisation.
-- **It is not a CRM for partners.** We give partners gift + commission tooling. Their full client relationship lives in their existing CRM.
+- **It is not a CRM for partners.** We give partners a gift-sending tool. Their full client relationship lives in their existing CRM.
 - **It is not for business assets.** B2B asset management is a fundamentally different product. Free + Premium + Partner is the entire surface; there is no Enterprise tier.
 
 ---

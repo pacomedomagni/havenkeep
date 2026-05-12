@@ -488,7 +488,7 @@ router.post('/login', authRateLimiter, loginPerEmailRateLimiter, validate(loginS
               u.plan_expires_at, u.referred_by, u.referral_code, u.is_admin,
               u.deleted_at, u.deletion_scheduled_for,
               u.created_at, u.updated_at,
-              (EXISTS(SELECT 1 FROM partners p WHERE p.user_id = u.id AND p.status = 'active')) as is_partner
+              (EXISTS(SELECT 1 FROM partners p WHERE p.user_id = u.id)) as is_partner
        FROM users u WHERE u.email = $1`,
       [email.toLowerCase()]
     );
@@ -698,7 +698,7 @@ router.post(
       `SELECT u.id, u.email, u.full_name, u.avatar_url, u.auth_provider, u.plan,
               u.plan_expires_at, u.referred_by, u.referral_code, u.is_admin,
               u.deleted_at, u.created_at, u.updated_at,
-              (EXISTS(SELECT 1 FROM partners p WHERE p.user_id = u.id AND p.status = 'active')) as is_partner
+              (EXISTS(SELECT 1 FROM partners p WHERE p.user_id = u.id)) as is_partner
        FROM users u WHERE u.id = $1`,
       [userId],
     );
@@ -834,7 +834,7 @@ router.post('/refresh', refreshRateLimiter, validate(refreshTokenSchema), asyncH
   // Get user (include role fields for JWT claims)
   const userResult = await query(
     `SELECT u.id, u.email, u.is_admin, u.deleted_at, u.plan,
-            (EXISTS(SELECT 1 FROM partners p WHERE p.user_id = u.id AND p.status = 'active')) as is_partner
+            (EXISTS(SELECT 1 FROM partners p WHERE p.user_id = u.id)) as is_partner
      FROM users u WHERE u.id = $1`,
     [trustedUserId],
   );
@@ -1505,7 +1505,7 @@ router.post('/google', authRateLimiter, validate(googleOAuthSchema), asyncHandle
       `SELECT id, email, full_name, avatar_url, auth_provider, plan, plan_expires_at,
               referred_by, referral_code, is_admin, email_verified, created_at, updated_at,
               deleted_at, deletion_scheduled_for,
-              (EXISTS(SELECT 1 FROM partners p WHERE p.user_id = users.id AND p.status = 'active')) as is_partner
+              (EXISTS(SELECT 1 FROM partners p WHERE p.user_id = users.id)) as is_partner
        FROM users WHERE email = $1`,
       [email]
     );
@@ -1780,7 +1780,7 @@ router.post('/apple', authRateLimiter, validate(appleOAuthSchema), asyncHandler(
         `SELECT id, email, full_name, avatar_url, auth_provider, plan, plan_expires_at,
                 referred_by, referral_code, is_admin, email_verified, apple_user_id, created_at, updated_at,
                 deleted_at, deletion_scheduled_for,
-                (EXISTS(SELECT 1 FROM partners p WHERE p.user_id = users.id AND p.status = 'active')) as is_partner
+                (EXISTS(SELECT 1 FROM partners p WHERE p.user_id = users.id)) as is_partner
          FROM users WHERE email = $1`,
         [email]
       );
@@ -1793,7 +1793,7 @@ router.post('/apple', authRateLimiter, validate(appleOAuthSchema), asyncHandler(
         `SELECT id, email, full_name, avatar_url, auth_provider, plan, plan_expires_at,
                 referred_by, referral_code, is_admin, email_verified, apple_user_id, created_at, updated_at,
                 deleted_at, deletion_scheduled_for,
-                (EXISTS(SELECT 1 FROM partners p WHERE p.user_id = users.id AND p.status = 'active')) as is_partner
+                (EXISTS(SELECT 1 FROM partners p WHERE p.user_id = users.id)) as is_partner
          FROM users WHERE apple_user_id = $1`,
         [appleUserId]
       );

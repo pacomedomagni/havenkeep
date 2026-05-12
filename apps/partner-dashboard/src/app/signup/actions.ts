@@ -7,12 +7,23 @@ import { API_URL } from '@/lib/config';
 import { fetchWithTimeout } from '@/lib/fetch';
 import { isValidEmail, normalizeEmail } from '@/lib/email-policy';
 import { validatePassword } from '@/lib/password-policy';
+import type { PartnerType } from '@/lib/types';
+
+const VALID_PARTNER_TYPES: readonly PartnerType[] = [
+  'realtor',
+  'builder',
+  'contractor',
+  'property_manager',
+  'other',
+];
 
 export async function signUp(formData: FormData) {
   const rawEmail = (formData.get('email') ?? '').toString();
   const password = (formData.get('password') ?? '').toString();
   const confirmPassword = (formData.get('confirmPassword') ?? '').toString();
   const fullName = (formData.get('fullName') ?? '').toString().trim();
+  const companyName = (formData.get('companyName') ?? '').toString().trim();
+  const partnerTypeRaw = (formData.get('partnerType') ?? 'realtor').toString();
 
   if (!isValidEmail(rawEmail)) {
     return { error: 'Please enter a valid email address' };
@@ -22,6 +33,14 @@ export async function signUp(formData: FormData) {
   if (!fullName || fullName.length < 2) {
     return { error: 'Full name is required' };
   }
+
+  if (!companyName) {
+    return { error: 'Company or business name is required' };
+  }
+
+  const partnerType: PartnerType = VALID_PARTNER_TYPES.includes(partnerTypeRaw as PartnerType)
+    ? (partnerTypeRaw as PartnerType)
+    : 'realtor';
 
   if (password !== confirmPassword) {
     return { error: 'Passwords do not match' };
@@ -65,5 +84,36 @@ export async function signUp(formData: FormData) {
   const cookieStore = await cookies();
   setAuthCookies(data.accessToken, data.refreshToken, cookieStore);
 
-  redirect('/onboarding');
+  // Register the partner profile in the same submit. The user is now
+  // authenticated; we forward the access token explicitly because cookies
+  // aren't yet on the outbound request at this point in the action.
+  try {
+    const partnerResp = await fetchWithTimeout(`${API_URL}/api/v1/partners/register`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${data.accessToken}`,
+      },
+      body: JSON.stringify({
+        company_name: companyName,
+        partner_type: partnerType,
+      }),
+    });
+    if (!partnerResp.ok && partnerResp.status !== 409) {
+      // Account exists but partner profile failed — surface the partial
+      // state so the user can retry from /dashboard's settings page rather
+      // than blocking them out entirely.
+      return {
+        error:
+          'Account created, but we could not save your partner profile. Sign in and try again from settings.',
+      };
+    }
+  } catch {
+    return {
+      error:
+        'Account created, but we could not save your partner profile. Sign in and try again from settings.',
+    };
+  }
+
+  redirect('/dashboard');
 }

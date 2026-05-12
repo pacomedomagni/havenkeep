@@ -50,7 +50,7 @@ vi.mock('next/server', () => ({ NextResponse: FakeNextResponse }));
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
-import { middleware } from '../../middleware';
+import { middleware } from '../middleware';
 import { looksLikeJwt, decodeJwtPayload } from '../lib/jwt';
 
 const ACCESS_TOKEN_COOKIE = 'hk_access_token';

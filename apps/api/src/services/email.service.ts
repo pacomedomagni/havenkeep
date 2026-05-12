@@ -1,32 +1,6 @@
-import crypto from 'crypto';
 import sgMail from '@sendgrid/mail';
 import { logger } from '../utils/logger';
 import { config } from '../config';
-
-/**
- * HMAC helper used by partner email tracking pixels (Ch03-F083). Signed by
- * the refresh-token secret so a token from one environment doesn't validate
- * in another. Truncated to 16 hex chars (64 bits) — the URL doesn't need
- * cryptographic-strength uniqueness, just enough that a scraper cannot
- * forge `?t=` values from a partner_id alone.
- */
-export function partnerEmailPixelHmac(partnerId: string, kind: 'welcome' | 'gift'): string {
-  return crypto
-    .createHmac('sha256', config.jwt.refreshSecret)
-    .update(`partner-pixel:${kind}:${partnerId}`)
-    .digest('hex')
-    .slice(0, 16);
-}
-
-export function verifyPartnerEmailPixelHmac(
-  partnerId: string,
-  kind: 'welcome' | 'gift',
-  token: string,
-): boolean {
-  const expected = partnerEmailPixelHmac(partnerId, kind);
-  if (token.length !== expected.length) return false;
-  return crypto.timingSafeEqual(Buffer.from(expected, 'utf8'), Buffer.from(token, 'utf8'));
-}
 
 // Initialize SendGrid
 if (config.sendgrid.apiKey) {
@@ -393,30 +367,14 @@ This gift expires in ${premium_months} month${premium_months === 1 ? '' : 's'}. 
     }
   }
 
-  /**
-   * Send welcome email to new partner
-   */
-  /**
-   * Audit Ch03-F083 / F084: tracking pixel for the partner welcome email so
-   * deliverability can be verified per-partner (not just per-tenant), with
-   * an HMAC-signed identifier that prevents a third party who scrapes a
-   * partner inbox from forging tracker hits. The pixel URL embeds the
-   * partner_id and the same `partnerEmailPixelHmac` value the gift email
-   * uses; the route on the API side verifies the HMAC before recording the
-   * open.
-   */
   static async sendPartnerWelcomeEmail(data: {
     to: string;
     partner_name: string;
     company_name?: string;
-    partner_id?: string;
   }): Promise<void> {
     try {
-      const { to, partner_name, partner_id } = data;
+      const { to, partner_name } = data;
       const firstName = escapeHtml(partner_name.split(' ')[0] ?? '');
-      const trackingPixelUrl = partner_id
-        ? `${config.app.apiUrl.replace(/\/$/, '')}/api/v1/partners/${encodeURIComponent(partner_id)}/track/welcome-open?t=${encodeURIComponent(partnerEmailPixelHmac(partner_id, 'welcome'))}`
-        : null;
 
       const htmlContent = `
 <!DOCTYPE html>
@@ -424,80 +382,36 @@ This gift expires in ${premium_months} month${premium_months === 1 ? '' : 's'}. 
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Welcome to HavenKeep Partners</title>
+  <title>Welcome to HavenKeep</title>
 </head>
-<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f3f4f6;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f3f4f6; padding: 40px 20px;">
-    <tr>
-      <td align="center">
-        <table width="600" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
-
-          <tr>
-            <td style="background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%); padding: 40px; text-align: center;">
-              <h1 style="color: #ffffff; margin: 0; font-size: 28px; font-weight: bold;">Welcome to HavenKeep Partners! 🎉</h1>
-            </td>
-          </tr>
-
-          <tr>
-            <td style="padding: 40px;">
-              <p style="color: #374151; font-size: 16px; line-height: 1.6; margin: 0 0 20px;">Hi ${firstName},</p>
-
-              <p style="color: #374151; font-size: 16px; line-height: 1.6; margin: 0 0 20px;">
-                Thank you for joining the HavenKeep Partner Program! We're excited to help you provide exceptional value to your clients with our closing gift program.
-              </p>
-
-              <div style="background-color: #f9fafb; border-radius: 8px; padding: 30px; margin: 0 0 30px;">
-                <h2 style="color: #111827; font-size: 20px; margin: 0 0 20px; font-weight: 600;">Next Steps</h2>
-
-                <ol style="color: #374151; font-size: 15px; line-height: 1.8; margin: 0; padding-left: 20px;">
-                  <li>Complete your profile and branding in the Partner Dashboard</li>
-                  <li>Set your default gift message and premium months</li>
-                  <li>Create your first closing gift</li>
-                  <li>Share the gift link with your client</li>
-                </ol>
-              </div>
-
-              <table width="100%" cellpadding="0" cellspacing="0" style="margin: 0 0 30px;">
-                <tr>
-                  <td align="center">
-                    <a href="${config.app.dashboardUrl}" style="display: inline-block; background-color: #3B82F6; color: #ffffff; text-decoration: none; padding: 16px 40px; border-radius: 8px; font-size: 16px; font-weight: 600; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);">
-                      Go to Dashboard
-                    </a>
-                  </td>
-                </tr>
-              </table>
-
-              <p style="color: #6b7280; font-size: 14px; line-height: 1.6; margin: 0;">
-                Questions? Our team is here to help at <a href="mailto:partners@havenkeep.com" style="color: #3B82F6; text-decoration: none;">partners@havenkeep.com</a>
-              </p>
-            </td>
-          </tr>
-
-          <tr>
-            <td style="background-color: #f9fafb; padding: 30px 40px; border-top: 1px solid #e5e7eb; text-align: center;">
-              <p style="color: #6b7280; font-size: 13px; margin: 0;">
-                HavenKeep Partners — Delight Your Clients
-              </p>
-            </td>
-          </tr>
-
-        </table>
-      </td>
-    </tr>
+<body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;background-color:#f3f4f6;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f3f4f6;padding:40px 20px;">
+    <tr><td align="center">
+      <table width="600" cellpadding="0" cellspacing="0" style="background-color:#ffffff;border-radius:12px;overflow:hidden;">
+        <tr><td style="padding:40px;">
+          <p style="color:#111827;font-size:18px;line-height:1.6;margin:0 0 16px;">Hi ${firstName},</p>
+          <p style="color:#374151;font-size:16px;line-height:1.6;margin:0 0 24px;">
+            You're set up to send HavenKeep as a closing gift. Log in and create your first one whenever you're ready — your client gets six months of premium, free.
+          </p>
+          <p style="margin:0 0 32px;">
+            <a href="${config.app.dashboardUrl}" style="display:inline-block;background-color:#3B82F6;color:#ffffff;text-decoration:none;padding:14px 32px;border-radius:8px;font-size:16px;font-weight:600;">Open dashboard</a>
+          </p>
+          <p style="color:#6b7280;font-size:14px;line-height:1.6;margin:0;">
+            Questions? <a href="mailto:partners@havenkeep.com" style="color:#3B82F6;text-decoration:none;">partners@havenkeep.com</a>
+          </p>
+        </td></tr>
+      </table>
+    </td></tr>
   </table>
-  ${trackingPixelUrl ? `<img src="${trackingPixelUrl}" alt="" width="1" height="1" style="display:none;" />` : ''}
 </body>
 </html>
       `;
 
       const msg = {
         to,
-        from: {
-          email: config.sendgrid.fromEmail,
-          name: 'HavenKeep Partners',
-        },
+        from: { email: config.sendgrid.fromEmail, name: 'HavenKeep' },
         replyTo: 'partners@havenkeep.com',
-        subject: 'Welcome to HavenKeep Partners! 🎉',
+        subject: 'You\'re in — HavenKeep Partners',
         html: htmlContent,
       };
 
@@ -1504,59 +1418,6 @@ HavenKeep — Your Warranties. Protected.
     } catch (error) {
       logger.error({ error, to: data.to }, 'Failed to send grace reminder email');
       throw error;
-    }
-  }
-
-  /**
-   * H30: alert when a Stripe webhook signature fails verification. The
-   * most common cause in practice is a body that arrived gzipped (Caddy
-   * compression accidentally enabled on the webhook path) — without an
-   * alert the failures just stack up in pino-Loki and Stripe quietly
-   * dead-letters the event after 8 retries. Throttle to one alert per
-   * 15 minutes per process: a misconfigured edge will fire dozens of
-   * verifications-per-second; we want to know about it once, not
-   * floood SendGrid.
-   */
-  private static lastStripeSigFailureAlertAt = 0;
-  private static readonly STRIPE_SIG_ALERT_THROTTLE_MS = 15 * 60 * 1000;
-
-  static async sendStripeWebhookSignatureFailureAlert(data: {
-    message: string;
-    contentEncoding: string | null;
-  }): Promise<void> {
-    const now = Date.now();
-    if (now - this.lastStripeSigFailureAlertAt < this.STRIPE_SIG_ALERT_THROTTLE_MS) {
-      return;
-    }
-    this.lastStripeSigFailureAlertAt = now;
-
-    try {
-      const subject = '[HavenKeep CRITICAL] Stripe webhook signature verification failed';
-      const text =
-        `Stripe webhook signature verification failed.\n\n` +
-        `Error: ${data.message}\n` +
-        `Content-Encoding header: ${data.contentEncoding ?? '(none)'}\n\n` +
-        `Common causes:\n` +
-        `  - Caddy / a reverse proxy enabled compression on /api/v1/webhooks/stripe\n` +
-        `    (the body must arrive unmolested; check the Caddyfile for an\n` +
-        `    \`encode none\` block on this path)\n` +
-        `  - STRIPE_WEBHOOK_SECRET rotation mismatch between Stripe dashboard\n` +
-        `    and the API container\n` +
-        `  - Replay from a different environment whose secret no longer matches\n\n` +
-        `Stripe will retry up to 8 times then dead-letter the event. Inspect\n` +
-        `webhook_events for any matching event_id; re-drive once the underlying\n` +
-        `issue is fixed via POST /api/v1/admin/webhooks/<id>/redrive (H2).`;
-      const html = `<pre style="font-family:ui-monospace,monospace;background:#0f172a;color:#fca5a5;padding:16px;border-radius:8px;white-space:pre-wrap;">${escapeHtml(text)}</pre>`;
-      await sgMail.send({
-        to: 'alerts@havenkeep.com',
-        from: { email: config.sendgrid.fromEmail, name: 'HavenKeep Webhooks' },
-        subject,
-        text,
-        html,
-      });
-      logger.warn(data, 'Sent Stripe webhook signature-failure alert email');
-    } catch (error) {
-      logger.error({ error }, 'Failed to send Stripe webhook signature-failure alert email');
     }
   }
 

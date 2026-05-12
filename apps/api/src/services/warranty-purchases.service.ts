@@ -4,9 +4,6 @@ import { WarrantyPurchase } from '../types/database.types';
 import { AppError } from '../utils/errors';
 import { addMonthsSafe } from '../utils/dates';
 import { decimalToCents, dollarsToCents, commissionCents } from '../utils/money';
-import { createStripeClient } from '../utils/stripe-client';
-
-const stripe = createStripeClient();
 
 /**
  * Compute prorated refund (cents) for a cancelled active warranty.
@@ -297,34 +294,11 @@ export class WarrantyPurchasesService {
   /**
    * Cancel a warranty purchase.
    *
-   * C5: the prior implementation queried partner_commissions.warranty_purchase_id,
-   * which doesn't exist (the schema uses reference_id + reference_type per
-   * mig 070's CHECK enum). This raised 42703 *after* the Stripe refund had
-   * fired, leaving the warranty 'active' with refund issued externally —
-   * manual reconciliation required for every cancel-with-pending-commission.
-   *
-   * C6: the prior implementation called stripe.refunds.create() between
-   * BEGIN and COMMIT. partners.service.ts:420-424 explicitly warns against
-   * this — a COMMIT failure (network blip, lock timeout, replica failover)
-   * leaves a real refund issued but warranty_purchases.status='active'.
-   * The FOR UPDATE lock was also held during the 200-800 ms Stripe round
-   * trip.
-   *
-   * The flow is now three phases mirroring partners.service.ts createGift:
+   * Two-phase flow (no payment refunds — warranties are tracked, not charged):
    *   Phase 1: lock + validate inside a short tx; flip to 'cancelling';
    *            COMMIT. A duplicate cancel sees 'cancelling' or 'cancelled'
    *            and short-circuits.
-   *   Phase 2: call Stripe OUTSIDE any transaction. Idempotency key
-   *            `warranty-refund-<id>` makes the call retry-safe across
-   *            phase-3 failures.
-   *   Phase 3: in a new short tx, finalize 'cancelled' + cancel
-   *            commission rows by reference_id + reference_type='warranty_purchase'
-   *            (C5 fix). On phase-3 failure the operator can retry the
-   *            cancel; the Stripe call is idempotent so phase 2 returns
-   *            the same refund id.
-   *
-   * On phase-2 Stripe failure, restore the prior status so the user
-   * retains a usable warranty.
+   *   Phase 2: in a new short tx, finalize 'cancelled'.
    */
   static async cancelPurchase(
     purchaseId: string,
@@ -414,37 +388,11 @@ export class WarrantyPurchasesService {
       new Date(),
     );
 
-    // ── Phase 2: Stripe refund outside any transaction ──
-    let stripeRefundId: string | null = existing.stripe_refund_id ?? null;
-    if (refundCents > 0 && existing.stripe_payment_intent_id && !stripeRefundId) {
-      try {
-        const refund = await stripe.refunds.create(
-          {
-            payment_intent: existing.stripe_payment_intent_id,
-            amount: refundCents,
-            reason: 'requested_by_customer',
-            metadata: { warranty_purchase_id: purchaseId, user_id: userId },
-          },
-          { idempotencyKey: `warranty-refund-${purchaseId}` },
-        );
-        stripeRefundId = refund.id;
-      } catch (refundErr) {
-        // Restore the prior status so the user retains a usable warranty.
-        // The idempotency key ensures a future cancel attempt can re-run
-        // Stripe safely — but we surface the error to the caller now.
-        logger.error(
-          { err: refundErr, purchaseId, userId, refundCents },
-          'Stripe refund failed for warranty cancel — restoring prior status',
-        );
-        await pool.query(
-          `UPDATE warranty_purchases
-              SET status = $2, updated_at = NOW()
-            WHERE id = $1 AND status = 'cancelling'`,
-          [purchaseId, existing.prior_status],
-        );
-        throw new AppError('Refund failed; please try again or contact support', 502);
-      }
-    }
+    // Warranties are tracked, not charged — there is no Stripe refund
+    // path. `stripe_refund_id` and `stripe_payment_intent_id` survive on
+    // the row as nullable columns; pre-existing rows from before
+    // simplification keep whatever values they had.
+    const stripeRefundId: string | null = existing.stripe_refund_id ?? null;
 
     // ── Phase 3: finalize 'cancelled' + cancel commission rows ──
     const finalClient = await pool.connect();
@@ -488,21 +436,6 @@ export class WarrantyPurchasesService {
           WHERE id = $1 AND user_id = $2
           RETURNING *`,
         [purchaseId, userId, reason || null, stripeRefundId, persistedRefundCents],
-      );
-
-      // C5: partner_commissions uses reference_id + reference_type per
-      // mig 070's CHECK enum (values: 'partner_gift', 'warranty_purchase',
-      // 'subscription'). The prior `WHERE warranty_purchase_id = $1`
-      // referenced a non-existent column → 42703 → orphan refund.
-      // F022: settled (status='paid') commissions ride the clawback path
-      // in webhooks.ts charge.refunded; we only cancel pending/approved.
-      await finalClient.query(
-        `UPDATE partner_commissions
-            SET status = 'cancelled', updated_at = NOW()
-          WHERE reference_id = $1
-            AND reference_type = 'warranty_purchase'
-            AND status IN ('pending', 'approved')`,
-        [purchaseId],
       );
 
       await finalClient.query('COMMIT');

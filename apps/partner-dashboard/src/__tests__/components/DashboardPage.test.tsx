@@ -42,9 +42,6 @@ const sampleAnalytics = {
   activated_gifts: 18,
   pending_gifts: 7,
   activation_rate: 72,
-  total_commissions: 1500,
-  pending_commissions: 350,
-  paid_commissions: 1150,
   recent_activity: [],
 };
 
@@ -113,19 +110,6 @@ describe('DashboardPage', () => {
     });
 
     expect(mockApiClient).toHaveBeenCalledTimes(2);
-  });
-
-  it('formats currency values correctly for commissions', async () => {
-    mockApiClient.mockResolvedValueOnce({ success: true, data: sampleAnalytics });
-
-    render(<DashboardPage />);
-
-    await waitFor(() => {
-      // pending_commissions = 350 → $350.00
-      expect(screen.getByText('$350.00')).toBeInTheDocument();
-      // total_commissions = 1500 → $1,500.00
-      expect(screen.getByText('$1,500.00')).toBeInTheDocument();
-    });
   });
 
   it('shows activation rate and pending gifts counts', async () => {

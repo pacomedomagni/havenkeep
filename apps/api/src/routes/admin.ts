@@ -71,7 +71,7 @@ router.get('/stats', async (req, res, next) => {
         (SELECT COUNT(*) FROM users WHERE plan = 'premium' AND deleted_at IS NULL) as premium_users,
         (SELECT COUNT(*) FROM items i JOIN users u ON u.id = i.user_id WHERE u.deleted_at IS NULL) as total_items,
         (SELECT COALESCE(SUM(i.price), 0) FROM items i JOIN users u ON u.id = i.user_id WHERE u.deleted_at IS NULL) as total_value,
-        (SELECT COUNT(*) FROM partners p JOIN users u ON u.id = p.user_id WHERE p.status = 'active' AND u.deleted_at IS NULL) as active_partners,
+        (SELECT COUNT(*) FROM partners p JOIN users u ON u.id = p.user_id WHERE u.deleted_at IS NULL) as active_partners,
         (SELECT COUNT(*) FROM partner_gifts) as total_gifts,
         (SELECT COUNT(*) FROM warranty_claims wc JOIN users u ON u.id = wc.user_id WHERE u.deleted_at IS NULL) as total_claims
     `);
@@ -497,178 +497,9 @@ router.delete(
   },
 );
 
-// ========== PARTNER MANAGEMENT ==========
+// ========== PARTNER ADMIN ENDPOINTS ==========
 
-// List pending partners (status = 'pending')
-router.get('/partners/pending', async (req, res, next) => {
-  try {
-    const result = await query(
-      `SELECT p.*, u.email, u.full_name
-       FROM partners p
-       JOIN users u ON u.id = p.user_id
-       WHERE p.status = 'pending'
-       ORDER BY p.created_at DESC`
-    );
-
-    sendSuccess(res, result.rows);
-  } catch (error) {
-    next(error);
-  }
-});
-
-// H-A9 (audit): partner status state-machine guards.
-//
-// The prior approve / reject routes flipped status unconditionally with
-// no prior-state check, no audit-metadata capture of the transition,
-// and no session/cache invalidation on revoke. Three problems:
-//   1. A previously rejected partner could be silently re-approved via
-//      `rejected -> active` with no two-admin gate or re-review. The
-//      audit row said "Admin approved" with no prior-status context.
-//   2. A revoked partner kept in-flight refresh tokens and a 10s-cached
-//      user-row claiming is_partner=true. Combined with H-A8's prior
-//      shape, the dashboard middleware also kept routing them to the
-//      partner shell for up to JWT_EXPIRES_IN.
-//   3. No prior_status in the audit log meant "how did this partner
-//      end up active?" had to be reconstructed from updated_at scans.
-//
-// Allowed transitions:
-//   pending  -> active    via /approve  (no-op if already active)
-//   pending  -> rejected  via /reject
-//   active   -> rejected  via /reject   (revoke — burns sessions)
-//   rejected -> *         REFUSED. A separate /reinstate route can be
-//                         added later with stricter gating; for now an
-//                         operator can manually flip via SQL with full
-//                         forensic context.
-async function loadPartnerForStateChange(
-  id: string,
-): Promise<{ id: string; user_id: string; status: string; company_name: string | null }> {
-  const lookup = await query<{
-    id: string;
-    user_id: string;
-    status: string;
-    company_name: string | null;
-  }>(
-    `SELECT id, user_id, status, company_name FROM partners WHERE id = $1`,
-    [id],
-  );
-  if (lookup.rows.length === 0) {
-    throw new AppError('Partner not found', 404);
-  }
-  return lookup.rows[0];
-}
-
-// Approve a partner (status = 'active')
-router.put('/partners/:id/approve', validate(userIdParamSchema, 'params'), async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    const partner = await loadPartnerForStateChange(id);
-    const priorStatus = partner.status;
-
-    if (priorStatus === 'active') {
-      // Idempotent — surface the current row but skip the audit /
-      // session-invalidation churn. The dashboard's "approve" button
-      // can race a concurrent admin click; both should not produce
-      // two audit rows.
-      sendSuccess(res, partner, { message: 'Partner already active' });
-      return;
-    }
-    if (priorStatus !== 'pending') {
-      throw new AppError(
-        `Cannot transition partner from '${priorStatus}' to 'active'. Use a dedicated reinstate flow for previously-rejected partners.`,
-        409,
-        'CONFLICT',
-      );
-    }
-
-    const result = await query(
-      `UPDATE partners
-         SET status = 'active', is_active = TRUE, updated_at = NOW()
-         WHERE id = $1
-         RETURNING *`,
-      [id]
-    );
-
-    await AuditService.logFromRequest(req, 'admin.settings_change', {
-      severity: 'info',
-      resourceType: 'partner',
-      resourceId: id,
-      description: `Admin approved partner: ${result.rows[0].company_name || id}`,
-      metadata: { from: priorStatus, to: 'active' },
-    });
-
-    // Drop the cached user row so the next call sees is_partner=true
-    // immediately (otherwise the partner waits up to 10s for the cache
-    // to expire before they can use partner endpoints).
-    await invalidateUserCache(partner.user_id);
-
-    sendSuccess(res, result.rows[0], { message: 'Partner approved' });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// Reject a partner (status = 'rejected'). Optional reason is captured in the
-// audit log so an admin can answer "why was this partner rejected?" later
-// (audit Ch10-W041). Stored as a string up to 1KB.
-router.put('/partners/:id/reject', validate(userIdParamSchema, 'params'), validate(rejectPartnerBodySchema), async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    const reasonRaw = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
-    const reason = reasonRaw.slice(0, 1024);
-
-    const partner = await loadPartnerForStateChange(id);
-    const priorStatus = partner.status;
-
-    if (priorStatus === 'rejected') {
-      sendSuccess(res, partner, { message: 'Partner already rejected' });
-      return;
-    }
-    if (priorStatus !== 'pending' && priorStatus !== 'active') {
-      throw new AppError(
-        `Cannot transition partner from '${priorStatus}' to 'rejected'.`,
-        409,
-        'CONFLICT',
-      );
-    }
-
-    const result = await query(
-      `UPDATE partners
-         SET status = 'rejected', is_active = FALSE, updated_at = NOW()
-         WHERE id = $1
-         RETURNING *`,
-      [id]
-    );
-
-    await AuditService.logFromRequest(req, 'admin.settings_change', {
-      severity: 'warning',
-      resourceType: 'partner',
-      resourceId: id,
-      description:
-        reason.length > 0
-          ? `Admin rejected partner ${result.rows[0].company_name || id}: ${reason}`
-          : `Admin rejected partner: ${result.rows[0].company_name || id}`,
-      metadata: { from: priorStatus, to: 'rejected', ...(reason ? { reason } : {}) },
-    });
-
-    // active -> rejected is a session-revocation event, mirroring
-    // /admin/users/:id/suspend. Burn every refresh token + invalidate
-    // the user-row cache so an in-flight bearer token can't keep
-    // exercising partner endpoints (the API's per-call requireAdmin/
-    // requirePartner re-derives anyway, but this closes the race).
-    if (priorStatus === 'active') {
-      await query(`DELETE FROM refresh_tokens WHERE user_id = $1`, [partner.user_id]);
-    }
-    await invalidateUserCache(partner.user_id);
-
-    sendSuccess(res, result.rows[0], { message: 'Partner rejected' });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// ========== PARTNER & COMMISSION ADMIN ENDPOINTS ==========
-
-// Paginated list of ALL partners with user info and aggregate counts
+// Paginated list of ALL partners with user info and gift counts.
 router.get('/partners', validate(paginationSchema, 'query'), async (req, res, next) => {
   try {
     const page = Math.max(1, parseInt(req.query.page as string, 10) || 1);
@@ -679,20 +510,6 @@ router.get('/partners', validate(paginationSchema, 'query'), async (req, res, ne
     const params: any[] = [];
     let paramIndex = 1;
 
-    if (typeof req.query.status === 'string') {
-      const allowed = new Set(['pending', 'active', 'rejected']);
-      if (!allowed.has(req.query.status)) {
-        throw new AppError('Invalid status filter. Must be pending, active, or rejected.', 400);
-      }
-      conditions.push(`p.status = $${paramIndex++}`);
-      params.push(req.query.status);
-    } else if (req.query.is_active !== undefined) {
-      // Legacy filter — translate to status. New callers should use ?status=.
-      const isActive = req.query.is_active === 'true';
-      conditions.push(`p.status = $${paramIndex++}`);
-      params.push(isActive ? 'active' : 'pending');
-    }
-
     if (req.query.partner_type) {
       conditions.push(`p.partner_type = $${paramIndex++}`);
       params.push(req.query.partner_type);
@@ -702,46 +519,37 @@ router.get('/partners', validate(paginationSchema, 'query'), async (req, res, ne
 
     const [result, countResult] = await Promise.all([
       query(
-        // Audit Ch01-F063: stripe_account_id is sensitive (it appears in the
-        // Stripe dashboard URL and lets an admin pivot to the connected
-        // account). Replace with a boolean `has_stripe_account` so admin UI
-        // can show "connected" without leaking the real id. Audit Ch01-F065:
-        // exclude soft-deleted user rows so the listing matches reality.
+        // Audit Ch01-F065: exclude soft-deleted user rows so the listing
+        // matches reality.
         `SELECT
           p.id,
           p.user_id,
           p.company_name,
           p.partner_type,
           p.phone,
-          p.license_number,
           p.service_areas,
           p.brand_color,
           p.logo_url,
-          (p.stripe_account_id IS NOT NULL) AS has_stripe_account,
-          p.stripe_onboarded,
           u.referral_code,
-          p.is_active,
-          p.status,
           p.created_at,
           p.updated_at,
           u.email,
           u.full_name,
-          COALESCE(SUM(pc.amount), 0)::numeric AS total_commissions_earned,
-          COUNT(DISTINCT pg.id)::int AS total_gifts,
+          COUNT(DISTINCT pg.id)::int AS count_gifts,
+          COUNT(DISTINCT pg.id) FILTER (WHERE pg.is_activated)::int AS count_activated_gifts,
           (SELECT COUNT(*) FROM users ref WHERE ref.referred_by = p.user_id AND ref.deleted_at IS NULL)::int AS total_referrals
         FROM partners p
         JOIN users u ON u.id = p.user_id
-        LEFT JOIN partner_commissions pc ON pc.partner_id = p.id
         LEFT JOIN partner_gifts pg ON pg.partner_id = p.id
         ${whereClause}${whereClause ? ' AND ' : 'WHERE '}u.deleted_at IS NULL
         GROUP BY p.id, u.email, u.full_name
         ORDER BY p.created_at DESC
         LIMIT $${paramIndex++} OFFSET $${paramIndex++}`,
-        [...params, limit, offset]
+        [...params, limit, offset],
       ),
       query(
         `SELECT COUNT(*) FROM partners p ${whereClause}`,
-        params
+        params,
       ),
     ]);
 
@@ -760,44 +568,34 @@ router.get('/partners', validate(paginationSchema, 'query'), async (req, res, ne
   }
 });
 
-// Single partner detail with commission stats, gift count, referral count
+// Single partner detail with gift + referral counts.
 router.get('/partners/:id', validate(userIdParamSchema, 'params'), async (req, res, next) => {
   try {
     const { id } = req.params;
 
     const result = await query(
-      // Same `has_stripe_account` boolean as the list endpoint — Ch01-F063.
-      // Admin UI can hit Stripe dashboard via partner email if needed.
       `SELECT
         p.id,
         p.user_id,
         p.company_name,
         p.partner_type,
         p.phone,
-        p.license_number,
         p.service_areas,
         p.brand_color,
         p.logo_url,
-        (p.stripe_account_id IS NOT NULL) AS has_stripe_account,
-        p.stripe_onboarded,
         u.referral_code,
-        p.is_active,
-        p.status,
         p.created_at,
         p.updated_at,
         u.email,
         u.full_name,
-        COALESCE(SUM(pc.amount) FILTER (WHERE pc.status = 'pending'), 0)::numeric AS total_pending_amount,
-        COALESCE(SUM(pc.amount) FILTER (WHERE pc.status = 'paid' AND pc.stripe_transfer_id IS NOT NULL), 0)::numeric AS total_paid_amount,
         COUNT(DISTINCT pg.id)::int AS gift_count,
         (SELECT COUNT(*) FROM users ref WHERE ref.referred_by = p.user_id AND ref.deleted_at IS NULL)::int AS referral_count
       FROM partners p
       JOIN users u ON u.id = p.user_id
-      LEFT JOIN partner_commissions pc ON pc.partner_id = p.id
       LEFT JOIN partner_gifts pg ON pg.partner_id = p.id
       WHERE p.id = $1 AND u.deleted_at IS NULL
       GROUP BY p.id, u.email, u.full_name`,
-      [id]
+      [id],
     );
 
     if (result.rows.length === 0) {
@@ -810,105 +608,6 @@ router.get('/partners/:id', validate(userIdParamSchema, 'params'), async (req, r
   }
 });
 
-// All commissions across all partners, paginated
-router.get('/commissions', validate(paginationSchema, 'query'), async (req, res, next) => {
-  try {
-    const page = Math.max(1, parseInt(req.query.page as string, 10) || 1);
-    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string, 10) || 20));
-    const offset = (page - 1) * limit;
-
-    const conditions: string[] = [];
-    const params: any[] = [];
-    let paramIndex = 1;
-
-    if (req.query.status) {
-      const validStatuses = ['pending', 'approved', 'paid', 'cancelled'];
-      if (!validStatuses.includes(req.query.status as string)) {
-        throw new AppError('Invalid status. Must be one of: pending, approved, paid, cancelled', 400);
-      }
-      conditions.push(`pc.status = $${paramIndex++}`);
-      params.push(req.query.status);
-    }
-
-    if (req.query.partner_id) {
-      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-      if (!uuidRegex.test(req.query.partner_id as string)) {
-        throw new AppError('Invalid partner_id format', 400);
-      }
-      conditions.push(`pc.partner_id = $${paramIndex++}`);
-      params.push(req.query.partner_id);
-    }
-
-    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-
-    const [result, countResult] = await Promise.all([
-      query(
-        // C0-10: LEFT JOIN partners + COALESCE with the snapshot
-        // columns. After a partner's owning user is purged, the
-        // partner row CASCADE-deletes, the commission's partner_id
-        // SET NULLs, and the JOIN returns nothing — but the original
-        // identity is still legible via partner_*_at_event. The
-        // company_name + email below render the captured-at-event
-        // value when the live row is gone (1099-NEC trail).
-        `SELECT
-          pc.id,
-          pc.partner_id,
-          pc.reference_id,
-          pc.amount,
-          pc.status,
-          pc.created_at,
-          COALESCE(p.company_name, pc.partner_company_name_at_event) AS company_name,
-          COALESCE(u.email, pc.partner_email_at_event) AS email
-        FROM partner_commissions pc
-        LEFT JOIN partners p ON p.id = pc.partner_id
-        LEFT JOIN users u ON u.id = p.user_id
-        ${whereClause}
-        ORDER BY pc.created_at DESC
-        LIMIT $${paramIndex++} OFFSET $${paramIndex++}`,
-        [...params, limit, offset]
-      ),
-      query(
-        `SELECT COUNT(*) FROM partner_commissions pc ${whereClause}`,
-        params
-      ),
-    ]);
-
-    const total = parseInt(countResult.rows[0].count, 10);
-
-    sendSuccess(res, result.rows, {
-      pagination: {
-        page,
-        limit,
-        total,
-        total_pages: Math.ceil(total / limit),
-      },
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// Aggregate commission stats across all partners
-router.get('/commissions/stats', async (req, res, next) => {
-  try {
-    const result = await query(`
-      SELECT
-        COALESCE(SUM(amount) FILTER (WHERE status = 'pending'), 0)::numeric AS total_pending_amount,
-        COALESCE(SUM(amount) FILTER (WHERE status = 'approved'), 0)::numeric AS total_approved_amount,
-        COALESCE(SUM(amount) FILTER (WHERE status = 'paid'), 0)::numeric AS total_paid_amount,
-        COALESCE(SUM(amount) FILTER (WHERE status = 'cancelled'), 0)::numeric AS total_cancelled_amount,
-        COUNT(*) FILTER (WHERE status = 'pending')::int AS count_pending,
-        COUNT(*) FILTER (WHERE status = 'approved')::int AS count_approved,
-        COUNT(*) FILTER (WHERE status = 'paid')::int AS count_paid,
-        COUNT(*) FILTER (WHERE status = 'cancelled')::int AS count_cancelled
-      FROM partner_commissions
-    `);
-
-    sendSuccess(res, result.rows[0]);
-  } catch (error) {
-    next(error);
-  }
-});
 
 // H2: re-drive a dead-lettered webhook. Operator fixes the underlying
 // handler bug first, then calls this to let the row re-process. The

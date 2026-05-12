@@ -11,7 +11,6 @@ const notificationTypes = [
   'health_score_update',
   'gift_received',
   'gift_activated',
-  'partner_commission',
   'promotional',
   'tip',
   'system',

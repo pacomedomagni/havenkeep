@@ -112,11 +112,11 @@ const initializeRateLimiter = async () => {
         });
       },
       skip: (req) => {
-        // 3.9: webhook routes (Stripe, RevenueCat) are mounted before this
-        // limiter today, so they don't currently hit it — but a future
-        // re-order would silently start dropping webhook deliveries to
-        // 429 (Stripe retries for 3 days). Belt-and-braces skip so the
-        // limiter is order-independent.
+        // 3.9: the RevenueCat webhook is mounted before this limiter today,
+        // so it doesn't currently hit it — but a future re-order would
+        // silently start dropping webhook deliveries to 429 (RevenueCat
+        // retries aggressively). Belt-and-braces skip so the limiter is
+        // order-independent.
         if (req.path.startsWith('/api/v1/webhooks/')) return true;
         // 4.12: exact match on the health probes. The previous
         // `startsWith` also bypassed e.g. `/healthcheck` or

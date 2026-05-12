@@ -134,7 +134,7 @@ export async function authenticate(
       const result = await query(
         `SELECT u.id, u.email, u.plan, u.is_admin, u.plan_expires_at, u.email_verified,
                 u.deleted_at, u.deletion_scheduled_for, u.tokens_invalidated_at,
-                (EXISTS(SELECT 1 FROM partners p WHERE p.user_id = u.id AND p.status = 'active')) as is_partner
+                (EXISTS(SELECT 1 FROM partners p WHERE p.user_id = u.id)) as is_partner
          FROM users u WHERE u.id = $1`,
         [decoded.userId],
       );

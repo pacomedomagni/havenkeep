@@ -180,7 +180,7 @@ describe('getUser', () => {
 
     // Verify the API was called with the Bearer token
     expect(mockFetch).toHaveBeenCalledWith(
-      expect.stringContaining('/api/v1/admin/me'),
+      expect.stringContaining('/api/v1/users/me'),
       expect.objectContaining({
         headers: expect.objectContaining({
           Authorization: `Bearer ${validAccessToken}`,

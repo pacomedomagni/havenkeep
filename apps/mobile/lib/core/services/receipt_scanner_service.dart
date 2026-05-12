@@ -13,17 +13,18 @@ class ReceiptScannerService {
 
   /// Scan a receipt image and return structured data.
   ///
-  /// Streams the file as a multipart upload (field name `image`) so we
-  /// don't have to base64-encode the entire payload into a JSON body —
-  /// that pattern OOMs the device on larger photos and inflates the
-  /// payload by ~33%.
+  /// Streams the file as a multipart upload (field name `file` — multer's
+  /// `upload.single('file')` only fills req.file when the form field is
+  /// named exactly that) so we don't have to base64-encode the entire
+  /// payload into a JSON body — that pattern OOMs the device on larger
+  /// photos and inflates the payload by ~33%.
   Future<ReceiptScanResult> scanReceipt(File imageFile) async {
     try {
       final client = _ref.read(apiClientProvider);
       final response = await client.upload(
         pathSegments: const ['api', 'v1', 'receipts', 'scan'],
         file: imageFile,
-        fieldName: 'image',
+        fieldName: 'file',
       );
 
       final data = response['data'] as Map<String, dynamic>;

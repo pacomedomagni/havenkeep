@@ -16,31 +16,21 @@ partner agreement until it moves out of here.
 
 ---
 
-## 1. Extended-warranty marketplace + partner lifetime commission — `BACKLOG`
+## 1. Extended-warranty marketplace — `BACKLOG`
 
 **What the spec used to claim:** users could quote + buy extended warranties
-in-app for items whose manufacturer warranty was expiring; partners earned
-"10–20% commission on every warranty their referred user buys, for the life
-of the account."
+in-app for items whose manufacturer warranty was expiring.
 
 **Reality in the code:** the marketplace doesn't exist. `warranty_purchases`
 exists as a table and `WarrantyPurchasesService.createPurchase` accepts a
-*client-supplied* `stripePaymentIntentId` (it doesn't charge anything), writes
-the row with `commission_amount` / `commission_rate` left NULL, and references
-a "partner-attribution job" that was never written. No `partner_commissions`
-row is ever created for a warranty purchase.
+*client-supplied* `stripePaymentIntentId` (it doesn't charge anything) and
+writes the row with `commission_amount` / `commission_rate` left NULL.
+Mobile always passes null; the field is preserved as a nullable artefact.
 
-**Decision:** defer the whole surface. PRODUCT.md / §4.2 / §5.2 / marketing /
-the partner agreement now describe partner revenue as **commission on the
-gifts a partner sends**, full stop — no "lifetime commission on warranty
-sales." When the marketplace is built it needs: a real Stripe charge flow, a
-warranty-provider integration, the compliance lift (selling insurance-adjacent
-products), and the attribution job that links a purchase to the referring
-partner and writes the commission ledger row.
-
-**What stays in PRODUCT.md:** the gift program (3-phase flow, Connect
-onboarding, payout transfers, 1099-NEC, refund clawback) — all of that is real
-and shipped.
+**Decision:** defer the whole surface. PRODUCT.md no longer claims the
+marketplace exists. When it's built it needs a real charge flow, a
+warranty-provider integration, and the compliance lift (selling
+insurance-adjacent products is a regulated activity).
 
 ---
 
@@ -99,12 +89,13 @@ change.
 
 ---
 
-## 6. Platinum longer-grant differentiator — `BACKLOG`
+## 6. Per-partner gift caps (abuse mitigation) — `BACKLOG`
 
-All three partner tiers grant the same 1–12-month premium window today; the
-tier difference is per-gift price + commission rate only. A Platinum-only
-longer-grant option would need a validator bump + a UI option. Already noted in
-PRODUCT.md §5.2.
+The partner program is currently free with no per-account rate limits.
+Re-creating a HavenKeep account to extend the gift is irrational at the
+$24/yr price point (hours of data re-entry to save $24), so abuse pressure
+is low — but a per-partner monthly gift cap that scales with proven
+activity would shut down even the bulk-spam scenario. Not started.
 
 ---
 

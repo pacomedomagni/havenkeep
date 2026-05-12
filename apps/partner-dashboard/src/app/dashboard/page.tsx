@@ -2,28 +2,14 @@
 
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
-import {
-  GiftIcon,
-  CheckCircleIcon,
-  ClockIcon,
-  CurrencyDollarIcon,
-} from '@heroicons/react/24/outline';
+import { GiftIcon, CheckCircleIcon, ClockIcon } from '@heroicons/react/24/outline';
 import { apiClient, ApiError } from '@/lib/api';
-import { formatCurrency } from '@/lib/utils';
 
-/**
- * Money fields are DECIMAL on the wire — we keep them as strings/numbers
- * without parseFloat so cents do not drift on large totals (audit Ch10-W036).
- * `formatCurrency` already accepts string input.
- */
 interface Analytics {
   total_gifts: number;
   activated_gifts: number;
   pending_gifts: number;
   activation_rate: number;
-  total_commissions: number | string;
-  pending_commissions: number | string;
-  paid_commissions: number | string;
   recent_activity: RecentActivity[];
 }
 
@@ -86,12 +72,17 @@ export default function DashboardPage() {
     );
   }
 
+  const pendingGifts = analytics?.pending_gifts ?? 0;
+  const activatedGifts = analytics?.activated_gifts ?? 0;
+  const totalGifts = analytics?.total_gifts ?? 0;
+  const activationRate = analytics?.activation_rate ?? 0;
+
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-white">Partner Dashboard</h1>
         <p className="text-haven-text-secondary text-sm mt-1">
-          Welcome back. Here&apos;s an overview of your partner activity.
+          Send HavenKeep as a closing gift. Six months of premium, free for your client.
         </p>
       </div>
 
@@ -104,13 +95,13 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="card">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-sm text-haven-text-secondary">Total Gifts</span>
+            <span className="text-sm text-haven-text-secondary">Gifts Sent</span>
             <GiftIcon className="w-6 h-6 text-haven-primary" aria-hidden="true" />
           </div>
-          <div className="text-2xl font-bold text-white">{analytics?.total_gifts ?? 0}</div>
+          <div className="text-2xl font-bold text-white">{totalGifts}</div>
           <Link href="/dashboard/gifts" className="text-sm text-haven-primary hover:text-haven-primary/80 mt-2 inline-block">
             View all
           </Link>
@@ -118,64 +109,36 @@ export default function DashboardPage() {
 
         <div className="card">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-sm text-haven-text-secondary">Activated Gifts</span>
+            <span className="text-sm text-haven-text-secondary">Activated</span>
             <CheckCircleIcon className="w-6 h-6 text-haven-active" aria-hidden="true" />
           </div>
-          <div className="text-2xl font-bold text-white">{analytics?.activated_gifts ?? 0}</div>
+          <div className="text-2xl font-bold text-white">{activatedGifts}</div>
           <div className="text-sm text-haven-active mt-2">
-            {analytics?.activation_rate ?? 0}% activation rate
+            {activationRate}% activation rate
           </div>
         </div>
 
         <div className="card">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-sm text-haven-text-secondary">Pending Commissions</span>
+            <span className="text-sm text-haven-text-secondary">Pending</span>
             <ClockIcon className="w-6 h-6 text-haven-warning" aria-hidden="true" />
           </div>
-          <div className="text-2xl font-bold text-haven-warning">
-            {formatCurrency(analytics?.pending_commissions ?? 0)}
-          </div>
-          <Link href="/dashboard/commissions" className="text-sm text-haven-primary hover:text-haven-primary/80 mt-2 inline-block">
-            View details
-          </Link>
-        </div>
-
-        <div className="card">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm text-haven-text-secondary">Total Earned</span>
-            <CurrencyDollarIcon className="w-6 h-6 text-haven-active" aria-hidden="true" />
-          </div>
-          <div className="text-2xl font-bold text-haven-active">
-            {formatCurrency(analytics?.total_commissions ?? 0)}
-          </div>
-          <div className="text-sm text-haven-text-tertiary mt-2">
-            {formatCurrency(analytics?.paid_commissions ?? 0)} paid
-          </div>
+          <div className="text-2xl font-bold text-white">{pendingGifts}</div>
+          <div className="text-sm text-haven-text-tertiary mt-2">Sent, not yet activated</div>
         </div>
       </div>
 
       <div className="card">
         <h2 className="text-lg font-semibold text-white mb-4">Quick Actions</h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Link
             href="/dashboard/gifts"
             className="flex items-center gap-3 p-4 border border-haven-border rounded-lg hover:border-haven-primary hover:bg-haven-elevated transition-colors"
           >
             <GiftIcon className="w-6 h-6 text-haven-primary" aria-hidden="true" />
             <div>
-              <div className="font-medium text-white">Create New Gift</div>
-              <div className="text-sm text-haven-text-tertiary">Send gift to a homebuyer</div>
-            </div>
-          </Link>
-
-          <Link
-            href="/dashboard/analytics"
-            className="flex items-center gap-3 p-4 border border-haven-border rounded-lg hover:border-haven-primary hover:bg-haven-elevated transition-colors"
-          >
-            <CheckCircleIcon className="w-6 h-6 text-haven-active" aria-hidden="true" />
-            <div>
-              <div className="font-medium text-white">View Analytics</div>
-              <div className="text-sm text-haven-text-tertiary">Track your performance</div>
+              <div className="font-medium text-white">Create new gift</div>
+              <div className="text-sm text-haven-text-tertiary">Send to a homebuyer</div>
             </div>
           </Link>
 
@@ -183,10 +146,10 @@ export default function DashboardPage() {
             href="/dashboard/settings"
             className="flex items-center gap-3 p-4 border border-haven-border rounded-lg hover:border-haven-primary hover:bg-haven-elevated transition-colors"
           >
-            <CurrencyDollarIcon className="w-6 h-6 text-haven-primary" aria-hidden="true" />
+            <CheckCircleIcon className="w-6 h-6 text-haven-active" aria-hidden="true" />
             <div>
-              <div className="font-medium text-white">Update Settings</div>
-              <div className="text-sm text-haven-text-tertiary">Customize your profile</div>
+              <div className="font-medium text-white">Customize your profile</div>
+              <div className="text-sm text-haven-text-tertiary">Brand the gift email</div>
             </div>
           </Link>
         </div>

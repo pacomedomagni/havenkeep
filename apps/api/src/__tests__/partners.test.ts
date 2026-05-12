@@ -3,19 +3,16 @@ import request from 'supertest';
 import { cleanDatabase } from './setup';
 import { getTestApp, createTestUser } from './helpers';
 import { pool } from '../db';
-import {
-  PartnersService,
-  hashActivationCode,
-} from '../services/partners.service';
+import { PartnersService, hashActivationCode } from '../services/partners.service';
 
 jest.mock('../middleware/rateLimiter', () => require('./test-rate-limiter-mock'));
 
-// Mock EmailService so partner welcome emails do not hit SendGrid
+// Mock EmailService so partner welcome / gift emails do not hit SendGrid.
 jest.mock('../services/email.service', () => ({
   EmailService: {
     sendContactNotificationEmail: jest.fn().mockResolvedValue(undefined),
     sendPartnerWelcomeEmail: jest.fn().mockResolvedValue(undefined),
-    sendGiftEmail: jest.fn().mockResolvedValue(undefined),
+    sendGiftActivationEmail: jest.fn().mockResolvedValue(undefined),
     sendPasswordResetEmail: jest.fn().mockResolvedValue(undefined),
     sendEmailVerificationEmail: jest.fn().mockResolvedValue(undefined),
   },
@@ -44,29 +41,6 @@ describe('Partners Routes', () => {
   });
 
   // ----------------------------------------------------------------
-  // Public endpoints
-  // ----------------------------------------------------------------
-
-  describe('GET /api/v1/partners/tiers', () => {
-    it('should return partner tiers for authenticated user', async () => {
-      const res = await request(app)
-        .get('/api/v1/partners/tiers')
-        .set('Authorization', `Bearer ${token}`);
-
-      expect(res.status).toBe(200);
-      expect(res.body.success).toBe(true);
-      expect(Array.isArray(res.body.data)).toBe(true);
-      expect(res.body.data.length).toBeGreaterThan(0);
-
-      // Each tier should have the expected shape
-      const tier = res.body.data[0];
-      expect(tier).toHaveProperty('id');
-      expect(tier).toHaveProperty('name');
-      expect(tier).toHaveProperty('commission_rate');
-    });
-  });
-
-  // ----------------------------------------------------------------
   // Registration
   // ----------------------------------------------------------------
 
@@ -83,7 +57,7 @@ describe('Partners Routes', () => {
       const res = await request(app)
         .post('/api/v1/partners/register')
         .set('Authorization', `Bearer ${token}`)
-        .send({ company_name: 'Acme Realty' }); // no partner_type
+        .send({ company_name: 'Acme Realty' });
 
       expect(res.status).toBe(400);
     });
@@ -103,13 +77,11 @@ describe('Partners Routes', () => {
     });
 
     it('should return 400 when the user tries to register as a partner a second time', async () => {
-      // First registration
       await request(app)
         .post('/api/v1/partners/register')
         .set('Authorization', `Bearer ${token}`)
         .send(REGISTER_PAYLOAD);
 
-      // Duplicate registration
       const res = await request(app)
         .post('/api/v1/partners/register')
         .set('Authorization', `Bearer ${token}`)
@@ -133,7 +105,6 @@ describe('Partners Routes', () => {
     });
 
     it('should return the partner profile after registration', async () => {
-      // Register first
       await request(app)
         .post('/api/v1/partners/register')
         .set('Authorization', `Bearer ${token}`)
@@ -158,7 +129,6 @@ describe('Partners Routes', () => {
 
   describe('PUT /api/v1/partners/me', () => {
     it('should update the partner profile', async () => {
-      // Register first
       await request(app)
         .post('/api/v1/partners/register')
         .set('Authorization', `Bearer ${token}`)
@@ -172,6 +142,21 @@ describe('Partners Routes', () => {
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.data.company_name).toBe('Updated Realty LLC');
+    });
+
+    it('rejects updates that try to change partner_type (immutable after registration)', async () => {
+      await request(app)
+        .post('/api/v1/partners/register')
+        .set('Authorization', `Bearer ${token}`)
+        .send(REGISTER_PAYLOAD);
+
+      const res = await request(app)
+        .put('/api/v1/partners/me')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ partner_type: 'builder', company_name: 'Sneaky Builder LLC' });
+
+      // Validator rejects the unknown field — it isn't in updatePartnerSchema.
+      expect(res.status).toBe(400);
     });
   });
 
@@ -205,61 +190,10 @@ describe('Partners Routes', () => {
   });
 
   // ----------------------------------------------------------------
-  // Tier rates locked (Ch12-T037)
-  // ----------------------------------------------------------------
-
-  describe('GET /api/v1/partners/tiers — rate values locked', () => {
-    it('locks commission_rate to 0.10/0.15/0.20 across basic/premium/platinum', async () => {
-      const res = await request(app)
-        .get('/api/v1/partners/tiers')
-        .set('Authorization', `Bearer ${token}`);
-      expect(res.status).toBe(200);
-      const byId = Object.fromEntries(
-        (res.body.data as Array<{ id: string; commission_rate: number }>).map((t) => [
-          t.id,
-          t.commission_rate,
-        ]),
-      );
-      expect(byId.basic).toBe(0.1);
-      expect(byId.premium).toBe(0.15);
-      expect(byId.platinum).toBe(0.2);
-    });
-
-    it('matches the service-side TIER_COMMISSION_RATES constant', () => {
-      // Import lazily so the mock for rateLimiter resolves first.
-      const { TIER_COMMISSION_RATES } = require('../services/partners.service');
-      expect(TIER_COMMISSION_RATES.basic).toBe(0.1);
-      expect(TIER_COMMISSION_RATES.premium).toBe(0.15);
-      expect(TIER_COMMISSION_RATES.platinum).toBe(0.2);
-    });
-  });
-
-  // ----------------------------------------------------------------
-  // Partner type lock (Ch03-F015)
-  // ----------------------------------------------------------------
-
-  describe('PUT /api/v1/partners/me — partner_type lock', () => {
-    it('rejects updates that try to change partner_type', async () => {
-      await request(app)
-        .post('/api/v1/partners/register')
-        .set('Authorization', `Bearer ${token}`)
-        .send(REGISTER_PAYLOAD);
-
-      const res = await request(app)
-        .put('/api/v1/partners/me')
-        .set('Authorization', `Bearer ${token}`)
-        .send({ partner_type: 'builder', company_name: 'Sneaky Builder LLC' });
-
-      // Validator rejects the unknown field — it isn't in updatePartnerSchema.
-      expect(res.status).toBe(400);
-    });
-  });
-
-  // ----------------------------------------------------------------
-  // Phase-5 follow-up: activation_code + activation_url are wiped on
-  // terminal transitions so a DB dump can never resurrect a redeemed
-  // or expired code. The hash stays so verifyActivationCode keeps
-  // working for audit / historical lookups.
+  // partner_gifts.activation_code + activation_url are wiped on terminal
+  // transitions so a DB dump can never resurrect a redeemed or expired
+  // code. The hash stays so verifyActivationCode keeps working for
+  // audit / historical lookups.
   // ----------------------------------------------------------------
 
   describe('partner_gifts plaintext wipe on terminal transition', () => {
@@ -269,8 +203,6 @@ describe('Partners Routes', () => {
       homebuyerEmail: string;
       expiresAt?: Date;
     }) {
-      // Register the partner record (owner is already a user from the
-      // outer beforeEach).
       await request(app)
         .post('/api/v1/partners/register')
         .set('Authorization', `Bearer ${opts.ownerToken}`)
@@ -282,8 +214,8 @@ describe('Partners Routes', () => {
       );
       const partnerId = partnerRow.rows[0].id;
 
-      // Build a plaintext code + matching hash inline so the test
-      // doesn't depend on the createGift Stripe flow.
+      // Build a plaintext code + matching hash inline so the test doesn't
+      // depend on the createGift code path.
       const raw = crypto.randomBytes(8).toString('hex').toUpperCase();
       const plaintext = `${raw.slice(0, 4)}-${raw.slice(4, 8)}-${raw.slice(8, 12)}-${raw.slice(12, 16)}`;
       const hash = hashActivationCode(plaintext);
@@ -292,23 +224,17 @@ describe('Partners Routes', () => {
       const expiresAt =
         opts.expiresAt ?? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
-      // chk_partner_gifts_stripe_charge_required (mig 011) requires a
-      // non-null stripe_charge_id on rows in 'created' / 'sent' / 'activated'.
-      // Seed a synthetic id; this test bypasses the real Stripe flow.
-      const fakeStripeChargeId = `pi_test_${crypto.randomBytes(8).toString('hex')}`;
-
       const giftRow = await pool.query(
         `INSERT INTO partner_gifts (
            partner_id, homebuyer_email, homebuyer_name,
-           premium_months, status, amount_charged, expires_at,
-           stripe_charge_id, activation_code, activation_code_hash, activation_url
-         ) VALUES ($1, $2, 'Buyer', 6, 'created', 99, $3, $4, $5, $6, $7)
+           premium_months, status, expires_at,
+           activation_code, activation_code_hash, activation_url
+         ) VALUES ($1, $2, 'Buyer', 6, 'created', $3, $4, $5, $6)
          RETURNING id`,
         [
           partnerId,
           opts.homebuyerEmail.toLowerCase(),
           expiresAt,
-          fakeStripeChargeId,
           plaintext,
           hash,
           url,
@@ -396,7 +322,6 @@ describe('Partners Routes', () => {
       const cookies = Array.isArray(setCookie) ? setCookie : [setCookie as unknown as string];
       const csrfCookie = cookies.find((c) => c.startsWith('csrf_token='));
       expect(csrfCookie).toBeDefined();
-      // The cookie value should be the same token returned in the body.
       expect(csrfCookie).toContain(`csrf_token=${res.body.csrfToken}`);
       // SameSite=Lax + non-HttpOnly (double-submit needs JS read access).
       expect(csrfCookie).toMatch(/SameSite=Lax/i);

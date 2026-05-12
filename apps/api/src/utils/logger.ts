@@ -25,7 +25,6 @@ const REDACT_PATHS = [
   'req.headers.cookie',
   'req.headers["x-csrf-token"]',
   'req.headers["x-api-key"]',
-  'req.headers["stripe-signature"]',
   'res.headers["set-cookie"]',
   // request body
   'req.body.password',
@@ -44,7 +43,6 @@ const REDACT_PATHS = [
   'req.body.image',
   'req.body.api_key',
   'req.body.apiKey',
-  'req.body.stripe_secret_key',
   // arbitrary nested objects (pino glob)
   '*.password',
   '*.password_hash',
@@ -60,8 +58,6 @@ const REDACT_PATHS = [
   '*.activationCode',
   '*.api_key',
   '*.apiKey',
-  '*.stripe_secret_key',
-  '*.stripeSecretKey',
 ];
 
 const isProd = config.env === 'production';

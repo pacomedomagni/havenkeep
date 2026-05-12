@@ -48,8 +48,7 @@
     "pino-pretty": "^10.3.1",
     "qrcode": "^1.5.4",
     "redis": "^4.6.12",
-    "sharp": "^0.33.2",
-    "stripe": "^21.0.1"
+    "sharp": "^0.33.2"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.2",

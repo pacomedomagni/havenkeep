@@ -1,16 +1,22 @@
 import crypto from 'crypto';
-import { pool, query } from '../db';
+import { pool } from '../db';
 import { logger } from '../utils/logger';
 import { AppError } from '../utils/errors';
-import { Partner, PartnerGift, PartnerCommission } from '../types/database.types';
+import { Partner, PartnerGift } from '../types/database.types';
 import { config } from '../config';
-import { createStripeClient } from '../utils/stripe-client';
 import { EmailService } from './email.service';
-import { generateUniqueReferralCode } from '../utils/referral-code';
 import { getRedisClient } from '../utils/redis';
 import { addMonthsSafe } from '../utils/dates';
-import { commissionCents, dollarsToCents, centsToDecimalString, decimalToCents } from '../utils/money';
 import { invalidateUserCache } from '../middleware/auth';
+
+/**
+ * Gift duration in months. Every closing gift grants the homebuyer this many
+ * months of HavenKeep premium. Hard-coded — partners cannot pick a length.
+ * Six months balances "long enough to be useful" with "short enough that
+ * account-cycling is irrational" (HavenKeep premium is $24/yr; the data
+ * re-entry cost dwarfs any savings).
+ */
+export const GIFT_PREMIUM_MONTHS = 6;
 
 /**
  * Activation codes are 64 bits of entropy, formatted XXXX-XXXX-XXXX-XXXX
@@ -38,198 +44,18 @@ export function hashActivationCode(code: string): string {
   return crypto.createHash('sha256').update(normalized).digest('hex');
 }
 
-const stripe = createStripeClient();
-
-// H-P4 (audit): per-gift charge in dollars, NOT a monthly subscription.
-//
-// The audit flagged that the per-gift price map and `PARTNER_TIERS`
-// (advertised in the dashboard as `price_monthly`) gave partners
-// conflicting cost expectations: a partner clicking through to "Platinum
-// — $149/month" with the dashboard's prior copy got a 2.5× surprise
-// when the first gift charged $249.
-//
-// HavenKeep does NOT bill partners on a recurring subscription today —
-// there is no Stripe Subscription created at signup, no
-// invoice.payment_failed handler, no dunning. The actual revenue model
-// is per-gift: the partner's saved card is charged
-// TIER_PRICE_PER_GIFT_USD[tier] every time they create a gift.
-//
-// The product question of "should partners pay a monthly fee instead /
-// in addition to per-gift?" is deliberately deferred — that's a
-// recurring-billing build (Stripe Subscriptions, dunning, /partners/me
-// surface for plan management) outside this audit. Until that lands,
-// the /partners/tiers response now includes both numbers so partners
-// see the actual cost-per-gift before clicking "Upgrade".
-//
-// Configurable via PARTNER_TIER_PRICING env so an operator can adjust
-// without a deploy.
-//
-// H38: validate at load time so a typo like `0.99` instead of `99`
-// can't silently undercharge every future gift. Stripe's floor is
-// $0.50 USD; we require >= $1 so any plausible underfloor mistake
-// (decimal-point slip, missing zero) trips immediately on boot.
-function parseTierPricing(raw: string): Record<string, number> {
-  const parsed = JSON.parse(raw);
-  if (typeof parsed !== 'object' || parsed === null) {
-    throw new Error(`PARTNER_TIER_PRICING must be a JSON object, got ${typeof parsed}`);
-  }
-  for (const [tier, value] of Object.entries(parsed)) {
-    if (typeof value !== 'number' || !Number.isFinite(value) || value < 1) {
-      throw new Error(
-        `PARTNER_TIER_PRICING.${tier} must be a number >= 1 USD; got ${JSON.stringify(value)}`,
-      );
-    }
-  }
-  return parsed as Record<string, number>;
-}
-
-export const TIER_PRICE_PER_GIFT_USD: Record<string, number> = parseTierPricing(
-  process.env.PARTNER_TIER_PRICING || '{"basic":99,"premium":149,"platinum":249}',
-);
-
-/**
- * Commission rates per tier (Ch03-F019, Ch12-T037). Locked here and in the
- * /partners/tiers route — diverging the two would let the dashboard
- * advertise a rate the API never pays. Tests guard the values explicitly.
- */
-export const TIER_COMMISSION_RATES: Record<string, number> = {
-  basic: 0.1,
-  premium: 0.15,
-  platinum: 0.2,
-};
-
-
-// MED-7: User-friendly messages for common Stripe decline codes
-const STRIPE_DECLINE_MESSAGES: Record<string, string> = {
-  card_declined: 'Your card was declined. Please try a different payment method.',
-  insufficient_funds: 'Your card has insufficient funds. Please try a different payment method.',
-  expired_card: 'Your card has expired. Please update your payment method.',
-  incorrect_cvc: 'The CVC code is incorrect. Please check and try again.',
-  processing_error: 'A processing error occurred. Please try again in a moment.',
-  lost_card: 'This card has been reported lost. Please use a different payment method.',
-  stolen_card: 'This card has been reported stolen. Please use a different payment method.',
-  do_not_honor: 'Your bank declined this charge. Please contact your bank or try a different card.',
-  generic_decline: 'Your card was declined. Please try a different payment method.',
-};
-
-// Gift activation brute-force protection. State lives in Redis so
-// the lockout survives process restarts AND is shared across instances.
-// Per-gift counter + lock TTL: after N failures, key is locked for the
-// remainder of its TTL.
+// Per-gift activation-attempt rate limit. Independent from the per-code
+// limit in routes/partners.ts (which is keyed on activation_code) — this
+// one is keyed on gift_id and is hit AFTER the code has resolved to a
+// specific gift, to slow brute-force "I have a gift_id, what's the right
+// email?" probes.
 const GIFT_MAX_ACTIVATION_ATTEMPTS = 5;
 const GIFT_LOCKOUT_DURATION_SEC = 15 * 60;
 const GIFT_ATTEMPT_WINDOW_SEC = 60 * 60;
-
-function giftAttemptsKey(giftId: string): string {
-  return `gift:activate:attempts:${giftId}`;
-}
-function giftLockKey(giftId: string): string {
-  return `gift:activate:lock:${giftId}`;
-}
+const giftAttemptsKey = (giftId: string) => `gift:activate:attempts:${giftId}`;
+const giftLockKey = (giftId: string) => `gift:activate:lock:${giftId}`;
 
 export class PartnersService {
-  /**
-   * Get or create a referral code for a partner user
-   */
-  static async getOrCreateReferralCode(userId: string): Promise<string> {
-    // Ensure the user is a registered partner
-    const partnerResult = await pool.query(
-      'SELECT id FROM partners WHERE user_id = $1',
-      [userId]
-    );
-
-    if (partnerResult.rows.length === 0) {
-      throw new AppError('Partner not found', 404);
-    }
-
-    const userResult = await pool.query(
-      'SELECT referral_code FROM users WHERE id = $1',
-      [userId]
-    );
-
-    const existing = userResult.rows[0]?.referral_code;
-    if (existing) {
-      return existing;
-    }
-
-    const referralCode = await generateUniqueReferralCode();
-    await pool.query(
-      `UPDATE users SET referral_code = $1 WHERE id = $2`,
-      [referralCode, userId]
-    );
-
-    return referralCode;
-  }
-  /**
-   * Get users who signed up using this partner's referral code.
-   * Returns paginated list with signup date, name, email (masked), and item count.
-   */
-  static async getReferrals(
-    userId: string,
-    options: { page: number; limit: number }
-  ): Promise<{
-    referrals: Array<{
-      id: string;
-      full_name: string | null;
-      email_masked: string;
-      plan: string;
-      item_count: number;
-      signed_up_at: string;
-    }>;
-    total: number;
-  }> {
-    // Verify partner exists
-    const partnerResult = await pool.query(
-      'SELECT id FROM partners WHERE user_id = $1',
-      [userId]
-    );
-    if (partnerResult.rows.length === 0) {
-      throw new AppError('Partner not found', 404);
-    }
-
-    const offset = (options.page - 1) * options.limit;
-
-    const [rows, countResult] = await Promise.all([
-      pool.query(
-        `SELECT
-           u.id,
-           u.full_name,
-           -- Mask email: show first 2 chars + domain for privacy
-           CONCAT(
-             LEFT(u.email, 2),
-             '***@',
-             SPLIT_PART(u.email, '@', 2)
-           ) AS email_masked,
-           u.plan,
-           u.created_at AS signed_up_at,
-           COALESCE(item_counts.cnt, 0)::integer AS item_count
-         FROM users u
-         LEFT JOIN (
-           SELECT user_id, COUNT(*) AS cnt
-           FROM items
-           WHERE is_archived = FALSE
-           GROUP BY user_id
-         ) item_counts ON item_counts.user_id = u.id
-         WHERE u.referred_by = $1
-         ORDER BY u.created_at DESC
-         LIMIT $2 OFFSET $3`,
-        [userId, options.limit, offset]
-      ),
-      pool.query(
-        `SELECT COUNT(*) FROM users WHERE referred_by = $1 AND deleted_at IS NULL`,
-        [userId]
-      ),
-    ]);
-
-    return {
-      referrals: rows.rows,
-      total: parseInt(countResult.rows[0].count, 10),
-    };
-  }
-
-  /**
-   * Register as a partner (realtor/builder)
-   */
   static async registerPartner(
     userId: string,
     data: {
@@ -241,30 +67,26 @@ export class PartnersService {
       logoUrl?: string;
       defaultMessage?: string;
       serviceAreas?: string[];
-      licenseNumber?: string | null;
-    }
+    },
   ): Promise<Partner> {
     const client = await pool.connect();
 
     try {
       await client.query('BEGIN');
 
-      // Check if user is already a partner
       const existing = await client.query(
         'SELECT id FROM partners WHERE user_id = $1',
-        [userId]
+        [userId],
       );
-
       if (existing.rows.length > 0) {
         throw new AppError('User is already registered as a partner', 400);
       }
 
-      // Create partner
       const result = await client.query(
         `INSERT INTO partners (
           user_id, partner_type, company_name, phone, website,
-          brand_color, logo_url, default_message, service_areas, subscription_tier, license_number
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'basic', $10)
+          brand_color, logo_url, default_message, service_areas
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         RETURNING *`,
         [
           userId,
@@ -275,19 +97,18 @@ export class PartnersService {
           data.brandColor || '#3B82F6',
           data.logoUrl,
           data.defaultMessage ||
-            'Welcome to your new home! I\'m excited to share this tool to help you protect your appliances and warranties.',
+            "Welcome to your new home! I'm excited to share this tool to help you protect your appliances and warranties.",
           data.serviceAreas || [],
-          data.licenseNumber || null,
-        ]
+        ],
       );
 
       const partner = result.rows[0];
-
       await client.query('COMMIT');
 
-      // MED-11: Fire-and-forget welcome email AFTER transaction commits.
-      // Intentionally not awaited so email failure never blocks registration.
-      pool.query('SELECT email, full_name FROM users WHERE id = $1', [userId])
+      // Fire-and-forget welcome email AFTER commit. Email failure must never
+      // block partner registration.
+      pool
+        .query('SELECT email, full_name FROM users WHERE id = $1', [userId])
         .then((userResult) => {
           if (userResult.rows.length > 0) {
             const user = userResult.rows[0];
@@ -295,19 +116,17 @@ export class PartnersService {
               to: user.email,
               partner_name: user.full_name || 'Partner',
               company_name: data.companyName,
-              partner_id: partner.id,
             });
           }
         })
         .catch((emailError) => {
           logger.error(
             { error: emailError, partnerId: partner.id },
-            'Failed to send partner welcome email, but registration was successful'
+            'Failed to send partner welcome email, but registration was successful',
           );
         });
 
       logger.info({ partnerId: partner.id, userId }, 'Partner registered');
-
       return partner;
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {});
@@ -318,9 +137,6 @@ export class PartnersService {
     }
   }
 
-  /**
-   * Get partner profile
-   */
   static async getPartner(userId: string): Promise<Partner> {
     try {
       const result = await pool.query(
@@ -328,7 +144,7 @@ export class PartnersService {
          FROM partners p
          JOIN users u ON u.id = p.user_id
          WHERE p.user_id = $1`,
-        [userId]
+        [userId],
       );
 
       if (result.rows.length === 0) {
@@ -342,9 +158,6 @@ export class PartnersService {
     }
   }
 
-  /**
-   * Update partner profile
-   */
   static async updatePartner(
     userId: string,
     data: {
@@ -355,10 +168,8 @@ export class PartnersService {
       brandColor?: string;
       logoUrl?: string;
       defaultMessage?: string;
-      defaultPremiumMonths?: number;
       serviceAreas?: string[];
-      licenseNumber?: string | null;
-    }
+    },
   ): Promise<Partner> {
     const client = await pool.connect();
 
@@ -397,17 +208,9 @@ export class PartnersService {
         updates.push(`default_message = $${paramIndex++}`);
         values.push(data.defaultMessage);
       }
-      if (data.defaultPremiumMonths !== undefined) {
-        updates.push(`default_premium_months = $${paramIndex++}`);
-        values.push(data.defaultPremiumMonths);
-      }
       if (data.serviceAreas !== undefined) {
         updates.push(`service_areas = $${paramIndex++}`);
         values.push(data.serviceAreas);
-      }
-      if (data.licenseNumber !== undefined) {
-        updates.push(`license_number = $${paramIndex++}`);
-        values.push(data.licenseNumber || null);
       }
 
       if (updates.length === 0) {
@@ -421,7 +224,7 @@ export class PartnersService {
          SET ${updates.join(', ')}, updated_at = NOW()
          WHERE user_id = $${paramIndex++}
          RETURNING *`,
-        values
+        values,
       );
 
       if (result.rows.length === 0) {
@@ -431,7 +234,6 @@ export class PartnersService {
       await client.query('COMMIT');
 
       logger.info({ userId }, 'Partner profile updated');
-
       return result.rows[0];
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {});
@@ -442,15 +244,6 @@ export class PartnersService {
     }
   }
 
-  /**
-   * Create closing gift for homebuyer
-   *
-   * CRIT-2: Stripe charge is inside the transaction. The gift record is created
-   * with 'pending_payment' status first, then Stripe is charged with an
-   * idempotency key derived from the gift ID. If Stripe fails, the entire
-   * transaction rolls back. If Stripe succeeds, the status is updated to
-   * 'created' within the same transaction.
-   */
   static async createGift(
     userId: string,
     data: {
@@ -459,26 +252,15 @@ export class PartnersService {
       homebuyerPhone?: string;
       homeAddress?: string;
       closingDate?: string;
-      premiumMonths?: number;
       customMessage?: string;
-    }
+    },
   ): Promise<PartnerGift> {
-    // --------------------------------------------------------------------
-    // Phase 0: pre-allocate a unique activation code BEFORE the transaction
-    // opens. C12 (audit): the prior implementation ran the retry loop
-    // INSIDE the open transaction. After a single 23505 on the
-    // activation_code_hash unique index, Postgres put the connection into
-    // 25P02 (in_failed_sql_transaction); every subsequent INSERT raised
-    // 25P02, NOT 23505, so the `if (insertErr.code === '23505')` retry
-    // guard never matched. The "5 retries" defense was actually 0 retries.
-    //
-    // Now we collision-check non-transactionally — cheap PK-style index
-    // lookup. The unique index inside the INSERT below still catches the
-    // rare race where two concurrent createGift calls both pass the
-    // pre-check with the same hash; one succeeds, the other gets a
-    // single 23505 and we surface 409 to the caller (no inner retry
-    // needed because the pre-check made collisions vanishingly rare).
-    // --------------------------------------------------------------------
+    // Pre-allocate a unique activation code OUTSIDE any transaction. C12
+    // (audit): retrying inside an open transaction puts the connection in
+    // 25P02 and the retry guard never matches. A non-transactional pre-check
+    // makes collisions vanishingly rare; the unique index on the INSERT
+    // below still catches the residual concurrent-pre-check race, which we
+    // surface as 409 so the caller retries the whole request.
     const PRE_CHECK_ATTEMPTS = 5;
     let activationCode = '';
     let activationCodeHash = '';
@@ -505,28 +287,15 @@ export class PartnersService {
       );
     }
     const activationUrl = `${config.app.frontendUrl}/gifts/activate?code=${encodeURIComponent(activationCode)}`;
+    const expiresAt = addMonthsSafe(new Date(), GIFT_PREMIUM_MONTHS);
 
-    // --------------------------------------------------------------------
-    // Phase 1: reserve a gift row (pending_payment) in its own short tx.
-    // Stripe calls MUST NOT run inside a DB transaction: a mid-tx Stripe
-    // call that succeeds followed by a COMMIT failure leaves an orphan
-    // charge. We keep DB work and Stripe work in separate atomic steps
-    // and compensate with a refund if DB work fails after Stripe succeeds.
-    // --------------------------------------------------------------------
-    const reserveClient = await pool.connect();
-    let gift: any;
+    const client = await pool.connect();
+    let finalGift: any;
     let partner: any;
-    // C0-10: hoisted so the partner_commissions INSERT in phase 3 can
-    // snapshot the partner's email under the *_at_event columns. The
-    // partner row's CASCADE on user-delete used to wipe the entire
-    // commission ledger; the new SET NULL FK + denorm columns preserve
-    // the 1099-NEC trail.
-    let partnerEmail: string | undefined;
-    let amountCharged: number;
     try {
-      await reserveClient.query('BEGIN');
+      await client.query('BEGIN');
 
-      const partnerResult = await reserveClient.query(
+      const partnerResult = await client.query(
         'SELECT * FROM partners WHERE user_id = $1',
         [userId],
       );
@@ -535,20 +304,20 @@ export class PartnersService {
       }
       partner = partnerResult.rows[0];
 
-      const partnerUser = await reserveClient.query(
-        'SELECT email, stripe_customer_id, referral_code FROM users WHERE id = $1',
+      const partnerUser = await client.query(
+        'SELECT email FROM users WHERE id = $1',
         [userId],
       );
-      partnerEmail = partnerUser.rows[0]?.email?.toLowerCase();
+      const partnerEmail: string | undefined = partnerUser.rows[0]?.email?.toLowerCase();
       const homebuyerEmailLower = data.homebuyerEmail.toLowerCase();
 
       if (partnerEmail === homebuyerEmailLower) {
         throw new AppError('Cannot send a gift to your own email address', 400);
       }
-      // Block obvious self-gift via referred users: if the homebuyer email is
-      // already attached to a user that the partner referred, the gift is
-      // funneling the partner's referral commission back to themselves.
-      const referredCheck = await reserveClient.query(
+      // Block obvious self-gift: if the homebuyer email is already attached
+      // to a user the partner referred, the gift is going back to their own
+      // referral network.
+      const referredCheck = await client.query(
         `SELECT 1
            FROM users
           WHERE LOWER(email) = $1
@@ -562,37 +331,16 @@ export class PartnersService {
           400,
         );
       }
-      if (!partnerUser.rows[0]?.stripe_customer_id) {
-        throw new AppError('Payment method required. Please add a payment method in your settings before creating gifts.', 402);
-      }
 
-      const tierAmount = TIER_PRICE_PER_GIFT_USD[partner.subscription_tier];
-      if (tierAmount === undefined) {
-        throw new AppError(`Unknown subscription tier: ${partner.subscription_tier}`, 400);
-      }
-      amountCharged = tierAmount;
-
-      const premiumMonths = data.premiumMonths || partner.default_premium_months || 6;
-      // Gift activation window mirrors the premium grant length so a 12-month
-      // gift can't be activated 6 months in (audit Ch03-F040).
-      const expiresAt = addMonthsSafe(new Date(), premiumMonths);
-
-      // C12: single INSERT with the pre-allocated code from Phase 0. The
-      // unique index on activation_code_hash still catches the rare
-      // concurrent-pre-check race; we map that 23505 to 409 so the caller
-      // can retry the whole request, but no in-tx retry loop (which was
-      // structurally broken under 25P02).
       let giftResult: import('pg').QueryResult;
       try {
-        giftResult = await reserveClient.query(
+        giftResult = await client.query(
           `INSERT INTO partner_gifts (
             partner_id, homebuyer_email, homebuyer_name, homebuyer_phone,
             home_address, closing_date, premium_months, custom_message,
-            amount_charged, stripe_charge_id, expires_at, status,
-            activation_code, activation_code_hash, activation_url,
-            partner_id_at_event, partner_company_name_at_event, partner_email_at_event
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL, $10, 'pending_payment', $11, $12, $13,
-                    $14, $15, $16)
+            expires_at, status,
+            activation_code, activation_code_hash, activation_url
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'created', $10, $11, $12)
           RETURNING *`,
           [
             partner.id,
@@ -601,32 +349,19 @@ export class PartnersService {
             data.homebuyerPhone,
             data.homeAddress,
             data.closingDate,
-            premiumMonths,
+            GIFT_PREMIUM_MONTHS,
             data.customMessage || partner.default_message,
-            amountCharged,
             expiresAt,
             activationCode,
             activationCodeHash,
             activationUrl,
-            // C0-10: snapshot partner identity at event time. The
-            // partner row may CASCADE-set-null on user purge; the
-            // denorm columns are the only post-purge trail.
-            partner.id,
-            partner.company_name,
-            partnerEmail,
           ],
         );
       } catch (insertErr: any) {
-        // Only the hashed-code unique remains after H-D4 (mig 086 dropped
-        // the redundant plaintext uq_partner_gifts_activation_code).
         if (
           insertErr?.code === '23505' &&
           insertErr?.constraint === 'idx_partner_gifts_activation_code_hash'
         ) {
-          // Concurrent createGift call landed on the same hash between
-          // our pre-check and the INSERT. Vanishingly rare with 64-bit
-          // codes and a non-locking pre-check; surface 409 so the caller
-          // retries the whole request.
           logger.warn(
             { partnerId: partner.id },
             'Activation code race after pre-check; surfacing 409',
@@ -638,189 +373,18 @@ export class PartnersService {
         }
         throw insertErr;
       }
-      gift = giftResult.rows[0];
-      await reserveClient.query('COMMIT');
+      finalGift = giftResult.rows[0];
+      await client.query('COMMIT');
     } catch (error) {
-      await reserveClient.query('ROLLBACK').catch(() => {});
+      await client.query('ROLLBACK').catch(() => {});
       throw error;
     } finally {
-      reserveClient.release();
+      client.release();
     }
-
-    // --------------------------------------------------------------------
-    // Phase 2: Stripe charge outside any DB transaction. Idempotency key
-    // is `gift-<id>` so safe retries (including retries from an upstream
-    // caller) never double-charge.
-    // --------------------------------------------------------------------
-    const partnerUserResult = await query(
-      'SELECT stripe_customer_id FROM users WHERE id = $1',
-      [userId],
-    );
-    const stripeCustomerId = partnerUserResult.rows[0]?.stripe_customer_id;
-
-    let stripeChargeId: string;
-    try {
-      // Centralised dollar→cents conversion (Ch03-F020, F117).
-      const amountCents = dollarsToCents(amountCharged);
-      if (amountCents <= 0) {
-        throw new AppError('Tier amount is invalid', 500);
-      }
-
-      // PaymentIntents.create with `customer` does NOT auto-resolve the
-      // customer's default PaymentMethod when `confirm: true` — Stripe
-      // requires `payment_method` to be passed explicitly. Read the
-      // partner's saved default PM from the customer record so off-session
-      // charges actually use the saved card. Without this the call fails
-      // with payment_intent_unexpected_state ("missing a payment method").
-      const customer = await stripe.customers.retrieve(stripeCustomerId);
-      if (customer.deleted) {
-        throw new AppError('Stripe customer was deleted; please re-add a payment method', 402);
-      }
-      const defaultPm = customer.invoice_settings?.default_payment_method;
-      const paymentMethodId = typeof defaultPm === 'string' ? defaultPm : defaultPm?.id;
-      if (!paymentMethodId) {
-        throw new AppError(
-          'No saved payment method on file. Please add a card in your settings before creating gifts.',
-          402,
-        );
-      }
-
-      const paymentIntent = await stripe.paymentIntents.create(
-        {
-          amount: amountCents,
-          currency: 'usd',
-          customer: stripeCustomerId,
-          payment_method: paymentMethodId,
-          description: `Closing gift for ${data.homebuyerName}`,
-          confirm: true,
-          off_session: true,
-          metadata: {
-            partner_id: partner.id,
-            gift_id: gift.id,
-            homebuyer_email: data.homebuyerEmail,
-          },
-        },
-        { idempotencyKey: `gift-${gift.id}` },
-      );
-      stripeChargeId = paymentIntent.id;
-    } catch (stripeError: any) {
-      // H37: don't swallow non-Stripe AppErrors. The Stripe SDK throws
-      // its own error subclass; anything else (e.g. our own "Tier
-      // amount invalid" / "Stripe customer deleted" / "No saved PM"
-      // AppErrors raised inside the try block) should propagate as-is
-      // rather than getting rewritten to a generic 402 "Payment
-      // failed."
-      if (stripeError instanceof AppError) {
-        try {
-          await query(
-            `UPDATE partner_gifts SET status = 'expired', updated_at = NOW() WHERE id = $1`,
-            [gift.id],
-          );
-        } catch (cleanupErr) {
-          logger.error({ err: cleanupErr, giftId: gift.id }, 'Failed to expire pending_payment gift after AppError');
-        }
-        throw stripeError;
-      }
-
-      // H36: prefer the specific Stripe `decline_code` over the broader
-      // `code`. For card declines the generic `code='card_declined'`
-      // matches first today, hiding the actionable
-      // (`insufficient_funds`, `card_velocity_exceeded`, etc.) that
-      // helps the user pick the right fix.
-      const declineCode =
-        stripeError?.raw?.decline_code ||
-        stripeError?.decline_code ||
-        stripeError?.code ||
-        'generic_decline';
-      logger.error(
-        { error: stripeError?.message, declineCode, giftId: gift.id, userId },
-        'Stripe payment failed for gift',
-      );
-      // Clean up the pending_payment gift row — no charge happened.
-      try {
-        await query(
-          `UPDATE partner_gifts SET status = 'expired', updated_at = NOW() WHERE id = $1`,
-          [gift.id],
-        );
-      } catch (cleanupErr) {
-        logger.error({ err: cleanupErr, giftId: gift.id }, 'Failed to expire pending_payment gift after Stripe failure');
-      }
-      const userFriendlyMessage =
-        STRIPE_DECLINE_MESSAGES[declineCode] ||
-        'Payment failed. Please check your payment method and try again.';
-      throw new AppError(userFriendlyMessage, 402);
-    }
-
-    // --------------------------------------------------------------------
-    // Phase 3: promote gift to 'created' + create commission row. If this
-    // fails, we have a live Stripe charge but no DB record, so issue a
-    // refund (idempotent via `refund-<giftId>`) and surface the error.
-    // --------------------------------------------------------------------
-    const promoteClient = await pool.connect();
-    try {
-      await promoteClient.query('BEGIN');
-      await promoteClient.query(
-        `UPDATE partner_gifts
-           SET status = 'created', stripe_charge_id = $1, updated_at = NOW()
-         WHERE id = $2`,
-        [stripeChargeId, gift.id],
-      );
-      // Tier-driven commission rate (Ch03-F019, Ch12-T037, Ch03-F116). Rates
-      // are locked to 0.10 / 0.15 / 0.20 for basic / premium / platinum.
-      // The DB has dropped the column DEFAULT (migration 041) so a missing
-      // value would now violate NOT NULL — the rate must be passed explicitly.
-      const commissionRate = TIER_COMMISSION_RATES[partner.subscription_tier];
-      if (commissionRate === undefined) {
-        throw new AppError(`Unknown subscription tier: ${partner.subscription_tier}`, 400);
-      }
-      const amountCentsForCommission = dollarsToCents(amountCharged);
-      const commissionAmountStr = centsToDecimalString(
-        commissionCents(amountCentsForCommission, commissionRate),
-      );
-      await promoteClient.query(
-        `INSERT INTO partner_commissions (
-          partner_id, type, amount, commission_rate, status, reference_id, reference_type,
-          partner_id_at_event, partner_company_name_at_event, partner_email_at_event
-        ) VALUES ($1, 'gift', $2, $3, 'pending', $4, 'partner_gift', $5, $6, $7)`,
-        [
-          partner.id,
-          commissionAmountStr,
-          commissionRate,
-          gift.id,
-          // C0-10: see partner_gifts INSERT above for rationale.
-          partner.id,
-          partner.company_name,
-          partnerEmail,
-        ],
-      );
-      await promoteClient.query('COMMIT');
-    } catch (dbErr) {
-      await promoteClient.query('ROLLBACK').catch(() => {});
-      logger.error(
-        { err: dbErr, giftId: gift.id, stripeChargeId },
-        'DB finalization failed after Stripe charge — issuing refund',
-      );
-      try {
-        await stripe.refunds.create(
-          { payment_intent: stripeChargeId },
-          { idempotencyKey: `refund-${gift.id}` },
-        );
-      } catch (refundErr) {
-        logger.fatal(
-          { err: refundErr, giftId: gift.id, stripeChargeId },
-          'CRITICAL: Stripe refund failed after DB finalization failure — manual reconciliation required',
-        );
-      }
-      throw dbErr;
-    } finally {
-      promoteClient.release();
-    }
-
-    const updatedGift = await pool.query('SELECT * FROM partner_gifts WHERE id = $1', [gift.id]);
-    const finalGift = updatedGift.rows[0];
 
     // Send email to homebuyer with gift activation link (fire-and-forget).
-    // Delivery failure is logged but must not undo a successful charge.
+    // Delivery failure must not undo a successful gift creation; the partner
+    // can resend from the dashboard.
     EmailService.sendGiftActivationEmail({
       to: finalGift.homebuyer_email,
       homebuyer_name: finalGift.homebuyer_name,
@@ -848,24 +412,17 @@ export class PartnersService {
     return finalGift;
   }
 
-  /**
-   * Get partner's gifts
-   */
   static async getPartnerGifts(
     userId: string,
-    options: {
-      limit?: number;
-      offset?: number;
-      status?: string;
-    } = {}
+    options: { limit?: number; offset?: number; status?: string } = {},
   ): Promise<{ gifts: PartnerGift[]; total: number }> {
     const { limit = 50, offset = 0, status } = options;
 
     try {
-      // Get partner
-      const partnerResult = await pool.query('SELECT id FROM partners WHERE user_id = $1', [
-        userId,
-      ]);
+      const partnerResult = await pool.query(
+        'SELECT id FROM partners WHERE user_id = $1',
+        [userId],
+      );
 
       if (partnerResult.rows.length === 0) {
         throw new AppError('Partner not found', 404);
@@ -881,7 +438,6 @@ export class PartnersService {
         LEFT JOIN users u ON u.id = g.activated_user_id
         WHERE g.partner_id = $1
       `;
-
       const params: any[] = [partnerId];
 
       if (status) {
@@ -889,13 +445,11 @@ export class PartnersService {
         params.push(status);
       }
 
-      query += ` ORDER BY g.created_at DESC`;
-      query += ` LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+      query += ` ORDER BY g.created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
       params.push(limit, offset);
 
       const result = await pool.query(query, params);
 
-      // Get total count
       const countQuery = status
         ? 'SELECT COUNT(*) FROM partner_gifts WHERE partner_id = $1 AND status = $2'
         : 'SELECT COUNT(*) FROM partner_gifts WHERE partner_id = $1';
@@ -912,9 +466,6 @@ export class PartnersService {
     }
   }
 
-  /**
-   * Get gift by ID (for partner)
-   */
   static async getGift(giftId: string, userId: string): Promise<PartnerGift> {
     try {
       const result = await pool.query(
@@ -922,7 +473,7 @@ export class PartnersService {
          FROM partner_gifts g
          JOIN partners p ON p.id = g.partner_id
          WHERE g.id = $1 AND p.user_id = $2`,
-        [giftId, userId]
+        [giftId, userId],
       );
 
       if (result.rows.length === 0) {
@@ -936,9 +487,6 @@ export class PartnersService {
     }
   }
 
-  /**
-   * Get public gift details (for preview before activation)
-   */
   static async getPublicGiftDetails(giftId: string): Promise<any> {
     try {
       const result = await pool.query(
@@ -948,7 +496,7 @@ export class PartnersService {
          FROM partner_gifts g
          JOIN partners p ON p.id = g.partner_id
          WHERE g.id = $1`,
-        [giftId]
+        [giftId],
       );
 
       if (result.rows.length === 0) {
@@ -1019,12 +567,15 @@ export class PartnersService {
   /**
    * Activate gift (when homebuyer signs up)
    *
-   * BE-20: Uses SELECT ... FOR UPDATE to prevent concurrent activations.
-   * BE-26: Verifies user email matches homebuyer_email on the gift.
-   * HIGH-7: Per-gift rate limiting to prevent brute-force activation attempts.
+   * - SELECT ... FOR UPDATE prevents concurrent activations.
+   * - Verifies the redeeming user's email matches homebuyer_email on the gift.
+   * - Per-gift Redis-backed rate limiting prevents brute-force email guessing.
    */
-  static async activateGift(giftId: string, newUserId: string, userEmail: string): Promise<PartnerGift> {
-    // Lockout check via Redis — survives restarts, shared across nodes.
+  static async activateGift(
+    giftId: string,
+    newUserId: string,
+    userEmail: string,
+  ): Promise<PartnerGift> {
     await this.assertGiftNotLocked(giftId);
 
     const client = await pool.connect();
@@ -1032,10 +583,9 @@ export class PartnersService {
     try {
       await client.query('BEGIN');
 
-      // SELECT ... FOR UPDATE to prevent concurrent activations
       const giftResult = await client.query(
         'SELECT * FROM partner_gifts WHERE id = $1 FOR UPDATE',
-        [giftId]
+        [giftId],
       );
 
       if (giftResult.rows.length === 0) {
@@ -1051,7 +601,7 @@ export class PartnersService {
 
       // Require email_verified before redeeming. Otherwise a partner could
       // self-gift to an unverified email they sign up to, then activate, and
-      // earn commission on themselves (audit Ch09-FlowC-T-C5).
+      // earn premium on themselves (audit Ch09-FlowC-T-C5).
       const userRow = await client.query(
         `SELECT email_verified, plan FROM users WHERE id = $1 FOR UPDATE`,
         [newUserId],
@@ -1066,8 +616,8 @@ export class PartnersService {
         );
       }
       if (userRow.rows[0].plan === 'suspended') {
-        // Suspended users cannot regain access to premium via gift activation;
-        // an admin must unsuspend first (audit Ch03-F039).
+        // Suspended users cannot regain premium via gift activation; an admin
+        // must unsuspend first (audit Ch03-F039).
         throw new AppError('Account is suspended; contact support before activating a gift', 403);
       }
 
@@ -1088,10 +638,11 @@ export class PartnersService {
       // activated_user_id. Guard the UPDATE with `activated_user_id IS NULL`
       // so only the first writer wins; the second sees 0 affected rows and
       // we surface a 409.
+      //
       // Wipe plaintext activation_code + activation_url at the terminal
-       // transition: the gift can no longer be redeemed via this row, so
-       // holding the plaintext gives a DB-dump attacker a code that maps
-       // to a known activated_user_id. The hash stays for audit/lookup.
+      // transition: the gift can no longer be redeemed via this row, so
+      // holding the plaintext gives a DB-dump attacker a code that maps
+      // to a known activated_user_id. The hash stays for audit/lookup.
       const updateResult = await client.query(
         `UPDATE partner_gifts
          SET is_activated = TRUE,
@@ -1103,15 +654,15 @@ export class PartnersService {
          WHERE id = $1
            AND activated_user_id IS NULL
            AND is_activated = FALSE`,
-        [giftId, newUserId]
+        [giftId, newUserId],
       );
       if (updateResult.rowCount === 0) {
         throw new AppError('Gift was activated by another account; redemption denied', 409);
       }
 
-      // Stack premium months on top of any existing future expiry so
-      // multiple gifts accumulate correctly instead of the later/shorter
-      // gift overriding the longer one (or being silently swallowed).
+      // Stack premium months on top of any existing future expiry so multiple
+      // gifts accumulate correctly instead of the later/shorter gift
+      // overriding the longer one (or being silently swallowed).
       await client.query(
         `UPDATE users
             SET plan = 'premium',
@@ -1131,23 +682,20 @@ export class PartnersService {
          VALUES ($1, TRUE)
          ON CONFLICT (user_id)
          DO UPDATE SET has_activated_gift = TRUE`,
-        [newUserId]
+        [newUserId],
       );
 
       await client.query('COMMIT');
 
-      // 2.3: drop the user-row cache so any in-flight session sees the
-      // newly granted premium plan without waiting for the 10s TTL.
+      // 2.3: drop the user-row cache so any in-flight session sees the newly
+      // granted premium plan without waiting for the 10s TTL.
       await invalidateUserCache(newUserId);
 
-      // Clear rate-limit tracking on successful activation
       await this.clearActivationAttempts(giftId);
 
       logger.info({ giftId, newUserId }, 'Gift activated');
 
-      return (
-        await pool.query('SELECT * FROM partner_gifts WHERE id = $1', [giftId])
-      ).rows[0];
+      return (await pool.query('SELECT * FROM partner_gifts WHERE id = $1', [giftId])).rows[0];
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {});
       logger.error({ error, giftId, newUserId }, 'Error activating gift');
@@ -1170,7 +718,7 @@ export class PartnersService {
       }
     } catch (err) {
       if (err instanceof AppError) throw err;
-      // Redis unavailable: allow request through (fail-open on rate limit,
+      // Redis unavailable: allow request through (fail-open on rate limit;
       // the SELECT FOR UPDATE still prevents concurrent duplicate activation).
       logger.error({ err, giftId }, 'Gift lockout check failed, allowing through');
     }
@@ -1205,115 +753,61 @@ export class PartnersService {
   }
 
   /**
-   * Get partner analytics, optionally filtered by date range
+   * Gift activity summary for the partner dashboard. Pure counts — no money,
+   * no commissions.
    */
-  static async getPartnerAnalytics(
-    userId: string,
-    options?: { startDate?: string; endDate?: string }
-  ): Promise<{
+  static async getPartnerAnalytics(userId: string): Promise<{
     total_gifts: number;
     activated_gifts: number;
     pending_gifts: number;
     activation_rate: number;
-    // S3-A: cent-accurate decimal strings (e.g. "7.00"). Display layer
-    // formats; doing math on these is a bug — prefer the raw cents.
-    total_commissions: string;
-    pending_commissions: string;
-    paid_commissions: string;
-    recent_activity: any[];
+    recent_activity: Array<{
+      name: string | null;
+      status: string;
+      created_at: string;
+    }>;
   }> {
     try {
-      // Get partner
-      const partnerResult = await pool.query('SELECT id FROM partners WHERE user_id = $1', [
-        userId,
-      ]);
-
+      const partnerResult = await pool.query(
+        'SELECT id FROM partners WHERE user_id = $1',
+        [userId],
+      );
       if (partnerResult.rows.length === 0) {
         throw new AppError('Partner not found', 404);
       }
-
       const partnerId = partnerResult.rows[0].id;
 
-      // Build date range conditions
-      const giftParams: any[] = [partnerId];
-      let giftDateFilter = '';
-      const commissionParams: any[] = [partnerId];
-      let commissionDateFilter = '';
+      const [counts, recent] = await Promise.all([
+        pool.query(
+          `SELECT
+             COUNT(*)::int AS total_gifts,
+             COUNT(*) FILTER (WHERE is_activated)::int AS activated_gifts,
+             COUNT(*) FILTER (WHERE status IN ('created', 'sent') AND NOT is_activated)::int AS pending_gifts
+           FROM partner_gifts
+          WHERE partner_id = $1`,
+          [partnerId],
+        ),
+        pool.query(
+          `SELECT homebuyer_name AS name, status, created_at
+             FROM partner_gifts
+            WHERE partner_id = $1
+            ORDER BY created_at DESC
+            LIMIT 10`,
+          [partnerId],
+        ),
+      ]);
 
-      if (options?.startDate) {
-        giftParams.push(options.startDate);
-        giftDateFilter += ` AND created_at >= $${giftParams.length}`;
-        commissionParams.push(options.startDate);
-        commissionDateFilter += ` AND created_at >= $${commissionParams.length}`;
-      }
-      if (options?.endDate) {
-        giftParams.push(options.endDate);
-        giftDateFilter += ` AND created_at <= $${giftParams.length}`;
-        commissionParams.push(options.endDate);
-        commissionDateFilter += ` AND created_at <= $${commissionParams.length}`;
-      }
+      const row = counts.rows[0];
+      const total = row.total_gifts;
+      const activated = row.activated_gifts;
+      const activationRate = total === 0 ? 0 : Math.round((activated / total) * 100);
 
-      // Get gift stats
-      const giftStats = await pool.query(
-        `SELECT
-           COUNT(*) as total_gifts,
-           COUNT(*) FILTER (WHERE is_activated = TRUE) as activated_gifts,
-           COUNT(*) FILTER (WHERE is_activated = FALSE AND status != 'expired') as pending_gifts
-         FROM partner_gifts
-         WHERE partner_id = $1${giftDateFilter}`,
-        giftParams
-      );
-
-      const stats = giftStats.rows[0];
-      const activationRate =
-        parseInt(stats.total_gifts) > 0
-          ? (parseInt(stats.activated_gifts) / parseInt(stats.total_gifts)) * 100
-          : 0;
-
-      // Get commission stats. paid_commissions only counts rows where the
-      // Stripe transfer id is non-null — a 'paid' DB flag without a transfer
-      // is a stuck row, not money the partner has received (audit F054).
-      // Reversal rows (negative amount, status='reversed') subtract from the
-      // paid total automatically since SUM is signed.
-      const commissionStats = await pool.query(
-        `SELECT
-           SUM(amount) FILTER (WHERE status = 'pending') as pending_commissions,
-           SUM(amount) FILTER (WHERE status = 'paid' AND stripe_transfer_id IS NOT NULL) as paid_commissions,
-           SUM(amount) as total_commissions
-         FROM partner_commissions
-         WHERE partner_id = $1${commissionDateFilter}`,
-        commissionParams
-      );
-
-      const commissions = commissionStats.rows[0];
-
-      // Get recent activity (always show latest, no date filter)
-      const recentActivity = await pool.query(
-        `SELECT
-           'gift_created' as type,
-           g.id,
-           g.homebuyer_name as name,
-           g.created_at,
-           g.status
-         FROM partner_gifts g
-         WHERE g.partner_id = $1
-         ORDER BY g.created_at DESC
-         LIMIT 10`,
-        [partnerId]
-      );
-
-      // S3-A: aggregate in integer cents and only convert to a display
-      // string at the response edge. parseFloat on DECIMAL would compound
-      // float drift at the 100-row scale (100 × $0.07 → $6.999999).
       return {
-        total_gifts: parseInt(stats.total_gifts),
-        activated_gifts: parseInt(stats.activated_gifts),
-        pending_gifts: parseInt(stats.pending_gifts),
-        activation_rate: Math.round(activationRate),
-        total_commissions: centsToDecimalString(decimalToCents(commissions.total_commissions)),
-        pending_commissions: centsToDecimalString(decimalToCents(commissions.pending_commissions)),
-        paid_commissions: centsToDecimalString(decimalToCents(commissions.paid_commissions)),
-        recent_activity: recentActivity.rows,
+        total_gifts: total,
+        activated_gifts: activated,
+        pending_gifts: row.pending_gifts,
+        activation_rate: activationRate,
+        recent_activity: recent.rows,
       };
     } catch (error) {
       logger.error({ error, userId }, 'Error fetching partner analytics');
@@ -1322,114 +816,32 @@ export class PartnersService {
   }
 
   /**
-   * Get monthly earnings history for the last 12 months
-   */
-  static async getEarningsHistory(partnerId: string): Promise<{ month: string; earnings: number }[]> {
-    try {
-      const result = await pool.query(
-        `SELECT
-           date_trunc('month', created_at) as month,
-           SUM(amount) as earnings
-         FROM partner_commissions
-         WHERE partner_id = $1 AND status IN ('approved', 'paid') AND created_at >= NOW() - INTERVAL '12 months'
-         GROUP BY date_trunc('month', created_at)
-         ORDER BY month ASC`,
-        [partnerId]
-      );
-
-      return result.rows.map((row: any) => ({
-        month: new Date(row.month).toLocaleString('en-US', { month: 'short' }),
-        earnings: parseFloat(row.earnings) || 0,
-      }));
-    } catch (error) {
-      logger.error({ error, partnerId }, 'Error fetching earnings history');
-      throw error;
-    }
-  }
-
-  /**
-   * Get partner commissions
-   */
-  static async getCommissions(
-    userId: string,
-    options: { limit?: number; offset?: number } = {}
-  ): Promise<{ commissions: PartnerCommission[]; total: number }> {
-    const { limit = 50, offset = 0 } = options;
-
-    try {
-      // Get partner
-      const partnerResult = await pool.query('SELECT id FROM partners WHERE user_id = $1', [
-        userId,
-      ]);
-
-      if (partnerResult.rows.length === 0) {
-        throw new AppError('Partner not found', 404);
-      }
-
-      const partnerId = partnerResult.rows[0].id;
-
-      const result = await pool.query(
-        `SELECT c.*,
-                CASE
-                  WHEN c.reference_type = 'partner_gift' THEN g.homebuyer_name
-                  ELSE NULL
-                END as reference_name
-         FROM partner_commissions c
-         LEFT JOIN partner_gifts g ON g.id = c.reference_id AND c.reference_type = 'partner_gift'
-         WHERE c.partner_id = $1
-         ORDER BY c.created_at DESC
-         LIMIT $2 OFFSET $3`,
-        [partnerId, limit, offset]
-      );
-
-      const countResult = await pool.query(
-        'SELECT COUNT(*) FROM partner_commissions WHERE partner_id = $1',
-        [partnerId]
-      );
-
-      return {
-        commissions: result.rows,
-        total: parseInt(countResult.rows[0].count, 10),
-      };
-    } catch (error) {
-      logger.error({ error, userId }, 'Error fetching commissions');
-      throw error;
-    }
-  }
-
-  /**
-   * Resend gift email to homebuyer
+   * Resend gift email to homebuyer.
    */
   static async resendGiftEmail(giftId: string, userId: string): Promise<void> {
     try {
-      // Verify gift belongs to this partner
       const gift = await this.getGift(giftId, userId);
 
       if (gift.is_activated) {
         throw new AppError('Gift has already been activated', 400);
       }
-
       if (gift.expires_at && new Date() > new Date(gift.expires_at)) {
         throw new AppError('Gift has expired', 400);
       }
-
-      // activation_code + activation_url are nulled on a terminal
-      // transition (activate or expire). If we reach here without them,
-      // the daily expiry sweep beat us between the time-window check
-      // above and this read — refuse rather than send an empty email.
+      // activation_code + activation_url are nulled on a terminal transition
+      // (activate or expire). If we reach here without them, the daily expiry
+      // sweep beat us between the time-window check above and this read —
+      // refuse rather than send an empty email.
       if (!gift.activation_code || !gift.activation_url) {
         throw new AppError('Gift has expired', 400);
       }
 
-      // Get partner details for email
       const partnerResult = await pool.query(
         'SELECT * FROM partners WHERE user_id = $1',
-        [userId]
+        [userId],
       );
-
       const partner = partnerResult.rows[0];
 
-      // Send email with activation link
       await EmailService.sendGiftActivationEmail({
         to: gift.homebuyer_email,
         homebuyer_name: gift.homebuyer_name,
@@ -1444,20 +856,16 @@ export class PartnersService {
         gift_id: gift.id,
       });
 
-      // Update gift status to 'sent' if it was 'created'
       if (gift.status === 'created') {
         await pool.query(
           `UPDATE partner_gifts SET status = 'sent' WHERE id = $1`,
-          [giftId]
+          [giftId],
         );
       }
 
       logger.info(
-        {
-          giftId,
-          homebuyer: gift.homebuyer_email,
-        },
-        'Gift email resent successfully'
+        { giftId, homebuyer: gift.homebuyer_email },
+        'Gift email resent successfully',
       );
     } catch (error) {
       logger.error({ error, giftId, userId }, 'Error resending gift email');

@@ -11,55 +11,11 @@ import Footer from '../components/Footer.astro';
 const partnerDashboardSignup =
   (import.meta.env.PUBLIC_PARTNER_DASHBOARD_URL as string | undefined)?.replace(/\/$/, '') ?? '';
 const signupHref = `${partnerDashboardSignup}/signup`;
-
-// Tier numbers come from apps/api/src/services/partners.service.ts —
-// TIER_PRICE_PER_GIFT_USD and TIER_COMMISSION_RATES. Diverging these
-// from the API would mean partners see a price here and pay a different
-// price at gift creation. If those constants change, mirror them below.
-const tiers = [
-  {
-    name: 'Basic',
-    pricePerGift: 99,
-    commission: '10%',
-    blurb: 'For solo realtors, single-shop contractors, and side-hustle pros getting started.',
-    perks: [
-      'Premium HavenKeep gift for every closing (1–12 months, you pick at send)',
-      '10% commission on every warranty sold by your client',
-      'Branded gift landing page',
-      'Real-time dashboard for gifts + commissions',
-    ],
-    accent: false,
-  },
-  {
-    name: 'Premium',
-    pricePerGift: 149,
-    commission: '15%',
-    blurb: 'For agents and contractors closing multiple homes a month.',
-    perks: [
-      'Everything in Basic',
-      '15% commission — 50% lift over Basic',
-      'Priority partner support',
-    ],
-    accent: true,
-  },
-  {
-    name: 'Platinum',
-    pricePerGift: 249,
-    commission: '20%',
-    blurb: 'For brokerages, builders, and property managers at scale.',
-    perks: [
-      'Everything in Premium',
-      '20% commission — double the Basic rate',
-      'Direct line to the founding team for onboarding + custom integrations',
-    ],
-    accent: false,
-  },
-];
 ---
 
 <Layout
   title="Partners"
-  description="Realtors, contractors, builders, and property managers — gift HavenKeep Premium to your clients at closing and earn commission on every warranty they buy. No subscription fee, pay per gift."
+  description="Realtors, contractors, builders, and property managers — give your clients six months of HavenKeep Premium at closing. Free for them, free for you."
   canonicalPath="/partners"
 >
   <Navigation />
@@ -67,79 +23,75 @@ const tiers = [
     <!-- Hero -->
     <section class="pt-32 pb-20 bg-gradient-to-b from-gray-900 to-gray-800">
       <div class="container">
-        <div class="max-w-4xl mx-auto text-center">
+        <div class="max-w-3xl mx-auto text-center">
           <div class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-accent/10 border border-accent/30 mb-6">
             <svg class="w-4 h-4 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
             </svg>
             <span class="text-sm font-medium text-accent">Partner Program</span>
           </div>
           <h1 class="text-5xl md:text-6xl font-bold text-white mb-6">
-            Close more deals.<br />
-            <span class="bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">Earn on every warranty.</span>
+            A closing gift<br />
+            <span class="bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">that actually gets used.</span>
           </h1>
-          <p class="text-xl md:text-2xl text-gray-300 mb-8">
-            Realtors, contractors, builders, and property managers &mdash; give your clients HavenKeep Premium at closing. No subscription. Pay per gift, earn commission for life.
+          <p class="text-xl text-gray-300 mb-10 leading-relaxed">
+            Send your clients <strong class="text-white">six months of HavenKeep Premium</strong> when they get the keys. They get an app that tracks every warranty, receipt, and maintenance reminder in the new home. You get to be the realtor who gave them something useful.
+          </p>
+          <p class="text-xl text-gray-300 mb-10 leading-relaxed">
+            <strong class="text-white">Free for the homebuyer. Free for you.</strong> No card, no commission, no contract.
           </p>
           <div class="flex flex-col sm:flex-row gap-4 justify-center">
-            <a href={signupHref} class="bg-primary hover:bg-primary/90 text-white font-semibold py-4 px-8 rounded-lg transition-colors duration-200 text-lg">
-              Apply to become a partner
+            <a
+              href={signupHref}
+              class="px-8 py-3 bg-primary hover:bg-primary-light text-white rounded-lg font-medium transition-colors"
+            >
+              Sign up — it's free
             </a>
-            <a href="#how-it-works" class="bg-gray-800 hover:bg-gray-700 text-white border border-gray-700 font-semibold py-4 px-8 rounded-lg transition-colors duration-200 text-lg">
+            <a
+              href="#how-it-works"
+              class="px-8 py-3 border border-gray-600 hover:border-gray-400 text-white rounded-lg font-medium transition-colors"
+            >
               How it works
             </a>
           </div>
-          <p class="text-sm text-gray-500 mt-4">
-            Applications reviewed within 2 business days. No setup fee.
+          <p class="text-sm text-gray-400 mt-6">
+            Email + password. No license verification, no Stripe onboarding, no waiting room.
           </p>
         </div>
       </div>
     </section>
 
-    <!-- Who is this for -->
+    <!-- Who it's for -->
     <section class="py-20 bg-gray-900">
       <div class="container">
-        <div class="max-w-5xl mx-auto">
-          <h2 class="text-3xl font-bold text-white text-center mb-4">Built for the people who hand over the keys</h2>
-          <p class="text-lg text-gray-400 text-center mb-12 max-w-2xl mx-auto">
-            If your job ends when the deal closes &mdash; ours starts there. Keep your name in front of clients for years through the app they actually use.
-          </p>
-          <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            <div class="bg-gray-800 border border-gray-700 rounded-xl p-6">
-              <div class="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center mb-4">
-                <svg class="w-6 h-6 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-                </svg>
-              </div>
-              <h3 class="text-lg font-semibold text-white mb-2">Realtors</h3>
-              <p class="text-gray-400 text-sm">A closing gift that's still working a year later, not a fruit basket they forgot.</p>
+        <div class="max-w-4xl mx-auto">
+          <h2 class="text-3xl md:text-4xl font-bold text-white text-center mb-12">
+            Built for the people who hand over the keys.
+          </h2>
+          <div class="grid md:grid-cols-2 gap-6">
+            <div class="p-6 bg-gray-800 rounded-xl border border-gray-700">
+              <h3 class="text-xl font-semibold text-white mb-2">Realtors</h3>
+              <p class="text-gray-300">
+                Closing gifts are a hassle. A bottle of wine gets drunk in a week, a fruit basket goes off in three days. HavenKeep is six months of "your realtor was thinking about you" every time the homebuyer opens the app to log a new appliance or chase a warranty claim.
+              </p>
             </div>
-            <div class="bg-gray-800 border border-gray-700 rounded-xl p-6">
-              <div class="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center mb-4">
-                <svg class="w-6 h-6 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z" />
-                </svg>
-              </div>
-              <h3 class="text-lg font-semibold text-white mb-2">Contractors</h3>
-              <p class="text-gray-400 text-sm">Every install gets logged in their app with your name on it. Repeat business writes itself.</p>
+            <div class="p-6 bg-gray-800 rounded-xl border border-gray-700">
+              <h3 class="text-xl font-semibold text-white mb-2">Builders</h3>
+              <p class="text-gray-300">
+                You hand over a house with sixty appliances, ten warranties, and a binder of paperwork the homebuyer will lose in a week. Send them HavenKeep instead — they'll thank you when the dishwasher dies at month four.
+              </p>
             </div>
-            <div class="bg-gray-800 border border-gray-700 rounded-xl p-6">
-              <div class="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center mb-4">
-                <svg class="w-6 h-6 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                </svg>
-              </div>
-              <h3 class="text-lg font-semibold text-white mb-2">Builders</h3>
-              <p class="text-gray-400 text-sm">Hand off the home with a complete digital warranty packet. Cut your post-close support tickets.</p>
+            <div class="p-6 bg-gray-800 rounded-xl border border-gray-700">
+              <h3 class="text-xl font-semibold text-white mb-2">Contractors</h3>
+              <p class="text-gray-300">
+                Finish a renovation, hand over the warranty cards, send HavenKeep with the closeout package. The homeowner now has a record of every fixture you installed and every warranty you stand behind, in one place.
+              </p>
             </div>
-            <div class="bg-gray-800 border border-gray-700 rounded-xl p-6">
-              <div class="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center mb-4">
-                <svg class="w-6 h-6 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                </svg>
-              </div>
-              <h3 class="text-lg font-semibold text-white mb-2">Property Managers</h3>
-              <p class="text-gray-400 text-sm">Tenants who track their own appliance warranties file fewer maintenance tickets with you.</p>
+            <div class="p-6 bg-gray-800 rounded-xl border border-gray-700">
+              <h3 class="text-xl font-semibold text-white mb-2">Property managers</h3>
+              <p class="text-gray-300">
+                New tenant move-in. Hand them HavenKeep — they track their own stuff, you stop fielding "where's the receipt for the microwave you said you'd cover" texts at 9pm.
+              </p>
             </div>
           </div>
         </div>
@@ -149,42 +101,47 @@ const tiers = [
     <!-- How it works -->
     <section id="how-it-works" class="py-20 bg-gray-800">
       <div class="container">
-        <div class="max-w-4xl mx-auto">
-          <h2 class="text-3xl font-bold text-white text-center mb-12">How it works</h2>
+        <div class="max-w-3xl mx-auto">
+          <h2 class="text-3xl md:text-4xl font-bold text-white text-center mb-4">
+            How it works
+          </h2>
+          <p class="text-lg text-gray-300 text-center mb-12">
+            Three steps. Under two minutes per gift.
+          </p>
+
           <div class="space-y-8">
-            <div class="flex items-start gap-6">
-              <div class="flex-shrink-0 w-12 h-12 bg-primary text-white rounded-full flex items-center justify-center font-bold text-lg">1</div>
+            <div class="flex gap-6">
+              <div class="flex-shrink-0 w-12 h-12 rounded-full bg-primary/20 border border-primary flex items-center justify-center text-primary font-bold text-lg">
+                1
+              </div>
               <div>
-                <h3 class="text-xl font-semibold text-white mb-2">Apply &amp; get approved</h3>
-                <p class="text-gray-300 text-lg">
-                  Tell us about your business &mdash; company, license number, service areas. We review every application manually to keep the program quality high. Most decisions land in under two business days.
+                <h3 class="text-xl font-semibold text-white mb-2">Sign up</h3>
+                <p class="text-gray-300">
+                  Email, password, your name, your company name. That's it. You land on the partner dashboard ready to send your first gift.
                 </p>
               </div>
             </div>
-            <div class="flex items-start gap-6">
-              <div class="flex-shrink-0 w-12 h-12 bg-primary text-white rounded-full flex items-center justify-center font-bold text-lg">2</div>
+
+            <div class="flex gap-6">
+              <div class="flex-shrink-0 w-12 h-12 rounded-full bg-primary/20 border border-primary flex items-center justify-center text-primary font-bold text-lg">
+                2
+              </div>
               <div>
-                <h3 class="text-xl font-semibold text-white mb-2">Connect Stripe</h3>
-                <p class="text-gray-300 text-lg">
-                  Once approved, we walk you through Stripe&rsquo;s onboarding to add a card (for the per-gift charge) and a bank account (where your commission payouts land). Stripe handles tax info too &mdash; this is also how 1099-NEC forms reach you each January if you earn $600 or more in a year.
+                <h3 class="text-xl font-semibold text-white mb-2">Create a gift</h3>
+                <p class="text-gray-300">
+                  Type the homebuyer's name and email. Optionally add a closing date or a personal note. Hit send. HavenKeep emails them a branded activation link the moment you click.
                 </p>
               </div>
             </div>
-            <div class="flex items-start gap-6">
-              <div class="flex-shrink-0 w-12 h-12 bg-primary text-white rounded-full flex items-center justify-center font-bold text-lg">3</div>
-              <div>
-                <h3 class="text-xl font-semibold text-white mb-2">Send the gift at closing</h3>
-                <p class="text-gray-300 text-lg">
-                  Type your client's email. They get a branded landing page with your name and an activation link. They install HavenKeep, redeem the code, and Premium is live.
-                </p>
+
+            <div class="flex gap-6">
+              <div class="flex-shrink-0 w-12 h-12 rounded-full bg-primary/20 border border-primary flex items-center justify-center text-primary font-bold text-lg">
+                3
               </div>
-            </div>
-            <div class="flex items-start gap-6">
-              <div class="flex-shrink-0 w-12 h-12 bg-primary text-white rounded-full flex items-center justify-center font-bold text-lg">4</div>
               <div>
-                <h3 class="text-xl font-semibold text-white mb-2">Earn on every warranty they buy</h3>
-                <p class="text-gray-300 text-lg">
-                  When your client purchases an extended warranty through HavenKeep &mdash; on a fridge, an HVAC unit, a roof &mdash; you earn commission. For life. No expiration.
+                <h3 class="text-xl font-semibold text-white mb-2">They redeem</h3>
+                <p class="text-gray-300">
+                  They tap the link, install the app, and get six months of HavenKeep Premium. The email has your company name, your brand color, your logo — and your custom note if you wrote one. You see when they activated it from your dashboard.
                 </p>
               </div>
             </div>
@@ -193,115 +150,36 @@ const tiers = [
       </div>
     </section>
 
-    <!-- Pricing tiers -->
+    <!-- What's in it for you -->
     <section class="py-20 bg-gray-900">
       <div class="container">
-        <div class="max-w-6xl mx-auto">
-          <h2 class="text-3xl font-bold text-white text-center mb-4">Simple per-gift pricing</h2>
-          <p class="text-lg text-gray-400 text-center mb-12 max-w-2xl mx-auto">
-            No monthly fee. No annual contract. Pay only when you send a gift, earn commission as long as your client uses HavenKeep.
-          </p>
-          <div class="grid md:grid-cols-3 gap-8">
-            {tiers.map((tier) => (
-              <div class:list={[
-                'rounded-2xl p-8 flex flex-col',
-                tier.accent
-                  ? 'bg-gradient-to-br from-primary/20 to-accent/10 border-2 border-primary'
-                  : 'bg-gray-800 border border-gray-700',
-              ]}>
-                {tier.accent && (
-                  <div class="inline-flex self-start items-center gap-1 px-3 py-1 rounded-full bg-primary text-white text-xs font-semibold mb-4">
-                    Most popular
-                  </div>
-                )}
-                <h3 class="text-2xl font-bold text-white mb-2">{tier.name}</h3>
-                <p class="text-gray-400 mb-6">{tier.blurb}</p>
-                <div class="mb-6">
-                  <div class="flex items-baseline gap-2">
-                    <span class="text-5xl font-bold text-white">${tier.pricePerGift}</span>
-                    <span class="text-gray-400">/gift</span>
-                  </div>
-                  <p class="text-sm text-accent mt-2 font-semibold">{tier.commission} warranty commission</p>
-                </div>
-                <ul class="space-y-3 mb-8 flex-grow">
-                  {tier.perks.map((perk) => (
-                    <li class="flex items-start gap-3 text-gray-300">
-                      <svg class="w-5 h-5 text-accent flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-                      </svg>
-                      <span>{perk}</span>
-                    </li>
-                  ))}
-                </ul>
-                <a
-                  href={signupHref}
-                  class:list={[
-                    'block text-center font-semibold py-3 px-6 rounded-lg transition-colors duration-200',
-                    tier.accent
-                      ? 'bg-primary hover:bg-primary/90 text-white'
-                      : 'bg-gray-700 hover:bg-gray-600 text-white',
-                  ]}
-                >
-                  Apply
-                </a>
-              </div>
-            ))}
-          </div>
-          <p class="text-sm text-gray-500 text-center mt-8 max-w-2xl mx-auto">
-            Tiers are reviewed quarterly based on gift volume. New partners start at Basic; high-volume partners get tier upgrades automatically &mdash; no contract renegotiation.
-          </p>
-        </div>
-      </div>
-    </section>
-
-    <!-- Why HavenKeep -->
-    <section class="py-20 bg-gray-800">
-      <div class="container">
-        <div class="max-w-5xl mx-auto">
-          <h2 class="text-3xl font-bold text-white text-center mb-12">Why partners pick HavenKeep</h2>
-          <div class="grid md:grid-cols-2 gap-8">
-            <div class="bg-gray-900 border border-gray-700 rounded-xl p-8">
-              <div class="w-14 h-14 bg-accent/10 rounded-full flex items-center justify-center mb-4">
-                <svg class="w-7 h-7 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                </svg>
-              </div>
-              <h3 class="text-xl font-semibold text-white mb-3">Lifetime commissions</h3>
+        <div class="max-w-4xl mx-auto">
+          <h2 class="text-3xl md:text-4xl font-bold text-white text-center mb-12">
+            What you actually get.
+          </h2>
+          <div class="grid md:grid-cols-2 gap-6">
+            <div class="p-6 bg-gray-800 rounded-xl border border-gray-700">
+              <h3 class="text-lg font-semibold text-white mb-2">A gift you don't have to think about</h3>
               <p class="text-gray-300">
-                You earn on every warranty your client purchases through HavenKeep &mdash; for as long as they use the app. Most closing gifts give you a one-time mention. Ours pays you for years.
+                No shopping, no shipping, no shelf life. Type a name + email, click send. Two minutes per closing, and your client opens it the same day.
               </p>
             </div>
-            <div class="bg-gray-900 border border-gray-700 rounded-xl p-8">
-              <div class="w-14 h-14 bg-accent/10 rounded-full flex items-center justify-center mb-4">
-                <svg class="w-7 h-7 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                </svg>
-              </div>
-              <h3 class="text-xl font-semibold text-white mb-3">No subscription, no contract</h3>
+            <div class="p-6 bg-gray-800 rounded-xl border border-gray-700">
+              <h3 class="text-lg font-semibold text-white mb-2">Your name on every email</h3>
               <p class="text-gray-300">
-                You're charged per gift. Skip a month, send a hundred, change your mind &mdash; your card only moves when you press the button. No annual commitment, no termination clause.
+                Your company name, your brand color, your logo. The homebuyer doesn't see "from HavenKeep" — they see "from you."
               </p>
             </div>
-            <div class="bg-gray-900 border border-gray-700 rounded-xl p-8">
-              <div class="w-14 h-14 bg-accent/10 rounded-full flex items-center justify-center mb-4">
-                <svg class="w-7 h-7 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-              </div>
-              <h3 class="text-xl font-semibold text-white mb-3">Branded gift experience</h3>
+            <div class="p-6 bg-gray-800 rounded-xl border border-gray-700">
+              <h3 class="text-lg font-semibold text-white mb-2">A reason for the next conversation</h3>
               <p class="text-gray-300">
-                Every gift lands on a branded landing page with your name and contact details. Your client sees who gave them this, not a generic HavenKeep promo.
+                Six months from now they'll remember you sent this — when a warranty claim works because the receipt was in HavenKeep, when the HVAC reminder catches a $400 repair before it becomes $4,000.
               </p>
             </div>
-            <div class="bg-gray-900 border border-gray-700 rounded-xl p-8">
-              <div class="w-14 h-14 bg-accent/10 rounded-full flex items-center justify-center mb-4">
-                <svg class="w-7 h-7 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                </svg>
-              </div>
-              <h3 class="text-xl font-semibold text-white mb-3">Real-time dashboard</h3>
+            <div class="p-6 bg-gray-800 rounded-xl border border-gray-700">
+              <h3 class="text-lg font-semibold text-white mb-2">Zero downside</h3>
               <p class="text-gray-300">
-                See every gift sent, redeemed, and active in your dashboard. Track commission earnings as they accrue. Withdraw to your bank whenever you want.
+                Free. No card on file. No "trial that converts to paid." Send one, send fifty — your cost is the same.
               </p>
             </div>
           </div>
@@ -310,64 +188,80 @@ const tiers = [
     </section>
 
     <!-- FAQ -->
-    <section class="py-20 bg-gray-900">
+    <section class="py-20 bg-gray-800">
       <div class="container">
         <div class="max-w-3xl mx-auto">
-          <h2 class="text-3xl font-bold text-white text-center mb-12">Common questions</h2>
+          <h2 class="text-3xl md:text-4xl font-bold text-white text-center mb-12">
+            Questions
+          </h2>
           <div class="space-y-6">
-            <details class="bg-gray-800 border border-gray-700 rounded-xl p-6 group">
-              <summary class="flex justify-between items-center cursor-pointer text-white font-semibold text-lg list-none">
-                <span>Why do I need to apply &mdash; can't I just sign up?</span>
-                <svg class="w-5 h-5 text-gray-400 group-open:rotate-180 transition-transform flex-shrink-0 ml-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-                </svg>
+            <details class="group p-6 bg-gray-900 rounded-xl border border-gray-700 open:border-primary/40">
+              <summary class="cursor-pointer flex items-center justify-between text-white font-semibold">
+                <span>What's the catch?</span>
+                <span class="text-gray-400 group-open:rotate-180 transition-transform">▾</span>
               </summary>
-              <p class="text-gray-300 mt-4">
-                Every approved partner reflects on the program. We verify license numbers and service areas to make sure homeowners who redeem a gift are getting it from a legitimate professional. Most applications are reviewed within two business days.
+              <p class="text-gray-300 mt-4 leading-relaxed">
+                None. We give your client six months of HavenKeep Premium for free because we want them to fall in love with the product. If they stay subscribed after six months at $2.99/mo or $24/yr, we make money. If they don't, we don't. You're the distribution channel.
               </p>
             </details>
-            <details class="bg-gray-800 border border-gray-700 rounded-xl p-6 group">
-              <summary class="flex justify-between items-center cursor-pointer text-white font-semibold text-lg list-none">
-                <span>When am I charged?</span>
-                <svg class="w-5 h-5 text-gray-400 group-open:rotate-180 transition-transform flex-shrink-0 ml-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-                </svg>
+
+            <details class="group p-6 bg-gray-900 rounded-xl border border-gray-700">
+              <summary class="cursor-pointer flex items-center justify-between text-white font-semibold">
+                <span>Do I have to be a licensed realtor?</span>
+                <span class="text-gray-400 group-open:rotate-180 transition-transform">▾</span>
               </summary>
-              <p class="text-gray-300 mt-4">
-                Only when you create a gift. Your saved card is charged the per-gift price for your tier the moment you click "Send gift." There's no monthly fee, no annual fee, no minimum.
+              <p class="text-gray-300 mt-4 leading-relaxed">
+                No. The program is for anyone who hands keys to a homebuyer — realtors, builders, contractors, property managers, the friend who renovated their cousin's kitchen. Sign up takes a minute and there's no verification step.
               </p>
             </details>
-            <details class="bg-gray-800 border border-gray-700 rounded-xl p-6 group">
-              <summary class="flex justify-between items-center cursor-pointer text-white font-semibold text-lg list-none">
-                <span>What happens if my client doesn't redeem the gift?</span>
-                <svg class="w-5 h-5 text-gray-400 group-open:rotate-180 transition-transform flex-shrink-0 ml-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-                </svg>
+
+            <details class="group p-6 bg-gray-900 rounded-xl border border-gray-700">
+              <summary class="cursor-pointer flex items-center justify-between text-white font-semibold">
+                <span>How does the homebuyer redeem?</span>
+                <span class="text-gray-400 group-open:rotate-180 transition-transform">▾</span>
               </summary>
-              <p class="text-gray-300 mt-4">
-                Pick any grant length from 1 to 12 months per gift &mdash; the activation window matches the grant. If the client doesn't activate before that window closes you can resend, and we won't double-charge for the same recipient inside the original window.
+              <p class="text-gray-300 mt-4 leading-relaxed">
+                They get an email with a tap-to-redeem link. On a phone it opens HavenKeep directly to the activation screen with the code pre-filled. They install the app, sign up, and they're on Premium. The whole flow is under a minute.
               </p>
             </details>
-            <details class="bg-gray-800 border border-gray-700 rounded-xl p-6 group">
-              <summary class="flex justify-between items-center cursor-pointer text-white font-semibold text-lg list-none">
-                <span>How do I get paid commission?</span>
-                <svg class="w-5 h-5 text-gray-400 group-open:rotate-180 transition-transform flex-shrink-0 ml-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-                </svg>
+
+            <details class="group p-6 bg-gray-900 rounded-xl border border-gray-700">
+              <summary class="cursor-pointer flex items-center justify-between text-white font-semibold">
+                <span>What if my client already pays for HavenKeep?</span>
+                <span class="text-gray-400 group-open:rotate-180 transition-transform">▾</span>
               </summary>
-              <p class="text-gray-300 mt-4">
-                Each commission spends 30 days in a refund-protection window. After that, it's available to withdraw &mdash; click "Request payout" in your dashboard anytime and the funds transfer to your connected bank in 1&ndash;2 business days. We use Stripe to handle payouts, so the bank account you connect during onboarding is where your money lands. If we pay you $600 or more in a calendar year, Stripe issues your 1099-NEC each January &mdash; available straight from your dashboard.
+              <p class="text-gray-300 mt-4 leading-relaxed">
+                The six months stack on top of whatever they already have. If they're a year into Premium, redeeming the gift extends their expiry by six months. Nothing gets overwritten.
               </p>
             </details>
-            <details class="bg-gray-800 border border-gray-700 rounded-xl p-6 group">
-              <summary class="flex justify-between items-center cursor-pointer text-white font-semibold text-lg list-none">
-                <span>Can I move between tiers?</span>
-                <svg class="w-5 h-5 text-gray-400 group-open:rotate-180 transition-transform flex-shrink-0 ml-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-                </svg>
+
+            <details class="group p-6 bg-gray-900 rounded-xl border border-gray-700">
+              <summary class="cursor-pointer flex items-center justify-between text-white font-semibold">
+                <span>How many gifts can I send?</span>
+                <span class="text-gray-400 group-open:rotate-180 transition-transform">▾</span>
               </summary>
-              <p class="text-gray-300 mt-4">
-                New partners start at Basic. Tier upgrades happen automatically based on gift volume reviewed quarterly &mdash; no paperwork, no contract renegotiation. Volume requirements are published in the partner agreement.
+              <p class="text-gray-300 mt-4 leading-relaxed">
+                As many as you have closings. We may add a soft cap on brand-new accounts to slow down spam, but if you're closing real deals you'll never see it. If you're sending hundreds of gifts a month, email <a href="mailto:partners@havenkeep.com" class="text-primary hover:text-primary-light underline">partners@havenkeep.com</a> first so we can pre-clear your volume.
+              </p>
+            </details>
+
+            <details class="group p-6 bg-gray-900 rounded-xl border border-gray-700">
+              <summary class="cursor-pointer flex items-center justify-between text-white font-semibold">
+                <span>Can I customize how the gift email looks?</span>
+                <span class="text-gray-400 group-open:rotate-180 transition-transform">▾</span>
+              </summary>
+              <p class="text-gray-300 mt-4 leading-relaxed">
+                Yes. From the dashboard's settings screen you can set your company name, your brand color, and a logo URL — those show up on every gift email you send. You can also write a one-time personal note per gift in the create-gift form.
+              </p>
+            </details>
+
+            <details class="group p-6 bg-gray-900 rounded-xl border border-gray-700">
+              <summary class="cursor-pointer flex items-center justify-between text-white font-semibold">
+                <span>What does the homebuyer get after the six months?</span>
+                <span class="text-gray-400 group-open:rotate-180 transition-transform">▾</span>
+              </summary>
+              <p class="text-gray-300 mt-4 leading-relaxed">
+                Their data stays. They drop to the free tier (which still tracks up to 5 items) and can subscribe any time to keep Premium features — $2.99/mo or $24/yr. Nothing gets deleted at the six-month mark.
               </p>
             </details>
           </div>
@@ -375,21 +269,27 @@ const tiers = [
       </div>
     </section>
 
-    <!-- Final CTA -->
-    <section class="py-20 bg-gradient-to-br from-primary to-secondary">
+    <!-- CTA -->
+    <section class="py-20 bg-gradient-to-b from-gray-900 to-gray-800">
       <div class="container">
-        <div class="max-w-3xl mx-auto text-center text-white">
-          <h2 class="text-4xl font-bold mb-6">
-            Ready to turn closings into recurring revenue?
+        <div class="max-w-2xl mx-auto text-center">
+          <h2 class="text-3xl md:text-4xl font-bold text-white mb-6">
+            Send your first one this afternoon.
           </h2>
-          <p class="text-xl text-white/90 mb-8">
-            Apply now &mdash; reviewed in two business days. No setup fee, no monthly charge.
+          <p class="text-lg text-gray-300 mb-8 leading-relaxed">
+            Sign up, customize your gift email, and have something in your client's inbox before they finish unpacking.
           </p>
           <div class="flex flex-col sm:flex-row gap-4 justify-center">
-            <a href={signupHref} class="bg-white text-primary hover:bg-gray-100 font-semibold py-4 px-8 rounded-lg transition-colors duration-200 text-lg">
-              Apply to become a partner
+            <a
+              href={signupHref}
+              class="px-8 py-3 bg-primary hover:bg-primary-light text-white rounded-lg font-medium transition-colors"
+            >
+              Sign up — it's free
             </a>
-            <a href="/contact" class="bg-white/10 hover:bg-white/20 text-white border-2 border-white font-semibold py-4 px-8 rounded-lg transition-colors duration-200 text-lg">
+            <a
+              href="mailto:partners@havenkeep.com"
+              class="px-8 py-3 border border-gray-600 hover:border-gray-400 text-white rounded-lg font-medium transition-colors"
+            >
               Talk to us first
             </a>
           </div>

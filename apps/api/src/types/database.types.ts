@@ -51,10 +51,7 @@ export type ItemCategory =
 
 export type EmailScanStatus = 'pending' | 'scanning' | 'completed' | 'failed';
 export type PartnerType = 'realtor' | 'builder' | 'contractor' | 'property_manager' | 'other';
-export type PartnerTier = 'basic' | 'premium' | 'platinum';
-export type GiftStatus = 'pending_payment' | 'payment_failed' | 'created' | 'sent' | 'activated' | 'expired';
-export type CommissionStatus = 'pending' | 'approved' | 'paid' | 'cancelled';
-export type CommissionType = 'gift' | 'warranty_sale' | 'referral' | 'subscription';
+export type GiftStatus = 'created' | 'sent' | 'activated' | 'expired';
 export type WarrantyPurchaseStatus = 'pending' | 'active' | 'expired' | 'cancelled' | 'claimed';
 
 // ============================================
@@ -183,29 +180,10 @@ export interface Partner {
   // Branding
   brand_color: string | null;
   logo_url: string | null;
-  subscription_tier: PartnerTier;
 
   // Settings
   default_message: string | null;
-  default_premium_months: number;
   service_areas: string[];
-  license_number: string | null;
-
-  // Stripe Connect
-  stripe_account_id: string | null;
-  stripe_onboarded: boolean;
-  stripe_account_status:
-    | 'unknown'
-    | 'pending'
-    | 'enabled'
-    | 'restricted'
-    | 'disabled'
-    | 'rejected';
-  stripe_account_status_at: Date | null;
-
-  // Status
-  is_active: boolean;
-  is_verified: boolean;
 
   // Meta
   created_at: Date;
@@ -236,41 +214,10 @@ export interface PartnerGift {
   activated_user_id: string | null;
   expires_at: Date | null;
 
-  // Billing
-  amount_charged: number;
-  stripe_charge_id: string | null;
-
   // Analytics
   email_opened_at: Date | null;
   app_download_at: Date | null;
   first_item_added_at: Date | null;
-
-  // Meta
-  created_at: Date;
-  updated_at: Date;
-}
-
-export interface PartnerCommission {
-  id: string;
-  partner_id: string;
-
-  // Commission details
-  type: CommissionType;
-  amount: number;
-  description: string | null;
-
-  // Status
-  status: CommissionStatus;
-  approved_at: Date | null;
-  paid_at: Date | null;
-
-  // References
-  reference_id: string | null;
-  reference_type: string | null;
-
-  // Payout
-  stripe_transfer_id: string | null;
-  payout_method: string;
 
   // Meta
   created_at: Date;

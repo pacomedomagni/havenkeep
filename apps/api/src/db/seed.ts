@@ -20,6 +20,11 @@ import { config } from '../config';
 import { logger } from '../utils/logger';
 import { preHashForBcrypt } from '../utils/password';
 
+interface PartnerSpec {
+  companyName: string;
+  partnerType: 'realtor' | 'builder' | 'contractor' | 'property_manager';
+}
+
 interface SeedUserSpec {
   email: string;
   password: string;
@@ -29,6 +34,13 @@ interface SeedUserSpec {
   premiumExpiry: string | null;
   withDefaultHome: boolean;
   homeName?: string;
+  /// When true, sets `users.is_admin = TRUE`. `is_admin` is read directly
+  /// off the row by middleware/admin route guards.
+  isAdmin?: boolean;
+  /// When set, creates an approved partner row (status='active',
+  /// is_active=TRUE) so `is_partner` resolves true on /auth/me and the
+  /// partner dashboard's middleware lets the user past the role gate.
+  partner?: PartnerSpec;
 }
 
 const SEED_USERS: SeedUserSpec[] = [
@@ -51,11 +63,41 @@ const SEED_USERS: SeedUserSpec[] = [
     premiumExpiry: null,
     withDefaultHome: false,
   },
+  // Admin persona — for /admin/* in the partner dashboard.
+  {
+    email: 'admin@havenkeep.com',
+    password: 'AdminPass1234!',
+    name: 'Admin User',
+    referralCode: 'ADMIN001',
+    plan: 'premium',
+    premiumExpiry: "NOW() + INTERVAL '10 years'",
+    withDefaultHome: false,
+    isAdmin: true,
+  },
+  // Partner persona — pre-approved (status='active'), so the partner
+  // dashboard's middleware lets them past the role gate without manual
+  // approval. Has its own home so a partner can also exercise the
+  // consumer flows on the same account.
+  {
+    email: 'partner@havenkeep.com',
+    password: 'PartnerPass1234!',
+    name: 'Partner User',
+    referralCode: 'PARTNER1',
+    plan: 'premium',
+    premiumExpiry: "NOW() + INTERVAL '10 years'",
+    withDefaultHome: true,
+    homeName: "Partner's Home",
+    partner: {
+      companyName: 'Local Test Realty',
+      partnerType: 'realtor',
+    },
+  },
 ];
 
 async function seedUser(spec: SeedUserSpec): Promise<{ userId: string; created: boolean }> {
   const passwordHash = await bcrypt.hash(preHashForBcrypt(spec.password), 10);
   const expiryFragment = spec.premiumExpiry ?? 'NULL';
+  const isAdmin = spec.isAdmin ?? false;
 
   // INSERT ... ON CONFLICT DO NOTHING + RETURNING — gives us the row
   // whether we just created it or it already existed.
@@ -64,10 +106,10 @@ async function seedUser(spec: SeedUserSpec): Promise<{ userId: string; created: 
        email, password_hash, full_name, auth_provider,
        email_verified, plan, plan_expires_at, referral_code, is_admin
      )
-     VALUES ($1, $2, $3, 'email', TRUE, $4, ${expiryFragment}, $5, FALSE)
+     VALUES ($1, $2, $3, 'email', TRUE, $4, ${expiryFragment}, $5, $6)
      ON CONFLICT (email) DO NOTHING
      RETURNING id`,
-    [spec.email, passwordHash, spec.name, spec.plan, spec.referralCode],
+    [spec.email, passwordHash, spec.name, spec.plan, spec.referralCode, isAdmin],
   );
 
   let userId: string;
@@ -76,9 +118,12 @@ async function seedUser(spec: SeedUserSpec): Promise<{ userId: string; created: 
     userId = insertResult.rows[0].id;
     created = true;
   } else {
+    // Row already existed — reconcile is_admin in case a previously-seeded
+    // user is being elevated/demoted. The is_active/status pair on partners
+    // is reconciled below in seedPartnerRow.
     const existing = await pool.query<{ id: string }>(
-      `SELECT id FROM users WHERE email = $1`,
-      [spec.email],
+      `UPDATE users SET is_admin = $2 WHERE email = $1 RETURNING id`,
+      [spec.email, isAdmin],
     );
     if (existing.rows.length === 0) {
       throw new Error(`Failed to upsert seed user ${spec.email}`);
@@ -97,7 +142,46 @@ async function seedUser(spec: SeedUserSpec): Promise<{ userId: string; created: 
     );
   }
 
+  if (spec.partner) {
+    await seedPartnerRow(userId, spec.partner);
+  }
+
   return { userId, created };
+}
+
+/// Create or reconcile a pre-approved partner row for a seed user.
+/// `status='active'` + `is_active=TRUE` is what the dashboard middleware
+/// and the API's `is_partner` projection both look for. Migration 092
+/// enforces the invariant — the CHECK rejects any other combination.
+///
+/// Note: `partners.user_id` has no unique constraint (only a non-unique
+/// index — mig 002), so we can't use ON CONFLICT (user_id). Seed runs
+/// serially, so a SELECT-then-INSERT-or-UPDATE pattern is race-free here.
+async function seedPartnerRow(userId: string, spec: PartnerSpec): Promise<void> {
+  const existing = await pool.query<{ id: string }>(
+    `SELECT id FROM partners WHERE user_id = $1 LIMIT 1`,
+    [userId],
+  );
+  if (existing.rows.length === 0) {
+    await pool.query(
+      `INSERT INTO partners (
+         user_id, partner_type, company_name,
+         brand_color, default_message, service_areas
+       )
+       VALUES ($1, $2, $3, '#3B82F6',
+               'Welcome to your new home! Use this to keep track of every warranty in one place.',
+               '{}')`,
+      [userId, spec.partnerType, spec.companyName],
+    );
+  } else {
+    await pool.query(
+      `UPDATE partners
+          SET company_name = $2,
+              partner_type = $3
+        WHERE user_id = $1`,
+      [userId, spec.companyName, spec.partnerType],
+    );
+  }
 }
 
 /**
@@ -311,24 +395,23 @@ async function seed() {
   }
 
   // Operator-friendly recap to stdout (logger may suppress if level is high).
-  // eslint-disable-next-line no-console
+  /* eslint-disable no-console */
   console.log('');
   for (const { spec, userId } of results) {
-    // eslint-disable-next-line no-console
+    const roles: string[] = ['consumer'];
+    if (spec.isAdmin) roles.push('admin');
+    if (spec.partner) roles.push(`partner (${spec.partner.companyName})`);
     console.log(`  ${spec.email}`);
-    // eslint-disable-next-line no-console
     console.log(`    password: ${spec.password}`);
-    // eslint-disable-next-line no-console
+    console.log(`    roles:    ${roles.join(', ')}`);
     console.log(
       `    plan:     ${spec.plan}${spec.plan === 'premium' ? ' (10y)' : ''}`,
     );
-    // eslint-disable-next-line no-console
     console.log(`    home:     ${spec.withDefaultHome ? 'pre-created' : 'NOT created (onboarding will play)'}`);
-    // eslint-disable-next-line no-console
     console.log(`    user id:  ${userId}`);
-    // eslint-disable-next-line no-console
     console.log('');
   }
+  /* eslint-enable no-console */
 }
 
 seed()

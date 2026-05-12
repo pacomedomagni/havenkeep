@@ -100,7 +100,6 @@ const TABLES = [
   'receipt_scan_idempotency',
   'items',
   'homes',
-  'partner_commissions',
   'partner_gifts',
   'partners',
   'newsletter_subscribers',

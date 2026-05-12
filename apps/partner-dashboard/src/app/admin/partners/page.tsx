@@ -4,12 +4,12 @@ import PartnerTable from '@/components/partner-table'
 import Pagination from '@/components/Pagination'
 import { serverApiClient, requireAdmin } from '@/lib/auth'
 import type { AdminPartnerListItem, PaginationMeta } from '@/lib/api-types'
-import { UsersIcon, ClockIcon, CheckCircleIcon } from '@heroicons/react/24/outline'
+import { UsersIcon, GiftIcon } from '@heroicons/react/24/outline'
 
 async function getPartners(page: number = 1) {
   try {
-    const result = await serverApiClient<{ data: AdminPartnerListItem[]; pagination: PaginationMeta }>(`/api/v1/admin/partners?page=${page}&limit=20`)
-    return { partners: result.data || [], pagination: result.pagination }
+    const result = await serverApiClient<{ data: AdminPartnerListItem[]; meta?: { pagination?: PaginationMeta } }>(`/api/v1/admin/partners?page=${page}&limit=20`)
+    return { partners: result.data || [], pagination: result.meta?.pagination ?? null }
   } catch {
     return { partners: [] as AdminPartnerListItem[], pagination: null }
   }
@@ -27,24 +27,17 @@ export default async function PartnersPage({
   const { partners, pagination } = await getPartners(page)
 
   const totalPartners = partners.length
-  const statusOf = (p: AdminPartnerListItem): 'pending' | 'active' | 'rejected' => {
-    if (p.status === 'pending' || p.status === 'active' || p.status === 'rejected') return p.status
-    return p.is_active ? 'active' : 'pending'
-  }
-  const pendingPartners = partners.filter((p) => statusOf(p) === 'pending').length
-  const activePartners = partners.filter((p) => statusOf(p) === 'active').length
-  const rejectedPartners = partners.filter((p) => statusOf(p) === 'rejected').length
+  const totalGifts = partners.reduce((sum, p) => sum + (p.count_gifts ?? 0), 0)
 
   return (
     <>
       <Header
-        title="Partner Management"
-        subtitle="Manage platform partners"
+        title="Partners"
+        subtitle="Everyone who's signed up to gift HavenKeep"
       />
 
       <div className="p-8">
-        {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
           <StatsCard
             title="Total Partners"
             value={totalPartners.toLocaleString()}
@@ -52,30 +45,11 @@ export default async function PartnersPage({
           />
 
           <StatsCard
-            title="Pending Approval"
-            value={pendingPartners.toLocaleString()}
-            change={pendingPartners > 0 ? {
-              value: `${pendingPartners} awaiting review`,
-              positive: false,
-            } : undefined}
-            icon={<ClockIcon className="h-6 w-6 text-haven-primary" />}
-          />
-
-          <StatsCard
-            title="Active Partners"
-            value={activePartners.toLocaleString()}
-            change={{
-              value: `${totalPartners > 0 ? ((activePartners / totalPartners) * 100).toFixed(1) : '0.0'}% of total`,
-              positive: activePartners > 0,
-            }}
-            icon={<CheckCircleIcon className="h-6 w-6 text-haven-primary" />}
+            title="Gifts Sent (this page)"
+            value={totalGifts.toLocaleString()}
+            icon={<GiftIcon className="h-6 w-6 text-haven-primary" />}
           />
         </div>
-        {rejectedPartners > 0 && (
-          <p className="mb-4 text-sm text-haven-text-tertiary">
-            {rejectedPartners} rejected partner{rejectedPartners === 1 ? '' : 's'} on this page.
-          </p>
-        )}
 
         <PartnerTable partners={partners} />
         {pagination && pagination.total_pages != null && pagination.total != null && (

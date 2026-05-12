@@ -1,9 +1,8 @@
 import Header from '@/components/Header'
 import StatsCard from '@/components/StatsCard'
-import PartnerActions from '@/components/partner-actions'
 import { serverApiClient, requireAdmin } from '@/lib/auth'
 import type { AdminPartnerDetail } from '@/lib/api-types'
-import { GiftIcon, UserGroupIcon, CurrencyDollarIcon } from '@heroicons/react/24/outline'
+import { GiftIcon, UserGroupIcon } from '@heroicons/react/24/outline'
 
 async function getPartner(id: string) {
   try {
@@ -41,7 +40,6 @@ export default async function PartnerDetailPage({ params }: { params: Promise<{ 
       />
 
       <div className="p-8">
-        {/* Partner Info Card */}
         <div className="card mb-8">
           <h3 className="text-lg font-semibold text-white mb-4">Partner Information</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -68,12 +66,6 @@ export default async function PartnerDetailPage({ params }: { params: Promise<{ 
                 Phone
               </label>
               <p className="text-white">{partner.phone || '-'}</p>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-haven-text-tertiary mb-1">
-                License Number
-              </label>
-              <p className="text-white font-mono text-sm">{partner.license_number || '-'}</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-haven-text-tertiary mb-1">
@@ -108,65 +100,7 @@ export default async function PartnerDetailPage({ params }: { params: Promise<{ 
           </div>
         </div>
 
-        {/* Status & Stripe */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-          <div className="card">
-            <h3 className="text-lg font-semibold text-white mb-4">Status</h3>
-            <div className="flex items-center gap-3">
-              {(() => {
-                const status: 'pending' | 'active' | 'rejected' =
-                  partner.status === 'pending' || partner.status === 'active' || partner.status === 'rejected'
-                    ? partner.status
-                    : partner.is_active
-                      ? 'active'
-                      : 'pending'
-                const cls =
-                  status === 'active'
-                    ? 'bg-green-500/20 text-green-400'
-                    : status === 'rejected'
-                      ? 'bg-red-500/20 text-red-400'
-                      : 'bg-yellow-500/20 text-yellow-400'
-                return (
-                  <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold ${cls}`}>
-                    {status}
-                  </span>
-                )
-              })()}
-            </div>
-            {(partner.status === 'pending' || (!partner.status && !partner.is_active)) && (
-              <div className="mt-4">
-                <PartnerActions partnerId={partner.id} />
-              </div>
-            )}
-          </div>
-
-          <div className="card">
-            <h3 className="text-lg font-semibold text-white mb-4">Stripe Integration</h3>
-            <div className="flex items-center gap-3">
-              {partner.stripe_account_id ? (
-                <>
-                  <span className="inline-flex h-3 w-3 rounded-full bg-green-400" />
-                  <span className="text-white">Connected</span>
-                  {/* S2-P: masked — full Stripe acct id is enough to look up
-                      the account in the Stripe dashboard, so we render the
-                      last 8 chars only. Lookup workflows can use the
-                      partner's email instead. */}
-                  <span className="text-haven-text-tertiary text-sm font-mono ml-2">
-                    acct_••••{String(partner.stripe_account_id).slice(-8)}
-                  </span>
-                </>
-              ) : (
-                <>
-                  <span className="inline-flex h-3 w-3 rounded-full bg-haven-text-tertiary" />
-                  <span className="text-haven-text-secondary">Not connected</span>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <StatsCard
             title="Total Gifts"
             value={Number(partner.gift_count || 0).toLocaleString()}
@@ -177,12 +111,6 @@ export default async function PartnerDetailPage({ params }: { params: Promise<{ 
             title="Total Referrals"
             value={Number(partner.referral_count || 0).toLocaleString()}
             icon={<UserGroupIcon className="h-6 w-6 text-haven-primary" />}
-          />
-
-          <StatsCard
-            title="Total Commissions"
-            value={`$${Number(partner.total_paid_amount || 0).toLocaleString()}`}
-            icon={<CurrencyDollarIcon className="h-6 w-6 text-haven-primary" />}
           />
         </div>
       </div>

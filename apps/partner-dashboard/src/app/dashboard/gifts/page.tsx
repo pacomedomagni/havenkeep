@@ -249,17 +249,14 @@ function CreateGiftModal({
     homebuyer_phone: '',
     home_address: '',
     closing_date: '',
-    premium_months: 6,
     custom_message: '',
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  // C0-6: mint one idempotency key per modal instance. The API requires
-  // the header on /partners/gifts so a network retry can't produce a
-  // second $99-$249 Stripe charge. Stable across re-renders of the
-  // same modal (so a transport-level retry replays the same key);
-  // a fresh modal open mints a fresh key — that's a new user intent.
+  // Mint one Idempotency-Key per modal instance so a transport-level retry
+  // replays the same key — without it a double-tap could create two gifts.
+  // A fresh modal open mints a fresh key (new user intent).
   const idempotencyKey = useRef(crypto.randomUUID());
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -269,10 +266,21 @@ function CreateGiftModal({
     setLoading(true);
     setError('');
 
+    // Drop blank optional fields before submit. The API validator uses
+    // Joi.string()/.date() which reject '' — sending an empty string for an
+    // omitted field surfaces as a 400 "not allowed to be empty" instead of
+    // being treated as "not provided." Required fields stay as-is so the
+    // validator returns the right error if they're actually missing.
+    const payload = Object.fromEntries(
+      Object.entries(formData).filter(([, value]) =>
+        typeof value === 'string' ? value.trim().length > 0 : value !== undefined && value !== null,
+      ),
+    );
+
     try {
       const data = await apiClient('/api/v1/partners/gifts', {
         method: 'POST',
-        body: formData,
+        body: payload,
         headers: { 'Idempotency-Key': idempotencyKey.current },
       });
 
@@ -367,21 +375,6 @@ function CreateGiftModal({
               onChange={(e) => setFormData({ ...formData, closing_date: e.target.value })}
               className="input-field"
             />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-haven-text-secondary mb-1.5">
-              Premium Months
-            </label>
-            <select
-              value={formData.premium_months}
-              onChange={(e) => setFormData({ ...formData, premium_months: Number(e.target.value) })}
-              className="input-field"
-            >
-              <option value={3}>3 months</option>
-              <option value={6}>6 months</option>
-              <option value={12}>12 months</option>
-            </select>
           </div>
 
           <div>

@@ -66,9 +66,14 @@ async function getUserUncached(): Promise<AuthUser | null> {
   if (!looksLikeJwt(tokens.accessToken)) return null;
   if (isTokenExpired(tokens.accessToken, 0)) return null;
 
+  // Use /users/me (any authenticated user) instead of /admin/me (admin only) —
+  // the dashboard hosts BOTH /admin/* and /dashboard/* shells, so identifying
+  // the user must succeed for partners too. The role gate is applied later by
+  // requireAdmin / requirePartner / requirePartnerOrAdmin against the returned
+  // is_admin / is_partner flags.
   let response: Response;
   try {
-    response = await fetchWithTimeout(`${API_URL}/api/v1/admin/me`, {
+    response = await fetchWithTimeout(`${API_URL}/api/v1/users/me`, {
       headers: {
         Authorization: `Bearer ${tokens.accessToken}`,
         'Content-Type': 'application/json',
@@ -169,6 +174,24 @@ export function setAuthCookies(
     sameSite: 'lax',
     path: '/',
     maxAge: 60 * 60 * 24 * 7, // 7 days
+  });
+
+  // Double-submit CSRF token (audit Ch10-W028). The proxy at
+  // src/app/api/v1/[...path]/route.ts rejects every mutation that doesn't
+  // present a matching `x-csrf-token` header. Mint a fresh one alongside the
+  // auth tokens so the browser has something to echo back.
+  //
+  // MUST be readable by JS (httpOnly: false) — apiClient reads it from
+  // document.cookie. The auth tokens themselves stay httpOnly above; this
+  // cookie carries no authority on its own, it only proves the request
+  // originated from a same-origin script that could read the cookie.
+  const csrfToken = globalThis.crypto.randomUUID().replace(/-/g, '');
+  cookieStore.set(CSRF_COOKIE, csrfToken, {
+    httpOnly: false,
+    secure: isProduction,
+    sameSite: 'lax',
+    path: '/',
+    maxAge: 60 * 60 * 24 * 7, // match refresh-token lifetime
   });
 }
 

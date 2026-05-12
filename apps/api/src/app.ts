@@ -29,7 +29,7 @@ import uploadsRoutes from './routes/uploads';
 import receiptsRoutes from './routes/receipts';
 import auditRoutes from './routes/audit';
 import mfaRoutes from './routes/mfa';
-import { stripeWebhookRouter, revenueCatWebhookRouter } from './routes/webhooks';
+import { revenueCatWebhookRouter } from './routes/webhooks';
 import newsletterRoutes from './routes/newsletter';
 import contactRoutes from './routes/contact';
 import csrfRoutes from './routes/csrf';
@@ -49,8 +49,8 @@ export function createApp(options: CreateAppOptions = {}) {
   app.set('trust proxy', Number.isFinite(trustProxyHops) ? trustProxyHops : 1);
 
   // Security middleware. CSP is tightened to only the origins this API
-  // actually talks to — Stripe (payments) and RevenueCat (entitlements) —
-  // so an XSS in an error page can't exfiltrate to arbitrary hosts.
+  // actually talks to — RevenueCat (entitlements) — so an XSS in an
+  // error page can't exfiltrate to arbitrary hosts.
   app.use(helmet({
     contentSecurityPolicy: {
       directives: {
@@ -72,7 +72,6 @@ export function createApp(options: CreateAppOptions = {}) {
         ],
         connectSrc: [
           "'self'",
-          'https://api.stripe.com',
           'https://api.revenuecat.com',
         ],
         frameAncestors: ["'none'"],
@@ -115,31 +114,7 @@ export function createApp(options: CreateAppOptions = {}) {
     exposedHeaders: ['x-request-id'],
   }));
 
-  // Stripe webhook is the only route that needs the raw body — the signature
-  // is computed over the exact bytes Stripe sent. Mounting raw() at the
-  // exact path (with a dedicated router that only declares POST /) means
-  // express.json() below never sees this request, regardless of any future
-  // middleware re-order.
-  //
-  // 1.3: explicit `limit: '1mb'`. Without this, body-parser's default 100kb
-  // applies. Real Stripe webhook bodies (line-item-heavy invoices,
-  // account.updated capabilities) exceed 100kb, get rejected with
-  // PayloadTooLargeError before signature verification, and Stripe retries
-  // for 3 days while our dead-letter logic eats real events.
-  //
-  // 3.9: webhooks must NEVER hit the global rate limiter — Stripe will
-  // retry a 429 for 3 days and our dead-letter logic eats the events
-  // until the window clears. Mounting raw() / json() *before* the
-  // rate-limiter line below is the primary safeguard; the limiter's
-  // `skip:` pattern (in middleware/rateLimiter.ts) is the secondary one
-  // so a future re-order is order-independent.
-  app.use(
-    '/api/v1/webhooks/stripe',
-    express.raw({ type: 'application/json', limit: '1mb' }),
-    stripeWebhookRouter,
-  );
-
-  // Body parsing for everything else.  Audit Ch11-I003: JSON parser limited
+  // Body parsing.  Audit Ch11-I003: JSON parser limited
   // to 1MB AND `strict: true` so only `[`/`{` are accepted (defends against
   // some HPP-style abuse where a number/string body produces a misparsed
   // payload).

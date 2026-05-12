@@ -22,7 +22,7 @@ HavenKeep is a home asset and warranty tracker. Four user-facing surfaces share 
 │  apps/mobile     │────────▶│      apps/api        │─────▶│   PostgreSQL     │
 │  Flutter         │         │  Express + raw `pg`  │      │   (raw SQL,      │
 │  iOS + Android   │         │  JWT + refresh       │      │    NOT Prisma)   │
-└──────────────────┘         │  Stripe / RC / OAuth │      └──────────────────┘
+└──────────────────┘         │  RevenueCat / OAuth  │      └──────────────────┘
                              │  Cron jobs           │             │
 ┌──────────────────┐         │                      │             │ MinIO
 │ apps/partner-    │────────▶│                      │─────────────┘ Redis
@@ -30,7 +30,7 @@ HavenKeep is a home asset and warranty tracker. Four user-facing surfaces share 
 │  Next.js (proxy) │                    │
 └──────────────────┘                    ▼
                               External services:
-                              Stripe, RevenueCat,
+                              RevenueCat,
                               SendGrid, Firebase,
                               Google/Apple/Microsoft
                               OAuth, OpenAI Vision
@@ -42,7 +42,7 @@ Two Dart packages keep the mobile + dashboard halves coherent:
 - `packages/api_client` — a Dio-free HTTP wrapper around the Express API. Sealed `ApiException` hierarchy with nine typed subclasses, automatic refresh-on-401 with a single-flight mutex, `pathSegments` API to prevent URL injection, `Idempotency-Key` on every mutating method.
 - `packages/shared_ui` — the design system (HavenColors / HavenSpacing / HavenRadius / HavenText / HavenMotion) + a small set of shared widgets (CategoryIcon, BrandAutocompleteField, WarrantyDurationPicker, ItemLimitBanner, ConfirmationDialog, SectionHeader, RoomPicker, HavenSkeleton, HavenAccordion, HavenSnackbar, WarrantyStatusBadge, DocumentTypeIcon).
 
-The API is the single source of truth. Mobile + dashboard never talk to the database, MinIO, or Stripe directly — every call goes through Express, which enforces auth, audit, and idempotency.
+The API is the single source of truth. Mobile + dashboard never talk to the database or MinIO directly — every call goes through Express, which enforces auth, audit, and idempotency.
 
 ---
 
@@ -80,13 +80,12 @@ Workspace tooling is hybrid: the JS/TS half uses pnpm/npm workspaces, the Dart h
 - **MFA via TOTP** (mig 084: `user_mfa_factors` + `user_mfa_backup_codes`).
 - **Redis** for rate-limit buckets, the user cache (10s TTL), and webhook idempotency cursors.
 - **MinIO** (S3-compatible) for receipt photos, warranty cards, item images. Presigned URLs only; no public buckets.
-- **Stripe SDK pinned at `^21.0.1`** with `apiVersion: '2026-03-25.dahlia'`. Pinned because v22 has a CJS-typing regression that breaks `Stripe.Charge` / `Stripe.PaymentIntent` resolution under our `tsconfig.module=commonjs`. See [`apps/api/src/utils/stripe-client.ts`](../apps/api/src/utils/stripe-client.ts).
-- **Logging** is pino → Loki. `redactPaths` covers bearer tokens, refresh tokens, OAuth access tokens, base64 image bodies, password hashes, Stripe webhook secrets.
+- **Logging** is pino → Loki. `redactPaths` covers bearer tokens, refresh tokens, OAuth access tokens, base64 image bodies, password hashes.
 - **No Sentry** — Loki + Crashlytics (mobile) cover what Sentry would.
 
 ### 3.2 App bootstrap
 
-[`apps/api/src/app.ts`](../apps/api/src/app.ts) wires the middleware chain in this order: helmet (CSP locked to `api.stripe.com` + `api.revenuecat.com`), CORS (function-form so unknown origins are explicitly rejected, not silently allowed), pino-http, raw-body-mounted Stripe + RevenueCat webhook routes (raw body must reach Stripe's signature verifier untouched), JSON parser, then every feature router under `/api/v1/*`.
+[`apps/api/src/app.ts`](../apps/api/src/app.ts) wires the middleware chain in this order: helmet (CSP locked to `api.revenuecat.com`), CORS (function-form so unknown origins are explicitly rejected, not silently allowed), pino-http, JSON parser, then every feature router under `/api/v1/*`. The RevenueCat webhook at `/api/v1/webhooks/revenuecat` lives behind a shared bearer secret (no signature verification — RevenueCat doesn't sign payloads).
 
 [`apps/api/src/index.ts`](../apps/api/src/index.ts) does the actual `listen()` and starts the cron scheduler. Locks are declared in one place — [`apps/api/src/db/advisory-locks.ts`](../apps/api/src/db/advisory-locks.ts) — so two replicas can never double-fire and a reviewer can spot the next collision before it ships:
 
@@ -117,10 +116,10 @@ The scheduler is drift-resilient: it computes "minutes until next run" from `get
 | `notifications` | List, mark read, dismiss, push tokens |
 | `maintenance` | Schedules, history, due summary, customizations |
 | `warranty-claims`, `warranty-purchases` | Claims and extended-warranty purchases |
-| `partners` | Partner profile, gifts, commissions, payouts, Stripe Connect onboarding, analytics |
+| `partners` | Partner profile, gift creation, gift listing, activation, simple analytics |
 | `partner-onboarding`, `admin` | Approval workflow + admin tools |
 | `email-scanner` | OAuth code-grant connect, scan trigger, review-queue mgmt |
-| `webhooks` | Stripe + RevenueCat — claim + dead-letter pattern |
+| `webhooks` | RevenueCat — claim + dead-letter pattern |
 | `barcode-lookup`, `receipt-scan` | OCR + product DB integrations |
 | `health`, `audit`, `contact`, `referrals`, `tips`, `uploads` | Misc |
 
@@ -132,14 +131,14 @@ Services under `apps/api/src/services/`. Heavy hitters first; the rest are liste
 
 - `auth.service` — token mint/verify, refresh family, MFA verify, ACCOUNT_PENDING_DELETION code path during the 30-day cooling-off window, S-M1 generic 401 to defend against state-deny enumeration. JWTs are pinned on iss + aud + jti (H13); the password-change / suspend paths bump `users.tokens_invalidated_at` (mig 107) so every previously-issued JWT becomes invalid in one shot.
 - `mfa.service` — TOTP via otplib, AES-GCM-wrapped backup codes (mig 084 + 108), MFA challenge JWT minted on the first step of two-factor login.
-- `partners.service` — gift creation as a 3-phase flow (reserve `pending_payment` row → create Stripe PaymentIntent outside the transaction → promote to `created` + commission insert; phase-3 failure triggers a refund-compensation step). Activation is rate-limited via Redis (5 attempts/hour, 15-min lockout). Handles partner-onboarding state machine (`pending` → `active` | `rejected`) and Stripe Connect `enabled` status before allowing payouts. Commission identity is snapshotted on insert (mig 102 `partner_*_at_event` columns) so 1099-NEC history survives a partner purge.
+- `partners.service` — gift creation as a single INSERT (no Stripe, no payment). Generates a 16-hex activation code outside the transaction, hashes it before storage. Premium grant length is the [`GIFT_PREMIUM_MONTHS`](../apps/api/src/services/partners.service.ts) constant (6). Activation is rate-limited via Redis (5 attempts/hour per gift, 15-min lockout). Self-gift protection rejects gifts addressed to the partner's own email or to anyone in the partner's referral network.
 - `warranty-purchases.service` — three-phase cancel that uses the `cancelling` transient enum value (mig 098). Prorated refund computed via `proratedRefundCents`; idempotency key `warranty-refund-{purchaseId}`.
 - `email-scanner.service` — `TRUSTED_RETAILER_DOMAINS` allowlist, `AUTO_CREATE_CONFIDENCE_THRESHOLD=0.85`, H42 DKIM-alignment gate (parses `Authentication-Results`, requires DMARC=pass or `header.d` / `header.i` matching the From: domain), H46 pulls `internetMessageHeaders` on Outlook so the same gate is evaluable, H41 paginates via Gmail `pageToken` / Outlook `@odata.nextLink` with `PER_SCAN_PROCESS_CAP=500`, H43 wraps the user body in `BODY_DELIM` and tells the system prompt to treat it as data only, H44 routes a JSON.parse failure to a sentinel `parseFailed: true` row so the scan lands in the review queue instead of being silently dropped. `OPENAI_DAILY_CAP_MICROS` budget enforced by querying the `openai_user_daily_cost` view before calling Vision. OAuth tokens encrypted AES-256-GCM with key-rotation legacy list (mig 109 adds `key_version` + AAD).
 - `notifications.service` — daily digest, single warranty-expiry reminder at `first_reminder_days` (default 30), push delivery via FCM/APNs, digest outbox flushed every 60s.
 - `audit.service` — append-only writes that go through the hash-chain trigger (mig 065, hardened by mig 101: trigger owned by `audit_cleaner` so the API role can't drop it; trigger payload uses `to_char(... AT TIME ZONE 'UTC')` so the chain is TZ-stable across writer/verifier sessions). `verifyHashChain()` reads the `verify_audit_chain()` Postgres function and pages on drift.
 - `account-purge.service` — `ADVISORY_LOCK_KEY=0xa00d_4a13`, `MAX_PER_RUN=100`, anonymizes `warranty_purchases.user_email_at_purchase` before the cascade-delete.
 - `grace-reminder.service` — H78 day-25 nudge during the 30-day deletion grace window. Queries `users` where `deletion_scheduled_for - NOW() BETWEEN 4d AND 5d`, sends one email per row, stamps `last_grace_reminder_sent_at` on success so the cron can't re-send tomorrow (mig 111).
-- `webhook-dead-letter.service` — `alertOnDeadLetterWebhooks()` pages once per dead-lettered row via the `webhook_events.alerted_at` stamp (mig 105). Stripe webhook signature-verification failures also page via `EmailService.sendStripeWebhookSignatureFailureAlert()` with a 15-min throttle (H30).
+- `webhook-dead-letter.service` — `alertOnDeadLetterWebhooks()` pages once per dead-lettered row via the `webhook_events.alerted_at` stamp (mig 105).
 - Plus: `email.service` (SendGrid templates), `homes.service`, `items.service`, `maintenance.service`, `documents.service`, `referrals.service`, `tips.service`, `fcm.service`.
 
 ### 3.5 Database
@@ -148,7 +147,7 @@ PostgreSQL 16. Schema lives in `apps/api/src/db/schema.sql` (base tables) plus 1
 
 - **028–039** — security/data-loss criticals (refresh-token hashing, audit logging, etc.)
 - **040–045** — DB foundation (pool config, advisory locks, schema_version table)
-- **050–051** — payments + uploads (Stripe payment-intent ledger, MinIO object keys)
+- **050–051** — payment-intent ledger + MinIO object keys (the Stripe path has since been deprecated by mig 115, but the column lives on warranty_purchases as a nullable artefact)
 - **060–067** — services (warranty claims, maintenance schedules)
 - **065** — `audit_log_hash_chain` — every `audit_logs` row has `this_hash = sha256(prev_hash || row_data)`. Insert trigger `audit_logs_assign_hash()` runs BEFORE INSERT; verification function `verify_audit_chain()` returns broken rows.
 - **070–074** — drift constraints, partner status enum, digest outbox, repair-cost defaults
@@ -157,14 +156,12 @@ PostgreSQL 16. Schema lives in `apps/api/src/db/schema.sql` (base tables) plus 1
 - **083** — `warranty_*.user_id RESTRICT→SET NULL` + denormalized email columns so account-purge can anonymize without losing claim history
 - **084** — TOTP MFA tables
 - **090** — `category_defaults.lifespan_years` seeded from the items.ts hardcoded map
-- **095** — partial index on `partner_commissions` for the 30-day auto-approve sweep
 - **097** — the `warranty_claim_state_history` immutable trigger now allows FK CASCADE delete from the parent claim
 - **098** — `warranty_purchase_status` enum gains `cancelling` for the three-phase cancel flow's transient state
 - **099/100** — `cleanup_old_audit_logs()` rewritten as `SECURITY DEFINER` under the `audit_cleaner` role; SELECT grant added because PG needs SELECT to evaluate the WHERE clause for DELETE
 - **101** — `audit_logs` + trigger functions re-owned by `audit_cleaner` so the API role can't `DROP TRIGGER trg_audit_logs_immutable` and rewrite history; revoke ALL from API, re-grant SELECT+INSERT; trigger payload now uses `to_char(... AT TIME ZONE 'UTC')` so the hash is TZ-stable across writer/verifier sessions.
-- **102** — `partner_gifts` / `partner_commissions` partner_id → SET NULL on partner delete; new `partner_id_at_event`, `partner_company_name_at_event`, `partner_email_at_event` columns snapshot identity at INSERT so 1099-NEC commission history survives a user purge (same pattern as mig 083 for warranty rows).
 - **103** — `request_idempotency` claim-placeholder row so `INSERT...ON CONFLICT DO NOTHING` distinguishes "first writer wins" from "duplicate replay."
-- **104** — `audit_action` enum: new values for admin + MFA + payout flows.
+- **104** — `audit_action` enum: new values for admin + MFA flows.
 - **105** — `webhook_events.alerted_at` so H30 ops alerts mark a row "we paged on this" and a retry doesn't re-page.
 - **106** — functional unique index on `LOWER(email)` so case-variant duplicate accounts can't be created.
 - **107** — `users.tokens_invalidated_at`; password change / suspend bumps it so every previously-issued JWT becomes invalid without per-row deletes.
@@ -172,6 +169,8 @@ PostgreSQL 16. Schema lives in `apps/api/src/db/schema.sql` (base tables) plus 1
 - **109** — OAuth integration columns: `key_version` + AAD so AES-GCM rewrap surfaces the right key at decrypt time.
 - **110** — `newsletter_subscribers.confirmation_expires_at` so H77 single-use confirm tokens carry a 7-day TTL the `/confirm` gate honours.
 - **111** — `users.last_grace_reminder_sent_at` + partial index; H78 day-25 grace nudge marks rows once-sent so the cron can't re-send tomorrow.
+- **114** — partner-program simplification phase 1 (additive): relaxed NOT NULL on `partner_gifts.amount_charged` and `.premium_months` so the simplified `createGift` can stop writing them without a destructive schema change.
+- **115** — partner-program simplification phase 5 (destructive): dropped `partner_commissions` table; dropped Stripe-Connect + commission columns from `partners` (`stripe_account_id`, `stripe_onboarded`, `stripe_account_status`, `stripe_account_status_at`, `last_payout_requested_at`, `welcome_email_opened_at`, `is_verified`, `is_active`, `status`, `subscription_tier`, `license_number`, `default_premium_months`); dropped billing + identity-snapshot columns from `partner_gifts` (`amount_charged`, `stripe_charge_id`, `partner_id_at_event`, `partner_company_name_at_event`, `partner_email_at_event`, `disputed_at`, `chargeback_status`); dropped `users.stripe_customer_id`; dropped enums `partner_tier` / `commission_status` / `commission_type` / `partner_status`; trimmed `gift_status` enum to `created | sent | activated | expired`. Audit-action enum values that referenced commissions/payouts/partner approval stay (Postgres can't drop enum values once written into audit rows) but become permanently dormant.
 
 The runner auto-detects `ALTER TYPE ADD VALUE` and `CREATE INDEX CONCURRENTLY` and runs those files outside transactions. `main()` is wrapped in `pg_advisory_lock` (H-D1) so two replicas booting simultaneously can't race on the same DDL. The `schema_version` table tracks bootstrap completion.
 
@@ -200,28 +199,26 @@ The dashboard's edge middleware caches `is_admin` / `is_partner` in a separate `
 
 OAuth refresh tokens are encrypted AES-256-GCM (mig 038) with iv + tag, scoped via `granted_scope`, and revocable by writing `revoked_at`. Key rotation is handled by `getCandidateKeys()` in [`apps/api/src/utils/oauth-encryption.ts`](../apps/api/src/utils/oauth-encryption.ts) — the primary key is tried first; on auth-tag failure, a list of legacy keys is tried before the operation fails, so a key rotation doesn't immediately invalidate every stored token.
 
-### 3.8 Stripe partner gifts (3-phase flow)
+### 3.8 Partner gift flow
 
-The gift creation flow is the most carefully orchestrated thing in the codebase. Naively it would be: create gift row → charge card → send email. But that creates a window where the card is charged and the row is missing (or vice versa). The actual flow:
+The gift creation flow is a single transaction now that no payment is involved:
 
-1. **Reserve** — INSERT `partner_gifts` row with `status='pending_payment'` and a generated activation code (16 hex with dashes, hashed before storage). This happens *outside* the Stripe transaction so a Stripe failure doesn't leave the API in `25P02 in_failed_sql_transaction`.
-2. **Charge** — `stripe.paymentIntents.create({ amount, currency, customer, payment_method, confirm: true, off_session: true })`. The `payment_method` is passed explicitly because Stripe's default-PM resolution is unreliable when the customer has multiple cards.
-3. **Promote** — UPDATE `partner_gifts` to `status='created'`, INSERT `partner_commissions` (status `pending`, will auto-approve at +30 days). If this UPDATE fails, the `reverse compensation` step refunds the PaymentIntent so the partner isn't charged for a gift that doesn't exist.
+1. **Generate code** — 16 hex chars with dashes, hashed before storage. Pre-allocated *outside* the transaction (a unique-index collision would put the connection in `25P02 in_failed_sql_transaction`); the unique index inside the INSERT still catches the rare concurrent race and surfaces a 409 so the caller retries the whole request.
+2. **Validate** — partner exists, homebuyer email ≠ partner email, homebuyer email isn't in the partner's referral network.
+3. **INSERT** — `partner_gifts` row with `status='created'`, `premium_months=6` (the [`GIFT_PREMIUM_MONTHS`](../apps/api/src/services/partners.service.ts) constant), `expires_at = now() + 6 months`.
+4. **Send email** — SendGrid, fire-and-forget. Delivery failure doesn't roll back; the partner can resend from the dashboard.
 
-Activation is gated by Redis lockout: 5 attempts/hour per `(activation_code_hash, ip)` pair, with a 15-min lock on the 6th. Successful activation extends the homebuyer's `users.plan_expires_at` by `premium_months` (stacking on top of any existing future expiry).
-
-Stripe webhook `charge.refunded` triggers `clawbackCommissionForGift` which inserts a *sibling reversal row* with negative `amount` and `status='reversed'` — never updates the original row. Partial refunds are proportional. The reversal row's `reversal_of_commission_id` FK points back to the original.
+Activation is gated by Redis lockout: 5 attempts/hour per gift, with a 15-min lock on the 6th. Successful activation extends the homebuyer's `users.plan_expires_at` by `premium_months` (stacking on top of any existing future expiry) and nulls the plaintext `activation_code` + `activation_url` columns (the hash stays for audit lookup).
 
 ### 3.9 Webhooks
 
-`apps/api/src/routes/webhooks.ts` is 1602 lines because webhook safety is a forest of edge cases. The pattern:
+`apps/api/src/routes/webhooks.ts` handles a single source: RevenueCat. The pattern:
 
-1. Caddy routes the raw request body to Express without compression (the `infra/Caddyfile` block has a raw-body matcher for `/api/v1/webhooks/stripe` and `/api/v1/webhooks/revenuecat`).
+1. `validateRevenueCatWebhookAuth` checks the shared bearer secret in the `Authorization` header (timing-safe compare).
 2. `claimWebhookEvent(eventId)` does an INSERT...ON CONFLICT into `webhook_events` with a `FOR UPDATE` row lock. If the row already exists with `processed_at IS NOT NULL`, return 200 immediately (idempotent replay).
-3. Process the event. On any error, increment `attempts`. At `attempts=8` (`MAX_WEBHOOK_ATTEMPTS`) the row is moved to `dead_letter=TRUE` and a daily cron retries it.
-4. Per-subject high-water (mig 050) prevents an out-of-order `subscription.updated` event from un-doing a later `subscription.deleted`.
-
-The same machinery handles RevenueCat events (`INITIAL_PURCHASE`, `RENEWAL`, `EXPIRATION`, `TRANSFER`) for IAP subscriptions.
+3. Process the event (`INITIAL_PURCHASE` / `RENEWAL` / `UNCANCELLATION` / `CANCELLATION` / `EXPIRATION` / `BILLING_ISSUE` / `PRODUCT_CHANGE` / `TRANSFER` / `SUBSCRIBER_ALIAS` / `TEST`).
+4. On error, increment `attempts`. At `attempts=8` (`MAX_WEBHOOK_ATTEMPTS`) the row is moved to `dead_letter=TRUE` and a daily cron retries it.
+5. Per-subject high-water prevents an out-of-order `RENEWAL` event from un-doing a later `EXPIRATION` (or vice versa).
 
 ### 3.10 Audit log
 
@@ -372,20 +369,14 @@ src/app/
 │   ├── forgot-password/
 │   ├── reset-password/[token]/
 │   └── unauthorized/
-├── onboarding/                         # 2-step partner profile wizard (after signup, before /dashboard)
 ├── dashboard/                          # /dashboard requires isPartner
-│   ├── page.tsx                        # gifts/commissions/earnings overview
+│   ├── page.tsx                        # gift counts + recent activity
 │   ├── gifts/                          # list + create gift modal + detail page
-│   ├── referrals/
-│   ├── analytics/                      # conversion funnel + earnings chart + date-range filter
-│   ├── commissions/
-│   ├── payouts/                        # request payout, tax docs link to Stripe Express dashboard
-│   └── settings/                       # partner profile + Stripe Connect onboarding
+│   └── settings/                       # partner profile (company, branding)
 └── admin/                              # /admin requires isAdmin (layout-level gate)
     ├── page.tsx                        # platform stats (DAU/WAU/MAU, premium %, total value protected)
     ├── users/                          # search, suspend, hard-delete (typed-DELETE confirm)
-    ├── partners/                       # list + detail; approve / reject pending applications
-    ├── commissions/                    # approve / pay / cancel
+    ├── partners/                       # read-only list + detail (gift + referral counts)
     ├── audit/                          # log viewer with severity filter + expandable metadata
     ├── analytics/                      # daily signups + items charts
     ├── health/                         # /health/detailed for db / redis / minio status
@@ -504,7 +495,7 @@ Logs: `https://logs.staging.kouakoudomagni.com` (Dozzle, basic auth) or `ssh roo
 - **TLS** — TLS 1.2+ on every link. Mobile pins SPKI in release builds.
 - **At-rest** — AES-256-GCM for sensitive fields (OAuth refresh tokens, MFA secrets); full-disk encryption on the database host; SQLCipher on the mobile DB; MinIO encrypts objects at rest.
 - **CSRF** — double-submit pattern on dashboard mutations. The API trusts the proxy via the "no cookies = no CSRF check" branch.
-- **CSP** — helmet-locked to `api.stripe.com` + `api.revenuecat.com`. Marketing site CSP set by Caddy.
+- **CSP** — helmet-locked to `api.revenuecat.com`. Marketing site CSP set by Caddy.
 - **Audit log** — sha256 hash chain with daily verification. `SECURITY DEFINER` cleanup function under `audit_cleaner` role.
 - **Account deletion** — soft-delete with 30-day cooling-off → cryptographic erasure. `users.email` is anonymized; FK-cascaded rows have their `user_id` SET NULL with denormalized email columns retained for legal/audit purposes.
 - **Rate limiting** — Redis-backed buckets per route, per IP (unauth) or per user (auth).
