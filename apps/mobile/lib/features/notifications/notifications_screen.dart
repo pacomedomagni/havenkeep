@@ -252,7 +252,6 @@ class _NotificationCard extends ConsumerWidget {
       NotificationType.health_score_update => Icons.monitor_heart_outlined,
       NotificationType.gift_received => Icons.card_giftcard_outlined,
       NotificationType.gift_activated => Icons.redeem_outlined,
-      NotificationType.partner_commission => Icons.payments_outlined,
       NotificationType.promotional => Icons.local_offer_outlined,
       NotificationType.tip => Icons.lightbulb_outline,
       NotificationType.system => Icons.info_outline,
@@ -271,7 +270,6 @@ class _NotificationCard extends ConsumerWidget {
       NotificationType.health_score_update => HavenColors.secondary,
       NotificationType.gift_received => HavenColors.primary,
       NotificationType.gift_activated => HavenColors.active,
-      NotificationType.partner_commission => HavenColors.primary,
       NotificationType.promotional => HavenColors.secondary,
       NotificationType.tip => HavenColors.secondary,
       NotificationType.system => HavenColors.textSecondary,
@@ -450,7 +448,6 @@ bool _navigates(AppNotification notification) {
     case NotificationType.gift_activated:
       return true;
     case NotificationType.health_score_update:
-    case NotificationType.partner_commission:
     case NotificationType.promotional:
     case NotificationType.tip:
     case NotificationType.system:

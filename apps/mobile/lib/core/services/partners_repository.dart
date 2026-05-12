@@ -23,23 +23,6 @@ class PartnersRepository {
     }
   }
 
-  /// Get gift details by ID (for preview before activation)
-  Future<Map<String, dynamic>> getGiftDetails(String giftId) async {
-    try {
-      return await _client.get(
-        pathSegments: ['api', 'v1', 'partners', 'gifts', giftId, 'public'],
-      );
-    } on ApiException catch (e) {
-      throw NetworkException(
-        e.message,
-        statusCode: e.statusCode,
-      );
-    } on Exception catch (e) {
-      if (e is NetworkException) rethrow;
-      throw NetworkException('Failed to fetch gift details: $e');
-    }
-  }
-
   /// Verify activation code and get gift ID. The backend requires the
   /// homebuyer email as a second factor (Ch09-FlowC-T-C3) — without it the
   /// route is a code-enumeration oracle.

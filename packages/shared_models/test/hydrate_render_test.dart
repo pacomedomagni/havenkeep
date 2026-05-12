@@ -213,54 +213,6 @@ void main() {
     expect(NotificationPreferences.fromJson(p.toJson()).toJson(), p.toJson());
   });
 
-  test('Partner round-trip carries every D050..D061 field', () {
-    final json = {
-      'id': 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
-      'user_id': '11111111-1111-1111-1111-111111111111',
-      'partner_type': 'realtor',
-      'company_name': 'Cocody Realty',
-      'phone': '+2250100000000',
-      'website': 'https://cocodyrealty.com',
-      'brand_color': '#1F4FB6',
-      'logo_url': 'https://cdn.havenkeep.com/logos/cocody.png',
-      'subscription_tier': 'premium',
-      'default_message': 'Welcome to your new home!',
-      'default_premium_months': 12,
-      'stripe_onboarded': true,
-      'is_active': true,
-      'is_verified': true,
-      'service_areas': ['Cocody', 'Marcory'],
-      'license_number': 'CI-RE-12345',
-      'created_at': '2025-12-01T00:00:00.000Z',
-      'updated_at': '2026-04-25T00:00:00.000Z',
-    };
-    final p = Partner.fromJson(json);
-    expect(p.subscriptionTier, PartnerSubscriptionTier.premium);
-    expect(p.serviceAreas, hasLength(2));
-    expect(Partner.fromJson(p.toJson()).toJson(), p.toJson());
-  });
-
-  test('PartnerCommission round-trip preserves enum reference_type', () {
-    final json = {
-      'id': 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
-      'partner_id': 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
-      'type': 'gift',
-      'amount': 14.85,
-      'commission_rate': 0.15,
-      'status': 'paid',
-      'reference_id': 'cccccccc-cccc-cccc-cccc-cccccccccccc',
-      'reference_type': 'partner_gift',
-      'payout_method': 'stripe_connect',
-      'stripe_transfer_id': 'tr_test',
-      'created_at': '2026-04-01T00:00:00.000Z',
-      'updated_at': '2026-04-01T00:00:00.000Z',
-    };
-    final c = PartnerCommission.fromJson(json);
-    expect(c.referenceType, PartnerCommissionReferenceType.partner_gift);
-    expect(c.payoutMethod, PartnerCommissionPayoutMethod.stripe_connect);
-    expect(PartnerCommission.fromJson(c.toJson()).toJson(), c.toJson());
-  });
-
   test('EmailScan round-trip carries integer counts', () {
     final json = {
       'id': 'dddddddd-dddd-dddd-dddd-dddddddddddd',
@@ -357,32 +309,4 @@ void main() {
     }
   });
 
-  // S3-12.6 / S1-F: Partner.status hydrates from `status` and falls through
-  // unknown values to pending without throwing.
-  test('Partner round-trip preserves status field', () {
-    final json = {
-      'id': '11111111-1111-1111-1111-111111111111',
-      'user_id': '22222222-2222-2222-2222-222222222222',
-      'partner_type': 'realtor',
-      'company_name': 'Acme Realty',
-      'subscription_tier': 'basic',
-      'default_premium_months': 6,
-      'stripe_onboarded': true,
-      'status': 'pending',
-      'is_active': false,
-      'is_verified': false,
-      'service_areas': <String>[],
-      'created_at': '2026-01-01T00:00:00.000Z',
-      'updated_at': '2026-04-25T00:00:00.000Z',
-    };
-    final partner = Partner.fromJson(json);
-    expect(partner.status, PartnerStatus.pending);
-    expect(partner.toJson()['status'], 'pending');
-    final round = Partner.fromJson(partner.toJson());
-    expect(round.status, partner.status);
-  });
-
-  test('PartnerStatus.fromJson coerces unknown values to pending', () {
-    expect(PartnerStatus.fromJson('made_up'), PartnerStatus.pending);
-  });
 }

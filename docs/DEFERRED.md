@@ -105,3 +105,37 @@ HavenKeep stores receipts + photos but does not generate insurance-specific
 reports or integrate with policy providers. Roadmap candidate, not started.
 Already noted in PRODUCT.md §10.
 
+---
+
+## 8. Localized iOS / Android permission strings — `BACKLOG`
+
+The mobile app declares user-facing permission strings in
+`apps/mobile/ios/Runner/Info.plist` (NS*UsageDescription keys) and
+`apps/mobile/android/app/src/main/AndroidManifest.xml` only in English.
+When iOS / Android shows the runtime permission prompt
+("HavenKeep wants to access your camera"), French-locale devices still
+see the English string. The app supports `en` and `fr` locales for
+in-app copy (see `app_prefs_service.dart`), so this is a small but
+visible localization gap. Add via `InfoPlist.strings` per-locale on
+iOS and per-locale `strings.xml` resources on Android.
+
+---
+
+## 9. Mobile TLS certificate pinning — `BACKLOG` (pre-production blocker)
+
+**Reality:** The mobile app at [packages/api_client/lib/src/client.dart](../packages/api_client/lib/src/client.dart) does NOT
+implement certificate pinning. A user on a hostile network (corporate
+MITM proxy, malicious public Wi-Fi, a phone enrolled in MDM that injects
+a root CA) can intercept every API call and steal tokens / PII / receipt
+images. The code comment around the http client construction acknowledges
+the gap explicitly — pinning is intended to plumb through an `IOClient`
+with a custom `SecurityContext` but isn't shipped yet.
+
+**Decision:** Ship the partner-program simplification now without
+pinning; **before any real-user TestFlight or Play Internal build**,
+implement pinning. Test path: build a debug variant pointed at staging,
+run mitmproxy on the laptop, install the mitm CA root on a test
+device, attempt an API call — it must fail with a clear pinned-cert
+error. Confirm on iOS AND Android (each platform has separate cert
+store semantics).
+

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:api_client/api_client.dart';
 import 'package:shared_models/shared_models.dart';
 import '../database/database.dart';
@@ -424,10 +425,22 @@ class CurrentUserNotifier extends AsyncNotifier<User?> {
       debugPrint('[Auth] SecureStorage clear failed (non-fatal): $e');
     }
 
-    // 3. Drop the active-user pointer the DB opener consults.
+    // 3. Clear cross-user SharedPreferences artefacts. The deep-link gift
+    //    flow stashes 'pending_gift_code' for unauthenticated visitors —
+    //    if user A leaves a half-redeemed code on a shared device and
+    //    user B signs in afterwards, the stale code must not auto-replay
+    //    on user B's session. Audit finding C5.
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('pending_gift_code');
+    } catch (e) {
+      debugPrint('[Auth] SharedPreferences cleanup failed (non-fatal): $e');
+    }
+
+    // 4. Drop the active-user pointer the DB opener consults.
     setActiveDatabaseUser(null);
 
-    // 4. Force the next [localDatabaseProvider] read to reconstruct against
+    // 5. Force the next [localDatabaseProvider] read to reconstruct against
     //    the (now empty) state.
     try {
       ref.invalidate(localDatabaseProvider);

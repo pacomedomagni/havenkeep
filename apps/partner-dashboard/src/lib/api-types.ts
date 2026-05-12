@@ -4,7 +4,7 @@
 // `serverApiClient<...>` boundary; pages and components should never need
 // `any` after the cast.
 
-import type { AdminCommission, AuditLogEntry } from './types';
+import type { AuditLogEntry } from './types';
 
 export interface PaginationMeta {
   page: number;
@@ -74,17 +74,6 @@ export interface AdminPartnerDetail extends AdminPartnerListItem {
   referral_count?: number;
 }
 
-export interface AdminCommissionStats {
-  total_pending_amount: number | string;
-  total_approved_amount: number | string;
-  total_paid_amount: number | string;
-  total_cancelled_amount?: number | string;
-  count_pending: number;
-  count_approved: number;
-  count_paid: number;
-  count_cancelled?: number;
-}
-
 export interface AdminAuditStats {
   total_actions: number;
   unique_users: number;
@@ -102,4 +91,4 @@ export interface AdminPaginated<T> {
   pagination: PaginationMeta;
 }
 
-export type { AdminCommission, AuditLogEntry };
+export type { AuditLogEntry };

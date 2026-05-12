@@ -484,7 +484,15 @@ class ApiClient {
   }
 
   /// Refresh the access token using the stored refresh token.
-  /// Uses a mutex to prevent concurrent refresh requests.
+  ///
+  /// Single-flight: concurrent callers (e.g. a burst of 10 in-flight requests
+  /// all hitting 401 at once) share the same `_refreshCompleter` future, so
+  /// exactly one network round-trip to /auth/refresh happens per burst. When
+  /// it resolves, every caller's retry rebuilds headers via `_buildHeaders`,
+  /// which reads the freshly-written `_accessToken` — so all retries fly
+  /// with the SAME new token. The server-side refresh-token rotation logic
+  /// is single-use, but a single refresh call yields exactly one new pair,
+  /// so the family stays consistent.
   Future<void> refreshAccessToken() async {
     // If a refresh is already in progress, wait for it
     if (_refreshCompleter != null) {

@@ -37,9 +37,10 @@ interface SeedUserSpec {
   /// When true, sets `users.is_admin = TRUE`. `is_admin` is read directly
   /// off the row by middleware/admin route guards.
   isAdmin?: boolean;
-  /// When set, creates an approved partner row (status='active',
-  /// is_active=TRUE) so `is_partner` resolves true on /auth/me and the
-  /// partner dashboard's middleware lets the user past the role gate.
+  /// When set, creates a partners row for this user. Post-mig-115 a
+  /// partner row's existence == "active partner" — there's no status enum
+  /// anymore. `is_partner` on /users/me + the dashboard middleware role
+  /// check both resolve true the moment the row exists.
   partner?: PartnerSpec;
 }
 
@@ -74,9 +75,9 @@ const SEED_USERS: SeedUserSpec[] = [
     withDefaultHome: false,
     isAdmin: true,
   },
-  // Partner persona — pre-approved (status='active'), so the partner
-  // dashboard's middleware lets them past the role gate without manual
-  // approval. Has its own home so a partner can also exercise the
+  // Partner persona — owns a row in `partners`, which post-mig-115 is
+  // sufficient to flip is_partner=true and clear the dashboard middleware
+  // role gate. Has its own home so a partner can also exercise the
   // consumer flows on the same account.
   {
     email: 'partner@havenkeep.com',
@@ -119,8 +120,8 @@ async function seedUser(spec: SeedUserSpec): Promise<{ userId: string; created: 
     created = true;
   } else {
     // Row already existed — reconcile is_admin in case a previously-seeded
-    // user is being elevated/demoted. The is_active/status pair on partners
-    // is reconciled below in seedPartnerRow.
+    // user is being elevated/demoted. The partners row itself is reconciled
+    // below in seedPartnerRow.
     const existing = await pool.query<{ id: string }>(
       `UPDATE users SET is_admin = $2 WHERE email = $1 RETURNING id`,
       [spec.email, isAdmin],
@@ -149,10 +150,10 @@ async function seedUser(spec: SeedUserSpec): Promise<{ userId: string; created: 
   return { userId, created };
 }
 
-/// Create or reconcile a pre-approved partner row for a seed user.
-/// `status='active'` + `is_active=TRUE` is what the dashboard middleware
-/// and the API's `is_partner` projection both look for. Migration 092
-/// enforces the invariant — the CHECK rejects any other combination.
+/// Create or reconcile a partner row for a seed user. Post-mig-115 a
+/// row's existence is sufficient — no status / is_active columns to set.
+/// The API's `is_partner` projection looks for `EXISTS(SELECT 1 FROM
+/// partners WHERE user_id = u.id)`.
 ///
 /// Note: `partners.user_id` has no unique constraint (only a non-unique
 /// index — mig 002), so we can't use ON CONFLICT (user_id). Seed runs

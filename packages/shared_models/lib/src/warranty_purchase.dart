@@ -15,10 +15,7 @@ class WarrantyPurchase {
   final double price;
   final double deductible;
   final double? claimLimit;
-  final double? commissionAmount;
-  final double? commissionRate;
   final DateTime purchaseDate;
-  final String? stripePaymentIntentId;
   final WarrantyPurchaseStatus status;
   final DateTime? cancelledAt;
   final String? cancellationReason;
@@ -45,10 +42,7 @@ class WarrantyPurchase {
     required this.price,
     required this.deductible,
     this.claimLimit,
-    this.commissionAmount,
-    this.commissionRate,
     required this.purchaseDate,
-    this.stripePaymentIntentId,
     required this.status,
     this.cancelledAt,
     this.cancellationReason,
@@ -82,14 +76,7 @@ class WarrantyPurchase {
       claimLimit: json['claim_limit'] != null
           ? (json['claim_limit'] as num).toDouble()
           : null,
-      commissionAmount: json['commission_amount'] != null
-          ? (json['commission_amount'] as num).toDouble()
-          : null,
-      commissionRate: json['commission_rate'] != null
-          ? (json['commission_rate'] as num).toDouble()
-          : null,
       purchaseDate: _parseDate(json['purchase_date'])!,
-      stripePaymentIntentId: json['stripe_payment_intent_id'] as String?,
       status: WarrantyPurchaseStatus.fromJson(
         json['status'] as String? ?? 'active',
       ),
@@ -122,11 +109,7 @@ class WarrantyPurchase {
         'price': price,
         'deductible': deductible,
         if (claimLimit != null) 'claim_limit': claimLimit,
-        if (commissionAmount != null) 'commission_amount': commissionAmount,
-        if (commissionRate != null) 'commission_rate': commissionRate,
         'purchase_date': purchaseDate.toIso8601String(),
-        if (stripePaymentIntentId != null)
-          'stripe_payment_intent_id': stripePaymentIntentId,
         'status': status.toJson(),
         if (cancelledAt != null) 'cancelled_at': cancelledAt!.toIso8601String(),
         if (cancellationReason != null) 'cancellation_reason': cancellationReason,
@@ -149,10 +132,6 @@ class WarrantyPurchase {
         'price': price,
         'deductible': deductible,
         if (claimLimit != null) 'claim_limit': claimLimit,
-        if (commissionAmount != null) 'commission_amount': commissionAmount,
-        if (commissionRate != null) 'commission_rate': commissionRate,
-        if (stripePaymentIntentId != null)
-          'stripe_payment_intent_id': stripePaymentIntentId,
         'status': status.toJson(),
       };
 }

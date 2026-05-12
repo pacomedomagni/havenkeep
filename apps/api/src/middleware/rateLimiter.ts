@@ -9,6 +9,13 @@ import { getRedisClient as getSharedRedisClient } from '../utils/redis';
 // here only — `startsWith` would over-match a future `/healthcheck`.
 const PROBE_PATHS = new Set(['/health', '/live', '/ready']);
 
+// Exact webhook mount paths that bypass the global rate limiter. RevenueCat
+// retries aggressively on 429, so a misordered middleware chain that let
+// the limiter eat webhook deliveries would dead-letter real subscription
+// events. Listed by exact path so a future `/webhooks-debug` or similar
+// can't sneak past the limiter via a `startsWith` glob.
+const WEBHOOK_PATHS = new Set(['/api/v1/webhooks/revenuecat']);
+
 // Reuse the shared Redis client (Ch11-I060). The rate limiter used to open
 // its own connection that diverged from token-blacklist + the user cache;
 // every Redis hiccup hit one client and not the others, producing
@@ -112,12 +119,13 @@ const initializeRateLimiter = async () => {
         });
       },
       skip: (req) => {
-        // 3.9: the RevenueCat webhook is mounted before this limiter today,
-        // so it doesn't currently hit it — but a future re-order would
-        // silently start dropping webhook deliveries to 429 (RevenueCat
-        // retries aggressively). Belt-and-braces skip so the limiter is
-        // order-independent.
-        if (req.path.startsWith('/api/v1/webhooks/')) return true;
+        // 3.9: webhook routes are mounted before this limiter today, so
+        // they don't currently hit it — but a future re-order would
+        // silently start dropping deliveries to 429. Belt-and-braces
+        // exact-path skip via WEBHOOK_PATHS so the limiter is
+        // order-independent AND can't be tricked by a future
+        // `/webhooks-debug` or similar masquerading as a webhook route.
+        if (WEBHOOK_PATHS.has(req.path)) return true;
         // 4.12: exact match on the health probes. The previous
         // `startsWith` also bypassed e.g. `/healthcheck` or
         // `/ready-set-go` if a future route ever shipped under those

@@ -129,6 +129,12 @@ class _GiftActivationScreenState extends ConsumerState<GiftActivationScreen> {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(GiftActivationScreen.pendingGiftCodeKey);
 
+      // C4: force a fresh /users/me read so isPremiumProvider re-derives
+      // from the now-updated user.plan. Without this, the success screen +
+      // any subsequent navigation reads stale data (10s user-cache TTL)
+      // and renders "free plan" until the cache expires.
+      ref.invalidate(currentUserProvider);
+
       if (!mounted) return;
       setState(() {
         _showCelebration = true;
@@ -139,6 +145,16 @@ class _GiftActivationScreenState extends ConsumerState<GiftActivationScreen> {
       if (!mounted) return;
       context.go('/gift/activation-success?months=$_premiumMonths');
     } catch (e) {
+      // C5: clear the stashed code on FAILURE too. The error path used to
+      // leave the code in prefs, which meant a network-blip retry would
+      // auto-resume the same code on cold start, and a logout-then-login
+      // flow on a shared device let user B inherit user A's pending code.
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.remove(GiftActivationScreen.pendingGiftCodeKey);
+      } catch (_) {
+        // ignore — best-effort cleanup
+      }
       if (mounted) {
         setState(() {
           _error = ErrorHandler.getUserMessage(e);

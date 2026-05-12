@@ -41,8 +41,9 @@ router.use(authenticate);
 // the client can render the "your account is scheduled for deletion in N days"
 // banner and the recover button. They're NULL outside the cooling-off window.
 //
-// Ch08-User-D005: stripe_customer_id is intentionally NOT in the SELECT — it's
-// internal billing plumbing the client has no business reading.
+// The `stripe_customer_id` column referenced by older versions of this file
+// no longer exists — migration 115 dropped it as part of the partner-program
+// simplification.
 router.get('/me', asyncHandler(async (req, res) => {
   // email_change_pending / email_change_target are derived from the most
   // recent active change-email token (the change-email route stores the new
@@ -626,7 +627,7 @@ router.put('/me/password', passwordChangeRateLimiter, validate(changePasswordSch
 // Delete account (soft-delete with 30-day cooling-off period)
 // For email users: requires password confirmation.
 // For OAuth users (no password): requires confirmDelete=true in body.
-router.delete('/me', validate(deleteAccountSchema), asyncHandler(async (req, res) => {
+router.delete('/me', writeRateLimiter, validate(deleteAccountSchema), asyncHandler(async (req, res) => {
   const { password, confirmDelete } = req.body || {};
 
   // Get user info to determine auth method

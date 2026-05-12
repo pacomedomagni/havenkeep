@@ -24,6 +24,15 @@
 -- `admin.partner_approve|reject`) are NOT dropped — Postgres rejects enum
 -- value removal once written into rows, and the audit_logs trigger is
 -- intentionally append-only. Those values become permanently dormant.
+--
+-- Dormant audit_action values after this migration (no live code path
+-- writes them; preserved for forensic SELECT on pre-mig-115 rows):
+--   admin.partner_approve
+--   admin.partner_reject
+--   admin.commission_approve
+--   admin.commission_pay
+--   admin.commission_cancel
+--   partner.payout_request
 
 BEGIN;
 

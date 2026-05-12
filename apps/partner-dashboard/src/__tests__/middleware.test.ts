@@ -380,9 +380,11 @@ describe('middleware', () => {
       // no isAdmin or isPartner
     });
 
-    it('redirects to /login when accessing /dashboard', async () => {
-      // H-A8: role-check confirms the user has no role — middleware redirects
-      // to /login (clearing cookies en route).
+    it('redirects to /recover-profile when accessing /dashboard', async () => {
+      // H3 audit fix: an authenticated user with no role is not "signed
+      // out" — they're "signed up but partner row never got created".
+      // Middleware sends them to /recover-profile (a public-to-this-role
+      // single-form recovery surface) instead of /login.
       mockFetch.mockResolvedValueOnce({
         ok: true,
         status: 200,
@@ -394,7 +396,7 @@ describe('middleware', () => {
       });
       const res = await middleware(req as any);
       expect(res.type).toBe('redirect');
-      expect(res.url).toContain('/login');
+      expect(res.url).toContain('/recover-profile');
     });
 
     it('allows access to /login (public route)', async () => {

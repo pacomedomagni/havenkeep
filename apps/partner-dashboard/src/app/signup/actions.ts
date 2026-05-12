@@ -87,6 +87,13 @@ export async function signUp(formData: FormData) {
   // Register the partner profile in the same submit. The user is now
   // authenticated; we forward the access token explicitly because cookies
   // aren't yet on the outbound request at this point in the action.
+  //
+  // If this leg fails (network blip, validator drift, 5xx), the account
+  // still exists with valid tokens — they just don't have a partner row.
+  // Send them to /recover-profile, which is gated to authenticated-no-role
+  // users by middleware. From there a single submit creates the partner
+  // row and they land on /dashboard.
+  let partnerProfileCreated = false;
   try {
     const partnerResp = await fetchWithTimeout(`${API_URL}/api/v1/partners/register`, {
       method: 'POST',
@@ -99,21 +106,11 @@ export async function signUp(formData: FormData) {
         partner_type: partnerType,
       }),
     });
-    if (!partnerResp.ok && partnerResp.status !== 409) {
-      // Account exists but partner profile failed — surface the partial
-      // state so the user can retry from /dashboard's settings page rather
-      // than blocking them out entirely.
-      return {
-        error:
-          'Account created, but we could not save your partner profile. Sign in and try again from settings.',
-      };
-    }
+    // 201 created OR 409 "already registered" both leave a usable row.
+    partnerProfileCreated = partnerResp.ok || partnerResp.status === 409;
   } catch {
-    return {
-      error:
-        'Account created, but we could not save your partner profile. Sign in and try again from settings.',
-    };
+    partnerProfileCreated = false;
   }
 
-  redirect('/dashboard');
+  redirect(partnerProfileCreated ? '/dashboard' : '/recover-profile');
 }

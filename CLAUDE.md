@@ -138,7 +138,7 @@ Logs: `https://logs.staging.kouakoudomagni.com` (Dozzle, basic auth — ask Doma
 
 ## Part 3 — Outstanding work
 
-Every gate is currently green: api tsc + 319/319 jest tests, dashboard tsc + build, marketing build, both Dart packages analyze, mobile analyze, 444 flutter tests, debug APK build all pass. The 2026-04-29 → 2026-05-10 audit-remediation arc is closed; see `git log --oneline` if you need the per-finding history.
+Every gate must be green before any commit lands: api `npx tsc --noEmit` + `npm test`, dashboard `npx tsc --noEmit` + `npm test` + `npm run build`, marketing `npm run build`, mobile `flutter analyze` + `flutter test` + `flutter build apk --debug`, both Dart packages `dart analyze`. The 2026-04-29 → 2026-05-10 audit-remediation arc and the 2026-05-12 partner-program simplification are both closed; see `git log --oneline` if you need the per-finding history.
 
 **No outstanding code-level work.** The 2026-05 partner-program
 simplification arc is closed: Stripe / commissions / payouts / admin

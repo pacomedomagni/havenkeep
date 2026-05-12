@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:developer' as developer;
 import 'dart:io';
 import 'dart:math' as math;
 
@@ -189,12 +190,17 @@ class OfflineSyncService {
     required OfflineAction action,
     required Map<String, dynamic> payload,
   }) async {
-    // Limit queue to _kMaxQueueSize entries to prevent unbounded growth
+    // Limit queue to _kMaxQueueSize entries to prevent unbounded growth.
+    // Audit M7: log via `dart:developer.log` (not debugPrint) so the
+    // eviction surfaces as a Crashlytics breadcrumb in release builds —
+    // without that signal we can't tell how many users silently lost
+    // long-offline changes.
     final queueSize = await _db.getQueueSize();
     if (queueSize >= _kMaxQueueSize) {
-      debugPrint(
-        '[OfflineSync] Queue size ($queueSize) exceeds limit ($_kMaxQueueSize). '
-        'Removing $_kQueueEvictionCount oldest entries.',
+      developer.log(
+        '[OfflineSync] queue eviction — size=$queueSize limit=$_kMaxQueueSize evicted=$_kQueueEvictionCount',
+        name: 'offline_sync',
+        level: 900, // WARNING
       );
       await _db.removeOldestEntries(_kQueueEvictionCount);
     }

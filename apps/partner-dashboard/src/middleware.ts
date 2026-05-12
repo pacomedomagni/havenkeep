@@ -370,14 +370,26 @@ export async function middleware(request: NextRequest) {
   const isAdmin = cachedRole?.isAdmin ?? false
   const isPartner = cachedRole?.isPartner ?? false
 
-  // Non-admin/non-partner users cannot access the dashboard
+  // Authenticated user with no role (signup completed but partner row never
+  // got created — see signup/actions.ts H3 path). They have a valid session
+  // but every dashboard route is gated on isPartner/isAdmin. Route them to
+  // /recover-profile so they can finish setup in one form. Without this they
+  // were getting bounced to /login despite holding a working access token,
+  // which looked like a silent auth failure.
   if (!isAdmin && !isPartner) {
     if (isPublicRoute) {
       ensureCsrfCookie(response, request)
       if (roleCookieToWrite) writeRoleCookie(response, roleCookieToWrite)
       return response
     }
-    return redirectToLogin(request)
+    if (pathname === '/recover-profile') {
+      ensureCsrfCookie(response, request)
+      if (roleCookieToWrite) writeRoleCookie(response, roleCookieToWrite)
+      return response
+    }
+    const recoverResponse = NextResponse.redirect(new URL('/recover-profile', request.url))
+    if (roleCookieToWrite) writeRoleCookie(recoverResponse, roleCookieToWrite)
+    return recoverResponse
   }
 
   // Has valid token on public route — redirect based on role

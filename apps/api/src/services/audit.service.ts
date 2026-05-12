@@ -54,21 +54,21 @@ export type AuditAction =
   // Admin actions
   | 'admin.user_impersonate'
   | 'admin.user_delete'
-  | 'admin.partner_approve'
-  | 'admin.partner_reject'
   | 'admin.settings_change'
-  // H76: commission state-change audit trail. DB enum gets these via
-  // migration 104.
-  | 'admin.commission_approve'
-  | 'admin.commission_pay'
-  | 'admin.commission_cancel'
   // Partner actions
   | 'partner.gift_create'
   | 'partner.gift_update'
   | 'partner.gift_activate'
   | 'partner.warranty_create'
   | 'partner.warranty_update'
-  | 'partner.payout_request'
+  // Dormant enum values — left in the DB enum because Postgres doesn't
+  // support `ALTER TYPE ... DROP VALUE` once values have been written, and
+  // historical audit rows from before the partner-program simplification
+  // (mig 115) still reference them. The TypeScript union no longer
+  // includes them — no code path can write these actions anymore:
+  //   admin.partner_approve, admin.partner_reject,
+  //   admin.commission_approve, admin.commission_pay, admin.commission_cancel,
+  //   partner.payout_request
   // Security events
   | 'security.unauthorized_access'
   | 'security.rate_limit_exceeded'

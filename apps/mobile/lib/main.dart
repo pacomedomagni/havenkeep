@@ -115,9 +115,16 @@ Future<void> main() async {
         } else {
           _enumDriftBuffer.add('enum_drift: $enumName=$value (fallback=$fallback)');
           // Bound the buffer so a pathological hot-path doesn't OOM us
-          // before Firebase comes up. We log the 64 most recent events
-          // — older drift is dropped intentionally.
-          if (_enumDriftBuffer.length > 64) _enumDriftBuffer.removeFirst();
+          // before Firebase comes up. 256 entries is still trivially
+          // small in memory; older drift gets dropped with a single
+          // breadcrumb so on-call sees the truncation happened.
+          if (_enumDriftBuffer.length > 256) {
+            _enumDriftBuffer.removeFirst();
+            // Mark that we've started dropping events. The flag is checked
+            // at flush time so we emit one "buffer_overflow" event
+            // regardless of how many entries fell off.
+            _enumDriftBufferOverflowed = true;
+          }
         }
       });
 
@@ -189,7 +196,14 @@ Future<void> main() async {
           _crashlyticsReady = true;
           // H55: flush the pre-init enum-drift buffer. Crashlytics now
           // has the breadcrumbs that fired during the ~50-200ms window
-          // before _crashlyticsReady flipped.
+          // before _crashlyticsReady flipped. If the buffer overflowed
+          // during that window, emit one explicit signal so on-call
+          // knows some drift was silently dropped.
+          if (_enumDriftBufferOverflowed) {
+            FirebaseCrashlytics.instance.log(
+              'enum_drift_buffer_overflow: dropped events before Crashlytics was ready',
+            );
+          }
           while (_enumDriftBuffer.isNotEmpty) {
             FirebaseCrashlytics.instance.log(_enumDriftBuffer.removeFirst());
           }
@@ -258,8 +272,12 @@ Future<void> main() async {
 /// API key configured (else the SDK throws on first call).
 bool _crashlyticsReady = false;
 
+/// Set true if `_enumDriftBuffer` overflowed before Crashlytics was ready.
+/// Surfaced at flush time so on-call knows we dropped breadcrumbs.
+bool _enumDriftBufferOverflowed = false;
+
 /// H55: ring buffer for enum-drift breadcrumbs that fire before the
-/// Crashlytics SDK is ready. Bounded to 64 entries so a pathological
+/// Crashlytics SDK is ready. Bounded to 256 entries so a pathological
 /// hot-path can't OOM us during boot. Flushed once when
 /// `_crashlyticsReady` flips true.
 final _enumDriftBuffer = ListQueue<String>();

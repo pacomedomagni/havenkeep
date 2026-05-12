@@ -19,9 +19,6 @@ export 'src/home.dart';
 export 'src/item.dart';
 export 'src/document.dart';
 export 'src/app_notification.dart';
-export 'src/referral_partner.dart';
-export 'src/referral.dart';
-export 'src/affiliate_conversion.dart';
 export 'src/notification_preferences.dart';
 export 'src/offline_queue_entry.dart';
 export 'src/category_default.dart';
@@ -30,7 +27,6 @@ export 'src/receipt_scan_result.dart';
 export 'src/barcode_lookup_result.dart';
 export 'src/contact_submission.dart' show ContactSubmission;
 export 'src/tip.dart' show Tip;
-export 'src/partner.dart' show Partner, PartnerSubscriptionTier, PartnerStatus;
 export 'src/warranty_claim.dart' show WarrantyClaim, ClaimStatus;
 export 'src/maintenance.dart'
     show
@@ -44,13 +40,6 @@ export 'src/maintenance.dart'
 export 'src/warranty_purchase.dart' show WarrantyPurchase, WarrantyPurchaseStatus;
 export 'src/email_scan.dart' show EmailScan, EmailScanStatus;
 export 'src/partner_gift.dart' show PartnerGift, PartnerGiftStatus;
-export 'src/partner_commission.dart'
-    show
-        PartnerCommission,
-        PartnerCommissionType,
-        PartnerCommissionStatus,
-        PartnerCommissionReferenceType,
-        PartnerCommissionPayoutMethod;
 // Audit Ch08-D018: shared funnel for unknown-enum drift. Exposed so the
 // mobile bootstrap can plug in a custom transport (Firebase Crashlytics
 // breadcrumb, custom HTTP collector, etc.) on top of the always-on

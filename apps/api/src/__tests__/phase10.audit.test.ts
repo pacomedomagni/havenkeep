@@ -205,13 +205,13 @@ describe('Phase 10 audit coverage', () => {
     it('two reads do not bump opened_at past the first call', async () => {
       const { user, token } = await createTestUser({ email: 'r010@test.com' });
       // Make the user a partner so they can create gifts.
+      // Post-mig-115: no status/is_active columns; a partners row is, by
+      // existence, an active partner.
       await pool.query(
         `INSERT INTO partners (user_id, company_name, partner_type, service_areas)
          VALUES ($1, 'R010 LLC', 'realtor', ARRAY['Austin'])`,
         [user.id],
       );
-      // Promote to active so gift creation passes.
-      await pool.query(`UPDATE partners SET status = 'active', is_active = TRUE WHERE user_id = $1`, [user.id]);
 
       const create = await request(app)
         .post('/api/v1/partners/gifts')

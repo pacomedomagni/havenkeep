@@ -147,6 +147,24 @@ describe('signUp', () => {
     expect(mockRedirect).toHaveBeenCalledWith('/dashboard');
   });
 
+  // H3: if /partners/register fails after /auth/register succeeded, the user
+  // is authenticated but partner-row-less. Sending them to /recover-profile
+  // (middleware-gated for this exact state) lets them finish setup in one
+  // form instead of stranding them on /signup with a misleading message.
+  it('redirects to /recover-profile when partner registration fails', async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        makeResponse(201, { success: true, data: { accessToken: 'at', refreshToken: 'rt' } })
+      )
+      .mockResolvedValueOnce(makeResponse(500, { error: 'upstream blip' }));
+    const fd = makeFormData(VALID_FIELDS);
+
+    await expect(signUp(fd)).rejects.toThrow('NEXT_REDIRECT');
+
+    expect(mockSetAuthCookies).toHaveBeenCalledOnce();
+    expect(mockRedirect).toHaveBeenCalledWith('/recover-profile');
+  });
+
   // Audit Ch10-W013: explicit fullName is required — we no longer auto-derive
   // it from the email local-part, which had two problems: it leaked the email
   // prefix into product copy, and it accepted accounts with no human-readable

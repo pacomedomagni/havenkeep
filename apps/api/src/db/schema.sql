@@ -79,7 +79,6 @@ CREATE TABLE IF NOT EXISTS users (
   auth_provider VARCHAR(20) NOT NULL DEFAULT 'email',
   plan user_plan NOT NULL DEFAULT 'free',
   plan_expires_at TIMESTAMPTZ,
-  stripe_customer_id VARCHAR(255),
   referred_by UUID,
   referral_code VARCHAR(64),
   is_admin BOOLEAN NOT NULL DEFAULT FALSE,
@@ -90,7 +89,6 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
-CREATE INDEX IF NOT EXISTS idx_users_stripe ON users(stripe_customer_id);
 CREATE INDEX IF NOT EXISTS idx_users_plan ON users(plan);
 CREATE INDEX IF NOT EXISTS idx_users_referral_code ON users(referral_code);
 CREATE INDEX IF NOT EXISTS idx_users_apple_user_id ON users(apple_user_id) WHERE apple_user_id IS NOT NULL;

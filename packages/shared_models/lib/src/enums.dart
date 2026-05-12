@@ -359,7 +359,6 @@ enum NotificationType {
   health_score_update,
   gift_received,
   gift_activated,
-  partner_commission,
   promotional,
   tip,
   system;
@@ -386,7 +385,6 @@ enum NotificationType {
         NotificationType.health_score_update => 'Health Score Update',
         NotificationType.gift_received => 'Gift Received',
         NotificationType.gift_activated => 'Gift Activated',
-        NotificationType.partner_commission => 'Partner Commission',
         NotificationType.promotional => 'Promotional',
         NotificationType.tip => 'Tip',
         NotificationType.system => 'System',

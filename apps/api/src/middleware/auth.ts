@@ -101,11 +101,15 @@ export async function authenticate(
     // under authenticate() so the soft-deleted user reaches it through
     // the same code path everyone else does.
     if (decoded.purpose) {
+      // Exact path match only. The earlier shape used endsWith, which
+      // would have matched a future `/internal/users/me/recover` and
+      // let a recover-purpose token authenticate against an unrelated
+      // privileged endpoint. The two forms below cover both Express
+      // path-strip styles depending on how the router is mounted.
       const isRecoverPath =
         req.method === 'POST' &&
         (req.path === '/me/recover' ||
-          req.path.endsWith('/me/recover') ||
-          req.originalUrl?.endsWith('/users/me/recover'));
+          req.originalUrl === '/api/v1/users/me/recover');
       if (decoded.purpose !== 'account_recover' || !isRecoverPath) {
         throw new AppError('Invalid token type', 401);
       }
@@ -170,8 +174,7 @@ export async function authenticate(
     const isRecoverEndpoint =
       req.method === 'POST' &&
       (req.path === '/me/recover' ||
-        req.path.endsWith('/me/recover') ||
-        req.originalUrl?.endsWith('/users/me/recover'));
+        req.originalUrl === '/api/v1/users/me/recover');
     const withinGrace =
       !!userRow.deletion_scheduled_for &&
       new Date(userRow.deletion_scheduled_for) > new Date();

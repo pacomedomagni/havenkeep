@@ -59,8 +59,6 @@ export default function GiftsPage() {
       sent: 'badge-pending',
       activated: 'badge-converted',
       expired: 'badge-expired',
-      pending_payment: 'badge-pending',
-      cancelled: 'badge-cancelled',
     };
     return (
       <span className={classes[status] || 'badge-pending'}>

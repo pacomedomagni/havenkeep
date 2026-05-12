@@ -17,11 +17,27 @@ interface ApiOptions {
 /**
  * Read the double-submit CSRF cookie. The proxy enforces that this matches
  * the `X-CSRF-Token` header for any mutation (audit Ch10-W028).
+ *
+ * Parses the cookie header by splitting on `; ` and matching the exact name
+ * `csrf_token` — earlier shape used a single regex match that would match
+ * `csrf_token_old=...` if anyone set a cookie with that prefix. Defense in
+ * depth; the proxy still requires header + cookie to agree.
  */
 function getCsrfToken(): string | null {
   if (typeof document === 'undefined') return null;
-  const match = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/);
-  return match ? decodeURIComponent(match[1]) : null;
+  const cookies = document.cookie.split('; ');
+  for (const c of cookies) {
+    const eq = c.indexOf('=');
+    if (eq === -1) continue;
+    if (c.slice(0, eq) === 'csrf_token') {
+      try {
+        return decodeURIComponent(c.slice(eq + 1));
+      } catch {
+        return null;
+      }
+    }
+  }
+  return null;
 }
 
 const MUTATION_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
