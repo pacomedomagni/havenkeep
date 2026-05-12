@@ -146,20 +146,26 @@ export async function purgeExpiredSoftDeletedAccounts(): Promise<PurgeResult> {
         }
 
         // C0-16: write the audit_logs row OUTSIDE the user-deletion
-        // transaction. Inside the tx the row would FK to users(id) and
-        // get cascade-deleted in the same statement; outside, the
-        // row's user_id column becomes NULL by ON DELETE SET NULL but
-        // the denormalized user_email column preserves who got purged.
-        // Without this row the audit chain has no record that an
-        // erasure event ever happened — GDPR's "we can prove what we
-        // deleted and when" requirement is unmet.
+        // transaction so the GDPR-erasure event itself leaves a record.
+        // (Without this row the audit chain has no proof the deletion
+        // happened — GDPR's "we can prove what we deleted and when" is
+        // unmet.) The denormalised `user_email` column preserves "who".
+        //
+        // Background: prior audit_logs rows that referenced this user
+        // keep their `user_id` UUID as a stable but now-unresolvable
+        // pointer (the FK was dropped in mig 113 — DEFERRED.md §8 — so
+        // the parent DELETE no longer fires a cascade UPDATE that
+        // the immutable trigger would reject, AND no longer mutates
+        // hashed-payload columns and breaks the chain). The new audit
+        // row below intentionally omits userId because the user record
+        // is now gone; userEmail carries the forensic "who".
         //
         // Fire-and-forget — a failed audit write doesn't roll back the
         // (already-committed) deletion. Logged so the operator can
         // reconcile manually.
         AuditService.log({
-          // userId intentionally omitted: the FK has already cascade-
-          // cleared. userEmail preserves who was purged.
+          // userId intentionally omitted: the parent users row no longer
+          // exists. userEmail preserves who was purged.
           userEmail,
           action: 'admin.user_delete',
           severity: 'warning',
