@@ -502,10 +502,11 @@ class HavenTheme {
         ),
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
+        // Elevation is set via .copyWith below (pressed-vs-resting), so we
+        // don't pass `elevation:` in styleFrom — it would be dead.
         style: ElevatedButton.styleFrom(
           backgroundColor: HavenColors.primary,
           foregroundColor: HavenColors.textPrimary,
-          elevation: 0,
           shadowColor: HavenColors.primary.withValues(alpha: 0.4),
           textStyle: const TextStyle(
             fontSize: 15,

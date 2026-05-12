@@ -334,16 +334,28 @@ router.post('/me/verify-premium', verifyPremiumRateLimiter, validate(verifyPremi
       action = 'user.plan_downgrade';
       description = 'Downgraded to free';
     }
-    await AuditService.logFromRequest(req, action, {
-      resourceType: 'user',
-      resourceId: result.rows[0].id,
-      description,
-      metadata: {
-        previous_plan: previousPlan,
-        new_plan: newPlan,
-        expires_at: expiresAt,
-      },
-    });
+    // Best-effort: the plan UPDATE has already committed above, so an
+    // audit-write failure here must not surface a 500 — that would tell
+    // the client "verification failed" while the plan actually changed.
+    // (Belt-and-braces alongside migration 112, which adds the
+    // `user.plan_reactivate` enum value the reactivation path needs.)
+    try {
+      await AuditService.logFromRequest(req, action, {
+        resourceType: 'user',
+        resourceId: result.rows[0].id,
+        description,
+        metadata: {
+          previous_plan: previousPlan,
+          new_plan: newPlan,
+          expires_at: expiresAt,
+        },
+      });
+    } catch (auditErr) {
+      logger.error(
+        { err: auditErr, userId: req.user!.id, action },
+        'Failed to write plan-change audit row (best-effort; plan was updated)',
+      );
+    }
 
     // H-A5 (audit): when a user transitions OUT of premium, revoke any
     // stored Gmail/Outlook OAuth integrations. The encrypted refresh

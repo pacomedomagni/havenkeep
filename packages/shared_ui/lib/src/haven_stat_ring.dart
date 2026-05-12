@@ -152,8 +152,9 @@ class _RingPainter extends CustomPainter {
       old.strokeWidth != strokeWidth;
 }
 
-/// Tweens an integer from 0 (or its previous value) up to [value] on build
-/// — the dashboard's "$12,847" / "87%" count-up. Pair it with
+/// Tweens up to [value] over [duration] on build — the dashboard's
+/// "$12,847" / "87%" count-up. NOTE: each time [value] changes the tween
+/// re-runs from **0**, not from the previous displayed value. Pair it with
 /// [HavenStatRing.center] or use standalone for the hero number.
 ///
 /// ```dart

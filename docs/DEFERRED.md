@@ -113,3 +113,60 @@ PRODUCT.md §5.2.
 HavenKeep stores receipts + photos but does not generate insurance-specific
 reports or integrate with policy providers. Roadmap candidate, not started.
 Already noted in PRODUCT.md §10.
+
+---
+
+## 8. Audit-chain ↔ GDPR-erasure contradiction — `NEEDS DESIGN CALL`
+
+**The problem.** `audit_logs.user_id` is `REFERENCES users(id) ON DELETE SET
+NULL` (mig 004) **and** `user_id::text` is part of the hashed payload that
+mig 065/101's BEFORE INSERT trigger commits to. The two facts collide when
+the daily soft-delete-purge cron runs `DELETE FROM users WHERE id = $1`
+(`account-purge.service.ts:128`): Postgres fires a row-level **UPDATE** on
+every `audit_logs` row that referenced that user, setting `user_id` to NULL.
+That update has two possible outcomes, both bad:
+
+- **If the API role is correctly NOT a member of `audit_cleaner`** (the
+  intended security configuration — the audit deep-dive's question #3):
+  the `audit_logs_immutable` BEFORE UPDATE trigger raises `RAISE EXCEPTION
+  'audit_logs is append-only'` → the cascade fails → the `DELETE FROM users`
+  rolls back → **no user with any audit history can be hard-deleted.** The
+  cron catches it per-user (`account-purge.service.ts:135`) and logs, so it
+  doesn't crash, but the GDPR-erasure ledger silently never completes. The
+  30-day cooling-off window expires, the user "stays deleted" in soft-delete
+  state forever.
+- **If the immutable trigger is bypassable for the API role** (the bad
+  case): the cascade UPDATE succeeds → nulling `user_id` on each row
+  changes its hashed payload → its stored `this_hash` no longer recomputes
+  → `verify_audit_chain()` flags every such row → the daily verifier emails
+  "INTEGRITY FAILURE — possible tampering" after every purge. Self-inflicted
+  false alarms; the chain is broken in a real sense (the rows no longer
+  cryptographically commit to their original content).
+
+**Verify on staging before launch:** check `account-purge.service.ts`'s
+"Soft-delete purge failed" log line over the last 30 days — if every
+soft-deleted user with audit history is failing to hard-delete, that
+confirms the first failure mode is live.
+
+**Fix options** (pick one before relying on either auditability or
+GDPR-erasure end-to-end):
+
+1. **Stop hashing `user_id`.** Drop it from the payload and change the FK
+   to `ON DELETE NO ACTION` (so the column stays stable forever — dangling
+   IDs are fine, the denormalized `user_email_at_event` columns already
+   preserve "who"). Requires a re-baselining migration that recomputes
+   `this_hash` for every existing row using the new payload format. Stops
+   the false-alarm path; lets purge succeed.
+2. **Keep hashing `user_id`, switch the FK to `NO ACTION`.** Same as (1)
+   but without the payload change — dangling IDs that hash stably. The
+   audit row keeps the original `user_id` value forever (a string, not
+   FK-resolvable), so a forensic query can still link by ID. Smaller
+   migration; doesn't require chain re-baselining.
+3. **Whitelist purge in the immutable trigger.** Have the trigger allow
+   UPDATEs that *only* set `user_id` to NULL (any other column change still
+   raises). Doesn't help the chain-break problem — only the purge-fails
+   problem. Probably worse than (1)/(2).
+
+(2) is the minimum viable fix and the recommendation. Until one is shipped,
+the "even an admin can't tamper" claim and the "we can prove we erased the
+user" GDPR claim are in conflict.

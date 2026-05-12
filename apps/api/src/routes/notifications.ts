@@ -286,11 +286,18 @@ router.put(
     const prefs: Record<string, unknown> = { ...req.body, userId };
 
     // A custom reminder lead-time is a Premium feature (PRODUCT.md §5.1).
-    // Free users keep the default (30 days); drop the field from their
-    // upsert rather than 400 — every other preference still saves, and
-    // the mobile UI gates the slider so this is just the server-side
-    // backstop. (`firstReminderDays === 30` from a free client is a
-    // harmless no-op, so we only strip non-default attempts.)
+    // Free users can't *change* it; the mobile UI gates the slider, this
+    // is the server-side backstop. We drop the field from the upsert
+    // rather than 400 — every other preference still saves.
+    //
+    // Note: a previously-premium user who downgrades keeps whatever value
+    // they had stored (no forced reset to 30). Acceptable on purpose —
+    // grandfathering the existing choice is friendlier than silently
+    // changing notification behaviour on downgrade. The cron honours
+    // whatever is stored.
+    //
+    // `firstReminderDays === 30` from a free client is a harmless no-op,
+    // so we only strip non-default attempts.
     if (
       req.user!.plan !== 'premium' &&
       prefs.firstReminderDays !== undefined &&
@@ -299,7 +306,7 @@ router.put(
       delete prefs.firstReminderDays;
     }
 
-    const result = await NotificationsService.upsertPreferences(userId, prefs as any);
+    const result = await NotificationsService.upsertPreferences(userId, prefs);
     sendSuccess(res, result);
   })
 );

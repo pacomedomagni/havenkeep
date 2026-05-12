@@ -51,6 +51,13 @@ fi
 
 # The API role whose membership we care about. Override if your prod role
 # has a different name (e.g. `havenkeep_api`).
+#
+# NOTE: migration 101 (`101_audit_logs_lock_down_and_tz_stable_hash.sql`)
+# hard-codes the literal name `havenkeep` in its REVOKE/GRANT statements.
+# If your prod DB user is named anything else, that migration throws
+# `role "havenkeep" does not exist` on first run and the deploy aborts —
+# either rename the role to `havenkeep`, or pre-create a `havenkeep` role
+# that mirrors the API role's privileges (and set API_ROLE here accordingly).
 API_ROLE="${API_ROLE:-havenkeep}"
 
 q() { "${PSQL[@]}" -c "$1"; }
@@ -120,17 +127,25 @@ case "$privs" in
 esac
 echo
 
-# 5) the migrations we depend on are recorded
-recorded="$(q "SELECT string_agg(version::text, ',' ORDER BY version)
-                 FROM schema_version
-                WHERE version::text = ANY (ARRAY['099','100','101','031','065']);" || echo '<schema_version unreadable>')"
-echo "recorded migrations among {031,065,099,100,101}: ${recorded:-<none>}"
+# 5) the migrations we depend on are recorded. The migration runner writes
+# rows to `schema_migrations(filename, sha256, applied_at)` — filenames
+# like '031_audit_logs_immutable.sql'. The base-bootstrap marker lives in
+# `schema_version(phase)` and is a separate concern.
+present=""
 for m in 031 065 099 100 101; do
-  if [[ ",$recorded," != *",$m,"* ]]; then
-    echo "  ✗ migration ${m} not recorded in schema_version"
+  filename="$(q "SELECT filename FROM schema_migrations
+                  WHERE filename LIKE '${m}\\_%' ESCAPE '\\\\'
+                  ORDER BY filename LIMIT 1;" 2>/dev/null || true)"
+  if [[ -n "$filename" ]]; then
+    present="${present}${present:+,}${m}"
+  else
+    echo "  ✗ migration ${m}_*.sql not recorded in schema_migrations"
     fail=1
   fi
 done
+if [[ -n "$present" ]]; then
+  echo "recorded migrations among {031,065,099,100,101}: ${present}"
+fi
 [[ "$fail" == 0 ]] && echo "  ✓ all five recorded" || true
 echo
 

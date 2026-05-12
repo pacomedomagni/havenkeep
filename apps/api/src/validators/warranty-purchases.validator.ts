@@ -22,7 +22,17 @@ export const createWarrantyPurchaseSchema = Joi.object({
   // F019: clients are NOT trusted to set commission_rate. Reject loudly so
   // a hand-crafted payload doesn't silently float the partner percentage.
   commissionRate: Joi.any().forbidden(),
-  stripePaymentIntentId: Joi.string().max(255).optional(),
+  // SECURITY: clients are NOT trusted to set stripe_payment_intent_id
+  // either. The extended-warranty marketplace that would charge a PI on
+  // HavenKeep's behalf is deferred (see docs/DEFERRED.md #1), and
+  // cancelPurchase issues `stripe.refunds.create({payment_intent: <stored
+  // value>})` on the row's stored value — accepting a client-supplied PI
+  // means an authenticated user could refund another HavenKeep user's
+  // charge by binding their cancel to a PI on the same Stripe account.
+  // Reject any non-null value. When the marketplace ships, the API will
+  // create the PI itself and bind it server-side; this field becomes
+  // unnecessary in the request body entirely.
+  stripePaymentIntentId: Joi.any().forbidden(),
   // Ch08-WarrantyPurchase-D029: explicit status default at the schema layer.
   // The DB column also defaults to 'active' but having it here means the
   // body that hits the service is self-describing.

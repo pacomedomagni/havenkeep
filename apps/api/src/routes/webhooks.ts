@@ -10,6 +10,18 @@ import { decimalToCents, centsToDecimalString } from '../utils/money';
 import { AuditService } from '../services/audit.service';
 import { EmailService } from '../services/email.service';
 
+/// RFC-4122 UUID. Used to sanity-check `intent.metadata.gift_id` from
+/// Stripe before it's bound to a `$N::uuid` query parameter — Postgres
+/// evaluates the cast even when an outer `IS NOT NULL` guard is false,
+/// so a malformed string would throw 22P02 and the webhook would 500 →
+/// Stripe retries → poison-pill loop. Returns the value if it's a
+/// well-formed UUID, otherwise null.
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function uuidOrNull(value: unknown): string | null {
+  return typeof value === 'string' && UUID_RE.test(value) ? value : null;
+}
+
 /**
  * H-P2 (audit): every webhook-driven plan transition writes an audit
  * row tagged with the originating webhook source + event id. Without
@@ -718,39 +730,52 @@ async function handleChargeFailed(charge: Stripe.Charge): Promise<void> {
     return;
   }
 
-  const result = await pool.query(
-    `UPDATE partner_gifts
-     SET status = 'expired', updated_at = NOW()
-     WHERE stripe_charge_id = $1 AND status = 'created'
-     RETURNING id, partner_id, homebuyer_email`,
-    [paymentIntentId]
-  );
-
-  if (result.rows.length === 0) {
-    logger.warn(
-      { chargeId, paymentIntentId, partnerId },
-      'charge.failed: no matching partner_gift found with status "created"'
+  // Expire the gift AND cancel its pending commission atomically — a crash
+  // between the two would otherwise leave a 'pending' commission on an
+  // 'expired' gift, which the auto-approve cron (which doesn't check gift
+  // status) would eventually promote to 'approved' → payable. (Mirrors
+  // handleChargeRefunded / handleChargeDispute, which already use a tx.)
+  const client = await pool.connect();
+  let gift: { id: string; partner_id: string | null; homebuyer_email: string } | null = null;
+  try {
+    await client.query('BEGIN');
+    const result = await client.query(
+      `UPDATE partner_gifts
+       SET status = 'expired', updated_at = NOW()
+       WHERE stripe_charge_id = $1 AND status = 'created'
+       RETURNING id, partner_id, homebuyer_email`,
+      [paymentIntentId]
     );
-    return;
+    if (result.rows.length === 0) {
+      await client.query('ROLLBACK');
+      logger.warn(
+        { chargeId, paymentIntentId, partnerId },
+        'charge.failed: no matching partner_gift found with status "created"'
+      );
+      return;
+    }
+    gift = result.rows[0];
+    await client.query(
+      `UPDATE partner_commissions
+       SET status = 'cancelled', updated_at = NOW()
+       WHERE reference_id = $1 AND reference_type = 'partner_gift' AND status = 'pending'`,
+      [gift!.id]
+    );
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
   }
-
-  const gift = result.rows[0];
-
-  // Mark the commission as cancelled
-  await pool.query(
-    `UPDATE partner_commissions
-     SET status = 'cancelled', updated_at = NOW()
-     WHERE reference_id = $1 AND reference_type = 'partner_gift' AND status = 'pending'`,
-    [gift.id]
-  );
 
   logger.info(
     {
       chargeId,
       paymentIntentId,
-      giftId: gift.id,
-      partnerId: gift.partner_id,
-      homebuyer: gift.homebuyer_email,
+      giftId: gift!.id,
+      partnerId: gift!.partner_id,
+      homebuyer: gift!.homebuyer_email,
       failureMessage,
     },
     'charge.failed: partner gift payment failed'
@@ -921,40 +946,52 @@ async function handleChargeRefunded(charge: Stripe.Charge, eventId: string): Pro
  */
 async function handlePaymentIntentCanceled(intent: Stripe.PaymentIntent): Promise<void> {
   const intentId = intent.id;
-  const giftIdHint = (intent.metadata?.gift_id as string | undefined) ?? null;
+  // metadata.gift_id is always a UUID we set ourselves, but a malformed
+  // value would make `$2::uuid` throw 22P02 (the cast is evaluated even
+  // when the IS-NOT-NULL guard is false) — drop anything that isn't a
+  // well-formed UUID so a junk payload can't poison the webhook retry loop.
+  const giftIdHint = uuidOrNull(intent.metadata?.gift_id);
 
-  const result = await pool.query(
-    `UPDATE partner_gifts
-        SET status = 'expired', updated_at = NOW()
-      WHERE (stripe_charge_id = $1 OR ($2::uuid IS NOT NULL AND id = $2::uuid))
-        AND status = 'pending_payment'
-      RETURNING id, partner_id`,
-    [intentId, giftIdHint],
-  );
-
-  if (result.rows.length === 0) {
-    logger.info(
-      { intentId, giftIdHint },
-      'payment_intent.canceled: no pending gift to expire',
+  const client = await pool.connect();
+  let giftIds: string[] = [];
+  try {
+    await client.query('BEGIN');
+    const result = await client.query(
+      `UPDATE partner_gifts
+          SET status = 'expired', updated_at = NOW()
+        WHERE (stripe_charge_id = $1 OR ($2::uuid IS NOT NULL AND id = $2::uuid))
+          AND status = 'pending_payment'
+        RETURNING id`,
+      [intentId, giftIdHint],
     );
-    return;
+    if (result.rows.length === 0) {
+      await client.query('ROLLBACK');
+      logger.info(
+        { intentId, giftIdHint },
+        'payment_intent.canceled: no pending gift to expire',
+      );
+      return;
+    }
+    giftIds = result.rows.map((r) => r.id);
+    for (const id of giftIds) {
+      await client.query(
+        `UPDATE partner_commissions
+            SET status = 'cancelled', updated_at = NOW()
+          WHERE reference_id = $1
+            AND reference_type = 'partner_gift'
+            AND status = 'pending'`,
+        [id],
+      );
+    }
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
   }
 
-  for (const row of result.rows) {
-    await pool.query(
-      `UPDATE partner_commissions
-          SET status = 'cancelled', updated_at = NOW()
-        WHERE reference_id = $1
-          AND reference_type = 'partner_gift'
-          AND status = 'pending'`,
-      [row.id],
-    );
-  }
-
-  logger.info(
-    { intentId, giftIds: result.rows.map((r) => r.id) },
-    'payment_intent.canceled: gifts expired',
-  );
+  logger.info({ intentId, giftIds }, 'payment_intent.canceled: gifts expired');
 }
 
 /**
@@ -970,40 +1007,51 @@ async function handlePaymentIntentCanceled(intent: Stripe.PaymentIntent): Promis
  */
 async function handlePaymentIntentFailed(intent: Stripe.PaymentIntent): Promise<void> {
   const intentId = intent.id;
-  const giftIdHint = (intent.metadata?.gift_id as string | undefined) ?? null;
+  const giftIdHint = uuidOrNull(intent.metadata?.gift_id);
 
-  const result = await pool.query(
-    `UPDATE partner_gifts
-        SET status = 'expired', updated_at = NOW()
-      WHERE (stripe_charge_id = $1 OR ($2::uuid IS NOT NULL AND id = $2::uuid))
-        AND status IN ('pending_payment', 'created')
-      RETURNING id, partner_id, homebuyer_email`,
-    [intentId, giftIdHint],
-  );
-
-  if (result.rows.length === 0) {
-    logger.info(
-      { intentId, giftIdHint },
-      'payment_intent.payment_failed: no matching gift to expire',
+  const client = await pool.connect();
+  let giftIds: string[] = [];
+  try {
+    await client.query('BEGIN');
+    const result = await client.query(
+      `UPDATE partner_gifts
+          SET status = 'expired', updated_at = NOW()
+        WHERE (stripe_charge_id = $1 OR ($2::uuid IS NOT NULL AND id = $2::uuid))
+          AND status IN ('pending_payment', 'created')
+        RETURNING id`,
+      [intentId, giftIdHint],
     );
-    return;
-  }
-
-  for (const row of result.rows) {
-    await pool.query(
-      `UPDATE partner_commissions
-          SET status = 'cancelled', updated_at = NOW()
-        WHERE reference_id = $1
-          AND reference_type = 'partner_gift'
-          AND status = 'pending'`,
-      [row.id],
-    );
+    if (result.rows.length === 0) {
+      await client.query('ROLLBACK');
+      logger.info(
+        { intentId, giftIdHint },
+        'payment_intent.payment_failed: no matching gift to expire',
+      );
+      return;
+    }
+    giftIds = result.rows.map((r) => r.id);
+    for (const id of giftIds) {
+      await client.query(
+        `UPDATE partner_commissions
+            SET status = 'cancelled', updated_at = NOW()
+          WHERE reference_id = $1
+            AND reference_type = 'partner_gift'
+            AND status = 'pending'`,
+        [id],
+      );
+    }
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
   }
 
   logger.warn(
     {
       intentId,
-      giftIds: result.rows.map((r) => r.id),
+      giftIds,
       lastError: intent.last_payment_error?.message,
       code: intent.last_payment_error?.code,
     },
