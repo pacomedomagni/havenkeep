@@ -10,7 +10,8 @@ When something here is done, delete the entry. Don't park new TODOs in code or i
 Other markdown files allowed in the repo:
 - `README.md` — root runbook: prereqs, first-run setup for all four apps, daily commands, test gates, troubleshooting.
 - `docs/ARCHITECTURE.md` — technical architecture reference (system overview, stacks, auth, DB, security model).
-- `docs/PRODUCT.md` — product spec (who it's for, the five core jobs, the two flagship flows, pricing, trust contract).
+- `docs/PRODUCT.md` — product spec. Describes ONLY what is actually built. No aspirational/roadmap copy here.
+- `docs/DEFERRED.md` — the parking lot for surfaces that were once spec'd as shipped but aren't, plus v1 scope cuts. Decisions recorded so spec/marketing/code stop disagreeing.
 - `apps/mobile/IOS_DEPLOYMENT.md` — iOS → TestFlight runbook lives next to the app it deploys.
 - `apps/mobile/store/STORE_LISTING.md` — App Store + Play Store listing copy (titles, descriptions, keywords, privacy questionnaires).
 - `apps/mobile/store/PLAY_CONSOLE_ANSWERS.md` — Pre-filled answers for Play Console's App Content + Data Safety forms.

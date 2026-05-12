@@ -1,6 +1,6 @@
 # HavenKeep Product Spec
 
-This document describes what HavenKeep is and who it is for. It is a working spec, not a roadmap. Features described here are either shipped or close enough that the code already exists; speculative ideas live in `/roadmap` on the marketing site.
+This document describes what HavenKeep is and who it is for. **It describes only what is actually built.** Surfaces that were once spec'd as shipped but aren't — and v1 scope cuts — live in [DEFERRED.md](./DEFERRED.md), not here. Speculative roadmap ideas live on the marketing site's `/roadmap` page. App copy, marketing, and the partner agreement should not imply anything that isn't in this file.
 
 For *how it is built*, see [ARCHITECTURE.md](./ARCHITECTURE.md). For *how to run it*, see [the root README](../README.md).
 
@@ -8,7 +8,7 @@ For *how it is built*, see [ARCHITECTURE.md](./ARCHITECTURE.md). For *how to run
 
 ## 1. The one-line pitch
 
-HavenKeep is a home asset and warranty tracker that pays attention so you don't have to. You log the appliance, the receipt, the warranty length once. We remind you before things expire, surface required maintenance to keep coverage valid, file claims when things break, and tell you which extended warranties are worth the money.
+HavenKeep is a home asset and warranty tracker that pays attention so you don't have to. You log the appliance, the receipt, the warranty length once. We remind you before things expire, surface required maintenance to keep coverage valid, and help you file claims when things break.
 
 The bet: Americans waste roughly $16B/year on warranties they forgot they had. The vast majority of that loss is logistical, not financial — people would file the claim if they remembered the warranty existed and could find the receipt. HavenKeep is the system that remembers and finds.
 
@@ -34,9 +34,8 @@ Free plan caps usage at 5 items so a curious user can try it without a paywall s
 Realtors, builders, contractors, and property managers who hand keys to homebuyers and want to stay in the homebuyer's life past closing. They:
 
 - Are looking for a closing gift that isn't a fruit basket.
-- Earn commission on warranties their clients buy through HavenKeep.
 - Pay per gift sent ($99 / $149 / $249 by tier — Basic / Premium / Platinum), no monthly fee, no contract.
-- Earn 10–20% commission on every warranty their referred user buys, *for the life of the user's account*.
+- Earn a 10–20% commission (by tier) on each gift they send.
 
 Partners get a dashboard ([apps/partner-dashboard](../apps/partner-dashboard)) with gift-creation flows, real-time commission tracking, Stripe Connect onboarding, payout requests, and 1099-NEC handling via Stripe.
 
@@ -77,18 +76,18 @@ A warranty without a receipt is half a warranty. HavenKeep stores receipts and w
 
 - Upload from camera, gallery, or file picker.
 - Image compression on the client (max 1600px); PDF passes through unchanged.
-- Stored encrypted in MinIO; presigned URL on read.
+- Stored in MinIO (bucket-level encryption at rest); presigned URL on read.
 - Document type tagged: receipt / warranty_card / manual / invoice / other.
-- Free plan: 200 MB total. Premium: 2 GB.
+- Total document-storage cap, enforced server-side: Free 200 MB, Premium 2 GB.
 
-The "Share Claim" sheet bundles every document attached to an item into a single PDF for forwarding to the manufacturer or insurance.
+The "Share Claim" sheet generates a **claim-summary PDF** (item details + warranty status + a list of the documents you have on file). Attach that PDF — plus the actual receipt/warranty-card files from the item's Documents tab — when you forward a claim to the manufacturer or insurer. (Embedding the document files into a single combined PDF is a planned enhancement — see [DEFERRED.md](../docs/DEFERRED.md).)
 
 ### 3.4 Surface required maintenance
 
 For categories where missing maintenance voids the warranty (HVAC filter changes, water heater anode rod, garage door spring), HavenKeep ships a maintenance schedule per category and reminds the user.
 
 - **Catalog schedules** seeded server-side in `maintenance_schedules`. Each task has `frequency_months`, `priority`, `is_required_for_warranty`, optional `how_to_url` and `video_url`.
-- **Per-item customisation** lets a user override the cadence (every 3 months → every 6 months) or opt out entirely. Persisted in `MaintenanceCustomization`.
+- **Per-item customisation** lets a user override the cadence (every 3 months → every 6 months) or opt out entirely. **Stored on the device** (SharedPreferences) for v1 — overrides and snoozes don't yet sync across devices or survive a reinstall. Server-side persistence is a planned enhancement — see [DEFERRED.md](../docs/DEFERRED.md).
 - **History** is logged via `MaintenanceHistory` rows. The dashboard's `View all` link opens the paginated history with calendar + list toggles.
 - **Bulk-mark-done** — power users with a Saturday cleaning routine can multi-select due tasks and check them off in one tap.
 
@@ -128,7 +127,7 @@ The hardest part of warranty tracking is the cold start. A new user might own 30
 
 **Privacy**: read-only scope only. We do not send mail, modify the inbox, change folders, or read messages outside the purchase-confirmation pattern. The user can revoke at any time from Google/Microsoft account settings; the app deletes our copy when they remove the integration.
 
-### 4.2 Partner program — closing gifts and lifetime commission
+### 4.2 Partner program — closing gifts and commission
 
 Realtors hand keys to homebuyers. That's the moment HavenKeep wants to be present.
 
@@ -154,9 +153,9 @@ Realtors hand keys to homebuyers. That's the moment HavenKeep wants to be presen
 1. The commission row sits at `pending` for 30 days (`COMMISSION_AUTO_APPROVE_HOLD_DAYS=30`) — the refund-protection window. A `charge.refunded` webhook within 30 days triggers a clawback (sibling reversal row with negative amount).
 2. After 30 days, the daily cron promotes `pending` → `approved`.
 3. Partner taps "Request payout" in the dashboard. The API calls `stripe.transfers.create` against the partner's Connect account and updates the commission to `paid` with the Stripe Transfer ID.
-4. Stripe issues 1099-NEC each January for partners who earn $600+ in a year. The dashboard's "Tax documents" button opens the Stripe Express dashboard via `stripe.accountLinks.create({ type: 'account_dashboard' })`.
+4. Stripe issues 1099-NEC each January for partners who earn $600+ in a year. The dashboard's "Tax documents" button opens the Stripe Express dashboard (`stripe.accounts.createLoginLink`).
 
-**Lifetime commission**: the partner also earns commission on every extended warranty the homebuyer purchases through HavenKeep — not just the gift itself. That's the long-tail revenue partners care about, and the reason this isn't a one-time referral program.
+Commission is earned on the **gifts a partner sends** — the per-gift commission rate is set by tier (see §5.2). A "lifetime commission on extended-warranty purchases by the partner's referred users" was previously described here; that depends on an extended-warranty marketplace that isn't built — see [DEFERRED.md](../docs/DEFERRED.md). It should not appear in marketing or the partner agreement.
 
 ---
 
@@ -175,9 +174,9 @@ Partner gifts grant Premium for a partner-chosen window between 1 and 12 months 
 
 ### 5.2 Partner
 
-| Tier | Per-gift | Commission |
+| Tier | Per-gift | Commission per gift |
 |---|---|---|
-| **Basic** | $99 | 10% on warranty sales |
+| **Basic** | $99 | 10% |
 | **Premium** | $149 | 15% |
 | **Platinum** | $249 | 20% |
 

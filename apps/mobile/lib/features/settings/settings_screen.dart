@@ -76,6 +76,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
+  /// CSV / PDF export is a Premium feature (PRODUCT.md §5.1). The data is
+  /// the user's own item list, so this gate is UI-only — a free user who
+  /// taps export is sent to the upgrade screen instead. Returns true when
+  /// the action may proceed.
+  bool _requirePremiumOrUpsell(BuildContext context, String feature) {
+    final isPremium =
+        ref.read(currentUserProvider).valueOrNull?.plan == UserPlan.premium;
+    if (isPremium) return true;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('$feature is a Premium feature.')),
+    );
+    context.push(AppRoutes.premium);
+    return false;
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = ref.watch(currentUserProvider);
@@ -200,6 +215,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             title: 'Export Warranties (CSV)',
             subtitle: 'Download all warranties as a spreadsheet',
             onTap: () async {
+              if (!_requirePremiumOrUpsell(context, 'CSV export')) return;
               final items = ref.read(itemsProvider).valueOrNull ?? [];
               if (items.isEmpty) {
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -222,8 +238,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           _SettingsTile(
             icon: Icons.picture_as_pdf_outlined,
             title: 'Export Warranties (PDF)',
-            subtitle: 'Insurance-ready warranty summary',
+            subtitle: 'Warranty summary you can keep or forward',
             onTap: () async {
+              if (!_requirePremiumOrUpsell(context, 'PDF export')) return;
               final items = ref.read(itemsProvider).valueOrNull ?? [];
               if (items.isEmpty) {
                 ScaffoldMessenger.of(context).showSnackBar(

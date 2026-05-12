@@ -283,9 +283,23 @@ router.put(
   idempotency('notifications:preferences'),
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
-    const prefs = { ...req.body, userId };
-    const result = await NotificationsService.upsertPreferences(userId, prefs);
+    const prefs: Record<string, unknown> = { ...req.body, userId };
 
+    // A custom reminder lead-time is a Premium feature (PRODUCT.md §5.1).
+    // Free users keep the default (30 days); drop the field from their
+    // upsert rather than 400 — every other preference still saves, and
+    // the mobile UI gates the slider so this is just the server-side
+    // backstop. (`firstReminderDays === 30` from a free client is a
+    // harmless no-op, so we only strip non-default attempts.)
+    if (
+      req.user!.plan !== 'premium' &&
+      prefs.firstReminderDays !== undefined &&
+      prefs.firstReminderDays !== 30
+    ) {
+      delete prefs.firstReminderDays;
+    }
+
+    const result = await NotificationsService.upsertPreferences(userId, prefs as any);
     sendSuccess(res, result);
   })
 );
