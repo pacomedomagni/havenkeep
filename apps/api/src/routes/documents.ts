@@ -8,6 +8,7 @@ import { uploadRateLimiter } from '../middleware/rateLimiter';
 import { idempotency } from '../middleware/idempotency';
 import { validate } from '../middleware/validate';
 import { uploadDocumentSchema, updateDocumentSchema, uuidParamSchema } from '../validators';
+import { config } from '../config';
 import { minioClient, BUCKET_NAME, generateObjectKey, presignedUrlForKey } from '../config/minio';
 import { logger } from '../utils/logger';
 import { AuditService } from '../services/audit.service';
@@ -141,6 +142,39 @@ router.post(
 
     if (itemCheck.rows.length === 0) {
       throw new AppError('Item not found', 404);
+    }
+
+    // PRODUCT.md §3.3/§5.1 — total document-storage cap (200 MB free /
+    // 2 GB premium), enforced server-side. Sum the user's existing
+    // `documents.file_size` and add the incoming batch; reject the whole
+    // batch (413) if it would push them over their plan's cap. The
+    // per-file 10 MB multer limit still applies independently.
+    {
+      const isPremium = req.user!.plan === 'premium';
+      const cap = isPremium
+        ? config.freeTier.documentStorageBytesPremium
+        : config.freeTier.documentStorageBytesFree;
+      const used = await query(
+        `SELECT COALESCE(SUM(file_size), 0)::bigint AS bytes
+           FROM documents WHERE user_id = $1`,
+        [req.user!.id],
+      );
+      const usedBytes = Number(used.rows[0]?.bytes ?? 0);
+      const incomingBytes = files.reduce((sum, f) => sum + (f.size || 0), 0);
+      if (usedBytes + incomingBytes > cap) {
+        const capMb = Math.round(cap / (1024 * 1024));
+        const remainingMb = Math.max(
+          0,
+          Math.round((cap - usedBytes) / (1024 * 1024)),
+        );
+        throw new AppError(
+          isPremium
+            ? `Storage limit reached (${capMb} MB). You have ~${remainingMb} MB free — remove some documents and try again.`
+            : `Free-plan storage limit reached (${capMb} MB). You have ~${remainingMb} MB free — remove some documents or upgrade to Premium for 2 GB.`,
+          413,
+          'STORAGE_LIMIT',
+        );
+      }
     }
 
     // Track every MinIO object we create so a failure mid-batch can

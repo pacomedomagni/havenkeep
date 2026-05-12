@@ -565,6 +565,9 @@ stripeWebhookRouter.post(
             },
             'payment_intent.payment_failed — async card decline / SCA timeout',
           );
+          // Expire any partner gift bound to this intent — for SCA-required
+          // intents that never produce a `charge`, this is the only signal.
+          await handlePaymentIntentFailed(intent);
           break;
         }
         case 'customer.deleted': {
@@ -951,6 +954,60 @@ async function handlePaymentIntentCanceled(intent: Stripe.PaymentIntent): Promis
   logger.info(
     { intentId, giftIds: result.rows.map((r) => r.id) },
     'payment_intent.canceled: gifts expired',
+  );
+}
+
+/**
+ * Handle payment_intent.payment_failed — expire any partner gift bound to
+ * this intent. For an SCA-required PaymentIntent that never produces a
+ * `charge` (so `charge.failed` never fires), this is the only signal that
+ * the gift purchase failed — without it the row would sit in
+ * 'pending_payment'/'created' until the daily `expireUnactivatedPartnerGifts`
+ * sweep (or indefinitely, if no `expires_at` was set). Matches both phase
+ * states so it works whether the failure hit before or after the row was
+ * promoted to 'created'. Idempotent — the WHERE excludes already-expired
+ * rows; a redelivered event is a no-op.
+ */
+async function handlePaymentIntentFailed(intent: Stripe.PaymentIntent): Promise<void> {
+  const intentId = intent.id;
+  const giftIdHint = (intent.metadata?.gift_id as string | undefined) ?? null;
+
+  const result = await pool.query(
+    `UPDATE partner_gifts
+        SET status = 'expired', updated_at = NOW()
+      WHERE (stripe_charge_id = $1 OR ($2::uuid IS NOT NULL AND id = $2::uuid))
+        AND status IN ('pending_payment', 'created')
+      RETURNING id, partner_id, homebuyer_email`,
+    [intentId, giftIdHint],
+  );
+
+  if (result.rows.length === 0) {
+    logger.info(
+      { intentId, giftIdHint },
+      'payment_intent.payment_failed: no matching gift to expire',
+    );
+    return;
+  }
+
+  for (const row of result.rows) {
+    await pool.query(
+      `UPDATE partner_commissions
+          SET status = 'cancelled', updated_at = NOW()
+        WHERE reference_id = $1
+          AND reference_type = 'partner_gift'
+          AND status = 'pending'`,
+      [row.id],
+    );
+  }
+
+  logger.warn(
+    {
+      intentId,
+      giftIds: result.rows.map((r) => r.id),
+      lastError: intent.last_payment_error?.message,
+      code: intent.last_payment_error?.code,
+    },
+    'payment_intent.payment_failed: partner gift(s) expired',
   );
 }
 

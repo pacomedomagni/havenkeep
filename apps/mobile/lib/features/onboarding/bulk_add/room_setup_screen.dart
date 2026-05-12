@@ -44,11 +44,14 @@ class _RoomSetupScreenState extends ConsumerState<RoomSetupScreen> {
     );
 
     if (existingIndex >= 0) {
-      // Deselect
+      // Deselect. Removing an item shifts every later index down by one,
+      // so the per-index maps would alias the wrong rows for a frame —
+      // clear them all and let the next build re-seed from the (updated)
+      // provider list, which is the source of truth.
       notifier.removeItem(existingIndex);
-      _brandControllers.remove(existingIndex)?.dispose();
-      _purchaseDates.remove(existingIndex);
-      _warrantyMonths.remove(existingIndex);
+      _disposeAndClearControllers();
+      _purchaseDates.clear();
+      _warrantyMonths.clear();
     } else {
       // Select
       final item = BulkAddItem(
@@ -413,7 +416,14 @@ class _RoomSetupScreenState extends ConsumerState<RoomSetupScreen> {
     final brandsAsync = ref.watch(brandSuggestionsProvider(item.category));
     final brands = brandsAsync.value ?? [];
 
-    if (!_brandControllers.containsKey(index)) {
+    // Controller is only needed for the *no-suggestions* TextFormField
+    // branch — and only that one is screen-owned, so only that one gets
+    // disposed in [dispose]. The Autocomplete branch manages its own
+    // internal controller; we must never store it here (storing it caused
+    // a double-dispose: screen disposed it AND Autocomplete's State did).
+    // Edits flow to the provider via [_updateItemBrand] in both branches,
+    // so re-reading `item.brand` is always the source of truth.
+    if (brands.isEmpty && !_brandControllers.containsKey(index)) {
       _brandControllers[index] =
           TextEditingController(text: item.brand ?? '');
     }
@@ -460,8 +470,13 @@ class _RoomSetupScreenState extends ConsumerState<RoomSetupScreen> {
                     isDestructive: true,
                   );
                   if (confirmed) {
+                    // See _toggleAppliance — clear the per-index maps so
+                    // the post-removal index shift doesn't alias rows.
                     ref.read(bulkAddProvider.notifier).removeItem(index);
-                    _brandControllers.remove(index)?.dispose();
+                    _disposeAndClearControllers();
+                    _purchaseDates.clear();
+                    _warrantyMonths.clear();
+                    if (mounted) setState(() {});
                   }
                 },
                 child: const Icon(
@@ -477,8 +492,7 @@ class _RoomSetupScreenState extends ConsumerState<RoomSetupScreen> {
           // Brand field
           if (brands.isNotEmpty)
             Autocomplete<String>(
-              initialValue:
-                  TextEditingValue(text: _brandControllers[index]?.text ?? ''),
+              initialValue: TextEditingValue(text: item.brand ?? ''),
               optionsBuilder: (textEditingValue) {
                 if (textEditingValue.text.isEmpty) return brands;
                 return brands.where((b) => b
@@ -487,7 +501,6 @@ class _RoomSetupScreenState extends ConsumerState<RoomSetupScreen> {
               },
               fieldViewBuilder:
                   (context, controller, focusNode, onFieldSubmitted) {
-                _brandControllers[index] = controller;
                 return TextFormField(
                   controller: controller,
                   focusNode: focusNode,

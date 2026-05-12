@@ -525,7 +525,17 @@ function scheduleExpirationNotifications() {
     }
   };
 
-  scheduleNext();
+  // Run the batch once at process boot, then schedule the next 09:00-ET
+  // window. Without this, a deploy/restart that crosses the daily boundary
+  // (frequent on staging — `ship.sh` force-recreates the container) would
+  // re-arm the timer to "next 14:00 UTC" each time and a pod that lives
+  // < 24h could skip a whole day of expiry notifications, soft-delete
+  // purge, dead-letter alerts and the audit-chain check. The jobs are all
+  // advisory-locked and idempotent (24h dedup on notifications, status
+  // gates on the rest), so a redundant boot run is harmless.
+  runJobs().catch((err) => {
+    logger.error({ err }, 'Initial boot run of the daily job batch failed');
+  });
   driftCheckTimer = setInterval(driftCheck, SCHEDULER_DRIFT_CHECK_MS);
   driftCheckTimer.unref();
 }
@@ -574,11 +584,13 @@ function startDigestTick(): void {
     }, delay);
     timer.unref();
   };
-  // Kick off the first tick after the standard interval. Process boot
-  // already runs the daily cron once, which covers the first window.
+  // Kick off the first tick shortly after boot (not after a full interval)
+  // so a short-lived pod still flushes any already-due digest rows once.
+  // Due rows are FOR UPDATE SKIP LOCKED, so a missed tick just shifts to
+  // the next pod — but flushing promptly keeps worst-case latency tight.
   timer = setTimeout(() => {
     tick().catch(() => {});
-  }, DIGEST_TICK_INTERVAL_MS);
+  }, 5_000);
   timer.unref();
 }
 

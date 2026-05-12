@@ -17,6 +17,8 @@ export type AppErrorCode =
   | 'UPSTREAM_FAILED'
   | 'CSRF_FAILED'
   | 'UNHEALTHY'
+  | 'PAYLOAD_TOO_LARGE'
+  | 'STORAGE_LIMIT'
   | 'INTERNAL'
   // H-A1 (audit): distinguished code so the mobile / dashboard UI can
   // route a within-grace soft-deleted login to the recover prompt

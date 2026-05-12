@@ -381,8 +381,13 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
                       child: child,
                     ),
                     child: KeyedSubtree(
+                      // Order-stable key — a Set's iteration order is
+                      // insertion order, so sort before joining or
+                      // toggling the same two filters in a different
+                      // order would spuriously refade + reset scroll.
                       key: ValueKey(
-                        '${activeFilters.join(",")}_${sortMode.name}',
+                        '${(activeFilters.map((s) => s.index).toList()..sort()).join(",")}'
+                        '_${sortMode.name}',
                       ),
                       child: sorted.isEmpty
                           ? _buildNoResults()

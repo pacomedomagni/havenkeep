@@ -717,12 +717,17 @@ class _HomeSwitcher extends ConsumerWidget {
     final homesList = homesAsync.valueOrNull ?? [];
 
     if (homesList.length <= 1) {
-      return Text(
-        currentHome?.name ?? 'HavenKeep',
-        style: const TextStyle(
-          fontWeight: FontWeight.w700,
-          letterSpacing: -0.2,
-          color: HavenColors.textPrimary,
+      // Flexible + ellipsis — a long home name must not overflow the
+      // AppBar Row (which is mainAxisSize.min next to the logo).
+      return Flexible(
+        child: Text(
+          currentHome?.name ?? 'HavenKeep',
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            fontWeight: FontWeight.w700,
+            letterSpacing: -0.2,
+            color: HavenColors.textPrimary,
+          ),
         ),
       );
     }

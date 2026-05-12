@@ -47,14 +47,12 @@ router.post('/lookup', validate(barcodeLookupSchema), asyncHandler(async (req: A
   const { barcode } = req.body;
   const user = req.user!;
 
-  // F103: bump per-user quota first; over-quota requests don't consume any
-  // upstream budget. The plan string lives on req.user (premium gating
-  // already filtered free out, but treat conservatively).
-  await consumeBarcodeQuota(user.id, (user as any).plan ?? 'premium');
-
   logger.info({ barcode, userId: user.id }, 'Barcode lookup requested');
 
-  // Serve from Redis cache if available (avoids hitting rate-limited trial API)
+  // Serve from Redis cache if available (avoids hitting rate-limited trial
+  // API). A cache hit does NOT consume the per-user daily quota — only an
+  // actual upstream call does (the quota exists to ration the shared
+  // upcitemdb trial cap, which a cached result doesn't touch).
   const cacheKey = `barcode:${barcode}`;
   try {
     const redis = await getRedisClient();
@@ -66,6 +64,12 @@ router.post('/lookup', validate(barcodeLookupSchema), asyncHandler(async (req: A
   } catch (err) {
     logger.warn({ err, barcode }, 'Redis cache read failed for barcode, proceeding with API call');
   }
+
+  // Cache miss — we're about to spend an upstream lookup. Charge quota
+  // now; an over-quota request throws 429 before any upstream budget is
+  // consumed. (Premium gating already filtered free users out; treat the
+  // plan conservatively if it's somehow absent.)
+  await consumeBarcodeQuota(user.id, (user as any).plan ?? 'premium');
 
   // Try UPC Database API (general product database, not food-only)
   const controller = new AbortController();
@@ -107,8 +111,17 @@ router.post('/lookup', validate(barcodeLookupSchema), asyncHandler(async (req: A
     });
   }
 
-  const data: any = await response.json();
-  if (data.items && data.items.length > 0) {
+  let data: any;
+  try {
+    data = await response.json();
+  } catch (err) {
+    logger.error({ err, barcode }, 'Barcode API returned a non-JSON body');
+    return res.status(502).json({
+      error: 'Barcode lookup service unavailable',
+      message: 'External API returned an unparseable response',
+    });
+  }
+  if (data && Array.isArray(data.items) && data.items.length > 0) {
     const product = data.items[0];
     logger.info({ barcode, found: true }, 'Barcode found');
     const result = {

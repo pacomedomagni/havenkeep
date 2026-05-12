@@ -221,6 +221,17 @@ export const config = {
 
   freeTier: {
     itemLimit: intFromEnv('FREE_TIER_ITEM_LIMIT', 5),
+    // Total document-storage cap, in bytes. Free = 200 MB, Premium = 2 GB
+    // (PRODUCT.md §3.3 / §5.1). Enforced server-side in routes/documents.ts
+    // by summing `documents.file_size` for the user before each upload.
+    documentStorageBytesFree: intFromEnv(
+      'FREE_TIER_DOCUMENT_STORAGE_BYTES',
+      200 * 1024 * 1024,
+    ),
+    documentStorageBytesPremium: intFromEnv(
+      'PREMIUM_DOCUMENT_STORAGE_BYTES',
+      2 * 1024 * 1024 * 1024,
+    ),
   },
 
   // RevenueCat: 'PRODUCTION' webhook events are always processed. Sandbox

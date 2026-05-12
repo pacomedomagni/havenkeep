@@ -94,7 +94,12 @@ sealed class ApiException implements Exception {
     if (statusCode == 409) {
       return ApiConflictException(statusCode, message, code: code);
     }
-    if (statusCode == 422 || statusCode == 400) {
+    if (statusCode == 422 || statusCode == 400 || statusCode == 413) {
+      // 413 (Payload Too Large) is used by the API for the document
+      // storage-quota limit; it carries a user-facing message worth
+      // showing, so route it through ApiValidationException (which
+      // surfaces a meaningful server message) rather than the generic
+      // ApiUnknownException fallback.
       return ApiValidationException(statusCode, message, code: code);
     }
     if (statusCode == 429) {

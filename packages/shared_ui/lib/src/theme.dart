@@ -87,11 +87,11 @@ class HavenRadius {
   static const double chip = 20;
   static const double micro = 4;
 
-  static BorderRadius pillRadius = BorderRadius.circular(pill);
-  static BorderRadius cardRadius = BorderRadius.circular(card);
-  static BorderRadius buttonRadius = BorderRadius.circular(button);
-  static BorderRadius inputRadius = BorderRadius.circular(input);
-  static BorderRadius chipRadius = BorderRadius.circular(chip);
+  static final BorderRadius pillRadius = BorderRadius.circular(pill);
+  static final BorderRadius cardRadius = BorderRadius.circular(card);
+  static final BorderRadius buttonRadius = BorderRadius.circular(button);
+  static final BorderRadius inputRadius = BorderRadius.circular(input);
+  static final BorderRadius chipRadius = BorderRadius.circular(chip);
 }
 
 // ============================================

@@ -1238,6 +1238,12 @@ router.post('/reset-password', authRateLimiter, validate(resetPasswordSchema), a
     client.release();
   }
 
+  // Bust the Redis user-row cache so a replica holding the pre-reset row
+  // (which still has tokens_invalidated_at = NULL) can't keep accepting
+  // the old access token for up to USER_CACHE_TTL_SEC. Mirrors
+  // /me/password and /verify-email-change.
+  await invalidateUserCache(userId).catch(() => {});
+
   // Audit log: password reset completed (best-effort)
   logAuthBestEffort({
     action: 'auth.password_reset_complete',
