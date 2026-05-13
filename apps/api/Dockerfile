@@ -34,7 +34,11 @@ RUN apk add --no-cache curl
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/package.json ./
-COPY --from=builder /app/src/db ./src/db
+# Ship the full src/ tree so `npm run db:migrate` and `npm run db:seed`
+# (both `tsx src/...`) can resolve their cross-directory imports — seed
+# pulls in src/config + src/utils, not just src/db. The runtime entrypoint
+# is still `node dist/index.js`; src/ is only walked by admin commands.
+COPY --from=builder /app/src ./src
 # Copy SQL migration files alongside compiled JS so `node dist/db/migrations/run-migration.js` works
 COPY --from=builder /app/src/db/schema.sql ./dist/db/schema.sql
 COPY --from=builder /app/src/db/migrations/*.sql ./dist/db/migrations/
