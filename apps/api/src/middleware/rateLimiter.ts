@@ -217,6 +217,16 @@ function createEndpointRateLimiter(options: {
       standardHeaders: true,
       legacyHeaders: false,
       ...(store ? { store: store as any } : {}),
+      // The build() closure is intentionally invoked on first request,
+      // not at module init, because the shared Redis client only
+      // resolves once initializeEndpointRedis() has finished — that's
+      // the whole reason this factory exists (see Audit S-CR-03 above).
+      // The express-rate-limit validator can't see that nuance and
+      // logs ERR_ERL_CREATED_IN_REQUEST_HANDLER on every limiter's
+      // first hit, polluting prod logs. Disable just that one check
+      // so the rest of the validator (which catches actual misuse)
+      // still runs.
+      validate: { creationStack: false },
     });
   };
 
