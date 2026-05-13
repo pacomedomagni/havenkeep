@@ -121,60 +121,80 @@ class HavenElevation {
         _ => HavenColors.surfaceHigh,
       };
 
-  /// Ambient shadow for a given level. Two stacked shadows — a tight close
-  /// one for contact + a wide soft one for the cast — which is what reads
-  /// as a real object rather than a flat drop-shadow.
+  /// Ambient shadow for a given level. Three stacked shadows — a sharp
+  /// contact shadow that anchors the element, a mid-falloff body shadow,
+  /// and a wide ambient cast — which is what reads as a real physical
+  /// object under a soft light source rather than a flat drop-shadow.
+  /// Calibrated against Cron's depth language: tighter spread, deeper
+  /// contact, longer ambient.
   static List<BoxShadow> shadowFor(int level) => switch (level) {
         <= 0 => const [],
         1 => [
             BoxShadow(
-              color: _shadow.withValues(alpha: 0.20),
-              blurRadius: 12,
+              color: _shadow.withValues(alpha: 0.28),
+              blurRadius: 1,
+              offset: const Offset(0, 1),
+            ),
+            BoxShadow(
+              color: _shadow.withValues(alpha: 0.18),
+              blurRadius: 10,
               offset: const Offset(0, 4),
             ),
             BoxShadow(
-              color: _shadow.withValues(alpha: 0.12),
-              blurRadius: 28,
-              offset: const Offset(0, 12),
+              color: _shadow.withValues(alpha: 0.10),
+              blurRadius: 32,
+              offset: const Offset(0, 16),
             ),
           ],
         2 => [
             BoxShadow(
-              color: _shadow.withValues(alpha: 0.26),
-              blurRadius: 16,
+              color: _shadow.withValues(alpha: 0.32),
+              blurRadius: 1,
+              offset: const Offset(0, 1),
+            ),
+            BoxShadow(
+              color: _shadow.withValues(alpha: 0.22),
+              blurRadius: 14,
               offset: const Offset(0, 6),
             ),
             BoxShadow(
-              color: _shadow.withValues(alpha: 0.16),
-              blurRadius: 40,
-              offset: const Offset(0, 18),
+              color: _shadow.withValues(alpha: 0.14),
+              blurRadius: 48,
+              offset: const Offset(0, 22),
             ),
           ],
         _ => [
             BoxShadow(
-              color: _shadow.withValues(alpha: 0.34),
-              blurRadius: 24,
+              color: _shadow.withValues(alpha: 0.38),
+              blurRadius: 1,
+              offset: const Offset(0, 1),
+            ),
+            BoxShadow(
+              color: _shadow.withValues(alpha: 0.28),
+              blurRadius: 22,
               offset: const Offset(0, 10),
             ),
             BoxShadow(
-              color: _shadow.withValues(alpha: 0.22),
-              blurRadius: 56,
-              offset: const Offset(0, 28),
+              color: _shadow.withValues(alpha: 0.18),
+              blurRadius: 64,
+              offset: const Offset(0, 32),
             ),
           ],
       };
 
   /// A gradient that fakes a faint light-from-above sheen on a surface.
-  /// Layer it over the surface color at low opacity. Used by [HavenCard]'s
-  /// elevated/highlight variants.
+  /// Cron-language calibration — slightly stronger top highlight (12%
+  /// instead of 5%) and a longer fall-off so the sheen is a real
+  /// "light entering from a window" effect, not a flat tint.
   static LinearGradient sheen({double strength = 1}) => LinearGradient(
         begin: Alignment.topCenter,
         end: Alignment.bottomCenter,
         colors: [
-          Colors.white.withValues(alpha: 0.05 * strength),
+          Colors.white.withValues(alpha: 0.08 * strength),
+          Colors.white.withValues(alpha: 0.02 * strength),
           Colors.white.withValues(alpha: 0.0),
         ],
-        stops: const [0.0, 0.55],
+        stops: const [0.0, 0.4, 0.85],
       );
 
   /// A soft colored glow — a wide, low-alpha blurred shadow in [color].

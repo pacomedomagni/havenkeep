@@ -290,7 +290,9 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const BulkAddCompleteScreen(),
       ),
 
-      // Main app shell with bottom nav
+      // Main app shell with bottom nav (5 tabs).
+      // Settings + Notifications live INSIDE the shell so the bottom nav
+      // stays visible when a user taps the Profile or Alerts tab.
       ShellRoute(
         navigatorKey: _shellNavigatorKey,
         builder: (context, state, child) => MainScaffold(child: child),
@@ -314,6 +316,20 @@ final routerProvider = Provider<GoRouter>((ref) {
             pageBuilder: (context, state) => _fadeThroughPage(
               state: state,
               child: const MaintenanceScreen(),
+            ),
+          ),
+          GoRoute(
+            path: AppRoutes.notifications,
+            pageBuilder: (context, state) => _fadeThroughPage(
+              state: state,
+              child: const NotificationsScreen(),
+            ),
+          ),
+          GoRoute(
+            path: AppRoutes.settings,
+            pageBuilder: (context, state) => _fadeThroughPage(
+              state: state,
+              child: const SettingsScreen(),
             ),
           ),
         ],
@@ -393,26 +409,15 @@ final routerProvider = Provider<GoRouter>((ref) {
         },
       ),
 
-      // Settings
-      GoRoute(
-        path: AppRoutes.settings,
-        parentNavigatorKey: _rootNavigatorKey,
-        builder: (context, state) => const SettingsScreen(),
-      ),
-
-      // Profile
+      // Profile detail (sub-screen of Settings tab — root-parented so it
+      // pushes above the shell with a back button).
       GoRoute(
         path: AppRoutes.profile,
         parentNavigatorKey: _rootNavigatorKey,
         builder: (context, state) => const ProfileScreen(),
       ),
-
-      // Notifications
-      GoRoute(
-        path: AppRoutes.notifications,
-        parentNavigatorKey: _rootNavigatorKey,
-        builder: (context, state) => const NotificationsScreen(),
-      ),
+      // NOTE: AppRoutes.settings + AppRoutes.notifications are tab roots
+      // and live inside the ShellRoute above.
 
       // Notification Preferences
       GoRoute(

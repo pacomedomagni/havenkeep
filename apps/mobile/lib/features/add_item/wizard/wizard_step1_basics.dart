@@ -158,7 +158,7 @@ class _WizardStep1BasicsState extends State<WizardStep1Basics> {
                 ),
                 child: const Text(
                   'Continue',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                  style: HavenText.titleLarge,
                 ),
               ),
             ),

@@ -8,10 +8,11 @@ import 'package:shared_ui/shared_ui.dart';
 import '../../core/providers/warranty_claims_provider.dart';
 import '../../core/utils/error_handler.dart';
 import '../../core/utils/money_formatter.dart';
-import '../../core/widgets/haven_illustration.dart';
 import '../../core/widgets/haven_loader.dart';
 
-/// Screen showing all warranty claims with a savings summary card.
+/// Warranty claims list — savings hero card on top, claims as
+/// [HavenListItem] rows, community savings feed below. Every visual
+/// element routes through the shared design system.
 class ClaimsListScreen extends ConsumerWidget {
   const ClaimsListScreen({super.key});
 
@@ -23,63 +24,42 @@ class ClaimsListScreen extends ConsumerWidget {
     final dateFormat = DateFormat.yMMMd();
 
     return Scaffold(
-      backgroundColor: HavenColors.background,
-      appBar: AppBar(title: const Text('Warranty Claims')),
+      backgroundColor: HavenColors.canvas,
+      appBar: const HavenAppBar(title: 'Warranty Claims'),
       body: claimsAsync.when(
         loading: () => const Center(child: HavenLoader()),
         error: (e, _) => Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(ErrorHandler.getUserMessage(e), style: const TextStyle(color: HavenColors.textSecondary)),
-              const SizedBox(height: 8),
-              TextButton(
-                onPressed: () => ref.invalidate(claimsProvider),
-                child: const Text('Retry'),
-              ),
-            ],
+          child: Padding(
+            padding: const EdgeInsets.all(HavenSpacing.xl),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  ErrorHandler.getUserMessage(e),
+                  style: HavenText.bodySecondary,
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: HavenSpacing.md),
+                HavenButton.tertiary(
+                  label: 'Try again',
+                  onPressed: () => ref.invalidate(claimsProvider),
+                  leadingIcon: Icons.refresh,
+                ),
+              ],
+            ),
           ),
         ),
         data: (claims) {
           if (claims.isEmpty) {
-            return Center(
-              child: Padding(
-                padding: const EdgeInsets.all(HavenSpacing.xl),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const HavenIllustration(
-                      kind: HavenIllustrationKind.noClaims,
-                      size: 180,
-                    ),
-                    const SizedBox(height: HavenSpacing.md),
-                    const Text(
-                      'No warranty claims yet',
-                      style: HavenText.displayMedium,
-                    ),
-                    const SizedBox(height: HavenSpacing.sm),
-                    const Text(
-                      'File a claim when something breaks under warranty\n'
-                      'and track repairs, refunds, and savings here.',
-                      textAlign: TextAlign.center,
-                      style: HavenText.bodySecondary,
-                    ),
-                    const SizedBox(height: HavenSpacing.lg),
-                    OutlinedButton.icon(
-                      onPressed: () => context.push('/items'),
-                      icon: const Icon(Icons.inventory_2_outlined, size: 18),
-                      label: const Text('Pick an item to file a claim'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: HavenColors.primary,
-                        side: const BorderSide(color: HavenColors.primary),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: HavenSpacing.lg,
-                          vertical: HavenSpacing.md,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+            return HavenEmptyState(
+              icon: Icons.shield_outlined,
+              title: 'No warranty claims yet',
+              body: 'File a claim when something breaks under warranty '
+                  'and track repairs, refunds, and savings here.',
+              primaryAction: HavenEmptyAction(
+                label: 'Pick an item to file a claim',
+                icon: Icons.inventory_2_outlined,
+                onPressed: () => context.push('/items'),
               ),
             );
           }
@@ -87,64 +67,33 @@ class ClaimsListScreen extends ConsumerWidget {
           return ListView(
             padding: const EdgeInsets.all(HavenSpacing.md),
             children: [
-              // Savings summary card
+              // Savings hero card
               savingsAsync.when(
                 data: (savings) {
-                  final totalSaved = (savings['total_savings'] as num?)?.toDouble() ?? 0;
-                  final totalClaims = (savings['total_claims'] as num?)?.toInt() ?? 0;
-
-                  return Container(
-                    padding: const EdgeInsets.all(HavenSpacing.lg),
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [HavenColors.primary, HavenColors.secondary],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      borderRadius: BorderRadius.circular(HavenRadius.card),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'TOTAL SAVINGS',
-                          style: HavenText.badge.copyWith(
-                            color: HavenColors.textPrimary.withValues(alpha: 0.75),
-                            letterSpacing: 1.2,
-                          ),
-                        ),
-                        const SizedBox(height: HavenSpacing.sm),
-                        Text(
-                          Money.format(totalSaved),
-                          style: HavenText.stat.copyWith(fontSize: 32),
-                        ),
-                        const SizedBox(height: HavenSpacing.xs),
-                        Text(
-                          '$totalClaims claim${totalClaims == 1 ? '' : 's'} filed',
-                          style: HavenText.bodySecondary.copyWith(
-                            color: HavenColors.textPrimary.withValues(alpha: 0.75),
-                          ),
-                        ),
-                      ],
-                    ),
+                  final totalSaved =
+                      (savings['total_savings'] as num?)?.toDouble() ?? 0;
+                  final totalClaims =
+                      (savings['total_claims'] as num?)?.toInt() ?? 0;
+                  return _SavingsHeroCard(
+                    totalSaved: totalSaved,
+                    totalClaims: totalClaims,
                   );
                 },
-                loading: () => Container(
-                  height: 120,
-                  decoration: BoxDecoration(
-                    color: HavenColors.elevated,
-                    borderRadius: BorderRadius.circular(HavenRadius.card),
+                loading: () => const HavenCard(
+                  child: SizedBox(
+                    height: 96,
+                    child: Center(child: SkeletonBox(width: 160, height: 28)),
                   ),
                 ),
                 error: (_, __) => const SizedBox.shrink(),
               ),
               const SizedBox(height: HavenSpacing.lg),
 
-              // Claims list
-              ...claims.map((claim) => _ClaimCard(
-                    claim: claim,
-                    dateFormat: dateFormat,
-                  )),
+              // Claims list — each row is its own HavenListItem (card style).
+              for (final claim in claims) ...[
+                _ClaimRow(claim: claim, dateFormat: dateFormat),
+                const SizedBox(height: HavenSpacing.sm),
+              ],
 
               // Community savings feed
               feedAsync.when(
@@ -156,7 +105,10 @@ class ClaimsListScreen extends ConsumerWidget {
                       const SizedBox(height: HavenSpacing.lg),
                       const SectionHeader(title: 'COMMUNITY SAVINGS'),
                       const SizedBox(height: HavenSpacing.sm),
-                      ...feed.map((entry) => _SavingsFeedEntry(entry: entry)),
+                      for (final entry in feed) ...[
+                        _SavingsFeedRow(entry: entry),
+                        const SizedBox(height: HavenSpacing.sm),
+                      ],
                     ],
                   );
                 },
@@ -172,11 +124,52 @@ class ClaimsListScreen extends ConsumerWidget {
   }
 }
 
-class _ClaimCard extends ConsumerWidget {
+class _SavingsHeroCard extends StatelessWidget {
+  final double totalSaved;
+  final int totalClaims;
+
+  const _SavingsHeroCard({
+    required this.totalSaved,
+    required this.totalClaims,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return HavenCard.highlight(
+      glow: HavenColors.primary,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'TOTAL SAVINGS',
+            style: HavenText.badge.copyWith(
+              color: HavenColors.textPrimary.withValues(alpha: 0.78),
+              letterSpacing: 1.2,
+            ),
+          ),
+          const SizedBox(height: HavenSpacing.sm),
+          Text(
+            Money.format(totalSaved),
+            style: HavenText.stat.copyWith(fontSize: 34),
+          ),
+          const SizedBox(height: HavenSpacing.xs),
+          Text(
+            '$totalClaims claim${totalClaims == 1 ? '' : 's'} filed',
+            style: HavenText.bodySecondary.copyWith(
+              color: HavenColors.textPrimary.withValues(alpha: 0.78),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ClaimRow extends ConsumerWidget {
   final WarrantyClaim claim;
   final DateFormat dateFormat;
 
-  const _ClaimCard({required this.claim, required this.dateFormat});
+  const _ClaimRow({required this.claim, required this.dateFormat});
 
   Color _statusColor(ClaimStatus status) => switch (status) {
         ClaimStatus.filed => HavenColors.expiring,
@@ -193,6 +186,14 @@ class _ClaimCard extends ConsumerWidget {
     final itemLabel = claim.itemBrand != null
         ? '${claim.itemBrand} ${claim.itemName ?? ''}'.trim()
         : claim.itemName ?? 'Item';
+
+    final subtitleParts = <String>[
+      if (claim.issueDescription != null) claim.issueDescription!,
+    ];
+    final supplementaryParts = <String>[
+      dateFormat.format(claim.claimDate),
+      if (claim.amountSaved > 0) 'Saved ${Money.format(claim.amountSaved)}',
+    ];
 
     return Dismissible(
       key: Key(claim.id),
@@ -218,90 +219,46 @@ class _ClaimCard extends ConsumerWidget {
       onDismissed: (_) {
         ref.read(claimsProvider.notifier).deleteClaim(claim.id);
       },
-      child: GestureDetector(
+      child: HavenListItem(
+        title: itemLabel,
+        subtitle: subtitleParts.isEmpty ? null : subtitleParts.join(' · '),
+        supplementary: supplementaryParts.join('  ·  '),
+        accent: color,
+        trailing: _StatusBadge(color: color, label: claim.status.displayLabel),
         onTap: () => context.push('/items/${claim.itemId}'),
-        child: Container(
-          margin: const EdgeInsets.only(bottom: HavenSpacing.sm),
-          padding: const EdgeInsets.all(HavenSpacing.md),
-          decoration: BoxDecoration(
-            color: HavenColors.surface,
-            borderRadius: BorderRadius.circular(HavenRadius.card),
-            border: Border.all(color: HavenColors.border),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      itemLabel,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w600,
-                        color: HavenColors.textPrimary,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: HavenSpacing.sm,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: color.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(HavenRadius.chip),
-                    ),
-                    child: Text(
-                      claim.status.displayLabel,
-                      style: HavenText.badge.copyWith(
-                        color: color,
-                        letterSpacing: 0,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: HavenSpacing.sm),
-              if (claim.issueDescription != null) ...[
-                Text(
-                  claim.issueDescription!,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: HavenText.meta,
-                ),
-                const SizedBox(height: HavenSpacing.sm),
-              ],
-              Row(
-                children: [
-                  Text(
-                    dateFormat.format(claim.claimDate),
-                    style: HavenText.caption,
-                  ),
-                  const Spacer(),
-                  if (claim.amountSaved > 0)
-                    Text(
-                      'Saved ${Money.format(claim.amountSaved)}',
-                      style: HavenText.caption.copyWith(
-                        color: HavenColors.active,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                ],
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }
 }
 
-class _SavingsFeedEntry extends StatelessWidget {
+class _StatusBadge extends StatelessWidget {
+  final Color color;
+  final String label;
+  const _StatusBadge({required this.color, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: HavenSpacing.sm,
+        vertical: 2,
+      ),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(HavenRadius.chip),
+      ),
+      child: Text(
+        label,
+        style: HavenText.badge.copyWith(color: color, letterSpacing: 0),
+      ),
+    );
+  }
+}
+
+class _SavingsFeedRow extends StatelessWidget {
   final Map<String, dynamic> entry;
 
-  const _SavingsFeedEntry({required this.entry});
+  const _SavingsFeedRow({required this.entry});
 
   @override
   Widget build(BuildContext context) {
@@ -311,65 +268,32 @@ class _SavingsFeedEntry extends StatelessWidget {
     final displayText = entry['display_text'] as String?;
     final claimType = entry['claim_type'] as String?;
 
-    final location = [city, state].where((s) => s != null && s.isNotEmpty).join(', ');
+    final location =
+        [city, state].where((s) => s != null && s.isNotEmpty).join(', ');
     final subtitle = displayText ?? claimType ?? 'Warranty claim';
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: HavenSpacing.sm),
-      padding: const EdgeInsets.all(HavenSpacing.md),
-      decoration: BoxDecoration(
-        color: HavenColors.surface,
-        borderRadius: BorderRadius.circular(HavenRadius.card),
-        border: Border.all(color: HavenColors.border),
+    return HavenListItem(
+      leading: Container(
+        width: 36,
+        height: 36,
+        decoration: BoxDecoration(
+          color: HavenColors.active.withValues(alpha: 0.12),
+          shape: BoxShape.circle,
+        ),
+        child: const Icon(
+          Icons.savings_outlined,
+          color: HavenColors.active,
+          size: 18,
+        ),
       ),
-      child: Row(
-        children: [
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: HavenColors.active.withValues(alpha: 0.12),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(
-              Icons.savings_outlined,
-              color: HavenColors.active,
-              size: 18,
-            ),
-          ),
-          const SizedBox(width: HavenSpacing.sm),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  subtitle,
-                  style: HavenText.meta.copyWith(
-                    color: HavenColors.textPrimary,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                if (location.isNotEmpty)
-                  Text(
-                    location,
-                    style: HavenText.badge.copyWith(
-                      fontWeight: FontWeight.w400,
-                      letterSpacing: 0,
-                      color: HavenColors.textTertiary,
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          Text(
-            '${Money.formatWhole(amount)} saved',
-            style: HavenText.meta.copyWith(
-              color: HavenColors.active,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
+      title: subtitle,
+      subtitle: location.isEmpty ? null : location,
+      trailing: Text(
+        '${Money.formatWhole(amount)} saved',
+        style: HavenText.meta.copyWith(
+          color: HavenColors.active,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     );
   }

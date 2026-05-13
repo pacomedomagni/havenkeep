@@ -256,7 +256,7 @@ class _WizardStep3DetailsState extends State<WizardStep3Details> {
                         SizedBox(width: 8),
                         Text(
                           'Save Item',
-                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                          style: HavenText.titleLarge,
                         ),
                       ],
                     ),

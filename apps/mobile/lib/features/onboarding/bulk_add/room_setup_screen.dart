@@ -512,7 +512,7 @@ class _RoomSetupScreenState extends ConsumerState<RoomSetupScreen> {
                       vertical: HavenSpacing.sm,
                     ),
                   ),
-                  style: const TextStyle(fontSize: 14),
+                  style: HavenText.body,
                   onChanged: (value) => _updateItemBrand(index, value),
                 );
               },
@@ -535,7 +535,7 @@ class _RoomSetupScreenState extends ConsumerState<RoomSetupScreen> {
                             dense: true,
                             title: Text(
                               option,
-                              style: const TextStyle(fontSize: 14),
+                              style: HavenText.body,
                             ),
                             onTap: () {
                               onSelected(option);
@@ -560,7 +560,7 @@ class _RoomSetupScreenState extends ConsumerState<RoomSetupScreen> {
                   vertical: HavenSpacing.sm,
                 ),
               ),
-              style: const TextStyle(fontSize: 14),
+              style: HavenText.body,
               onChanged: (value) => _updateItemBrand(index, value),
             ),
 
@@ -584,7 +584,7 @@ class _RoomSetupScreenState extends ConsumerState<RoomSetupScreen> {
                     ),
                     child: Text(
                       _formatDate(date),
-                      style: const TextStyle(fontSize: 13),
+                      style: HavenText.meta,
                     ),
                   ),
                 ),
@@ -605,7 +605,7 @@ class _RoomSetupScreenState extends ConsumerState<RoomSetupScreen> {
                     ),
                   ),
                   dropdownColor: HavenColors.elevated,
-                  style: const TextStyle(fontSize: 13),
+                  style: HavenText.meta,
                   items: const [
                     DropdownMenuItem(value: 6, child: Text('6 mo')),
                     DropdownMenuItem(value: 12, child: Text('1 yr')),

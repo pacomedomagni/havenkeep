@@ -164,6 +164,13 @@ class _MaintenanceScreenState extends ConsumerState<MaintenanceScreen> {
               tooltip: 'History',
               onPressed: () => context.push(AppRoutes.maintenanceHistory),
             ),
+            // Inline log-work action replaces the removed centered FAB —
+            // it's the most natural place to start a maintenance log entry.
+            IconButton(
+              icon: const Icon(Icons.add_rounded, size: 24),
+              tooltip: 'Log maintenance',
+              onPressed: () => context.push(AppRoutes.logMaintenance),
+            ),
           ],
         ],
       ),
@@ -746,7 +753,7 @@ class _MaintenanceItemCard extends StatelessWidget {
                         padding: const EdgeInsets.symmetric(horizontal: 8),
                         minimumSize: const Size(0, 32),
                       ),
-                      child: const Text('Done', style: TextStyle(fontSize: 13)),
+                      child: const Text('Done', style: HavenText.meta),
                     ),
                     PopupMenuButton<MaintenanceSnoozeOption>(
                       tooltip: 'Snooze',

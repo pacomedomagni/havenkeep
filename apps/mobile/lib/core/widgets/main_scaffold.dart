@@ -6,14 +6,16 @@ import '../router/router.dart';
 import '../utils/haven_haptics.dart';
 import 'connectivity_banner.dart';
 
-/// App shell for the three primary tabs (Home / Warranties / Maintenance)
-/// plus the centered "+" FAB that opens the add-item flow.
+/// App shell for the five primary tabs (Home / Warranties / Maintenance /
+/// Notifications / Profile). No FAB — the "+" action lives inline inside
+/// each tab where a user would naturally look for it (the Items tab has an
+/// "Add item" header action; the Maintenance tab has "Log work"; etc.).
 ///
 /// The nav bar is hand-built — Material's [BottomNavigationBar] is too
-/// flat for the look we want. Instead: a frosted bar that floats slightly
-/// off the canvas edge, a pill that slides behind the active tab, the
-/// label cross-fading in only for the active item, and a gradient FAB with
-/// a soft indigo glow that notches into the bar.
+/// flat for the look we want. Each tab is a pill that animates in/out:
+/// the active tab gets a soft tinted background, an animated icon swap,
+/// and the label cross-fades in. The bar floats slightly off the canvas
+/// edge so it reads as a distinct surface, not an OS chrome strip.
 class MainScaffold extends StatelessWidget {
   final Widget child;
 
@@ -30,47 +32,6 @@ class MainScaffold extends StatelessWidget {
         ],
       ),
       bottomNavigationBar: const _HavenBottomNav(),
-      floatingActionButton: const _HavenFab(),
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// FAB
-// ---------------------------------------------------------------------------
-
-class _HavenFab extends StatelessWidget {
-  const _HavenFab();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 58,
-      height: 58,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: HavenGradients.brand,
-        boxShadow: HavenElevation.glow(HavenColors.primary, strength: 1.4),
-      ),
-      child: Material(
-        color: Colors.transparent,
-        shape: const CircleBorder(),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: () {
-            HavenHaptics.tap();
-            context.push(AppRoutes.addItem);
-          },
-          splashColor: Colors.white.withValues(alpha: 0.18),
-          highlightColor: Colors.white.withValues(alpha: 0.08),
-          child: Semantics(
-            button: true,
-            label: 'Add warranty',
-            child: const Icon(Icons.add_rounded, size: 28, color: Colors.white),
-          ),
-        ),
-      ),
     );
   }
 }
@@ -79,16 +40,49 @@ class _HavenFab extends StatelessWidget {
 // Bottom nav
 // ---------------------------------------------------------------------------
 
-const _navItems = <({IconData icon, IconData activeIcon, String label, String route})>[
-  (icon: Icons.home_outlined, activeIcon: Icons.home_rounded, label: 'Home', route: AppRoutes.dashboard),
-  (icon: Icons.inventory_2_outlined, activeIcon: Icons.inventory_2_rounded, label: 'Warranties', route: AppRoutes.items),
-  (icon: Icons.build_outlined, activeIcon: Icons.build_rounded, label: 'Maintenance', route: AppRoutes.maintenance),
+const _navItems =
+    <({IconData icon, IconData activeIcon, String label, String route})>[
+  (
+    icon: Icons.home_outlined,
+    activeIcon: Icons.home_rounded,
+    label: 'Home',
+    route: AppRoutes.dashboard,
+  ),
+  (
+    icon: Icons.inventory_2_outlined,
+    activeIcon: Icons.inventory_2_rounded,
+    label: 'Items',
+    route: AppRoutes.items,
+  ),
+  (
+    icon: Icons.build_outlined,
+    activeIcon: Icons.build_rounded,
+    label: 'Care',
+    route: AppRoutes.maintenance,
+  ),
+  (
+    icon: Icons.notifications_none_rounded,
+    activeIcon: Icons.notifications_rounded,
+    label: 'Alerts',
+    route: AppRoutes.notifications,
+  ),
+  (
+    icon: Icons.person_outline_rounded,
+    activeIcon: Icons.person_rounded,
+    label: 'Profile',
+    route: AppRoutes.settings,
+  ),
 ];
 
 class _HavenBottomNav extends StatelessWidget {
   const _HavenBottomNav();
 
   int _indexFor(String location) {
+    if (location.startsWith(AppRoutes.settings) ||
+        location.startsWith(AppRoutes.profile)) {
+      return 4;
+    }
+    if (location.startsWith(AppRoutes.notifications)) return 3;
     if (location.startsWith(AppRoutes.maintenance)) return 2;
     if (location.startsWith(AppRoutes.items)) return 1;
     return 0;
@@ -100,9 +94,12 @@ class _HavenBottomNav extends StatelessWidget {
     final current = _indexFor(location);
 
     return Container(
-      // Float the bar a hair off the canvas so the FAB glow has room and
-      // the bar reads as a distinct surface, not the screen edge.
-      margin: const EdgeInsets.fromLTRB(HavenSpacing.md, 0, HavenSpacing.md, 0),
+      margin: const EdgeInsets.fromLTRB(
+        HavenSpacing.md,
+        0,
+        HavenSpacing.md,
+        0,
+      ),
       decoration: BoxDecoration(
         color: HavenColors.surfaceElevated,
         borderRadius: const BorderRadius.vertical(
@@ -118,14 +115,16 @@ class _HavenBottomNav extends StatelessWidget {
       child: SafeArea(
         top: false,
         child: SizedBox(
-          height: 60,
+          height: 64,
           child: Row(
             children: [
-              Expanded(child: _NavSlot(item: _navItems[0], selected: current == 0)),
-              Expanded(child: _NavSlot(item: _navItems[1], selected: current == 1)),
-              // Spacer under the docked FAB.
-              const SizedBox(width: 64),
-              Expanded(child: _NavSlot(item: _navItems[2], selected: current == 2)),
+              for (int i = 0; i < _navItems.length; i++)
+                Expanded(
+                  child: _NavSlot(
+                    item: _navItems[i],
+                    selected: current == i,
+                  ),
+                ),
             ],
           ),
         ),
@@ -135,7 +134,8 @@ class _HavenBottomNav extends StatelessWidget {
 }
 
 class _NavSlot extends StatelessWidget {
-  final ({IconData icon, IconData activeIcon, String label, String route}) item;
+  final ({IconData icon, IconData activeIcon, String label, String route})
+      item;
   final bool selected;
 
   const _NavSlot({required this.item, required this.selected});
@@ -162,7 +162,7 @@ class _NavSlot extends StatelessWidget {
             duration: HavenMotion.medium,
             curve: Curves.easeOutCubic,
             padding: EdgeInsets.symmetric(
-              horizontal: selected ? 14 : 10,
+              horizontal: selected ? 12 : 8,
               vertical: 8,
             ),
             decoration: BoxDecoration(
@@ -185,7 +185,6 @@ class _NavSlot extends StatelessWidget {
                     size: 22,
                   ),
                 ),
-                // Label slides in only for the active tab.
                 ClipRect(
                   child: AnimatedAlign(
                     duration: HavenMotion.medium,

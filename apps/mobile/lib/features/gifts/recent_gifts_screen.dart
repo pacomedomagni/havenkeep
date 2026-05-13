@@ -123,7 +123,7 @@ class _GiftCard extends StatelessWidget {
                   // H81: render the human-readable label (Activated)
                   // instead of the machine-form name (activated).
                   gift.status.displayLabel,
-                  style: TextStyle(fontSize: 12, color: statusColor),
+                  style: HavenText.caption.copyWith(color: statusColor),
                 ),
               ),
             ],

@@ -1243,7 +1243,7 @@ class _DocumentRowState extends ConsumerState<_DocumentRow> {
                 ),
                 title: Text(
                   doc.fileName,
-                  style: const TextStyle(fontSize: 14),
+                  style: HavenText.body,
                 ),
               ),
               // Wrap in SafeArea so the status bar / home indicator

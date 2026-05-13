@@ -363,7 +363,7 @@ class _ScheduleTile extends ConsumerWidget {
                   ),
                   child: Text(
                     'Reset to ${schedule.frequencyMonths} mo',
-                    style: const TextStyle(fontSize: 12),
+                    style: HavenText.caption,
                   ),
                 ),
               ),

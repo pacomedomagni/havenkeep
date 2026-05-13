@@ -9,7 +9,6 @@ import 'package:shared_ui/shared_ui.dart';
 import '../../core/providers/notifications_provider.dart';
 import '../../core/utils/error_handler.dart';
 import '../../core/widgets/error_state_widget.dart';
-import '../../core/widgets/haven_illustration.dart';
 import '../../core/widgets/haven_loader.dart';
 
 /// Notifications list screen.
@@ -72,24 +71,11 @@ class NotificationsScreen extends ConsumerWidget {
   }
 
   Widget _buildEmptyState() {
-    return const Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          HavenIllustration(
-            kind: HavenIllustrationKind.noNotifications,
-            size: 180,
-          ),
-          SizedBox(height: HavenSpacing.md),
-          Text('No notifications yet', style: HavenText.displayMedium),
-          SizedBox(height: HavenSpacing.xs),
-          Text(
-            "We'll notify you when warranties\nneed attention.",
-            textAlign: TextAlign.center,
-            style: HavenText.bodySecondary,
-          ),
-        ],
-      ),
+    return const HavenEmptyState(
+      icon: Icons.notifications_none_rounded,
+      title: 'No notifications yet',
+      body: "We'll notify you when warranties need attention "
+          'or maintenance is due.',
     );
   }
 }

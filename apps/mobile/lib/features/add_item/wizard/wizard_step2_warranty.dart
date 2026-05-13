@@ -250,7 +250,7 @@ class _WizardStep2WarrantyState extends State<WizardStep2Warranty> {
               ),
               child: const Text(
                 'Continue',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                style: HavenText.titleLarge,
               ),
             ),
           ),

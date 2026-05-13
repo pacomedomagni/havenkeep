@@ -11,7 +11,6 @@ import '../../core/providers/items_provider.dart';
 import '../../core/router/router.dart';
 import '../../core/utils/error_handler.dart';
 import '../../core/widgets/error_state_widget.dart';
-import '../../core/widgets/haven_illustration.dart';
 import '../../core/utils/haven_haptics.dart';
 
 /// Sort mode for the items list.
@@ -253,12 +252,19 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
     return Scaffold(
       backgroundColor: HavenColors.canvas,
       appBar: AppBar(
-        title: const Text('Warranties'),
+        title: const Text('Items'),
         actions: [
           IconButton(
             icon: const Icon(Icons.sort_rounded, size: 22),
             tooltip: 'Sort',
             onPressed: _showSortPicker,
+          ),
+          // Inline "+" replaces the removed FAB. Lives next to the sort
+          // affordance because that's where a user expects list-affordances.
+          IconButton(
+            icon: const Icon(Icons.add_rounded, size: 24),
+            tooltip: 'Add item',
+            onPressed: () => context.push(AppRoutes.addItem),
           ),
           const SizedBox(width: HavenSpacing.xs),
         ],
@@ -420,22 +426,15 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
   }
 
   Widget _buildEmptyState() {
-    return const Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          HavenIllustration(
-            kind: HavenIllustrationKind.noWarranties,
-            size: 180,
-          ),
-          SizedBox(height: HavenSpacing.md),
-          Text('No warranties yet', style: HavenText.displayMedium),
-          SizedBox(height: HavenSpacing.xs),
-          Text(
-            'Tap + to add your first warranty',
-            style: HavenText.bodySecondary,
-          ),
-        ],
+    return HavenEmptyState(
+      icon: Icons.inventory_2_outlined,
+      title: 'No items yet',
+      body: 'Add your first item to start tracking warranties, '
+          'receipts, and maintenance.',
+      primaryAction: HavenEmptyAction(
+        label: 'Add item',
+        icon: Icons.add,
+        onPressed: () => context.push(AppRoutes.addItem),
       ),
     );
   }
