@@ -11,6 +11,11 @@ dependencies:
   flutter:
     sdk: flutter
   http: ^1.0.0
+  # http_parser supplies the MediaType type we attach to multipart file
+  # uploads so the server sees the correct Content-Type (e.g. image/jpeg)
+  # instead of falling back to application/octet-stream.
+  http_parser: ^4.0.0
+  mime: ^1.0.0
   flutter_secure_storage: ^9.0.0
   flutter_riverpod: ^2.0.0
 

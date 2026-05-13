@@ -8,6 +8,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart' show MediaType;
+import 'package:mime/mime.dart' show lookupMimeType;
 
 /// 3.8: per-request id used to correlate a mobile call with the server log
 /// line. The server's request-logger accepts incoming `x-request-id`
@@ -1003,8 +1005,21 @@ class ApiClient {
         request.fields.addAll(fields);
       }
 
+      // Resolve a real Content-Type for the multipart part. iOS image
+      // picker writes uploads to a temp path that often has no extension,
+      // which makes http.MultipartFile.fromPath fall back to
+      // application/octet-stream — and the server's document-upload
+      // fileFilter rejects octet-stream outright. Try the path first
+      // (covers `.jpg`, `.pdf`, etc.); if that fails, sniff the first
+      // bytes of the file; if both fail, default to image/jpeg because
+      // ~99% of mobile uploads are photos.
+      final resolvedMime = await _resolveMimeType(file);
       request.files.add(
-        await http.MultipartFile.fromPath(fieldName, file.path),
+        await http.MultipartFile.fromPath(
+          fieldName,
+          file.path,
+          contentType: MediaType.parse(resolvedMime),
+        ),
       );
 
       final streamedResponse = await request.send().timeout(_uploadTimeout);
@@ -1013,6 +1028,33 @@ class ApiClient {
 
     final response = await _withAutoRefresh(doUpload);
     return _parseResponse(response);
+  }
+
+  /// Resolve a real MIME type for an upload. Returns image/jpeg as the
+  /// last-resort default because the server's upload allowlist is
+  /// image/* + pdf, and 99% of mobile uploads are photos.
+  Future<String> _resolveMimeType(File file) async {
+    // 1. Cheap path: lookup by extension.
+    final byPath = lookupMimeType(file.path);
+    if (byPath != null) return byPath;
+
+    // 2. Sniff the first kilobyte for a magic-number match. Reads as
+    //    little as possible; lookupMimeType only checks the well-known
+    //    headers (JPEG FFD8FF, PNG 89504E47, %PDF, etc.).
+    try {
+      final raf = await file.open();
+      try {
+        final head = await raf.read(1024);
+        final byMagic = lookupMimeType(file.path, headerBytes: head);
+        if (byMagic != null) return byMagic;
+      } finally {
+        await raf.close();
+      }
+    } catch (_) {
+      // Fall through to the default.
+    }
+
+    return 'image/jpeg';
   }
 
   /// Clean up resources.
