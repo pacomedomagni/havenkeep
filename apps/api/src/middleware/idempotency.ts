@@ -119,8 +119,9 @@ async function pollForCachedResponse(
  * @param opts.ttlSeconds  How long a successful response is cached for replay.
  * @param opts.required  When true, refuse requests that omit
  *   `Idempotency-Key`. The default (false) lets the client opt in. Set
- *   true on money-moving endpoints (gift create, payouts) where a
- *   silent retry without a key would charge twice on a double-click.
+ *   true on money-moving / write-once endpoints (gift create, warranty
+ *   purchase, refund) where a silent retry without a key would charge
+ *   twice on a double-click.
  */
 export function idempotency(
   routeKey: string,

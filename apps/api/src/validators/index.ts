@@ -265,10 +265,10 @@ export const trackFeatureSchema = Joi.object({
 });
 
 // Query Validators
-// Audit Ch01-F064: paginationSchema was reused on partner-list / commission
-// routes that pass `partner_type` / `is_active`, which the old schema would
-// silently strip. Add them as explicit known query params so the validator
-// is a single source of truth for "what query keys are accepted".
+// Audit Ch01-F064: paginationSchema must explicitly accept admin-route filter
+// keys (`partner_type`, `is_active`) so validate() doesn't silently strip
+// them. The schema is the single source of truth for what query keys reach
+// the route handlers.
 // Audit Ch12-T043/T044: sort/order params constrained to a closed allowlist so
 // hostile values can't be concatenated into SQL. `cursor` is base64-encoded
 // for keyset pagination (Ch02-F009) — opaque to clients.
@@ -286,13 +286,6 @@ export const paginationSchema = Joi.object({
   // Filters used by admin routes — accepted here so validate() doesn't strip.
   partner_type: Joi.string().valid('realtor', 'builder', 'contractor', 'property_manager', 'other'),
   is_active: Joi.string().valid('true', 'false'),
-  // `status` is shared between the partners listing (pending/active/rejected,
-  // audit Ch10-W054) and the commissions listing (pending/approved/paid/
-  // cancelled/reversed). The route handler narrows further to the values
-  // its own table accepts.
-  status: Joi.string().valid(
-    'pending', 'approved', 'paid', 'cancelled', 'reversed', 'active', 'rejected'
-  ),
   partner_id: Joi.string().uuid(),
 })
   .rename('home_id', 'homeId', { ignoreUndefined: true, override: false })

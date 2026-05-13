@@ -240,8 +240,6 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
             tooltip: 'Sort',
             onPressed: _showSortPicker,
           ),
-          // Inline "+" replaces the removed FAB. Lives next to the sort
-          // affordance because that's where a user expects list-affordances.
           IconButton(
             icon: const Icon(Icons.add_rounded, size: 24),
             tooltip: 'Add item',

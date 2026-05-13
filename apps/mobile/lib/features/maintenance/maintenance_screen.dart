@@ -163,8 +163,6 @@ class _MaintenanceScreenState extends ConsumerState<MaintenanceScreen> {
               tooltip: 'History',
               onPressed: () => context.push(AppRoutes.maintenanceHistory),
             ),
-            // Inline log-work action replaces the removed centered FAB —
-            // it's the most natural place to start a maintenance log entry.
             IconButton(
               icon: const Icon(Icons.add_rounded, size: 24),
               tooltip: 'Log maintenance',
@@ -173,8 +171,6 @@ class _MaintenanceScreenState extends ConsumerState<MaintenanceScreen> {
           ],
         ],
       ),
-      // No FloatingActionButton — the "Log Task" action lives in the
-      // AppBar instead. See main_scaffold.dart for the 5-tab design.
       body: dueAsync.when(
         loading: () => const Center(child: HavenLoader()),
         error: (e, _) => Center(
