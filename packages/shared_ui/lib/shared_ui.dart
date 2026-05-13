@@ -13,6 +13,7 @@ export 'src/haven_empty_state.dart';
 export 'src/haven_haptics.dart';
 export 'src/haven_hero.dart';
 export 'src/haven_list_item.dart';
+export 'src/haven_sheet.dart';
 export 'src/haven_success_flourish.dart';
 export 'src/haven_skeleton.dart';
 export 'src/haven_snackbar.dart';

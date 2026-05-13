@@ -44,8 +44,15 @@ class LogMaintenanceScreen extends ConsumerStatefulWidget {
     this.scrollController,
   });
 
-  /// Show the form in a modal bottom sheet pre-populated with [itemId].
-  /// Returns once the sheet is dismissed.
+  /// Show the form in a draggable modal bottom sheet pre-populated with
+  /// [itemId]. Returns once the sheet is dismissed.
+  ///
+  /// Uses [showModalBottomSheet] directly (not [HavenSheet]) because the
+  /// log-maintenance flow is a multi-field FORM, not a menu. It needs a
+  /// [DraggableScrollableSheet] with a scroll controller so the user can
+  /// drag the sheet up to expand and scroll inside the form independently
+  /// — that's the whole reason this is a sheet instead of a pushed route.
+  /// [HavenSheet] is intentionally for ephemeral menu-like content.
   static Future<void> showAsSheet(
     BuildContext context, {
     required String itemId,
@@ -53,9 +60,9 @@ class LogMaintenanceScreen extends ConsumerStatefulWidget {
     return showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: HavenColors.background,
+      backgroundColor: HavenColors.surfaceHigh,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(HavenRadius.card)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(HavenRadius.card + 4)),
       ),
       builder: (sheetContext) {
         return DraggableScrollableSheet(

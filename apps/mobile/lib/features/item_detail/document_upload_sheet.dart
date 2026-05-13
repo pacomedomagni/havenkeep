@@ -26,16 +26,10 @@ class DocumentUploadSheet extends ConsumerStatefulWidget {
 
   /// Show the upload sheet.
   static void show(BuildContext context, String itemId, {DocumentType? initialType}) {
-    showModalBottomSheet(
+    HavenSheet.show<void>(
       context: context,
-      isScrollControlled: true,
-      backgroundColor: HavenColors.elevated,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(
-          top: Radius.circular(HavenRadius.card),
-        ),
-      ),
-      builder: (_) => DocumentUploadSheet(itemId: itemId, initialType: initialType),
+      title: 'Add document',
+      child: DocumentUploadSheet(itemId: itemId, initialType: initialType),
     );
   }
 
@@ -141,43 +135,17 @@ class _DocumentUploadSheetState extends ConsumerState<DocumentUploadSheet> {
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(
-          HavenSpacing.lg,
-          HavenSpacing.sm,
-          HavenSpacing.lg,
-          MediaQuery.of(context).viewInsets.bottom + HavenSpacing.lg,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Drag handle
-            Center(
-              child: Container(
-                width: 32,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: HavenColors.textTertiary,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-            const SizedBox(height: HavenSpacing.md),
-
-            // Title
-            const Text(
-              'Add Document',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: HavenColors.textPrimary,
-              ),
-            ),
-            const SizedBox(height: HavenSpacing.lg),
-
-            // Source options (if no image selected)
+    // HavenSheet provides the drag handle + title; we only render the body.
+    return Padding(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom + HavenSpacing.md,
+        top: HavenSpacing.sm,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Source options (if no image selected)
             if (_selectedImage == null) ...[
               _SourceOption(
                 icon: Icons.camera_alt_outlined,
@@ -419,8 +387,7 @@ class _DocumentUploadSheetState extends ConsumerState<DocumentUploadSheet> {
             ],
           ],
         ),
-      ),
-    );
+      );
   }
 }
 

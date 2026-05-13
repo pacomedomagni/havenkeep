@@ -16,15 +16,10 @@ class ShareClaimSheet extends StatelessWidget {
 
   /// Convenience method to present the sheet.
   static void show(BuildContext context, Item item) {
-    showModalBottomSheet(
+    HavenSheet.show<void>(
       context: context,
-      backgroundColor: HavenColors.elevated,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(
-          top: Radius.circular(HavenRadius.card),
-        ),
-      ),
-      builder: (_) => ShareClaimSheet(item: item),
+      title: 'Share claim info',
+      child: ShareClaimSheet(item: item),
     );
   }
 
@@ -57,40 +52,16 @@ class ShareClaimSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(
-          HavenSpacing.lg,
-          HavenSpacing.sm,
-          HavenSpacing.lg,
-          HavenSpacing.lg,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Drag handle
-            Center(
-              child: Container(
-                width: 32,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: HavenColors.textTertiary,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-            const SizedBox(height: HavenSpacing.md),
-
-            // Title
-            Text(
-              'Share Claim Info',
-              style: theme.textTheme.titleLarge,
-            ),
-            const SizedBox(height: HavenSpacing.md),
-
+    // HavenSheet provides the drag handle + title.
+    return Padding(
+      padding: const EdgeInsets.only(
+        bottom: HavenSpacing.md,
+        top: HavenSpacing.xs,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
             // Info card
             Container(
               padding: const EdgeInsets.all(HavenSpacing.md),
@@ -245,7 +216,6 @@ class ShareClaimSheet extends StatelessWidget {
             ),
           ],
         ),
-      ),
     );
   }
 }

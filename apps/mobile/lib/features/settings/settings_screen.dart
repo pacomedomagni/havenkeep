@@ -796,29 +796,22 @@ class _ThemePickerTile extends ConsumerWidget {
 
   Future<void> _open(BuildContext context, WidgetRef ref) async {
     final current = ref.read(themeModeProvider);
-    final picked = await showModalBottomSheet<ThemeMode>(
+    final picked = await HavenSheet.show<ThemeMode>(
       context: context,
-      backgroundColor: HavenColors.elevated,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: ThemeMode.values.map((mode) {
-            return ListTile(
-              leading: Icon(_icon(mode), color: HavenColors.textPrimary),
-              title: Text(
-                _label(mode),
-                style: const TextStyle(color: HavenColors.textPrimary),
-              ),
-              trailing: mode == current
-                  ? const Icon(Icons.check, color: HavenColors.primary)
-                  : null,
-              onTap: () => Navigator.of(ctx).pop(mode),
-            );
-          }).toList(),
-        ),
+      title: 'Theme',
+      padded: false,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: ThemeMode.values.map((mode) {
+          return ListTile(
+            leading: Icon(_icon(mode), color: HavenColors.textPrimary),
+            title: Text(_label(mode), style: HavenText.body),
+            trailing: mode == current
+                ? const Icon(Icons.check, color: HavenColors.primary)
+                : null,
+            onTap: () => Navigator.of(context).pop(mode),
+          );
+        }).toList(),
       ),
     );
     if (picked != null) {
@@ -854,33 +847,25 @@ class _LocalePickerTile extends ConsumerWidget {
   Future<void> _open(BuildContext context, WidgetRef ref) async {
     final current = ref.read(localeProvider);
     final options = <Locale?>[null, ...AppPrefsService.supportedLocales];
-    final picked = await showModalBottomSheet<_LocaleChoice>(
+    final picked = await HavenSheet.show<_LocaleChoice>(
       context: context,
-      backgroundColor: HavenColors.elevated,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: options.map((locale) {
-            final selected =
-                (current?.languageCode) == (locale?.languageCode);
-            return ListTile(
-              leading: const Icon(Icons.language,
-                  color: HavenColors.textPrimary),
-              title: Text(
-                _label(locale),
-                style: const TextStyle(color: HavenColors.textPrimary),
-              ),
-              trailing: selected
-                  ? const Icon(Icons.check, color: HavenColors.primary)
-                  : null,
-              onTap: () =>
-                  Navigator.of(ctx).pop(_LocaleChoice(value: locale)),
-            );
-          }).toList(),
-        ),
+      title: 'Language',
+      padded: false,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: options.map((locale) {
+          final selected =
+              (current?.languageCode) == (locale?.languageCode);
+          return ListTile(
+            leading: const Icon(Icons.language, color: HavenColors.textPrimary),
+            title: Text(_label(locale), style: HavenText.body),
+            trailing: selected
+                ? const Icon(Icons.check, color: HavenColors.primary)
+                : null,
+            onTap: () =>
+                Navigator.of(context).pop(_LocaleChoice(value: locale)),
+          );
+        }).toList(),
       ),
     );
     if (picked != null) {

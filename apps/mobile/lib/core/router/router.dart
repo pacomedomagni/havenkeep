@@ -357,41 +357,34 @@ final routerProvider = Provider<GoRouter>((ref) {
         },
       ),
 
-      // Add item (full-screen modal — method selection)
+      // Add item — method picker. Pushed route (not modal) so the user
+      // gets iOS swipe-back / Android predictive-back from the picker
+      // without losing the full-screen back-button affordance.
       GoRoute(
         path: AppRoutes.addItem,
         parentNavigatorKey: _rootNavigatorKey,
-        pageBuilder: (context, state) => const MaterialPage(
-          fullscreenDialog: true,
-          child: AddItemScreen(),
-        ),
+        builder: (context, state) => const AddItemScreen(),
       ),
 
-      // Quick-add for a specific category
+      // Quick-add for a specific category — pushed route.
       GoRoute(
         path: AppRoutes.quickAdd,
         parentNavigatorKey: _rootNavigatorKey,
-        pageBuilder: (context, state) {
+        builder: (context, state) {
           final categoryName = state.pathParameters['category'] ?? 'other';
           final category = ItemCategory.values.firstWhere(
             (c) => c.name == categoryName,
             orElse: () => ItemCategory.other,
           );
-          return MaterialPage(
-            fullscreenDialog: true,
-            child: QuickAddScreen(category: category),
-          );
+          return QuickAddScreen(category: category);
         },
       ),
 
-      // Full manual entry
+      // Full manual entry — pushed route.
       GoRoute(
         path: AppRoutes.manualEntry,
         parentNavigatorKey: _rootNavigatorKey,
-        pageBuilder: (context, state) => const MaterialPage(
-          fullscreenDialog: true,
-          child: ManualEntryScreen(),
-        ),
+        builder: (context, state) => const ManualEntryScreen(),
       ),
 
       // Item added success — Ch05-F020: prefer the just-created Item from
@@ -479,24 +472,18 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const DeleteAccountScreen(),
       ),
 
-      // Scan Receipt
+      // Scan Receipt — pushed route.
       GoRoute(
         path: AppRoutes.scanReceipt,
         parentNavigatorKey: _rootNavigatorKey,
-        pageBuilder: (context, state) => const MaterialPage(
-          fullscreenDialog: true,
-          child: ReceiptScanScreen(),
-        ),
+        builder: (context, state) => const ReceiptScanScreen(),
       ),
 
-      // Scan Barcode
+      // Scan Barcode — pushed route.
       GoRoute(
         path: AppRoutes.scanBarcode,
         parentNavigatorKey: _rootNavigatorKey,
-        pageBuilder: (context, state) => const MaterialPage(
-          fullscreenDialog: true,
-          child: BarcodeScanScreen(),
-        ),
+        builder: (context, state) => const BarcodeScanScreen(),
       ),
 
       // PDF Preview

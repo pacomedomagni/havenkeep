@@ -185,58 +185,40 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
   void _showSortPicker() {
     HavenHaptics.tap();
     final currentSort = ref.read(itemsSortProvider);
-    showModalBottomSheet(
+    HavenSheet.show<void>(
       context: context,
-      backgroundColor: HavenColors.elevated,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(
-          top: Radius.circular(HavenRadius.card),
-        ),
-      ),
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(HavenSpacing.md),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Sort by',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: HavenColors.textPrimary,
-                ),
+      title: 'Sort by',
+      padded: false,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: ItemSortMode.values.map((mode) {
+          final selected = currentSort == mode;
+          return ListTile(
+            leading: Icon(
+              selected
+                  ? Icons.radio_button_checked
+                  : Icons.radio_button_off,
+              color: selected
+                  ? HavenColors.primary
+                  : HavenColors.textTertiary,
+            ),
+            title: Text(
+              mode.label,
+              style: HavenText.body.copyWith(
+                color: selected
+                    ? HavenColors.primary
+                    : HavenColors.textPrimary,
+                fontWeight:
+                    selected ? FontWeight.w600 : FontWeight.w400,
               ),
-              const SizedBox(height: HavenSpacing.md),
-              ...ItemSortMode.values.map((mode) => ListTile(
-                    leading: Icon(
-                      currentSort == mode
-                          ? Icons.radio_button_checked
-                          : Icons.radio_button_off,
-                      color: currentSort == mode
-                          ? HavenColors.primary
-                          : HavenColors.textTertiary,
-                    ),
-                    title: Text(
-                      mode.label,
-                      style: TextStyle(
-                        color: currentSort == mode
-                            ? HavenColors.primary
-                            : HavenColors.textPrimary,
-                        fontWeight: currentSort == mode
-                            ? FontWeight.w600
-                            : FontWeight.normal,
-                      ),
-                    ),
-                    onTap: () {
-                      ref.read(itemsSortProvider.notifier).state = mode;
-                      Navigator.of(ctx).pop();
-                    },
-                  )),
-            ],
-          ),
-        ),
+            ),
+            onTap: () {
+              HavenHaptics.select();
+              ref.read(itemsSortProvider.notifier).state = mode;
+              Navigator.of(context).pop();
+            },
+          );
+        }).toList(),
       ),
     );
   }
