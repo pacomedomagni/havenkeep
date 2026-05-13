@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
+import 'haven_haptics.dart';
 import 'theme.dart';
 
 /// Visual weight of a [HavenButton].
@@ -269,13 +269,13 @@ class _HavenButtonState extends State<HavenButton> {
   void _handleTap() {
     switch (widget.variant) {
       case HavenButtonVariant.destructive:
-        HapticFeedback.mediumImpact();
+        HavenHaptics.warn();
       case HavenButtonVariant.primary:
-        HapticFeedback.selectionClick();
+        HavenHaptics.confirm();
       case HavenButtonVariant.secondary:
       case HavenButtonVariant.tertiary:
       case HavenButtonVariant.ghost:
-        HapticFeedback.selectionClick();
+        HavenHaptics.tap();
     }
     widget.onPressed!();
   }

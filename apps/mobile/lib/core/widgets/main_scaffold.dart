@@ -3,7 +3,6 @@ import 'package:go_router/go_router.dart';
 import 'package:shared_ui/shared_ui.dart';
 
 import '../router/router.dart';
-import '../utils/haven_haptics.dart';
 import 'connectivity_banner.dart';
 
 /// App shell for the five primary tabs (Home / Warranties / Maintenance /

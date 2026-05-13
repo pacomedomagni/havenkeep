@@ -4,7 +4,6 @@ import 'package:shared_ui/shared_ui.dart';
 
 import 'add_item_wizard_screen.dart';
 import '../../../core/utils/dates.dart';
-import '../../../core/utils/haven_haptics.dart';
 
 /// Step 2: Warranty (purchase date, warranty length) - ~20 seconds.
 class WizardStep2Warranty extends StatefulWidget {

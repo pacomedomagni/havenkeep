@@ -30,30 +30,8 @@ class ItemAddedScreen extends ConsumerStatefulWidget {
   ConsumerState<ItemAddedScreen> createState() => _ItemAddedScreenState();
 }
 
-class _ItemAddedScreenState extends ConsumerState<ItemAddedScreen>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _scaleController;
-  late final Animation<double> _scaleAnimation;
-
-  @override
-  void initState() {
-    super.initState();
-    _scaleController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 600),
-    );
-    _scaleAnimation = CurvedAnimation(
-      parent: _scaleController,
-      curve: Curves.elasticOut,
-    );
-    _scaleController.forward();
-  }
-
-  @override
-  void dispose() {
-    _scaleController.dispose();
-    super.dispose();
-  }
+class _ItemAddedScreenState extends ConsumerState<ItemAddedScreen> {
+  // No local animation controller — HavenSuccessFlourish owns its own.
 
   @override
   Widget build(BuildContext context) {
@@ -149,101 +127,45 @@ class _ItemAddedScreenState extends ConsumerState<ItemAddedScreen>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            ScaleTransition(
-              scale: _scaleAnimation,
-              child: const Icon(
-                Icons.check_circle,
-                size: 80,
-                color: HavenColors.active,
-              ),
-            ),
+            const HavenSuccessFlourish(icon: Icons.check_rounded),
             const SizedBox(height: HavenSpacing.lg),
-            const Text(
-              'Item Added!',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: HavenColors.primary,
-              ),
-            ),
+            const Text('Item added', style: HavenText.displayLarge),
             const SizedBox(height: HavenSpacing.sm),
             Text(
               displayName,
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: HavenColors.textPrimary,
-              ),
+              style: HavenText.titleLarge,
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: HavenSpacing.sm),
             Text(
               expiryText,
-              style: const TextStyle(
-                fontSize: 14,
-                color: HavenColors.textSecondary,
-              ),
+              style: HavenText.bodySecondary,
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: HavenSpacing.xs),
             const Text(
               "We'll remind you before it expires.",
-              style: TextStyle(
-                fontSize: 13,
-                color: HavenColors.textTertiary,
-              ),
+              style: HavenText.caption,
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: HavenSpacing.xxl),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: () => context.go('/items/${widget.itemId}'),
-                child: const Text(
-                  'View Item',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
+            HavenButton.primary(
+              label: 'View item',
+              onPressed: () => context.go('/items/${widget.itemId}'),
+              expand: true,
+              size: HavenButtonSize.lg,
             ),
             const SizedBox(height: HavenSpacing.sm),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton(
-                onPressed: () => context.go(AppRoutes.addItem),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: HavenColors.textPrimary,
-                  side: const BorderSide(color: HavenColors.border),
-                  shape: RoundedRectangleBorder(
-                    borderRadius:
-                        BorderRadius.circular(HavenRadius.button),
-                  ),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: HavenSpacing.lg,
-                    vertical: HavenSpacing.md,
-                  ),
-                ),
-                child: const Text(
-                  'Add Another',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
+            HavenButton.secondary(
+              label: 'Add another',
+              onPressed: () => context.go(AppRoutes.addItem),
+              expand: true,
+              size: HavenButtonSize.lg,
             ),
             const SizedBox(height: HavenSpacing.sm),
-            TextButton(
+            HavenButton.tertiary(
+              label: 'Go to dashboard',
               onPressed: () => context.go(AppRoutes.dashboard),
-              child: const Text(
-                'Go to Dashboard',
-                style: TextStyle(
-                  fontSize: 15,
-                  color: HavenColors.textSecondary,
-                ),
-              ),
             ),
           ],
         ),

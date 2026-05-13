@@ -11,7 +11,6 @@ import '../../core/providers/items_provider.dart';
 import '../../core/router/router.dart';
 import '../../core/utils/error_handler.dart';
 import '../../core/widgets/error_state_widget.dart';
-import '../../core/utils/haven_haptics.dart';
 
 /// Sort mode for the items list.
 enum ItemSortMode {
@@ -708,7 +707,7 @@ class _ItemCardTapTarget extends StatelessWidget {
       child: Row(
         children: [
           Hero(
-            tag: 'item-icon-${item.id}',
+            tag: HavenHeroTag.item(item.id),
             child: CategoryIcon.widget(item.category, size: 20),
           ),
           const SizedBox(width: HavenSpacing.md),

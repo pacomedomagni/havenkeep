@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:confetti/confetti.dart';
 import 'package:shared_ui/shared_ui.dart';
+
 import '../../core/utils/dates.dart';
 import '../../core/widgets/havenkeep_logo.dart';
 
-class GiftActivationSuccessScreen extends StatefulWidget {
+/// Gift-activation success surface. Dignified Cron-style celebration —
+/// a gold-tinted [HavenSuccessFlourish] over a subtle brand gradient,
+/// followed by the premium-feature recap and a single primary CTA.
+/// No confetti, no marketing-heavy "Welcome to Premium!".
+class GiftActivationSuccessScreen extends StatelessWidget {
   final int premiumMonths;
 
   const GiftActivationSuccessScreen({
@@ -14,267 +18,133 @@ class GiftActivationSuccessScreen extends StatefulWidget {
   });
 
   @override
-  State<GiftActivationSuccessScreen> createState() =>
-      _GiftActivationSuccessScreenState();
-}
-
-class _GiftActivationSuccessScreenState
-    extends State<GiftActivationSuccessScreen>
-    with WidgetsBindingObserver {
-  late ConfettiController _confettiController;
-
-  @override
-  void initState() {
-    super.initState();
-    _confettiController = ConfettiController(duration: const Duration(seconds: 3));
-    _confettiController.play();
-    // Pause confetti when the app is backgrounded so it doesn't keep
-    // animating off-screen (F037).
-    WidgetsBinding.instance.addObserver(this);
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    super.didChangeAppLifecycleState(state);
-    if (state != AppLifecycleState.resumed) {
-      _confettiController.stop();
-    }
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    _confettiController.dispose();
-    super.dispose();
-  }
-
-  void _handleGetStarted() {
-    context.go('/dashboard');
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final expiryDate = addMonthsSafe(DateTime.now(), widget.premiumMonths);
-    final formattedDate = '${expiryDate.month}/${expiryDate.day}/${expiryDate.year}';
+    final expiryDate = addMonthsSafe(DateTime.now(), premiumMonths);
+    final formattedDate =
+        '${expiryDate.month}/${expiryDate.day}/${expiryDate.year}';
 
     return Scaffold(
-      backgroundColor: HavenColors.background,
-      body: Stack(
-        children: [
-          Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  HavenColors.primary.withValues(alpha: 0.1),
-                  HavenColors.background,
-                ],
-              ),
-            ),
-            child: SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.all(24.0),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    const Spacer(),
-
-                    // Success Icon
-                    Container(
-                      padding: const EdgeInsets.all(24),
-                      decoration: BoxDecoration(
-                        color: HavenColors.active.withValues(alpha: 0.1),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.check_circle,
-                        size: 80,
-                        color: HavenColors.active,
-                      ),
-                    ),
-
-                    const SizedBox(height: 32),
-
-                    // Success Title
-                    Text(
-                      'Welcome to Premium!',
-                      style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: HavenColors.textPrimary,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-
-                    const SizedBox(height: 16),
-
-                    // Premium Details
-                    Text(
-                      'Your gift has been activated',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: HavenColors.textSecondary,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-
-                    const SizedBox(height: 32),
-
-                    // Premium Info Card
-                    Card(
-                      elevation: 0,
-                      color: HavenColors.surface,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(HavenRadius.card),
-                        side: const BorderSide(color: HavenColors.border),
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.all(24.0),
-                        child: Column(
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                const Icon(
-                                  Icons.stars,
-                                  color: HavenColors.expiring,
-                                  size: 32,
-                                ),
-                                const SizedBox(width: 12),
-                                Text(
-                                  '${widget.premiumMonths} Months Premium',
-                                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                                    fontWeight: FontWeight.bold,
-                                    color: HavenColors.textPrimary,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'Active until $formattedDate',
-                              style: const TextStyle(
-                                color: HavenColors.textSecondary,
-                                fontSize: 14,
-                              ),
-                            ),
-                            const SizedBox(height: 24),
-                            const Divider(color: HavenColors.border),
-                            const SizedBox(height: 16),
-
-                            // Features List
-                            _buildFeatureRow(
-                              icon: Icons.inventory_2_outlined,
-                              text: 'Track unlimited items',
-                            ),
-                            const SizedBox(height: 12),
-                            _buildFeatureRow(
-                              icon: Icons.receipt_long,
-                              text: 'Store unlimited documents',
-                            ),
-                            const SizedBox(height: 12),
-                            _buildFeatureRow(
-                              icon: Icons.notifications_active,
-                              text: 'Smart warranty reminders',
-                            ),
-                            const SizedBox(height: 12),
-                            _buildFeatureRow(
-                              icon: Icons.trending_up,
-                              text: 'Advanced analytics',
-                            ),
-                            const SizedBox(height: 12),
-                            _buildFeatureRow(
-                              icon: Icons.support_agent,
-                              text: 'Priority support',
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-
-                    const SizedBox(height: 32),
-
-                    // Get Started Button
-                    ElevatedButton(
-                      onPressed: _handleGetStarted,
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(HavenRadius.button),
-                        ),
-                        elevation: 2,
-                      ),
-                      child: const Text(
-                        'Get Started',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-
-                    const Spacer(),
-
-                    // HavenKeep Logo
-                    const Center(
-                      child: HavenKeepLogo(size: 40),
-                    ),
-
-                    const SizedBox(height: 8),
-
-                    const Text(
-                      'Thank you for choosing HavenKeep',
-                      style: TextStyle(
-                        color: HavenColors.textSecondary,
-                        fontSize: 12,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                  ],
-                ),
-              ),
-            ),
+      backgroundColor: HavenColors.canvas,
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              HavenColors.primary.withValues(alpha: 0.10),
+              HavenColors.canvas,
+            ],
+            stops: const [0.0, 0.5],
           ),
+        ),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(HavenSpacing.lg),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Spacer(),
+                const HavenSuccessFlourish(icon: Icons.auto_awesome_rounded),
+                const SizedBox(height: HavenSpacing.lg),
+                const Text(
+                  'Premium activated',
+                  style: HavenText.displayLarge,
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: HavenSpacing.sm),
+                const Text(
+                  'Your gift is live. Enjoy the full experience.',
+                  style: HavenText.bodySecondary,
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: HavenSpacing.xl),
 
-          // Confetti
-          Align(
-            alignment: Alignment.topCenter,
-            child: ConfettiWidget(
-              confettiController: _confettiController,
-              blastDirection: 1.5708, // Down
-              emissionFrequency: 0.05,
-              numberOfParticles: 20,
-              gravity: 0.3,
-              colors: const [
-                HavenColors.active,
-                HavenColors.primary,
-                HavenColors.accent,
-                HavenColors.expiring,
-                HavenColors.accentSecondary,
+                HavenCard.elevated(
+                  glow: HavenColors.gold,
+                  child: Column(
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(
+                            Icons.workspace_premium_rounded,
+                            color: HavenColors.gold,
+                            size: 28,
+                          ),
+                          const SizedBox(width: HavenSpacing.sm),
+                          Text(
+                            '$premiumMonths months Premium',
+                            style: HavenText.titleLarge,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: HavenSpacing.xs),
+                      Text(
+                        'Active until $formattedDate',
+                        style: HavenText.meta,
+                      ),
+                      const SizedBox(height: HavenSpacing.md),
+                      const Divider(color: HavenColors.borderHairline),
+                      const SizedBox(height: HavenSpacing.md),
+                      const _Feature(
+                        icon: Icons.inventory_2_outlined,
+                        text: 'Track unlimited items',
+                      ),
+                      const SizedBox(height: HavenSpacing.sm + 2),
+                      const _Feature(
+                        icon: Icons.receipt_long_rounded,
+                        text: 'Store unlimited documents',
+                      ),
+                      const SizedBox(height: HavenSpacing.sm + 2),
+                      const _Feature(
+                        icon: Icons.notifications_active_outlined,
+                        text: 'Smart warranty reminders',
+                      ),
+                      const SizedBox(height: HavenSpacing.sm + 2),
+                      const _Feature(
+                        icon: Icons.trending_up_rounded,
+                        text: 'Advanced analytics',
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: HavenSpacing.xl),
+                HavenButton.primary(
+                  label: 'Get started',
+                  onPressed: () => context.go('/dashboard'),
+                  expand: true,
+                  size: HavenButtonSize.lg,
+                ),
+                const Spacer(),
+                const HavenKeepLogo(size: 32),
+                const SizedBox(height: HavenSpacing.xs),
+                const Text(
+                  'Thank you for choosing HavenKeep',
+                  style: HavenText.caption,
+                  textAlign: TextAlign.center,
+                ),
               ],
             ),
           ),
-        ],
+        ),
       ),
     );
   }
+}
 
-  Widget _buildFeatureRow({required IconData icon, required String text}) {
+class _Feature extends StatelessWidget {
+  final IconData icon;
+  final String text;
+  const _Feature({required this.icon, required this.text});
+
+  @override
+  Widget build(BuildContext context) {
     return Row(
       children: [
-        Icon(
-          icon,
-          color: HavenColors.primary,
-          size: 20,
-        ),
-        const SizedBox(width: 12),
-        Text(
-          text,
-          style: const TextStyle(
-            fontSize: 15,
-            color: HavenColors.textPrimary,
-          ),
-        ),
+        Icon(icon, color: HavenColors.primary, size: 20),
+        const SizedBox(width: HavenSpacing.sm + 4),
+        Expanded(child: Text(text, style: HavenText.body)),
       ],
     );
   }

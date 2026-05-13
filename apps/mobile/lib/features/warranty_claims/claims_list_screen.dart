@@ -90,8 +90,12 @@ class ClaimsListScreen extends ConsumerWidget {
               const SizedBox(height: HavenSpacing.lg),
 
               // Claims list — each row is its own HavenListItem (card style).
-              for (final claim in claims) ...[
-                _ClaimRow(claim: claim, dateFormat: dateFormat),
+              for (var i = 0; i < claims.length; i++) ...[
+                _ClaimRow(
+                  claim: claims[i],
+                  dateFormat: dateFormat,
+                  entryIndex: i,
+                ),
                 const SizedBox(height: HavenSpacing.sm),
               ],
 
@@ -168,8 +172,13 @@ class _SavingsHeroCard extends StatelessWidget {
 class _ClaimRow extends ConsumerWidget {
   final WarrantyClaim claim;
   final DateFormat dateFormat;
+  final int? entryIndex;
 
-  const _ClaimRow({required this.claim, required this.dateFormat});
+  const _ClaimRow({
+    required this.claim,
+    required this.dateFormat,
+    this.entryIndex,
+  });
 
   Color _statusColor(ClaimStatus status) => switch (status) {
         ClaimStatus.filed => HavenColors.expiring,
@@ -226,6 +235,7 @@ class _ClaimRow extends ConsumerWidget {
         accent: color,
         trailing: _StatusBadge(color: color, label: claim.status.displayLabel),
         onTap: () => context.push('/items/${claim.itemId}'),
+        entryIndex: entryIndex,
       ),
     );
   }

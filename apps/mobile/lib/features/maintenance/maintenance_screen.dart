@@ -14,7 +14,6 @@ import '../../core/services/maintenance_snooze_service.dart';
 import '../../core/utils/error_handler.dart';
 import '../../core/widgets/haven_illustration.dart';
 import '../../core/widgets/haven_loader.dart';
-import '../../core/utils/haven_haptics.dart';
 
 /// Due-window filter for the maintenance dashboard. `all` shows everything
 /// the API returned; the day-bounded options trim to tasks whose
@@ -174,15 +173,8 @@ class _MaintenanceScreenState extends ConsumerState<MaintenanceScreen> {
           ],
         ],
       ),
-      floatingActionButton: _selectionMode
-          ? null
-          : FloatingActionButton.extended(
-              onPressed: () => context.push(AppRoutes.logMaintenance),
-              icon: const Icon(Icons.add),
-              label: const Text('Log Task'),
-              backgroundColor: HavenColors.primary,
-              foregroundColor: HavenColors.textPrimary,
-            ),
+      // No FloatingActionButton — the "Log Task" action lives in the
+      // AppBar instead. See main_scaffold.dart for the 5-tab design.
       body: dueAsync.when(
         loading: () => const Center(child: HavenLoader()),
         error: (e, _) => Center(

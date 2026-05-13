@@ -7,7 +7,6 @@ import 'package:shared_ui/shared_ui.dart';
 import '../../core/providers/demo_mode_provider.dart';
 import '../../core/utils/money_formatter.dart';
 import '../home/dashboard_screen.dart';
-import '../../core/utils/haven_haptics.dart';
 
 /// Wraps the dashboard with interactive demo callouts and "Exit Demo" CTA.
 class DemoDashboardWrapper extends ConsumerStatefulWidget {

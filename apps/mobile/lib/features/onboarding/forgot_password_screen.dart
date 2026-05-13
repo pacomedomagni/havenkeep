@@ -6,7 +6,6 @@ import 'package:shared_ui/shared_ui.dart';
 
 import '../../core/providers/auth_provider.dart';
 import '../../core/widgets/haven_loader.dart';
-import '../../core/utils/haven_haptics.dart';
 
 /// Forgot password screen — request a password reset email.
 class ForgotPasswordScreen extends ConsumerStatefulWidget {

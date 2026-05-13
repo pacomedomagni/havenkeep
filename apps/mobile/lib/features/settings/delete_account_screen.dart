@@ -13,7 +13,6 @@ import '../../core/services/auth_repository.dart';
 import '../../core/utils/apple_sign_in_nonce.dart';
 import '../../core/utils/error_handler.dart';
 import '../../core/widgets/haven_loader.dart';
-import '../../core/utils/haven_haptics.dart';
 
 /// Delete account screen — permanent account deletion with password confirmation.
 class DeleteAccountScreen extends ConsumerStatefulWidget {

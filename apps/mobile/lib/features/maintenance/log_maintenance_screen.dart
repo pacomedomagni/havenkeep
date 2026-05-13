@@ -11,7 +11,6 @@ import '../../core/providers/maintenance_provider.dart';
 import '../../core/utils/error_handler.dart';
 import '../../core/utils/price_parser.dart';
 import '../../core/widgets/haven_loader.dart';
-import '../../core/utils/haven_haptics.dart';
 
 /// Form to log a completed maintenance task.
 ///

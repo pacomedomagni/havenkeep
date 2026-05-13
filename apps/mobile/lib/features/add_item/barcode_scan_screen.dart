@@ -13,7 +13,6 @@ import '../../core/providers/items_provider.dart';
 import '../../core/router/router.dart';
 import '../../core/services/barcode_lookup_service.dart';
 import '../../core/utils/error_handler.dart';
-import '../../core/utils/haven_haptics.dart';
 import '../../core/widgets/haven_image.dart';
 import '../../core/widgets/haven_loader.dart';
 import 'add_item_guard.dart';

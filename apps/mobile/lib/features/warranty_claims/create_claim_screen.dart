@@ -12,7 +12,6 @@ import '../../core/providers/warranty_claims_provider.dart';
 import '../../core/utils/error_handler.dart';
 import '../../core/utils/money_formatter.dart';
 import '../../core/widgets/haven_loader.dart';
-import '../../core/utils/haven_haptics.dart';
 
 /// Screen to create a new warranty claim for a specific item.
 class CreateClaimScreen extends ConsumerStatefulWidget {

@@ -7,7 +7,6 @@ import 'package:shared_ui/shared_ui.dart';
 
 import '../../core/providers/items_provider.dart';
 import '../../core/router/router.dart';
-import '../../core/utils/haven_haptics.dart';
 
 /// Add item screen -- method selection (fullscreenDialog).
 ///

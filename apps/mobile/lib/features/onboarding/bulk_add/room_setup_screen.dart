@@ -6,7 +6,6 @@ import 'package:shared_ui/shared_ui.dart';
 import '../../../core/providers/items_provider.dart';
 import '../../../core/router/router.dart';
 import 'bulk_add_provider.dart';
-import '../../../core/utils/haven_haptics.dart';
 
 /// Room walkthrough screen (Screens 2.2–2.4).
 ///

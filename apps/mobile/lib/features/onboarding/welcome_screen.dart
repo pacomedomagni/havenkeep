@@ -18,7 +18,6 @@ import '../../core/widgets/havenkeep_logo.dart';
 import 'forgot_password_screen.dart';
 import 'recover_account_screen.dart';
 import '../../core/widgets/haven_loader.dart';
-import '../../core/utils/haven_haptics.dart';
 
 /// Welcome screen — sign up / sign in (Screen 1.2).
 ///

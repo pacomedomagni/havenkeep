@@ -318,7 +318,7 @@ class _ItemDetailBody extends ConsumerWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Hero(
-                      tag: 'item-icon-${item.id}',
+                      tag: HavenHeroTag.item(item.id),
                       child: CategoryIcon.widget(item.category, size: 30),
                     ),
                     const SizedBox(width: HavenSpacing.md),

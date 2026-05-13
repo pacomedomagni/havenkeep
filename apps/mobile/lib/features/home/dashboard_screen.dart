@@ -20,7 +20,6 @@ import '../../core/widgets/responsive_box.dart';
 import '../premium/premium_teaser_card.dart';
 import 'milestone_banner.dart';
 import 'recent_activity_card.dart';
-import '../../core/utils/haven_haptics.dart';
 import '../../core/utils/money_formatter.dart';
 import '../settings/settings_screen.dart' show failedSyncCountProvider;
 

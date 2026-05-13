@@ -4,7 +4,6 @@ import 'package:shared_ui/shared_ui.dart';
 
 import '../../core/providers/auth_provider.dart';
 import '../../core/utils/error_handler.dart';
-import '../../core/utils/haven_haptics.dart';
 import '../../core/widgets/haven_loader.dart';
 
 /// C0-14: surfaced by the welcome screen when `/auth/login` returns 403

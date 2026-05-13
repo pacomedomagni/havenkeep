@@ -7,7 +7,6 @@ import 'package:shared_ui/shared_ui.dart';
 import '../../core/providers/items_provider.dart';
 import '../../core/widgets/error_state_widget.dart';
 import '../../core/widgets/haven_illustration.dart';
-import '../../core/utils/haven_haptics.dart';
 
 /// Archived items screen.
 ///

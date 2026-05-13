@@ -13,7 +13,6 @@ import 'add_item_draft.dart';
 import 'wizard_step1_basics.dart';
 import 'wizard_step2_warranty.dart';
 import 'wizard_step3_details.dart';
-import '../../../core/utils/haven_haptics.dart';
 
 /// Multi-step wizard for adding items (replaces long 17-field form).
 ///

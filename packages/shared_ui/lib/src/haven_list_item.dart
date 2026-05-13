@@ -39,7 +39,7 @@ enum HavenListItemStyle {
 ///   onTap: () => context.push('/items/$id'),
 /// )
 /// ```
-class HavenListItem extends StatelessWidget {
+class HavenListItem extends StatefulWidget {
   final Widget? leading;
   final String title;
   final String? subtitle;
@@ -52,6 +52,12 @@ class HavenListItem extends StatelessWidget {
   final bool selected;
   final EdgeInsetsGeometry? padding;
   final String? semanticLabel;
+
+  /// Zero-based position in the visible list. When set, the row stagger-
+  /// fades in (40ms cascade per index). Leave null inside lists where
+  /// rows can reorder/filter — the animation is only worth firing on
+  /// first paint of a stable list.
+  final int? entryIndex;
 
   const HavenListItem({
     super.key,
@@ -67,11 +73,54 @@ class HavenListItem extends StatelessWidget {
     this.selected = false,
     this.padding,
     this.semanticLabel,
+    this.entryIndex,
   });
 
   @override
+  State<HavenListItem> createState() => _HavenListItemState();
+}
+
+class _HavenListItemState extends State<HavenListItem>
+    with SingleTickerProviderStateMixin {
+  AnimationController? _entry;
+  Animation<double>? _opacity;
+  Animation<Offset>? _slide;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.entryIndex != null) {
+      _entry = AnimationController(
+        vsync: this,
+        duration: const Duration(milliseconds: 360),
+      );
+      _opacity =
+          CurvedAnimation(parent: _entry!, curve: Curves.easeOut);
+      _slide = Tween<Offset>(
+        begin: const Offset(0, 0.06),
+        end: Offset.zero,
+      ).animate(CurvedAnimation(parent: _entry!, curve: HavenMotion.standard));
+      // Cap stagger at 12 rows — anything past that and the user is
+      // waiting on choreography instead of seeing their list.
+      final staggerIndex = widget.entryIndex!.clamp(0, 12);
+      Future<void>.delayed(
+        Duration(milliseconds: staggerIndex * 40),
+        () {
+          if (mounted) _entry!.forward();
+        },
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _entry?.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final pad = padding ??
+    final pad = widget.padding ??
         const EdgeInsets.symmetric(
           horizontal: HavenSpacing.md,
           vertical: HavenSpacing.md - 2,
@@ -80,21 +129,21 @@ class HavenListItem extends StatelessWidget {
     final row = Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        if (accent != null)
+        if (widget.accent != null)
           Container(
             width: 3,
             height: 40,
             margin: const EdgeInsets.only(right: HavenSpacing.sm + 4),
             decoration: BoxDecoration(
-              color: accent,
+              color: widget.accent,
               borderRadius: BorderRadius.circular(2),
             ),
           ),
-        if (leading != null) ...[
+        if (widget.leading != null) ...[
           SizedBox(
             width: 40,
             height: 40,
-            child: Center(child: leading),
+            child: Center(child: widget.leading),
           ),
           const SizedBox(width: HavenSpacing.md - 4),
         ],
@@ -104,24 +153,24 @@ class HavenListItem extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                title,
+                widget.title,
                 style: HavenText.titleMedium,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
-              if (subtitle != null) ...[
+              if (widget.subtitle != null) ...[
                 const SizedBox(height: 2),
                 Text(
-                  subtitle!,
+                  widget.subtitle!,
                   style: HavenText.meta,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
               ],
-              if (supplementary != null) ...[
+              if (widget.supplementary != null) ...[
                 const SizedBox(height: 2),
                 Text(
-                  supplementary!,
+                  widget.supplementary!,
                   style: HavenText.caption,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -130,72 +179,83 @@ class HavenListItem extends StatelessWidget {
             ],
           ),
         ),
-        if (trailing != null) ...[
+        if (widget.trailing != null) ...[
           const SizedBox(width: HavenSpacing.sm + 4),
-          trailing!,
+          widget.trailing!,
         ],
       ],
     );
 
     final radius = BorderRadius.circular(HavenRadius.card);
-    final selectedOutline = selected
+    final selectedOutline = widget.selected
         ? HavenColors.primary
-        : (style == HavenListItemStyle.card
+        : (widget.style == HavenListItemStyle.card
             ? HavenColors.border
             : HavenColors.borderHairline);
 
-    if (style == HavenListItemStyle.inline) {
-      // Inline rows live inside a parent that already has the card chrome.
-      // We render a plain padded row + ink, no decoration of our own.
-      return Material(
+    Widget content;
+    if (widget.style == HavenListItemStyle.inline) {
+      content = Material(
         type: MaterialType.transparency,
         child: InkWell(
-          onTap: onTap,
-          onLongPress: onLongPress,
+          onTap: widget.onTap,
+          onLongPress: widget.onLongPress,
           borderRadius: radius,
           child: Semantics(
-            button: onTap != null,
-            label: semanticLabel ?? title,
+            button: widget.onTap != null,
+            label: widget.semanticLabel ?? widget.title,
             child: Padding(padding: pad, child: row),
+          ),
+        ),
+      );
+    } else {
+      // Card style — each row is its own surface.
+      final decoration = BoxDecoration(
+        color: widget.selected
+            ? HavenColors.primary.withValues(alpha: 0.10)
+            : HavenColors.surface,
+        borderRadius: radius,
+        border: Border.all(
+          color: selectedOutline,
+          width: widget.selected ? 1.5 : 1,
+        ),
+        boxShadow: HavenElevation.shadowFor(1),
+      );
+
+      content = DecoratedBox(
+        decoration: decoration,
+        child: ClipRRect(
+          borderRadius: radius,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              borderRadius: radius,
+              gradient: HavenElevation.sheen(strength: 0.9),
+            ),
+            child: Material(
+              type: MaterialType.transparency,
+              child: InkWell(
+                onTap: widget.onTap,
+                onLongPress: widget.onLongPress,
+                borderRadius: radius,
+                child: Semantics(
+                  button: widget.onTap != null,
+                  label: widget.semanticLabel ?? widget.title,
+                  child: Padding(padding: pad, child: row),
+                ),
+              ),
+            ),
           ),
         ),
       );
     }
 
-    // Card style — each row is its own surface.
-    final decoration = BoxDecoration(
-      color: selected
-          ? HavenColors.primary.withValues(alpha: 0.10)
-          : HavenColors.surface,
-      borderRadius: radius,
-      border: Border.all(color: selectedOutline, width: selected ? 1.5 : 1),
-      boxShadow: HavenElevation.shadowFor(1),
-    );
-
-    return DecoratedBox(
-      decoration: decoration,
-      child: ClipRRect(
-        borderRadius: radius,
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            borderRadius: radius,
-            gradient: HavenElevation.sheen(strength: 0.9),
-          ),
-          child: Material(
-            type: MaterialType.transparency,
-            child: InkWell(
-              onTap: onTap,
-              onLongPress: onLongPress,
-              borderRadius: radius,
-              child: Semantics(
-                button: onTap != null,
-                label: semanticLabel ?? title,
-                child: Padding(padding: pad, child: row),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
+    // Wrap in staggered entry animation if entryIndex is set.
+    if (_entry != null && _opacity != null && _slide != null) {
+      return FadeTransition(
+        opacity: _opacity!,
+        child: SlideTransition(position: _slide!, child: content),
+      );
+    }
+    return content;
   }
 }

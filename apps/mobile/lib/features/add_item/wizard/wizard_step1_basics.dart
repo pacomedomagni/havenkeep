@@ -3,7 +3,6 @@ import 'package:shared_models/shared_models.dart';
 import 'package:shared_ui/shared_ui.dart';
 
 import 'add_item_wizard_screen.dart';
-import '../../../core/utils/haven_haptics.dart';
 
 /// Step 1: Basics (name, category, brand) - ~30 seconds.
 class WizardStep1Basics extends StatefulWidget {

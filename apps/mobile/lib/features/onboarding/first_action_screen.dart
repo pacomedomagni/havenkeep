@@ -5,7 +5,6 @@ import 'package:shared_ui/shared_ui.dart';
 
 import '../../core/providers/auth_provider.dart';
 import '../../core/router/router.dart';
-import '../../core/utils/haven_haptics.dart';
 
 /// First Action screen (Screen 1.3) — "What do you want to do first?"
 ///

@@ -5,69 +5,60 @@ import 'package:shared_ui/shared_ui.dart';
 
 import '../../core/router/router.dart';
 
+/// Premium upgrade success surface. Same dignified flourish as gift
+/// activation — gold sweep, no confetti, one primary CTA.
 class PremiumSuccessScreen extends ConsumerWidget {
   const PremiumSuccessScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return Scaffold(
-      backgroundColor: HavenColors.background,
-      body: SafeArea(
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(HavenSpacing.xl),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(
-                  Icons.check_circle,
-                  size: 80,
-                  color: HavenColors.active,
-                ),
-                const SizedBox(height: HavenSpacing.lg),
-                const Text(
-                  'Welcome to Premium!',
-                  style: TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                    color: HavenColors.textPrimary,
+      backgroundColor: HavenColors.canvas,
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              HavenColors.primary.withValues(alpha: 0.10),
+              HavenColors.canvas,
+            ],
+            stops: const [0.0, 0.5],
+          ),
+        ),
+        child: SafeArea(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(HavenSpacing.xl),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const HavenSuccessFlourish(
+                    icon: Icons.workspace_premium_rounded,
                   ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: HavenSpacing.md),
-                const Text(
-                  'You now have unlimited items and all features unlocked.',
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: HavenColors.textSecondary,
+                  const SizedBox(height: HavenSpacing.lg),
+                  const Text(
+                    'Premium unlocked',
+                    style: HavenText.displayLarge,
+                    textAlign: TextAlign.center,
                   ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: HavenSpacing.xl),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
+                  const SizedBox(height: HavenSpacing.sm),
+                  const Text(
+                    'Unlimited items, smart reminders, and every advanced '
+                    'feature, now active on your account.',
+                    style: HavenText.bodySecondary,
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: HavenSpacing.xxl),
+                  HavenButton.primary(
+                    label: 'Start using Premium',
                     onPressed: () => context.go(AppRoutes.dashboard),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: HavenColors.primary,
-                      foregroundColor: HavenColors.textPrimary,
-                      padding: const EdgeInsets.symmetric(
-                        vertical: HavenSpacing.md,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(HavenRadius.chip),
-                      ),
-                    ),
-                    child: const Text(
-                      'Start Using Premium',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
+                    expand: true,
+                    size: HavenButtonSize.lg,
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),

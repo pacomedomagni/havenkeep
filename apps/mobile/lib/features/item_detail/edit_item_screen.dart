@@ -10,7 +10,6 @@ import '../../core/providers/items_provider.dart';
 import '../../core/utils/error_handler.dart';
 import '../../core/utils/price_parser.dart';
 import '../../core/widgets/error_state_widget.dart';
-import '../../core/utils/haven_haptics.dart';
 
 /// Edit item form screen. Mirrors the manual entry layout but pre-fills all
 /// fields from the existing item and supports dirty-state tracking.

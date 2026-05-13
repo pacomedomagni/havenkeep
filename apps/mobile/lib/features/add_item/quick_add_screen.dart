@@ -14,7 +14,6 @@ import '../../core/utils/error_handler.dart';
 import '../../core/utils/price_parser.dart';
 import '../../core/widgets/celebration_overlay.dart';
 import '../../core/widgets/haven_loader.dart';
-import '../../core/utils/haven_haptics.dart';
 import 'add_item_guard.dart';
 
 /// Quick-Add form screen for a specific category.

@@ -45,7 +45,6 @@ dependencies:
   # --- Animations ---
   lottie: ^3.0.0
   smooth_page_indicator: ^1.0.0
-  confetti: ^0.7.0
 
   # --- Calendar ---
   table_calendar: ^3.1.0

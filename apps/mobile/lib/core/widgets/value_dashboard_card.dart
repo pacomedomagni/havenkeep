@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:shared_ui/shared_ui.dart';
 
 import '../utils/money_formatter.dart';
-import '../../core/utils/haven_haptics.dart';
 
 /// The dashboard hero — the one unmissable thing at the top of Home.
 ///

@@ -5,7 +5,6 @@ import 'package:shared_ui/shared_ui.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/utils/error_handler.dart';
 import '../../core/widgets/haven_loader.dart';
-import '../../core/utils/haven_haptics.dart';
 
 /// Change password screen for authenticated email users.
 class ChangePasswordScreen extends ConsumerStatefulWidget {

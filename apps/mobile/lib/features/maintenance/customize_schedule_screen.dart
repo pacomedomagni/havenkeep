@@ -9,7 +9,6 @@ import '../../core/providers/maintenance_customization_provider.dart';
 import '../../core/providers/maintenance_provider.dart';
 import '../../core/services/maintenance_customization_service.dart';
 import '../../core/utils/error_handler.dart';
-import '../../core/utils/haven_haptics.dart';
 import '../../core/widgets/haven_loader.dart';
 
 /// Per-item maintenance customization screen. Lets the user override task
