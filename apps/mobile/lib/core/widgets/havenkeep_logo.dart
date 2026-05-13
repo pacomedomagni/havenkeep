@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:shared_ui/shared_ui.dart';
 
 /// HavenKeep brand logo widget.
 ///
@@ -61,7 +62,7 @@ class _FallbackIcon extends StatelessWidget {
     return Icon(
       Icons.shield_outlined,
       size: size,
-      color: const Color(0xFF6366F1),
+      color: HavenColors.primary,
     );
   }
 }

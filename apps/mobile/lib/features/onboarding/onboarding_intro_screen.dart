@@ -334,6 +334,8 @@ class _IntroPageText extends StatelessWidget {
   const _IntroPageText({required this.page});
 
   static const _textShadow = [
+    // design-lint-ignore-next-line — semi-transparent black drop shadow
+    // for readability on the photo intro page; not a brand color.
     Shadow(color: Color(0xCC000000), blurRadius: 16, offset: Offset(0, 2)),
   ];
 

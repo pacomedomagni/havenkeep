@@ -45,6 +45,18 @@ The final state of any change is lint-clean, typecheck-clean, and warning-free a
 
 If you encounter pre-existing errors or warnings in files you're touching (or adjacent to your work), you fix them. "Warnings that were already there" is not an acceptable excuse.
 
+### 6. Use the mobile design system — don't reinvent its primitives
+Mobile work must build from the primitives in `packages/shared_ui` instead of hand-rolling parallels in feature code. The canonical primitives and tokens are documented in [packages/shared_ui/README.md](packages/shared_ui/README.md). The non-negotiable bans (enforced by `apps/mobile/scripts/lint-design.sh` on every commit) are:
+- No inline `TextStyle(fontSize: …)` — use `HavenText.*` roles.
+- No hex `Color(0xFF…)` in features — use `HavenColors.*` tokens.
+- No raw `ElevatedButton` / `FilledButton` / `OutlinedButton` — use `HavenButton`.
+- No `fullscreenDialog: true` routes — use a normal pushed route.
+- No raw `showModalBottomSheet` — use `HavenSheet.show()`.
+
+If a primitive doesn't exist for what you need, **add it to `packages/shared_ui` first**, then consume it from the feature. Never copy a primitive into feature code "just for this case" — that's how the design system drifts. If a violation is genuinely unavoidable (a non-brand semi-transparent shadow color, a form sheet that needs `DraggableScrollableSheet`), add `// design-lint-ignore-next-line` with a comment explaining why.
+
+To see all outstanding violations (Phase 1.5 punch list): `bash apps/mobile/scripts/lint-design.sh --full`. When you're already touching a file with violations, migrate them in the same change.
+
 ### How to apply these rules
 - Before starting a task, enumerate everything it touches — if that enumeration surfaces work that feels "out of scope," ask, don't trim.
 - Before finishing, sweep the files you touched: delete unused imports, kill dead branches, resolve TODOs, ensure typecheck/lint/tests/analyzer pass clean.

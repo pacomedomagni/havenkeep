@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# HavenKeep mobile pre-commit hook.
+#
+# Install once per checkout:
+#   ln -s ../../apps/mobile/scripts/pre-commit .git/hooks/pre-commit
+#   chmod +x apps/mobile/scripts/pre-commit
+#
+# The hook is a thin wrapper that delegates to the design-system lint.
+# Keep this file small — the real work lives in lint-design.sh so the
+# same checks run in CI without going through git's hook system.
+
+set -e
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+exec bash "$REPO_ROOT/apps/mobile/scripts/lint-design.sh"
