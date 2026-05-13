@@ -10,7 +10,11 @@ async function getPartners(page: number = 1) {
   try {
     const result = await serverApiClient<{ data: AdminPartnerListItem[]; meta?: { pagination?: PaginationMeta } }>(`/api/v1/admin/partners?page=${page}&limit=20`)
     return { partners: result.data || [], pagination: result.meta?.pagination ?? null }
-  } catch {
+  } catch (err) {
+    // Surface the upstream failure instead of silently rendering "0
+    // partners" — the previous shape masked a 500 from the admin route
+    // and made the dashboard look like the DB was empty.
+    console.error('[admin/partners] failed to fetch /api/v1/admin/partners', err);
     return { partners: [] as AdminPartnerListItem[], pagination: null }
   }
 }
@@ -26,7 +30,11 @@ export default async function PartnersPage({
 
   const { partners, pagination } = await getPartners(page)
 
-  const totalPartners = partners.length
+  // `partners.length` is the count for the current page (limit=20),
+  // not the global total. The API's pagination meta carries the real
+  // number — fall back to the page-local count only when meta is
+  // missing (e.g. upstream errored).
+  const totalPartners = pagination?.total ?? partners.length
   const totalGifts = partners.reduce((sum, p) => sum + (p.count_gifts ?? 0), 0)
 
   return (

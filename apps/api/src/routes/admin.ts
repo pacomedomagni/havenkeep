@@ -542,7 +542,7 @@ router.get('/partners', validate(paginationSchema, 'query'), async (req, res, ne
         JOIN users u ON u.id = p.user_id
         LEFT JOIN partner_gifts pg ON pg.partner_id = p.id
         ${whereClause}${whereClause ? ' AND ' : 'WHERE '}u.deleted_at IS NULL
-        GROUP BY p.id, u.email, u.full_name
+        GROUP BY p.id, u.email, u.full_name, u.referral_code
         ORDER BY p.created_at DESC
         LIMIT $${paramIndex++} OFFSET $${paramIndex++}`,
         [...params, limit, offset],
@@ -594,7 +594,7 @@ router.get('/partners/:id', validate(userIdParamSchema, 'params'), async (req, r
       JOIN users u ON u.id = p.user_id
       LEFT JOIN partner_gifts pg ON pg.partner_id = p.id
       WHERE p.id = $1 AND u.deleted_at IS NULL
-      GROUP BY p.id, u.email, u.full_name`,
+      GROUP BY p.id, u.email, u.full_name, u.referral_code`,
       [id],
     );
 
