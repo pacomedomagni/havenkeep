@@ -161,7 +161,7 @@ class _NavSlot extends StatelessWidget {
             duration: HavenMotion.medium,
             curve: Curves.easeOutCubic,
             padding: EdgeInsets.symmetric(
-              horizontal: selected ? 12 : 8,
+              horizontal: selected ? 10 : 8,
               vertical: 8,
             ),
             decoration: BoxDecoration(
@@ -170,6 +170,11 @@ class _NavSlot extends StatelessWidget {
                   : Colors.transparent,
               borderRadius: BorderRadius.circular(HavenRadius.chip),
             ),
+            // 5 tabs divided across the bar leave each slot just barely
+            // wider than (12 + icon + 6 + "Profile" label + 12). Wrap the
+            // content in a Row that can shrink + ellipsize, and squeeze
+            // the icon-to-label gap from 6 → 4 so a long label can't
+            // produce sub-pixel right-side overflow bands.
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -191,12 +196,14 @@ class _NavSlot extends StatelessWidget {
                     alignment: Alignment.centerLeft,
                     widthFactor: selected ? 1 : 0,
                     child: Padding(
-                      padding: const EdgeInsets.only(left: 6),
+                      padding: const EdgeInsets.only(left: 4),
                       child: AnimatedOpacity(
                         duration: HavenMotion.fast,
                         opacity: selected ? 1 : 0,
                         child: Text(
                           item.label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.w600,
